@@ -19,17 +19,23 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MasterOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
@@ -58,7 +64,17 @@ public class MasterOpExecutor {
     }
 
     public void execute() throws Exception {
-        forward();
+        Span forwardSpan =
+                ctx.getTracer().spanBuilder("forward").setParent(Context.current())
+                        .startSpan();
+        try (Scope scope = forwardSpan.makeCurrent()) {
+            forward();
+        } catch (Exception e) {
+            forwardSpan.recordException(e);
+            throw e;
+        } finally {
+            forwardSpan.end();
+        }
         LOG.info("forwarding to master get result max journal id: {}", result.maxJournalId);
         ctx.getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
     }
@@ -94,6 +110,14 @@ public class MasterOpExecutor {
         params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
         // session variables
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
+
+        // create a trace carrier
+        Map<String, String> traceCarrier = new HashMap<String, String>();
+        // Inject the request with the current context
+        Telemetry.getOpenTelemetry().getPropagators().getTextMapPropagator()
+                .inject(Context.current(), traceCarrier, (carrier, key, value) -> carrier.put(key, value));
+        // carrier send tracing to master
+        params.setTraceCarrier(traceCarrier);
 
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
@@ -141,6 +165,16 @@ public class MasterOpExecutor {
         }
     }
 
+    public String getProxyStatus() {
+        if (result == null) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        }
+        if (!result.isSetStatus()) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        } else {
+            return result.getStatus();
+        }
+    }
 
     public ShowResultSet getProxyResultSet() {
         if (result == null) {

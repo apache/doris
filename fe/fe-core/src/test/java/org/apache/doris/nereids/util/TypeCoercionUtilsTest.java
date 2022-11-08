@@ -110,8 +110,8 @@ public class TypeCoercionUtilsTest {
         Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(decimalType, nullType));
         Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(nullType, decimalType));
         Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(smallIntType, integerType));
-        Assertions.assertFalse(TypeCoercionUtils.canHandleTypeCoercion(integerType, decimalType));
-        Assertions.assertFalse(TypeCoercionUtils.canHandleTypeCoercion(decimalType, integerType));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(integerType, decimalType));
+        Assertions.assertTrue(TypeCoercionUtils.canHandleTypeCoercion(decimalType, integerType));
         Assertions.assertFalse(TypeCoercionUtils.canHandleTypeCoercion(integerType, integerType));
     }
 
@@ -146,6 +146,12 @@ public class TypeCoercionUtilsTest {
         testFindTightestCommonType(StringType.INSTANCE, StringType.INSTANCE, IntegerType.INSTANCE);
         testFindTightestCommonType(StringType.INSTANCE, IntegerType.INSTANCE, StringType.INSTANCE);
         testFindTightestCommonType(null, DecimalType.SYSTEM_DEFAULT, DecimalType.createDecimalType(2, 1));
+        testFindTightestCommonType(VarcharType.createVarcharType(10), CharType.createCharType(8), CharType.createCharType(10));
+        testFindTightestCommonType(VarcharType.createVarcharType(10), VarcharType.createVarcharType(8), VarcharType.createVarcharType(10));
+        testFindTightestCommonType(VarcharType.createVarcharType(10), VarcharType.createVarcharType(8), CharType.createCharType(10));
+        testFindTightestCommonType(VarcharType.createVarcharType(10), VarcharType.createVarcharType(10), CharType.createCharType(8));
+        testFindTightestCommonType(StringType.INSTANCE, VarcharType.createVarcharType(10), StringType.INSTANCE);
+        testFindTightestCommonType(StringType.INSTANCE, CharType.createCharType(8), StringType.INSTANCE);
     }
 
     private void testFindTightestCommonType(DataType commonType, DataType left, DataType right) {

@@ -18,21 +18,11 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-
-import java.util.Collections;
-import java.util.List;
+import org.apache.doris.nereids.analyzer.Relation;
 
 /**
  * Common interface for logical/physical scan.
  */
-public interface Scan {
-    List<Expression> getExpressions();
-
+public interface Scan extends Relation {
     Table getTable();
-
-    default List<Slot> getOutput() {
-        return Collections.emptyList();
-    }
 }

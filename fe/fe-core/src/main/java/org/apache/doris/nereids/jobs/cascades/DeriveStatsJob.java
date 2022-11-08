@@ -58,10 +58,10 @@ public class DeriveStatsJob extends Job {
     public void execute() {
         if (!deriveChildren) {
             deriveChildren = true;
-            pushTask(new DeriveStatsJob(this));
+            pushJob(new DeriveStatsJob(this));
             for (Group child : groupExpression.children()) {
                 if (!child.getLogicalExpressions().isEmpty()) {
-                    pushTask(new DeriveStatsJob(child.getLogicalExpressions().get(0), context));
+                    pushJob(new DeriveStatsJob(child.getLogicalExpressions().get(0), context));
                 }
             }
         } else {

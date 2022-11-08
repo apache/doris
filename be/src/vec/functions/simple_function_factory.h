@@ -63,6 +63,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory);
 void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
+void register_function_jsonb(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
 void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
@@ -76,10 +77,14 @@ void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
+void register_function_multi_string_position(SimpleFunctionFactory& factory);
+void register_function_multi_string_search(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
+
+void register_function_url(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -145,7 +150,7 @@ public:
             return iter->second()->build(arguments, return_type);
         }
 
-        LOG(WARNING) << fmt::format("Function signature {} is not founded", key_str);
+        LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
         return nullptr;
     }
 
@@ -196,6 +201,7 @@ public:
             register_function_date_time_to_string(instance);
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
+            register_function_jsonb(instance);
             register_function_hash(instance);
             register_function_ifnull(instance);
             register_function_comparison_eq_for_null(instance);
@@ -213,6 +219,9 @@ public:
             register_function_hex_variadic(instance);
             register_function_array(instance);
             register_function_geo(instance);
+            register_function_url(instance);
+            register_function_multi_string_position(instance);
+            register_function_multi_string_search(instance);
         });
         return instance;
     }

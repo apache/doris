@@ -20,13 +20,16 @@
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <roaring/roaring.hh>
 #include <type_traits>
 
 #include "decimal12.h"
 #include "olap/column_predicate.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/wrapper_field.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/string_value.h"
 #include "runtime/type_limit.h"
 #include "uint24.h"
@@ -206,14 +209,41 @@ public:
         }
     }
 
-    // todo(wb) support evaluate_and,evaluate_or
+    template <bool is_and>
+    void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+                       bool* flags) const {
+        if (column.is_nullable()) {
+            auto* nullable_col =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                        nullable_col->get_null_map_column())
+                                        .get_data();
+            auto& nested_col = nullable_col->get_nested_column();
+
+            if (_opposite) {
+                return _base_evaluate_bit<true, true, is_and>(&nested_col, &null_bitmap, sel, size,
+                                                              flags);
+            } else {
+                return _base_evaluate_bit<true, false, is_and>(&nested_col, &null_bitmap, sel, size,
+                                                               flags);
+            }
+        } else {
+            if (_opposite) {
+                return _base_evaluate_bit<false, true, is_and>(&column, nullptr, sel, size, flags);
+            } else {
+                return _base_evaluate_bit<false, false, is_and>(&column, nullptr, sel, size, flags);
+            }
+        }
+    }
+
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
-        LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_and now.";
+        _evaluate_bit<true>(column, sel, size, flags);
     }
+
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
-        LOG(FATAL) << "IColumn not support in_list_predicate.evaluate_or now.";
+        _evaluate_bit<false>(column, sel, size, flags);
     }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
@@ -235,6 +265,28 @@ public:
             }
         } else {
             return true;
+        }
+    }
+
+    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first->is_null() || statistic.second->is_null()) {
+            return false;
+        }
+        if constexpr (PT == PredicateType::NOT_IN_LIST) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return tmp_min_uint32_value > _max_value || tmp_max_uint32_value < _min_value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) > _max_value ||
+                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) < _min_value;
+            }
+        } else {
+            return false;
         }
     }
 
@@ -267,7 +319,10 @@ public:
 private:
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
-        if constexpr (PT == PredicateType::IN_LIST) {
+        if constexpr (Type == TYPE_BOOLEAN) {
+            DCHECK(_values.size() == 2);
+            return PT == PredicateType::IN_LIST;
+        } else if constexpr (PT == PredicateType::IN_LIST) {
             return lhs != rhs;
         }
         return lhs == rhs;
@@ -347,7 +402,11 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+                auto& value_in_dict_flags =
+                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
+                if (value_in_dict_flags.empty()) {
+                    nested_col_ptr->find_codes(_values, value_in_dict_flags);
+                }
 
                 for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
@@ -361,11 +420,11 @@ private:
                     }
 
                     if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
-                        if (_value_in_dict_flags[data_array[idx]]) {
+                        if (value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     } else {
-                        if (!_value_in_dict_flags[data_array[idx]]) {
+                        if (!value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     }
@@ -375,7 +434,8 @@ private:
             }
         } else {
             auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column);
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
+                            column);
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -406,10 +466,101 @@ private:
         return new_size;
     }
 
+    template <bool is_nullable, bool is_opposite, bool is_and>
+    void _base_evaluate_bit(const vectorized::IColumn* column,
+                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+                            const uint16_t* sel, uint16_t size, bool* flags) const {
+        if (column->is_column_dictionary()) {
+            if constexpr (std::is_same_v<T, StringValue>) {
+                auto* nested_col_ptr = vectorized::check_and_get_column<
+                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                auto& data_array = nested_col_ptr->get_data();
+                auto& value_in_dict_flags =
+                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
+                if (value_in_dict_flags.empty()) {
+                    nested_col_ptr->find_codes(_values, value_in_dict_flags);
+                }
+
+                for (uint16_t i = 0; i < size; i++) {
+                    if (is_and ^ flags[i]) {
+                        continue;
+                    }
+
+                    uint16_t idx = sel[i];
+                    if constexpr (is_nullable) {
+                        if ((*null_map)[idx]) {
+                            if (is_and ^ is_opposite) {
+                                flags[i] = !is_and;
+                            }
+                            continue;
+                        }
+                    }
+
+                    if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
+                        if (is_and ^ value_in_dict_flags[data_array[idx]]) {
+                            flags[i] = !is_and;
+                        }
+                    } else {
+                        if (is_and ^ !value_in_dict_flags[data_array[idx]]) {
+                            flags[i] = !is_and;
+                        }
+                    }
+                }
+            } else {
+                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+            }
+        } else {
+            auto* nested_col_ptr =
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
+                            column);
+            auto& data_array = nested_col_ptr->get_data();
+
+            for (uint16_t i = 0; i < size; i++) {
+                if (is_and ^ flags[i]) {
+                    continue;
+                }
+                uint16_t idx = sel[i];
+                if constexpr (is_nullable) {
+                    if ((*null_map)[idx]) {
+                        if (is_and ^ is_opposite) {
+                            flags[i] = !is_and;
+                        }
+                        continue;
+                    }
+                }
+
+                if constexpr (!is_opposite) {
+                    if (is_and ^
+                        _operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                  _values.end())) {
+                        flags[i] = !is_and;
+                    }
+                } else {
+                    if (is_and ^
+                        !_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),
+                                   _values.end())) {
+                        flags[i] = !is_and;
+                    }
+                }
+            }
+        }
+    }
+
+    std::string _debug_string() override {
+        std::string info =
+                "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        return info;
+    }
+
     phmap::flat_hash_set<T> _values;
-    mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
+    mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
+            _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
+    static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 };
+
+template <PrimitiveType Type, PredicateType PT>
+constexpr PrimitiveType InListPredicateBase<Type, PT>::EvalType;
 
 } //namespace doris

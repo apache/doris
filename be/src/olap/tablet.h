@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <string>
@@ -112,7 +113,6 @@ public:
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
     size_t row_size() const;
-    int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
@@ -289,6 +289,8 @@ public:
 
     TabletSchemaSPtr tablet_schema() const override;
 
+    TabletSchemaSPtr get_max_version_schema(std::lock_guard<std::shared_mutex>&);
+
     // Find the related rowset with specified version and return its tablet schema
     TabletSchemaSPtr tablet_schema(Version version) const {
         return _tablet_meta->tablet_schema(version);
@@ -297,6 +299,12 @@ public:
     Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                 const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
                                 int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
+                                std::unique_ptr<RowsetWriter>* rowset_writer);
+
+    Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
+                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
+                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
+                                io::FileSystemSPtr fs,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
@@ -329,11 +337,13 @@ public:
     Status calc_delete_bitmap(RowsetId rowset_id,
                               const std::vector<segment_v2::SegmentSharedPtr>& segments,
                               const RowsetIdUnorderedSet* specified_rowset_ids,
-                              DeleteBitmapPtr delete_bitmap, bool check_pre_segments = false);
+                              DeleteBitmapPtr delete_bitmap, int64_t version,
+                              bool check_pre_segments = false);
 
+    Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
-    RowsetIdUnorderedSet all_rs_id() const;
+    RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
 
     void remove_self_owned_remote_rowsets();
 
@@ -345,6 +355,8 @@ public:
                                      int64_t num_segments);
 
     bool check_all_rowset_segment();
+
+    void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
 private:
     Status _init_once_action();
@@ -373,9 +385,9 @@ private:
     bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
-    bool _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-                                   const Slice& key, const Version& version,
-                                   DeleteBitmapPtr delete_bitmap);
+    Status _check_pk_in_pre_segments(const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+                                     const Slice& key, const Version& version,
+                                     DeleteBitmapPtr delete_bitmap, RowLocation* loc);
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
@@ -454,6 +466,9 @@ private:
 
     // Remote rowsets not shared by other BE. We can delete them when drop tablet.
     std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
+
+    // Max schema_version schema from Rowset or FE
+    TabletSchemaSPtr _max_version_schema;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
@@ -582,10 +597,6 @@ inline double Tablet::bloom_filter_fpp() const {
 
 inline size_t Tablet::next_unique_id() const {
     return _schema->next_column_unique_id();
-}
-
-inline int32_t Tablet::field_index(const std::string& field_name) const {
-    return _schema->field_index(field_name);
 }
 
 inline size_t Tablet::row_size() const {

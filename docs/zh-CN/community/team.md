@@ -48,7 +48,7 @@ under the License.
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
 
-## Committers (38)
+## Committers (45)
 
 (如下列表不包含上述 PMC 成员)
 
@@ -77,6 +77,13 @@ under the License.
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
 | [zenoyang](https://people.apache.org/committer-index.html#zenoyang)    | zenoyang  | Zeno Yang     |
 | [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao | Zheng Shao |
+| [morrysnow](https://people.apache.org/committer-index.html#morrysnow)    | morrySnow  | Wenxin Zhang |
+| [jakevin](https://people.apache.org/committer-index.html#jakevin)    | jackwener | Jie Wen |
+| [gabriellee](https://people.apache.org/committer-index.html#gabriellee)    | Gabriel39 | Wenqiang Li |
+| [stalary](https://people.apache.org/committer-index.html#stalary)    | stalary | Rongqian Li |
+| [cambyzju](https://people.apache.org/committer-index.html#cambyzju)    | cambyzju | Xiaoli Zhu  |
+| [adonisling](https://people.apache.org/committer-index.html#adonisling)    | adonis0147  | Cong Ling |
+| [pengxiangyu](https://people.apache.org/committer-index.html#pengxiangyu)    | pengxiangyu | Xiangyu Peng |
 
 ## Contributors
 

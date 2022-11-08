@@ -42,7 +42,7 @@ VEsHttpScanNode::VEsHttpScanNode(ObjectPool* pool, const TPlanNode& tnode,
           _wait_scanner_timer(nullptr) {}
 
 Status VEsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ScanNode::init(tnode));
+    RETURN_IF_ERROR(ScanNode::init(tnode, state));
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;
@@ -385,7 +385,7 @@ void VEsHttpScanNode::debug_string(int ident_level, std::stringstream* out) cons
 void VEsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
     START_AND_SCOPE_SPAN(_runtime_state->get_tracer(), span, "VEsHttpScanNode::scanner_worker");
     SCOPED_ATTACH_TASK(_runtime_state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);

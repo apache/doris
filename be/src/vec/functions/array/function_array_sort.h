@@ -20,11 +20,8 @@
 #pragma once
 
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
 
@@ -191,7 +188,7 @@ private:
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
         column_string_chars.reserve(src_column.size());
 
-        size_t prev_src_offset = 0;
+        ColumnArray::Offset64 prev_src_offset = 0;
         IColumn::Permutation permutation(src_column.size());
         for (size_t i = 0; i < src_column.size(); ++i) {
             permutation[i] = i;
@@ -219,13 +216,12 @@ private:
                 StringRef src_str_ref = src_data_concrete->get_data_at(permutation[j]);
                 // copy the src data to column_string_chars
                 const size_t old_size = column_string_chars.size();
-                const size_t new_size = old_size + src_str_ref.size + 1;
+                const size_t new_size = old_size + src_str_ref.size;
                 column_string_chars.resize(new_size);
                 if (src_str_ref.size > 0) {
                     memcpy(column_string_chars.data() + old_size, src_str_ref.data,
                            src_str_ref.size);
                 }
-                column_string_chars[old_size + src_str_ref.size] = 0;
                 column_string_offsets.push_back(new_size);
 
                 if (dest_null_map) {

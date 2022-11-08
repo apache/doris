@@ -231,12 +231,16 @@ public class ProfileTreeBuilder {
             }
         }
         if (senderNode == null || execNode == null) {
-            // TODO(cmy): This shouldn't happen, but there are sporadic errors. So I add a log to observe this error.
+            // FE will constantly update the total profile after receiving the instance profile reported by BE.
+            // Writing a profile will result in an empty instance profile until all instance profiles are received
+            // at least once.
             // Issue: https://github.com/apache/doris/issues/10095
             StringBuilder sb = new StringBuilder();
             instanceProfile.prettyPrint(sb, "");
-            LOG.warn("Invalid instance profile, sender is null: {}, execNode is null: {}, instance profile: {}",
-                    (senderNode == null), (execNode == null), sb.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Invalid instance profile, sender is null: {}, execNode is null: {}, instance profile: {}",
+                        (senderNode == null), (execNode == null), sb.toString());
+            }
             throw new UserException("Invalid instance profile, without sender or exec node: " + instanceProfile);
         }
         senderNode.addChild(execNode);

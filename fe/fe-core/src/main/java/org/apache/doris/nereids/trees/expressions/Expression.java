@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
@@ -35,11 +37,13 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Abstract class for all Expression in Nereids.
  */
-public abstract class Expression extends AbstractTreeNode<Expression> {
+public abstract class Expression extends AbstractTreeNode<Expression> implements ExpressionTrait {
 
     private static final String INPUT_CHECK_ERROR_MESSAGE = "argument %d requires %s type, however '%s' is of %s type";
 
@@ -47,16 +51,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         super(children);
     }
 
-    public DataType getDataType() throws UnboundException {
-        throw new UnboundException("dataType");
-    }
-
-    public String toSql() throws UnboundException {
-        throw new UnboundException("sql");
-    }
-
-    public boolean nullable() throws UnboundException {
-        throw new UnboundException("nullable");
+    public Expression(List<Expression> children) {
+        super(Optional.empty(), children);
     }
 
     public TypeCheckResult checkInputDataTypes() {
@@ -126,6 +122,27 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
         throw new RuntimeException("Do not implement uncheckedCastTo");
     }
 
+    /**
+     * Get all the input slots of the expression.
+     * <p>
+     * Note that the input slots of subquery's inner plan is not included.
+     */
+    public final Set<Slot> getInputSlots() {
+        return collect(Slot.class::isInstance);
+    }
+
+    public boolean isLiteral() {
+        return this instanceof Literal;
+    }
+
+    public boolean isNullLiteral() {
+        return this instanceof NullLiteral;
+    }
+
+    public boolean isSlot() {
+        return this instanceof Slot;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -141,6 +158,13 @@ public abstract class Expression extends AbstractTreeNode<Expression> {
     @Override
     public int hashCode() {
         return 0;
+    }
+
+    /**
+     * This expression has unbound symbols or not.
+     */
+    public boolean hasUnbound() {
+        return this.anyMatch(Unbound.class::isInstance);
     }
 
 }

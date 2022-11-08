@@ -34,11 +34,51 @@ enum TDataSinkType {
     MEMORY_SCRATCH_SINK,
     ODBC_TABLE_SINK,
     RESULT_FILE_SINK,
+    JDBC_TABLE_SINK,
 }
 
 enum TResultSinkType {
     MYSQL_PROTOCAL,
     FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
+}
+
+enum TParquetCompressionType {
+    SNAPPY,
+    GZIP,
+    BROTLI,
+    ZSTD,
+    LZ4,
+    LZO,
+    BZ2,
+    UNCOMPRESSED,
+}
+
+enum TParquetVersion {
+    PARQUET_1_0,
+    PARQUET_2_LATEST,
+}
+
+enum TParquetDataType {
+    BOOLEAN,
+    INT32,
+    INT64,
+    INT96,
+    BYTE_ARRAY,
+    FLOAT,
+    DOUBLE,
+    FIXED_LEN_BYTE_ARRAY,
+}
+
+enum TParquetRepetitionType {
+    REQUIRED,
+    REPEATED,
+    OPTIONAL,
+}
+
+struct TParquetSchema {
+    1: optional TParquetRepetitionType schema_repetition_type
+    2: optional TParquetDataType schema_data_type
+    3: optional string schema_column_name    
 }
 
 struct TResultFileSinkOptions {
@@ -50,8 +90,17 @@ struct TResultFileSinkOptions {
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
     8: optional string success_file_name
-    9: optional list<list<string>> schema            // for parquet/orc file
-    10: optional map<string, string> file_properties // for parquet/orc file
+    9: optional list<list<string>> schema            // for orc file
+    10: optional map<string, string> file_properties // for orc file
+
+    //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
+    //because when this info thrift to BE, BE hava to find useful info in string,
+    //have to check by use string directly, and maybe not so efficient
+    11: optional list<TParquetSchema> parquet_schemas
+    12: optional TParquetCompressionType parquet_compression_type
+    13: optional bool parquet_disable_dictionary
+    14: optional TParquetVersion parquet_version
+    15: optional string orc_schema
 }
 
 struct TMemoryScratchSink {
@@ -103,6 +152,12 @@ struct TOdbcTableSink {
     3: optional bool use_transaction
 }
 
+struct TJdbcTableSink {
+    1: optional Descriptors.TJdbcTable jdbc_table
+    2: optional bool use_transaction
+    3: optional Types.TOdbcTableType table_type
+}
+
 struct TExportSink {
     1: required Types.TFileType file_type
     2: required string export_path
@@ -145,5 +200,6 @@ struct TDataSink {
   8: optional TMemoryScratchSink memory_scratch_sink
   9: optional TOdbcTableSink odbc_table_sink
   10: optional TResultFileSink result_file_sink
+  11: optional TJdbcTableSink jdbc_table_sink
 }
 

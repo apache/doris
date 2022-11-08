@@ -410,11 +410,6 @@ public class Config extends ConfigBase {
     @ConfField public static int query_port = 9030;
 
     /**
-     * mysql service nio option.
-     */
-    @ConfField public static boolean mysql_service_nio_enabled = true;
-
-    /**
      * num of thread to handle io events in mysql.
      */
     @ConfField public static int mysql_service_io_threads_num = 4;
@@ -455,7 +450,7 @@ public class Config extends ConfigBase {
      * In order not to wait too long for create table(index), set a max timeout.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_create_table_timeout_second = 60;
+    public static int max_create_table_timeout_second = 3600;
 
     /**
      * Maximal waiting time for all publish version tasks of one transaction to be finished
@@ -577,7 +572,7 @@ public class Config extends ConfigBase {
      * Default stream load and streaming mini load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int stream_load_default_timeout_second = 600; // 600s
+    public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
     /**
      * Default stream load pre-commit status timeout
@@ -753,6 +748,7 @@ public class Config extends ConfigBase {
      * this config has been replaced by async_loading_load_task_pool_size,
      * it will be removed in the future.
      */
+    @Deprecated
     @ConfField(mutable = false, masterOnly = true)
     public static int async_load_task_pool_size = 10;
 
@@ -806,7 +802,7 @@ public class Config extends ConfigBase {
      * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int alter_table_timeout_second = 86400; // 1day
+    public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
@@ -1027,11 +1023,6 @@ public class Config extends ConfigBase {
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
     @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
-
-    /**
-     * if set to false, auth check will be disable, in case some goes wrong with the new privilege system.
-     */
-    @ConfField public static boolean enable_auth_check = true;
 
     /**
      * Max bytes a broker scanner can process in one broker load job.
@@ -1324,18 +1315,6 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
-     * enable spark load for temporary use
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_spark_load = true;
-
-    /**
-     * enable use odbc table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_odbc_table = true;
-
-    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1587,7 +1566,7 @@ public class Config extends ConfigBase {
 
     /*
      * If set to true, when creating table, Doris will allow to locate replicas of a tablet
-     * on same host. And also the tablet repair and balance will be disabled.
+     * on same host.
      * This is only for local test, so that we can deploy multi BE on same host and create table
      * with multi replicas.
      * DO NOT use it for production env.
@@ -1638,7 +1617,7 @@ public class Config extends ConfigBase {
      */
     // TODO change it to mutable true
     @ConfField(mutable = false, masterOnly = true)
-    public static int cbo_concurrency_statistics_task_num = 1;
+    public static int cbo_concurrency_statistics_task_num = 10;
     /*
      * default sample percentage
      * The value from 0 ~ 100. The 100 means no sampling and fetch all data.
@@ -1694,8 +1673,8 @@ public class Config extends ConfigBase {
      * Temp config for multi catalog feature.
      * Should be removed when this feature is ready.
      */
-    @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_multi_catalog = false; // 1 min
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_multi_catalog = false;
 
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_size = 256 * 1024 * 1024; // 256mb
@@ -1761,4 +1740,95 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
+
+    /**
+     * Temp config, should be removed when new file scan node is ready.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_new_load_scan_node = false;
+
+    /**
+     * Max data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int max_be_exec_version = 1;
+
+    /**
+     * Min data version of backends serialize block.
+     */
+    @ConfField(mutable = false)
+    public static int min_be_exec_version = 0;
+
+    /**
+     * Data version of backends serialize block.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_exec_version = max_be_exec_version;
+
+    @ConfField(mutable = false)
+    public static int statistic_job_scheduler_execution_interval_ms = 1000;
+
+    @ConfField(mutable = false)
+    public static int statistic_task_scheduler_execution_interval_ms = 1000;
+
+    /*
+     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_mtmv_scheduler_framework = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_pending_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
+
+    /**
+     * The candidate of the backend node for federation query such as hive table and es table query.
+     * If the backend of computation role is less than this value, it will acquire some mix backend.
+     * If the computation backend is enough, federation query will only assign to computation backend.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int backend_num_for_federation = 3;
+
+    /**
+     * Max query profile num.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_query_profile_num = 100;
+
+    /**
+     * Set to true to disable backend black list, so that even if we failed to send task to a backend,
+     * that backend won't be added to black list.
+     * This should only be set when running tests, such as regression test.
+     * Highly recommended NOT disable it in product environment.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_backend_black_list = false;
+
+    /**
+     * Maximum backend heartbeat failure tolerance count.
+     * Default is 1, which means if 1 heart failed, the backend will be marked as dead.
+     * A larger value can improve the tolerance of the cluster to occasional heartbeat failures.
+     * For example, when running regression tests, this value can be increased.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_backend_heartbeat_failure_tolerance_count = 1;
+
+    /**
+     * The iceberg and hudi table will be removed in v1.3
+     * Use multi catalog instead.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_iceberg_hudi_table = true;
+
+    /**
+     * The default connection timeout for hive metastore.
+     * hive.metastore.client.socket.timeout
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static long hive_metastore_client_timeout_second = 10;
 }

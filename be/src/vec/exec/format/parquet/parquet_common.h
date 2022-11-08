@@ -33,10 +33,27 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 
 using level_t = int16_t;
+
+struct RowRange {
+    RowRange() {}
+    RowRange(int64_t first, int64_t last) : first_row(first), last_row(last) {}
+
+    int64_t first_row;
+    int64_t last_row;
+};
+
+struct ParquetReadColumn {
+    ParquetReadColumn(int parquet_col_id, const std::string& file_slot_name)
+            : _parquet_col_id(parquet_col_id), _file_slot_name(file_slot_name) {};
+
+    int _parquet_col_id;
+    const std::string& _file_slot_name;
+};
 
 struct ParquetInt96 {
     uint64_t lo; // time of nanoseconds in a day
@@ -49,30 +66,6 @@ struct ParquetInt96 {
     static const uint64_t NANOS_PER_MICROSECOND;
 };
 
-struct DecimalScaleParams {
-    enum ScaleType {
-        NOT_INIT,
-        NO_SCALE,
-        SCALE_UP,
-        SCALE_DOWN,
-    };
-    ScaleType scale_type = ScaleType::NOT_INIT;
-    int32_t scale_factor = 1;
-
-    template <typename DecimalPrimitiveType>
-    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
-        if constexpr (std::is_same_v<DecimalPrimitiveType, Int32>) {
-            return common::exp10_i32(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
-            return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
-            return common::exp10_i128(n);
-        } else {
-            return DecimalPrimitiveType(1);
-        }
-    }
-};
-
 struct DecodeParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
@@ -82,6 +75,9 @@ struct DecodeParams {
     int64_t scale_to_nano_factor = 1;
     DecimalScaleParams decimal_scale;
 };
+
+// the length of non-null values and null values are arranged in turn.
+using RunLengthNullMap = std::vector<u_short>;
 
 class Decoder {
 public:
@@ -106,14 +102,13 @@ public:
     void init_decimal_converter(DataTypePtr& data_type);
 
     // Write the decoded values batch to doris's column
-    Status decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
-
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                 size_t num_values) = 0;
+                                 RunLengthNullMap& null_map, size_t num_values,
+                                 size_t num_nulls) = 0;
 
     virtual Status skip_values(size_t num_values) = 0;
 
-    virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) {
+    virtual Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) {
         return Status::NotSupported("set_dict is not supported");
     }
 
@@ -155,42 +150,44 @@ public:
     ~FixLengthDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         size_t num_values) override;
+                         RunLengthNullMap& null_map, size_t num_values, size_t num_nulls) override;
 
     Status skip_values(size_t num_values) override;
 
-    Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) override;
+    Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
 
     void set_data(Slice* data) override;
 
 protected:
-    Status _decode_short_int(MutableColumnPtr& doris_column, size_t num_values, size_t real_length);
-
     template <typename Numeric>
-    Status _decode_numeric(MutableColumnPtr& doris_column, size_t num_values);
+    Status _decode_numeric(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
+                           size_t num_values);
 
     template <typename CppType, typename ColumnType>
-    Status _decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type, size_t num_values);
+    Status _decode_date(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
+                        size_t num_values);
 
     template <typename CppType, typename ColumnType>
-    Status _decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+    Status _decode_datetime64(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
                               size_t num_values);
 
     template <typename CppType, typename ColumnType>
-    Status _decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+    Status _decode_datetime96(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
                               size_t num_values);
 
     template <typename DecimalPrimitiveType>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                  size_t num_values);
+                                  RunLengthNullMap& null_map, size_t num_values);
 
     template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
     Status _decode_primitive_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                     size_t num_values);
+                                     RunLengthNullMap& null_map, size_t num_values);
 
-#define _FIXED_GET_DATA_OFFSET(index)                                                 \
-    _has_dict ? reinterpret_cast<char*>(_dict.get() + _indexes[index] * _type_length) \
-              : _data->data + _offset
+    Status _decode_string(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
+                          size_t num_values);
+
+#define _FIXED_GET_DATA_OFFSET(index) \
+    _has_dict ? _dict_items[_indexes[index]] : _data->data + _offset
 
 #define _FIXED_SHIFT_DATA_OFFSET() \
     if (!_has_dict) _offset += _type_length
@@ -199,135 +196,195 @@ protected:
     // For dictionary encoding
     bool _has_dict = false;
     std::unique_ptr<uint8_t[]> _dict = nullptr;
+    std::vector<char*> _dict_items;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
     std::vector<uint32_t> _indexes;
 };
 
 template <typename Numeric>
-Status FixLengthDecoder::_decode_numeric(MutableColumnPtr& doris_column, size_t num_values) {
-    if (_has_dict) {
-        for (int i = 0; i < num_values; ++i) {
-            char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-            doris_column->insert_data(buf_start, _type_length);
+Status FixLengthDecoder::_decode_numeric(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
+                                         size_t num_values) {
+    auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + num_values);
+    bool is_null = false;
+    size_t dict_index = 0;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            data_index += run_length;
+        } else {
+            for (int i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                column_data[data_index++] = *(Numeric*)buf_start;
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
         }
-    } else {
-        auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
-        const auto* raw_data = reinterpret_cast<const Numeric*>(_data->data + _offset);
-        column_data.insert(raw_data, raw_data + num_values);
-        _offset += _type_length * num_values;
+        is_null = !is_null;
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status FixLengthDecoder::_decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type,
+Status FixLengthDecoder::_decode_date(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
                                       size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
-        CppType v;
-        v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
-        if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
-            // we should cast to date if using date v1.
-            v.cast_to_date();
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + num_values);
+    bool is_null = false;
+    size_t dict_index = 0;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            data_index += run_length;
+        } else {
+            for (int i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
+                auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
+                v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
+                if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                    // we should cast to date if using date v1.
+                    v.cast_to_date();
+                }
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
         }
-        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
-        column_data.emplace_back(cast_value);
-        _FIXED_SHIFT_DATA_OFFSET();
+        is_null = !is_null;
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                            size_t num_values) {
+Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column,
+                                            RunLengthNullMap& null_map, size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
-    for (int i = 0; i < num_values; i++) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
-        CppType v;
-        v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
-        if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
-            // nanoseconds will be ignored.
-            v.set_microsecond((date_value % _decode_params->second_mask) *
-                              _decode_params->scale_to_nano_factor / 1000);
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + num_values);
+    bool is_null = false;
+    size_t dict_index = 0;
+    int64_t scale_to_micro = _decode_params->scale_to_nano_factor / 1000;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            data_index += run_length;
+        } else {
+            for (int i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
+                auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
+                v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
+                if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
+                    // nanoseconds will be ignored.
+                    v.set_microsecond((date_value % _decode_params->second_mask) * scale_to_micro);
+                    // TODO: the precision of datetime v1
+                }
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
         }
-        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
-        column_data.emplace_back(cast_value);
-        _FIXED_SHIFT_DATA_OFFSET();
+        is_null = !is_null;
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                            size_t num_values) {
+Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column,
+                                            RunLengthNullMap& null_map, size_t num_values) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(buf_start);
-        CppType v;
-        int64_t micros = datetime96.to_timestamp_micros();
-        v.from_unixtime(micros / 1000000, *_decode_params->ctz);
-        if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
-            // spark.sql.parquet.outputTimestampType = INT96(NANOS) will lost precision.
-            // only keep microseconds.
-            v.set_microsecond(micros % 1000000);
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + num_values);
+    bool is_null = false;
+    size_t dict_index = 0;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            data_index += run_length;
+        } else {
+            for (int i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(buf_start);
+                auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
+                int64_t micros = datetime96.to_timestamp_micros();
+                v.from_unixtime(micros / 1000000, *_decode_params->ctz);
+                if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
+                    // spark.sql.parquet.outputTimestampType = INT96(NANOS) will lost precision.
+                    // only keep microseconds.
+                    v.set_microsecond(micros % 1000000);
+                }
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
         }
-        ColumnType& cast_value = *reinterpret_cast<ColumnType*>(&v);
-        column_data.emplace_back(cast_value);
-        _FIXED_SHIFT_DATA_OFFSET();
+        is_null = !is_null;
     }
     return Status::OK();
 }
 
 template <typename DecimalPrimitiveType>
 Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
-                                                DataTypePtr& data_type, size_t num_values) {
+                                                DataTypePtr& data_type, RunLengthNullMap& null_map,
+                                                size_t num_values) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + num_values);
+    bool is_null = false;
+    size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        // When Decimal in parquet is stored in byte arrays, binary and fixed,
-        // the unscaled number must be encoded as two's complement using big-endian byte order.
-        Int128 value = buf_start[0] & 0x80 ? -1 : 0;
-        memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - _type_length, buf_start,
-               _type_length);
-        value = BigEndian::ToHost128(value);
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value /= scale_params.scale_factor;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            data_index += run_length;
+        } else {
+            for (int i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                // When Decimal in parquet is stored in byte arrays, binary and fixed,
+                // the unscaled number must be encoded as two's complement using big-endian byte order.
+                Int128 value = buf_start[0] & 0x80 ? -1 : 0;
+                memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - _type_length, buf_start,
+                       _type_length);
+                value = BigEndian::ToHost128(value);
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                    value *= scale_params.scale_factor;
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                    value /= scale_params.scale_factor;
+                }
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
+                v = (DecimalPrimitiveType)value;
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
         }
-        DecimalPrimitiveType cast_value(value);
-        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
-        _FIXED_SHIFT_DATA_OFFSET();
+        is_null = !is_null;
     }
     return Status::OK();
 }
 
 template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
 Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_column,
-                                                   DataTypePtr& data_type, size_t num_values) {
+                                                   DataTypePtr& data_type,
+                                                   RunLengthNullMap& null_map, size_t num_values) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + num_values);
+    bool is_null = false;
+    size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        // we should use decimal128 to scale up/down
-        Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value /= scale_params.scale_factor;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            data_index += run_length;
+        } else {
+            for (int i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                // we should use decimal128 to scale up/down
+                Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                    value *= scale_params.scale_factor;
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                    value /= scale_params.scale_factor;
+                }
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
+                v = (DecimalPrimitiveType)value;
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
         }
-        DecimalPrimitiveType cast_value(value);
-        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
-        _FIXED_SHIFT_DATA_OFFSET();
+        is_null = !is_null;
     }
     return Status::OK();
 }
@@ -338,63 +395,76 @@ public:
     ~ByteArrayDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         size_t num_values) override;
+                         RunLengthNullMap& null_map, size_t num_values, size_t num_nulls) override;
 
     Status skip_values(size_t num_values) override;
 
     void set_data(Slice* data) override;
 
-    Status set_dict(std::unique_ptr<uint8_t[]>& dict, size_t dict_size) override;
+    Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
 
 protected:
     template <typename DecimalPrimitiveType>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                  size_t num_values);
+                                  RunLengthNullMap& null_map, size_t num_values);
 
     // For dictionary encoding
     bool _has_dict = false;
     std::unique_ptr<uint8_t[]> _dict = nullptr;
-    std::vector<uint32_t> _dict_offsets;
+    std::vector<StringRef> _dict_items;
     std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
     std::vector<uint32_t> _indexes;
 };
 
 template <typename DecimalPrimitiveType>
 Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
-                                                DataTypePtr& data_type, size_t num_values) {
+                                                DataTypePtr& data_type, RunLengthNullMap& null_map,
+                                                size_t num_values) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + num_values);
+    bool is_null = false;
+    size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start;
-        uint32_t length;
-        if (_has_dict) {
-            uint32_t idx = _indexes[i];
-            uint32_t idx_cursor = _dict_offsets[idx];
-            buf_start = reinterpret_cast<char*>(_dict.get() + idx_cursor);
-            length = _dict_offsets[idx + 1] - idx_cursor - 4;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            data_index += run_length;
         } else {
-            if (UNLIKELY(_offset + 4 > _data->size)) {
-                return Status::IOError("Can't read byte array length from plain decoder");
+            for (int i = 0; i < run_length; ++i) {
+                char* buf_start;
+                uint32_t length;
+                if (_has_dict) {
+                    StringRef& slice = _dict_items[_indexes[dict_index++]];
+                    buf_start = const_cast<char*>(slice.data);
+                    length = (uint32_t)slice.size;
+                } else {
+                    if (UNLIKELY(_offset + 4 > _data->size)) {
+                        return Status::IOError("Can't read byte array length from plain decoder");
+                    }
+                    length = decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) +
+                                               _offset);
+                    _offset += 4;
+                    buf_start = _data->data + _offset;
+                    _offset += length;
+                }
+                // When Decimal in parquet is stored in byte arrays, binary and fixed,
+                // the unscaled number must be encoded as two's complement using big-endian byte order.
+                Int128 value = buf_start[0] & 0x80 ? -1 : 0;
+                memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - length, buf_start,
+                       length);
+                value = BigEndian::ToHost128(value);
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                    value *= scale_params.scale_factor;
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                    value /= scale_params.scale_factor;
+                }
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
+                v = (DecimalPrimitiveType)value;
             }
-            length = decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-            _offset += 4;
-            buf_start = _data->data + _offset;
-            _offset += length;
         }
-        // When Decimal in parquet is stored in byte arrays, binary and fixed,
-        // the unscaled number must be encoded as two's complement using big-endian byte order.
-        Int128 value = buf_start[0] & 0x80 ? -1 : 0;
-        memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - length, buf_start, length);
-        value = BigEndian::ToHost128(value);
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value /= scale_params.scale_factor;
-        }
-        DecimalPrimitiveType cast_value(value);
-        column_data.emplace_back(*reinterpret_cast<Decimal<DecimalPrimitiveType>*>(&cast_value));
+        is_null = !is_null;
     }
     return Status::OK();
 }
@@ -415,7 +485,7 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         size_t num_values) override;
+                         RunLengthNullMap& null_map, size_t num_values, size_t num_nulls) override;
 
     Status skip_values(size_t num_values) override;
 

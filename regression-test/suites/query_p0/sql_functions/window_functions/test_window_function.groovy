@@ -20,7 +20,7 @@ suite("test_window_function") {
 
     def windowFunctionTable1 = "test_window_function1"
     sql """ DROP TABLE IF EXISTS ${windowFunctionTable1} """
-    sql """ create table ${windowFunctionTable1} (stock_symbol varchar(64), closing_price decimal(8,2), closing_date datetime not null, closing_date1 datetimev2 not null, closing_date2 datetimev2(3) not null, closing_date3 datetimev2(6) not null) duplicate key (stock_symbol) distributed by hash (stock_symbol) PROPERTIES("replication_num" = "1") """
+    sql """ create table if not exists ${windowFunctionTable1} (stock_symbol varchar(64), closing_price decimal(8,2), closing_date datetime not null, closing_date1 datetimev2 not null, closing_date2 datetimev2(3) not null, closing_date3 datetimev2(6) not null) duplicate key (stock_symbol) distributed by hash (stock_symbol) PROPERTIES("replication_num" = "1") """
 
     sql """ INSERT INTO ${windowFunctionTable1} VALUES ('JDR',12.86,'2014-10-02 00:00:00','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111'),('JDR',12.89,'2014-10-03 00:00:00','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111'),('JDR',12.94,'2014-10-04 00:00:00','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111'),('JDR',12.55,'2014-10-05 00:00:00','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111'),('JDR',14.03,'2014-10-06 00:00:00','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111'),('JDR',14.75,'2014-10-07 00:00:00','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111'),('JDR',13.98,'2014-10-08 00:00:00','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111') """
 
@@ -212,7 +212,7 @@ suite("test_window_function") {
 
     def windowFunctionTable2 = "test_window_function2"
     sql """ DROP TABLE IF EXISTS ${windowFunctionTable2} """
-    sql """ create table ${windowFunctionTable2} (x int, property  varchar(64)) duplicate key (x) distributed by hash (x) PROPERTIES("replication_num" = "1") """
+    sql """ create table if not exists ${windowFunctionTable2} (x int, property  varchar(64)) duplicate key (x) distributed by hash (x) PROPERTIES("replication_num" = "1") """
     sql """ insert into  ${windowFunctionTable2} values (2,'even'),(4,'even'),(6,'even'),(8,'even'),(10,'even'),(1,'odd'),(3,'odd'),(5,'odd'),(7,'odd'),(9,'odd'); """
 
     // SUM
@@ -284,7 +284,7 @@ suite("test_window_function") {
 
     def windowFunctionTable3 = "test_window_function3"
     sql """ DROP TABLE IF EXISTS ${windowFunctionTable3} """
-    sql """ create table ${windowFunctionTable3} (x int, y  int) duplicate key (x) distributed by hash (x) PROPERTIES("replication_num" = "1") """
+    sql """ create table if not exists ${windowFunctionTable3} (x int, y  int) duplicate key (x) distributed by hash (x) PROPERTIES("replication_num" = "1") """
     sql """ insert into  ${windowFunctionTable3} values (1,1),(1,2),(1,2),(2,1),(2,2),(2,3),(3,1),(3,1),(3,2); """
 
     // RANK
@@ -299,7 +299,7 @@ suite("test_window_function") {
 
     def windowFunctionTable4 = "test_window_function4"
     sql """ DROP TABLE IF EXISTS ${windowFunctionTable4} """
-    sql """ create table ${windowFunctionTable4} (name varchar(64),country varchar(64),greeting varchar(64)) duplicate key (name) distributed by hash (name) PROPERTIES("replication_num" = "1") """
+    sql """ create table if not exists ${windowFunctionTable4} (name varchar(64),country varchar(64),greeting varchar(64)) duplicate key (name) distributed by hash (name) PROPERTIES("replication_num" = "1") """
     sql """ insert into ${windowFunctionTable4} VALUES ('Pete','USA','Hello'),('John','USA','Hi'),('Boris','Germany','Guten tag'),('Michael','Germany','Guten morgen'),('Bjorn','Sweden','Hej'),('Mats','Sweden','Tja')"""
 
     // first_value
@@ -316,12 +316,12 @@ suite("test_window_function") {
     String k1 = fields[3]
     String k2 = fields[5]
     String k3 = fields[3]
-    qt_first_value1"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3})
+    qt_first_value1"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2})
              as wj from baseall  order by ${k1}, wj"""
-    qt_first_value2"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_first_value2"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2}
              range between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_first_value3"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_first_value3"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2} 
              rows between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
     qt_first_value4"""select a, min(d) as wjj from 
@@ -336,12 +336,12 @@ suite("test_window_function") {
              order by a, wjj"""
 
     // test_query_last_value
-    qt_last_value1"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3})
-             as wj from baseall  order by ${k1}, wj"""
-    qt_last_value2"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_last_value1"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2})
+                 as wj from baseall  order by ${k1}, wj"""
+    qt_last_value2"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              range between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_last_value3"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_last_value3"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              rows between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
     qt_last_value4"""select a, max(d) as wjj from 
@@ -397,7 +397,7 @@ suite("test_window_function") {
             assertTrue(exception != null)
         }
     }
-    qt_window_error1"""select ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall"""
+    qt_window_error1"""select ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall order by ${k1}"""
     qt_window_error2"""select ${k1}, first_value(${k2}) over (order by ${k3}) from baseall"""
     qt_window_error3"""select ${k1}, max(${k2}) over (order by ${k3}) from baseall"""
     test {
@@ -492,7 +492,7 @@ suite("test_window_function") {
         }
     }
 
-    sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="60000"); """
+    sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="300000"); """
 
     qt_window_hang2"""select A.${k1}, A.wj - B.dyk + 1 as num from 
         (select ${k1}, wj from ${line} as W1) as A join 

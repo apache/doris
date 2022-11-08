@@ -140,7 +140,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
     // set column information
     uint32_t col_ordinal = 0;
-    uint32_t key_count = 0;
     bool has_bf_columns = false;
     for (TColumn tcolumn : tablet_schema.columns) {
         ColumnPB* column = schema->add_column();
@@ -152,10 +151,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         }
         col_ordinal++;
         init_column_from_tcolumn(unique_id, tcolumn, column);
-
-        if (column->is_key()) {
-            ++key_count;
-        }
 
         if (column->is_bf_column()) {
             has_bf_columns = true;
@@ -402,7 +397,7 @@ Status TabletMeta::deserialize(const string& meta_binary) {
     return Status::OK();
 }
 
-void TabletMeta::init_rs_metas_fs(const io::FileSystemPtr& fs) {
+void TabletMeta::init_rs_metas_fs(const io::FileSystemSPtr& fs) {
     for (auto& rs_meta : _rs_metas) {
         if (rs_meta->is_local()) {
             rs_meta->set_fs(fs);
@@ -696,9 +691,12 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
     auto it = _stale_rs_metas.begin();
     while (it != _stale_rs_metas.end()) {
         if ((*it)->version() == version) {
+            if (_enable_unique_key_merge_on_write) {
+                // remove rowset delete bitmap
+                delete_bitmap().remove({(*it)->rowset_id(), 0, 0},
+                                       {(*it)->rowset_id(), UINT32_MAX, 0});
+            }
             it = _stale_rs_metas.erase(it);
-            // remove rowset delete bitmap
-            delete_bitmap().remove({(*it)->rowset_id(), 0, 0}, {(*it)->rowset_id(), UINT32_MAX, 0});
         } else {
             it++;
         }

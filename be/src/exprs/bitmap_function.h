@@ -53,6 +53,7 @@ public:
     // the dst value could be null
     static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
     static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    static void group_bitmap_xor(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
                                           const StringVal& dst);
@@ -67,7 +68,11 @@ public:
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
+    static StringVal to_bitmap_with_check(FunctionContext* ctx, const StringVal& src);
+    static StringVal to_bitmap(FunctionContext* ctx, const BigIntVal& src);
+    static StringVal to_bitmap_with_check(FunctionContext* ctx, const BigIntVal& src);
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
+    static StringVal bitmap_hash64(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst);

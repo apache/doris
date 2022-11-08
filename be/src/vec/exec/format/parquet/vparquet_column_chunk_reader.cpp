@@ -35,21 +35,29 @@ Status ColumnChunkReader::init() {
                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
     _page_reader = std::make_unique<PageReader>(_stream_reader, start_offset, chunk_size);
+    // get the block compression codec
+    RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
     if (_metadata.__isset.dictionary_page_offset) {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);
-        RETURN_IF_ERROR(_page_reader->next_page_header());
-        RETURN_IF_ERROR(_decode_dict_page());
+        // Parse dictionary data when reading
+        // RETURN_IF_ERROR(_page_reader->next_page_header());
+        // RETURN_IF_ERROR(_decode_dict_page());
     } else {
         // seek to the first data page
         _page_reader->seek_to_page(_metadata.data_page_offset);
     }
-    // get the block compression codec
-    RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, _block_compress_codec));
+    _state = INITIALIZED;
     return Status::OK();
 }
 
 Status ColumnChunkReader::next_page() {
+    if (UNLIKELY(_state == NOT_INIT)) {
+        return Status::Corruption("Should initialize chunk reader");
+    }
+    if (UNLIKELY(_remaining_num_values != 0)) {
+        return Status::Corruption("Should skip current page");
+    }
     RETURN_IF_ERROR(_page_reader->next_page_header());
     if (_page_reader->get_page_header()->type == tparquet::PageType::DICTIONARY_PAGE) {
         // the first page maybe directory page even if _metadata.__isset.dictionary_page_offset == false,
@@ -59,33 +67,41 @@ Status ColumnChunkReader::next_page() {
         return next_page();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
+        _state = HEADER_PARSED;
         return Status::OK();
     }
 }
 
 Status ColumnChunkReader::load_page_data() {
+    if (UNLIKELY(_state != HEADER_PARSED)) {
+        return Status::Corruption("Should parse page header");
+    }
     const auto& header = *_page_reader->get_page_header();
     // int32_t compressed_size = header.compressed_page_size;
     int32_t uncompressed_size = header.uncompressed_page_size;
 
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
-        RETURN_IF_ERROR(_page_reader->get_page_date(compressed_data));
+        RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
         // check decompressed buffer size
         _reserve_decompress_buf(uncompressed_size);
         _page_data = Slice(_decompress_buf.get(), uncompressed_size);
+        SCOPED_RAW_TIMER(&_statistics.decompress_time);
+        _statistics.decompress_cnt++;
         RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &_page_data));
     } else {
-        RETURN_IF_ERROR(_page_reader->get_page_date(_page_data));
+        RETURN_IF_ERROR(_page_reader->get_page_data(_page_data));
     }
 
     // Initialize repetition level and definition level. Skip when level = 0, which means required field.
     if (_max_rep_level > 0) {
+        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
         RETURN_IF_ERROR(_rep_level_decoder.init(&_page_data,
                                                 header.data_page_header.repetition_level_encoding,
                                                 _max_rep_level, _remaining_num_values));
     }
     if (_max_def_level > 0) {
+        SCOPED_RAW_TIMER(&_statistics.decode_level_time);
         RETURN_IF_ERROR(_def_level_decoder.init(&_page_data,
                                                 header.data_page_header.definition_level_encoding,
                                                 _max_def_level, _remaining_num_values));
@@ -102,7 +118,7 @@ Status ColumnChunkReader::load_page_data() {
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     } else {
         std::unique_ptr<Decoder> page_decoder;
-        Decoder::get_decoder(_metadata.type, encoding, page_decoder);
+        RETURN_IF_ERROR(Decoder::get_decoder(_metadata.type, encoding, page_decoder));
         // Set type length
         page_decoder->set_type_length(_get_type_length());
         // Initialize the time convert context
@@ -113,12 +129,14 @@ Status ColumnChunkReader::load_page_data() {
     // Reset page data for each page
     _page_decoder->set_data(&_page_data);
 
+    _state = DATA_LOADED;
     return Status::OK();
 }
 
 Status ColumnChunkReader::_decode_dict_page() {
     const tparquet::PageHeader& header = *_page_reader->get_page_header();
     DCHECK_EQ(tparquet::PageType::DICTIONARY_PAGE, header.type);
+    SCOPED_RAW_TIMER(&_statistics.decode_dict_time);
 
     // Using the PLAIN_DICTIONARY enum value is deprecated in the Parquet 2.0 specification.
     // Prefer using RLE_DICTIONARY in a data page and PLAIN in a dictionary page for Parquet 2.0+ files.
@@ -135,25 +153,27 @@ Status ColumnChunkReader::_decode_dict_page() {
     std::unique_ptr<uint8_t[]> dict_data(new uint8_t[uncompressed_size]);
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
-        RETURN_IF_ERROR(_page_reader->get_page_date(compressed_data));
+        RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
         Slice dict_slice(dict_data.get(), uncompressed_size);
         RETURN_IF_ERROR(_block_compress_codec->decompress(compressed_data, &dict_slice));
     } else {
         Slice dict_slice;
-        RETURN_IF_ERROR(_page_reader->get_page_date(dict_slice));
+        RETURN_IF_ERROR(_page_reader->get_page_data(dict_slice));
         // The data is stored by BufferedStreamReader, we should copy it out
         memcpy(dict_data.get(), dict_slice.data, dict_slice.size);
     }
 
     // Cache page decoder
     std::unique_ptr<Decoder> page_decoder;
-    Decoder::get_decoder(_metadata.type, tparquet::Encoding::RLE_DICTIONARY, page_decoder);
+    RETURN_IF_ERROR(
+            Decoder::get_decoder(_metadata.type, tparquet::Encoding::RLE_DICTIONARY, page_decoder));
     // Set type length
     page_decoder->set_type_length(_get_type_length());
     // Initialize the time convert context
     page_decoder->init(_field_schema, _ctz);
     // Set the dictionary data
-    RETURN_IF_ERROR(page_decoder->set_dict(dict_data, header.dictionary_page_header.num_values));
+    RETURN_IF_ERROR(page_decoder->set_dict(dict_data, uncompressed_size,
+                                           header.dictionary_page_header.num_values));
     _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)] = std::move(page_decoder);
 
     return Status::OK();
@@ -172,28 +192,16 @@ Status ColumnChunkReader::skip_values(size_t num_values, bool skip_data) {
     }
     _remaining_num_values -= num_values;
     if (skip_data) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
         return _page_decoder->skip_values(num_values);
     } else {
         return Status::OK();
     }
 }
 
-void ColumnChunkReader::insert_null_values(ColumnPtr& doris_column, size_t num_values) {
-    DCHECK_GE(_remaining_num_values, num_values);
-    CHECK(doris_column->is_nullable());
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-            (*std::move(doris_column)).mutate().get());
-    MutableColumnPtr data_column = nullable_column->get_nested_column_ptr();
-    for (int i = 0; i < num_values; ++i) {
-        data_column->insert_default();
-    }
-    _remaining_num_values -= num_values;
-}
-
 void ColumnChunkReader::insert_null_values(MutableColumnPtr& doris_column, size_t num_values) {
-    for (int i = 0; i < num_values; ++i) {
-        doris_column->insert_default();
-    }
+    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    doris_column->insert_many_defaults(num_values);
     _remaining_num_values -= num_values;
 }
 
@@ -207,22 +215,24 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
     return _def_level_decoder.get_levels(levels, n);
 }
 
-Status ColumnChunkReader::decode_values(ColumnPtr& doris_column, DataTypePtr& data_type,
-                                        size_t num_values) {
-    if (UNLIKELY(_remaining_num_values < num_values)) {
-        return Status::IOError("Decode too many values in current page");
-    }
-    _remaining_num_values -= num_values;
-    return _page_decoder->decode_values(doris_column, data_type, num_values);
-}
-
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                        size_t num_values) {
+                                        RunLengthNullMap& null_map) {
+    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    size_t num_nulls = 0;
+    size_t num_values = 0;
+    bool is_null = false;
+    for (auto& run_length : null_map) {
+        if (is_null) {
+            num_nulls += run_length;
+        }
+        num_values += run_length;
+        is_null = !is_null;
+    }
     if (UNLIKELY(_remaining_num_values < num_values)) {
         return Status::IOError("Decode too many values in current page");
     }
     _remaining_num_values -= num_values;
-    return _page_decoder->decode_values(doris_column, data_type, num_values);
+    return _page_decoder->decode_values(doris_column, data_type, null_map, num_values, num_nulls);
 }
 
 int32_t ColumnChunkReader::_get_type_length() {

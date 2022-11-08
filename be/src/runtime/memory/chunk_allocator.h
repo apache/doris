@@ -60,8 +60,6 @@ public:
     static ChunkAllocator* instance() { return _s_instance; }
 #endif
 
-    ChunkAllocator(size_t reserve_limit);
-
     // Up size to 2^n length, allocate a chunk.
     Status allocate_align(size_t size, Chunk* chunk);
 
@@ -76,6 +74,8 @@ public:
 
 private:
     friend class MemPool;
+
+    ChunkAllocator(size_t reserve_limit);
 
     // Allocate a Chunk with a power-of-two length "size".
     // Return true if success and allocated chunk is saved in "chunk".

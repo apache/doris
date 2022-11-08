@@ -21,23 +21,25 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 
-import com.google.common.collect.ImmutableList;
-
 /**
  * Implementation rule that convert logical aggregation to physical hash aggregation.
  */
 public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate().then(agg -> new PhysicalAggregate<>(
-                // TODO: for use a function to judge whether use stream
-                agg.getGroupByExpressions(),
-                agg.getOutputExpressions(),
-                ImmutableList.of(),
-                agg.getAggPhase(),
-                false,
-                agg.getLogicalProperties(),
-                agg.child())
-        ).toRule(RuleType.LOGICAL_AGG_TO_PHYSICAL_HASH_AGG_RULE);
+        return logicalAggregate().thenApply(ctx -> {
+            boolean useStreamAgg = !ctx.connectContext.getSessionVariable().disableStreamPreaggregations
+                    && !ctx.root.getGroupByExpressions().isEmpty()
+                    && !ctx.root.isFinalPhase();
+            return new PhysicalAggregate<>(
+                    ctx.root.getGroupByExpressions(),
+                    ctx.root.getOutputExpressions(),
+                    ctx.root.getPartitionExpressions(),
+                    ctx.root.getAggPhase(),
+                    useStreamAgg,
+                    ctx.root.isFinalPhase(),
+                    ctx.root.getLogicalProperties(),
+                    ctx.root.child());
+        }).toRule(RuleType.LOGICAL_AGG_TO_PHYSICAL_HASH_AGG_RULE);
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -29,7 +30,7 @@ import java.util.Objects;
 /**
  * Number of rows returned by inspection in subquery.
  */
-public class AssertNumRowsElement extends Expression implements LeafExpression {
+public class AssertNumRowsElement extends Expression implements LeafExpression, AlwaysNotNullable {
     /**
      * Assertion type.
      */
@@ -73,9 +74,10 @@ public class AssertNumRowsElement extends Expression implements LeafExpression {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("desiredNumOfRows: ",
+        return Utils.toSqlString("AssertNumRowsElement",
+                "desiredNumOfRows: ",
                 Long.toString(desiredNumOfRows),
-                "assertion: " + assertion);
+                "assertion: ", assertion);
     }
 
     @Override

@@ -21,7 +21,6 @@
 
 #include "util/simd/bits.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_set.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/simple_function_factory.h"
@@ -93,13 +92,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
             return Status::InternalError("Invalid type for runtime filters!");
         }
 
-        if ((!_has_calculate_filter) && (_scan_rows.load() >= THRESHOLD_TO_CALCULATE_RATE)) {
-            double rate = (double)_filtered_rows / _scan_rows;
-            if (rate < EXPECTED_FILTER_RATE) {
-                _always_true = true;
-            }
-            _has_calculate_filter = true;
-        }
+        calculate_filter(_filtered_rows, _scan_rows, _has_calculate_filter, _always_true);
         return Status::OK();
     }
 }

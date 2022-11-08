@@ -41,6 +41,8 @@
 
 #if !defined(__APPLE__) && !defined(__FreeBSD__)
 #include <malloc.h>
+#else
+#define _DARWIN_C_SOURCE
 #endif
 
 #include <sys/mman.h>
@@ -129,7 +131,9 @@ public:
             buf = mmap(get_mmap_hint(), size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
                 RELEASE_THREAD_MEM_TRACKER(size);
-                doris::vectorized::throwFromErrno(fmt::format("Allocator: Cannot mmap {}.", size),
+                auto err = fmt::format("Allocator: Cannot mmap {}.", size);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
+                doris::vectorized::throwFromErrno(err,
                                                   doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
             }
 
@@ -137,9 +141,10 @@ public:
         } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
             doris::Chunk chunk;
             if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
-                doris::vectorized::throwFromErrno(
-                        fmt::format("Allocator: Cannot allocate chunk {}.", size),
-                        doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+                auto err = fmt::format("Allocator: Cannot allocate chunk {}.", size);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
+                doris::vectorized::throwFromErrno(err,
+                                                  doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
             }
             buf = chunk.data;
             if constexpr (clear_memory) memset(buf, 0, chunk.size);
@@ -150,18 +155,22 @@ public:
                 else
                     buf = ::malloc(size);
 
-                if (nullptr == buf)
+                if (nullptr == buf) {
+                    auto err = fmt::format("Allocator: Cannot malloc {}.", size);
+                    doris::MemTrackerLimiter::print_log_process_usage(err);
                     doris::vectorized::throwFromErrno(
-                            fmt::format("Allocator: Cannot malloc {}.", size),
-                            doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+                            err, doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+                }
             } else {
                 buf = nullptr;
                 int res = posix_memalign(&buf, alignment, size);
 
-                if (0 != res)
+                if (0 != res) {
+                    auto err = fmt::format("Cannot allocate memory (posix_memalign) {}.", size);
+                    doris::MemTrackerLimiter::print_log_process_usage(err);
                     doris::vectorized::throwFromErrno(
-                            fmt::format("Cannot allocate memory (posix_memalign) {}.", size),
-                            doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY, res);
+                            err, doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY, res);
+                }
 
                 if constexpr (clear_memory) memset(buf, 0, size);
             }
@@ -173,8 +182,9 @@ public:
     void free(void* buf, size_t size) {
         if (size >= MMAP_THRESHOLD) {
             if (0 != munmap(buf, size)) {
-                doris::vectorized::throwFromErrno(fmt::format("Allocator: Cannot munmap {}.", size),
-                                                  doris::TStatusCode::VEC_CANNOT_MUNMAP);
+                auto err = fmt::format("Allocator: Cannot munmap {}.", size);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
+                doris::vectorized::throwFromErrno(err, doris::TStatusCode::VEC_CANNOT_MUNMAP);
             } else {
                 RELEASE_THREAD_MEM_TRACKER(size);
             }
@@ -199,11 +209,13 @@ public:
                    alignment <= MALLOC_MIN_ALIGNMENT) {
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
-            if (nullptr == new_buf)
-                doris::vectorized::throwFromErrno("Allocator: Cannot realloc from " +
-                                                          std::to_string(old_size) + " to " +
-                                                          std::to_string(new_size) + ".",
+            if (nullptr == new_buf) {
+                auto err =
+                        fmt::format("Allocator: Cannot realloc from {} to {}.", old_size, new_size);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
+                doris::vectorized::throwFromErrno(err,
                                                   doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+            }
 
             buf = new_buf;
             if constexpr (clear_memory)
@@ -218,10 +230,10 @@ public:
                                     mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
                 RELEASE_THREAD_MEM_TRACKER(new_size - old_size);
-                doris::vectorized::throwFromErrno("Allocator: Cannot mremap memory chunk from " +
-                                                          std::to_string(old_size) + " to " +
-                                                          std::to_string(new_size) + ".",
-                                                  doris::TStatusCode::VEC_CANNOT_MREMAP);
+                auto err = fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
+                                       old_size, new_size);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
+                doris::vectorized::throwFromErrno(err, doris::TStatusCode::VEC_CANNOT_MREMAP);
             }
 
             /// No need for zero-fill, because mmap guarantees it.
@@ -276,15 +288,6 @@ private:
 #endif
 };
 
-/** When using AllocatorWithStackMemory, located on the stack,
-  *  GCC 4.9 mistakenly assumes that we can call `free` from a pointer to the stack.
-  * In fact, the combination of conditions inside AllocatorWithStackMemory does not allow this.
-  */
-#if !__clang__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
-#endif
-
 /** Allocator with optimization to place small memory ranges in automatic memory.
   */
 template <typename Base, size_t N, size_t Alignment>
@@ -330,7 +333,3 @@ public:
 protected:
     static constexpr size_t get_stack_threshold() { return N; }
 };
-
-#if !__clang__
-#pragma GCC diagnostic pop
-#endif

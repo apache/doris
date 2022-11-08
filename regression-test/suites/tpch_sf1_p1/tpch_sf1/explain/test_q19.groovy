@@ -76,10 +76,10 @@ suite("test_explain_tpch_sf_1_q19") {
 		explainStr.contains("vec output tuple id: 4") && 
 		explainStr.contains("output slot ids: 12 13 \n" + 
 				"  |  hash output slot ids: 0 1 4 7 8 9 ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipmode` IN ('AIR', 'AIR REG'), `l_shipinstruct` = 'DELIVER IN PERSON', `l_quantity` >= 1, `l_quantity` <= 30\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> `l_partkey`") && 
-		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_size` >= 1, (`p_brand` = 'Brand#12' OR `p_brand` = 'Brand#23' OR `p_brand` = 'Brand#34'), `p_size` <= 15, `p_container` IN ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG', 'MED BAG', 'MED BOX', 'MED PKG', 'MED PACK', 'LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')") 
             
         }

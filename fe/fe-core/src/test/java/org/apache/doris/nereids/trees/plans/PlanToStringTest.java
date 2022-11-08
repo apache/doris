@@ -40,7 +40,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 
 public class PlanToStringTest {
 
@@ -57,7 +56,7 @@ public class PlanToStringTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
         Assertions.assertTrue(plan.toString()
-                .matches("LogicalAggregate \\( phase=GLOBAL, outputExpr=\\[a#\\d+], groupByExpr=\\[] \\)"));
+                .matches("LogicalAggregate \\( phase=LOCAL, outputExpr=\\[a#\\d+], groupByExpr=\\[] \\)"));
     }
 
     @Test
@@ -72,17 +71,17 @@ public class PlanToStringTest {
         LogicalJoin<Plan, Plan> plan = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(
                 new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                Optional.empty(), left, right);
-
+                left, right);
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalJoin \\( type=INNER_JOIN, hashJoinCondition=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinCondition=Optional.empty \\)"));
+                "LogicalJoin \\( type=INNER_JOIN, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
     }
 
     @Test
     public void testLogicalOlapScan() {
         LogicalOlapScan plan = PlanConstructor.newLogicalOlapScan(0, "table", 0);
         Assertions.assertTrue(
-                plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, output=\\[id#\\d+, name#\\d+] \\)"));
+                plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
+                        + "output=\\[id#\\d+, name#\\d+], candidateIndexIds=\\[], selectedIndexId=-1, preAgg=ON \\)"));
     }
 
     @Test

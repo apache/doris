@@ -24,12 +24,9 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h"
 #include "service/backend_options.h"
-#include "service/brpc.h"
-#include "util/brpc_client_cache.h"
-#include "util/network_util.h"
 #include "util/ref_count_closure.h"
 #include "util/uid_util.h"
-#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class ObjectPool;
@@ -59,24 +56,22 @@ public:
     VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc, int per_channel_buffer_size,
                       bool send_query_statistics_with_every_batch);
 
-    ~VDataStreamSender();
+    ~VDataStreamSender() override;
 
-    virtual Status init(const TDataSink& thrift_sink) override;
+    Status init(const TDataSink& thrift_sink) override;
 
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
-    virtual Status send(RuntimeState* state, RowBatch* batch) override;
-    virtual Status send(RuntimeState* state, Block* block) override;
+    Status send(RuntimeState* state, RowBatch* batch) override;
+    Status send(RuntimeState* state, Block* block) override;
 
-    virtual Status close(RuntimeState* state, Status exec_status) override;
-    virtual RuntimeProfile* profile() override { return _profile; }
+    Status close(RuntimeState* state, Status exec_status) override;
+    RuntimeProfile* profile() override { return _profile; }
 
     RuntimeState* state() { return _state; }
 
     Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
-    Status serialize_block(Block* src, PBlock* dest, std::string* compressed_buffer,
-                           int num_receivers = 1);
 
 protected:
     void _roll_pb_block();
@@ -90,8 +85,8 @@ protected:
         return Status::OK();
     }
 
-    template <typename Channels, typename HashVals>
-    Status channel_add_rows(Channels& channels, int num_channels, const HashVals& hash_vals,
+    template <typename Channels>
+    Status channel_add_rows(Channels& channels, int num_channels, const uint64_t* channel_ids,
                             int rows, Block* block);
 
     struct hash_128 {
@@ -134,6 +129,8 @@ protected:
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
     RuntimeProfile::Counter* _compress_timer;
+    RuntimeProfile::Counter* _brpc_send_timer;
+    RuntimeProfile::Counter* _brpc_wait_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
@@ -151,9 +148,9 @@ protected:
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
 
-    std::string _compressed_data_buffer;
-
     segment_v2::CompressionTypePB _compression_type;
+
+    bool _new_shuffle_hash_method = false;
 };
 
 // TODO: support local exechange
@@ -212,7 +209,6 @@ public:
     // if batch is nullptr, send the eof packet
     Status send_block(PBlock* block, bool eos = false);
 
-    Status add_row(Block* block, int row);
     Status add_rows(Block* block, const std::vector<int>& row);
 
     Status send_current_block(bool eos = false);
@@ -246,14 +242,19 @@ public:
 
 private:
     Status _wait_last_brpc() {
-        if (_closure == nullptr) return Status::OK();
+        SCOPED_TIMER(_parent->_brpc_wait_timer);
+        if (_closure == nullptr) {
+            return Status::OK();
+        }
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
         if (cntl->Failed()) {
             std::string err = fmt::format(
-                    "failed to send brpc batch, error={}, error_text={}, client: {}",
-                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost());
+                    "failed to send brpc batch, error={}, error_text={}, client: {}, "
+                    "latency = {}",
+                    berror(cntl->ErrorCode()), cntl->ErrorText(), BackendOptions::get_localhost(),
+                    cntl->latency_us());
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
@@ -307,19 +308,18 @@ private:
     PBlock* _ch_cur_pb_block = nullptr;
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
-    std::string _compressed_data_buffer;
 
-    bool _enable_local_exchange = false;
+    bool _enable_local_exchange = true;
 };
 
-template <typename Channels, typename HashVals>
+template <typename Channels>
 Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
-                                           const HashVals& hash_vals, int rows, Block* block) {
+                                           const uint64_t* __restrict channel_ids, int rows,
+                                           Block* block) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
-        auto cid = hash_vals[i] % num_channels;
-        channel2rows[cid].emplace_back(i);
+        channel2rows[channel_ids[i]].emplace_back(i);
     }
 
     for (int i = 0; i < num_channels; ++i) {

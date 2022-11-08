@@ -138,7 +138,6 @@ public class FEFunctions {
             dateLiteral.setType(ScalarType.getDefaultDateType(dateLiteral.getType()));
             return dateLiteral;
         } catch (InvalidFormatException e) {
-            e.printStackTrace();
             throw new AnalysisException(e.getMessage());
         }
     }
@@ -253,6 +252,11 @@ public class FEFunctions {
     public static DateLiteral curDate() {
         return new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
                 ScalarType.getDefaultDateType(Type.DATE));
+    }
+
+    @FEFunction(name = "current_date", argTypes = {}, returnType = "DATE")
+    public static DateLiteral currentDate() {
+        return curDate();
     }
 
     @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")

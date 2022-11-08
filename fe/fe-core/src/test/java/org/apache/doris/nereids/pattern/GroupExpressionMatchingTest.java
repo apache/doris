@@ -250,14 +250,14 @@ public class GroupExpressionMatchingTest {
         }
 
         @Override
-        public Void visitLogicalFilter(LogicalFilter<Plan> filter, Context context) {
+        public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, Context context) {
             Assertions.assertTrue(context.parent == null);
             filter.child().accept(this, new Context(filter));
             return null;
         }
 
         @Override
-        public Void visitLogicalJoin(LogicalJoin<Plan, Plan> join, Context context) {
+        public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Context context) {
             switch (join.getJoinType()) {
                 case INNER_JOIN:
                     Assertions.assertTrue(context.parent instanceof LogicalFilter);

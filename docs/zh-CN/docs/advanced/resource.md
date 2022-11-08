@@ -73,7 +73,7 @@ under the License.
 
 `spark.hadoop.fs.defaultFS`: master为yarn时必填。
 
-其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html。
+其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html
 
 ##### 如果Spark用于ETL，还需要指定以下参数：
 

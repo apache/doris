@@ -29,11 +29,12 @@ VORCScanner::VORCScanner(RuntimeState* state, RuntimeProfile* profile,
         : VArrowScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
                         counter) {}
 
-ArrowReaderWrap* VORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+ArrowReaderWrap* VORCScanner::_new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                                FileReader* file_reader,
                                                 int32_t num_of_columns_from_file,
                                                 int64_t range_start_offset, int64_t range_size) {
-    return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file, range_start_offset,
-                             range_size);
+    return new ORCReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
+                             range_start_offset, range_size);
 }
 
 } // namespace doris::vectorized

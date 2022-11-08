@@ -81,6 +81,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 literalExpr = new StringLiteral(value);
                 literalExpr.setType(type);
                 break;
+            case JSONB:
+                literalExpr = new JsonLiteral(value);
+                break;
             case DATE:
             case DATETIME:
             case DATEV2:
@@ -120,6 +123,8 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             literalExpr = new DecimalLiteral(value);
         } else if (expr instanceof StringLiteral) {
             literalExpr = new StringLiteral(value);
+        } else if (expr instanceof JsonLiteral) {
+            literalExpr = new JsonLiteral(value);
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
         } else {
@@ -182,9 +187,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     // literal values to the metastore rather than to Palo backends. This is similar to
     // the toSql() method, but does not perform any formatting of the string values. Neither
     // method unescapes string values.
-    public String getStringValue() {
-        return null;
-    }
+    @Override
+    public abstract String getStringValue();
+
+    @Override
+    public abstract String getStringValueForArray();
 
     public long getLongValue() {
         return 0;

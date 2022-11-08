@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
@@ -25,10 +24,10 @@ import org.apache.doris.common.util.Util;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
-
 
 /**
  * There are the statistics of table.
@@ -37,30 +36,51 @@ import java.util.function.Predicate;
  *     - @rowCount: The row count of table.
  *     - @dataSize: The data size of table.
  *     - @nameToColumnStats: <@String columnName, @ColumnStats columnStats>
- * <p>Each column in the Table will have corresponding @ColumnStats.
+ * <p>
+ * Each column in the Table will have corresponding @ColumnStats.
  * Those @ColumnStats are recorded in @nameToColumnStats form of MAP.
  * This facilitates the optimizer to quickly find the corresponding:
  *     - @ColumnStats based on the column name.
  *     - @rowCount: The row count of table.
  *     - @dataSize: The data size of table.
- * <p>The granularity of the statistics is whole table.
+ * <p>
+ * The granularity of the statistics is whole table.
  * For example: "@rowCount = 1000" means that the row count is 1000 in the whole table.
+ * <p>
+ * After the statistics task is successfully completed, update the TableStats,
+ * TableStats should not be updated in any other way.
  */
 public class TableStats {
-
     public static final StatsType DATA_SIZE = StatsType.DATA_SIZE;
     public static final StatsType ROW_COUNT = StatsType.ROW_COUNT;
 
-    private static final Predicate<Long> DESIRED_ROW_COUNT_PRED = (v) -> v >= -1L;
+    private static final Predicate<Double> DESIRED_ROW_COUNT_PRED = (v) -> v >= -1L;
     private static final Predicate<Long> DESIRED_DATA_SIZE_PRED = (v) -> v >= -1L;
 
-    private long rowCount = -1;
+    private double rowCount = -1;
     private long dataSize = -1;
     private final Map<String, PartitionStats> nameToPartitionStats = Maps.newConcurrentMap();
-    private final Map<String, ColumnStats> nameToColumnStats = Maps.newConcurrentMap();
+    private final Map<String, ColumnStat> nameToColumnStats = Maps.newConcurrentMap();
 
-    public long getRowCount() {
-        if  (rowCount == -1) {
+    /**
+     * Return a default partition statistic.
+     */
+    public static TableStats getDefaultTableStats() {
+        return new TableStats();
+    }
+
+    public TableStats() {
+    }
+
+    public TableStats(double rowCount, long dataSize) {
+        this.rowCount = rowCount;
+        this.dataSize = dataSize;
+    }
+
+    public double getRowCount() {
+        // '!isEmpty()' is added mainly because the result returns 0
+        // instead of the expected -1 when nameToPartitionStats is empty.
+        if (rowCount == -1 && !nameToPartitionStats.isEmpty()) {
             return nameToPartitionStats.values().stream()
                     .filter(partitionStats -> partitionStats.getRowCount() != -1)
                     .mapToLong(PartitionStats::getRowCount).sum();
@@ -68,12 +88,8 @@ public class TableStats {
         return rowCount;
     }
 
-    public void setRowCount(long rowCount) {
-        this.rowCount = rowCount;
-    }
-
     public long getDataSize() {
-        if (dataSize == -1) {
+        if (dataSize == -1 && !nameToPartitionStats.isEmpty()) {
             return nameToPartitionStats.values().stream()
                     .filter(partitionStats -> partitionStats.getDataSize() != -1)
                     .mapToLong(PartitionStats::getDataSize).sum();
@@ -85,21 +101,41 @@ public class TableStats {
         return nameToPartitionStats;
     }
 
-    public Map<String, ColumnStats> getNameToColumnStats() {
+    public Map<String, ColumnStat> getNameToColumnStats() {
         if (nameToColumnStats.isEmpty()) {
             return getAggPartitionColStats();
         }
         return nameToColumnStats;
     }
 
-    public void setDataSize(long dataSize) {
-        this.dataSize = dataSize;
+    public PartitionStats getPartitionStats(String partitionName) {
+        return nameToPartitionStats.get(partitionName);
     }
 
+    /**
+     * If the partition statistics do not exist, the default statistics will be returned.
+     */
+    public PartitionStats getPartitionStatsOrDefault(String columnName) {
+        return nameToPartitionStats.getOrDefault(columnName,
+                PartitionStats.getDefaultPartitionStats());
+    }
+
+    /**
+     * If the column statistics do not exist, the default statistics will be returned.
+     */
+    public ColumnStat getColumnStatsOrDefault(String columnName) {
+        return nameToColumnStats.getOrDefault(columnName,
+                ColumnStat.getDefaultColumnStats());
+    }
+
+    /**
+     * After the statistics task is successfully completed, update the statistics of the partition,
+     * statistics should not be updated in any other way.
+     */
     public void updateTableStats(Map<StatsType, String> statsTypeToValue) throws AnalysisException {
         for (Map.Entry<StatsType, String> entry : statsTypeToValue.entrySet()) {
             if (entry.getKey() == ROW_COUNT) {
-                rowCount = Util.getLongPropertyOrDefault(entry.getValue(), rowCount,
+                rowCount = Util.getDoublePropertyOrDefault(entry.getValue(), rowCount,
                         DESIRED_ROW_COUNT_PRED, ROW_COUNT + " should >= -1");
             } else if (entry.getKey() == DATA_SIZE) {
                 dataSize = Util.getLongPropertyOrDefault(entry.getValue(), dataSize,
@@ -108,16 +144,24 @@ public class TableStats {
         }
     }
 
+    /**
+     * After the statistics task is successfully completed, update the statistics of the partition,
+     * statistics should not be updated in any other way.
+     */
     public void updatePartitionStats(String partitionName, Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
         PartitionStats partitionStats = getNotNullPartitionStats(partitionName);
         partitionStats.updatePartitionStats(statsTypeToValue);
     }
 
+    /**
+     * After the statistics task is successfully completed, update the statistics of the column,
+     * statistics should not be updated in any other way.
+     */
     public void updateColumnStats(String columnName, Type columnType, Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
-        ColumnStats columnStats = getColumnStats(columnName);
-        columnStats.updateStats(columnType, statsTypeToValue);
+        ColumnStat columnStat = getColumnStats(columnName);
+        columnStat.updateStats(columnType, statsTypeToValue);
     }
 
     /**
@@ -141,18 +185,32 @@ public class TableStats {
      * @param columnName column name
      * @return @ColumnStats
      */
-    public ColumnStats getColumnStats(String columnName) {
-        ColumnStats columnStats = nameToColumnStats.get(columnName);
-        if (columnStats == null) {
-            columnStats = new ColumnStats();
-            nameToColumnStats.put(columnName, columnStats);
+    private ColumnStat getNotNullColumnStats(String columnName) {
+        ColumnStat columnStat = nameToColumnStats.get(columnName);
+        if (columnStat == null) {
+            columnStat = new ColumnStat();
+            nameToColumnStats.put(columnName, columnStat);
         }
-        return columnStats;
+        return columnStat;
+    }
+
+    public ColumnStat getColumnStats(String columnName) {
+        ColumnStat columnStat = nameToColumnStats.get(columnName);
+        if (columnStat == null) {
+            columnStat = new ColumnStat();
+            nameToColumnStats.put(columnName, columnStat);
+        }
+        return columnStat;
+    }
+
+    public ColumnStat getColumnStatCopy(String columnName) {
+        ColumnStat columnStat = getColumnStats(columnName);
+        return columnStat.copy();
     }
 
     public List<String> getShowInfo() {
         List<String> result = Lists.newArrayList();
-        result.add(Long.toString(getRowCount()));
+        result.add(Double.toString(getRowCount()));
         result.add(Long.toString(getDataSize()));
         return result;
     }
@@ -162,15 +220,15 @@ public class TableStats {
         return partitionStats.getShowInfo();
     }
 
-    private Map<String, ColumnStats> getAggPartitionColStats() {
-        Map<String, ColumnStats> aggColumnStats = Maps.newConcurrentMap();
+    private Map<String, ColumnStat> getAggPartitionColStats() {
+        Map<String, ColumnStat> aggColumnStats = new HashMap<>();
         for (PartitionStats partitionStats : nameToPartitionStats.values()) {
             partitionStats.getNameToColumnStats().forEach((colName, columnStats) -> {
                 if (!aggColumnStats.containsKey(colName)) {
-                    aggColumnStats.put(colName, columnStats);
+                    aggColumnStats.put(colName, columnStats.copy());
                 } else {
-                    ColumnStats tblColStats = aggColumnStats.get(colName);
-                    aggPartitionColumnStats(tblColStats, columnStats);
+                    ColumnStat tblColStats = aggColumnStats.get(colName);
+                    mergePartitionColumnStats(tblColStats, columnStats);
                 }
             });
         }
@@ -178,37 +236,37 @@ public class TableStats {
         return aggColumnStats;
     }
 
-    private void aggPartitionColumnStats(ColumnStats leftStats, ColumnStats rightStats) {
+    private void mergePartitionColumnStats(ColumnStat leftStats, ColumnStat rightStats) {
         if (leftStats.getNdv() == -1) {
             if (rightStats.getNdv() != -1) {
                 leftStats.setNdv(rightStats.getNdv());
             }
         } else {
             if (rightStats.getNdv() != -1) {
-                long ndv = leftStats.getNdv() + rightStats.getNdv();
+                double ndv = leftStats.getNdv() + rightStats.getNdv();
                 leftStats.setNdv(ndv);
             }
         }
 
-        if (leftStats.getAvgSize() == -1) {
-            if (rightStats.getAvgSize() != -1) {
-                leftStats.setAvgSize(rightStats.getAvgSize());
+        if (leftStats.getAvgSizeByte() == -1) {
+            if (rightStats.getAvgSizeByte() != -1) {
+                leftStats.setAvgSizeByte(rightStats.getAvgSizeByte());
             }
         } else {
-            if (rightStats.getAvgSize() != -1) {
-                float avgSize = (leftStats.getAvgSize() + rightStats.getAvgSize()) / 2;
-                leftStats.setAvgSize(avgSize);
+            if (rightStats.getAvgSizeByte() != -1) {
+                double avgSize = (leftStats.getAvgSizeByte() + rightStats.getAvgSizeByte()) / 2;
+                leftStats.setAvgSizeByte(avgSize);
             }
         }
 
-        if (leftStats.getMaxSize() == -1) {
-            if (rightStats.getMaxSize() != -1) {
-                leftStats.setMaxSize(rightStats.getMaxSize());
+        if (leftStats.getMaxSizeByte() == -1) {
+            if (rightStats.getMaxSizeByte() != -1) {
+                leftStats.setMaxSizeByte(rightStats.getMaxSizeByte());
             }
         } else {
-            if (rightStats.getMaxSize() != -1) {
-                long maxSize = Math.max(leftStats.getMaxSize(), rightStats.getMaxSize());
-                leftStats.setMaxSize(maxSize);
+            if (rightStats.getMaxSizeByte() != -1) {
+                double maxSize = Math.max(leftStats.getMaxSizeByte(), rightStats.getMaxSizeByte());
+                leftStats.setMaxSizeByte(maxSize);
             }
         }
 
@@ -218,40 +276,34 @@ public class TableStats {
             }
         } else {
             if (rightStats.getNumNulls() != -1) {
-                long numNulls = leftStats.getNumNulls() + rightStats.getNumNulls();
+                double numNulls = leftStats.getNumNulls() + rightStats.getNumNulls();
                 leftStats.setNumNulls(numNulls);
             }
         }
 
-        if (leftStats.getMinValue() == null) {
-            if (rightStats.getMinValue() != null) {
+        if (Double.isNaN(leftStats.getMinValue())) {
+            if (!Double.isNaN(rightStats.getMinValue())) {
                 leftStats.setMinValue(rightStats.getMinValue());
             }
-        } else {
-            if (rightStats.getMinValue() != null) {
-                LiteralExpr minValue = leftStats.getMinValue().compareTo(rightStats.getMinValue()) > 0
-                        ? leftStats.getMinValue() : rightStats.getMinValue();
-                leftStats.setMinValue(minValue);
-            }
+        } else if (!Double.isNaN(rightStats.getMinValue())) {
+            double minValue = Math.max(leftStats.getMinValue(), rightStats.getMinValue());
+            leftStats.setMinValue(minValue);
         }
 
-        if (leftStats.getMaxValue() == null) {
-            if (rightStats.getMaxValue() != null) {
+        if (Double.isNaN(leftStats.getMaxValue())) {
+            if (!Double.isNaN(rightStats.getMaxValue())) {
                 leftStats.setMaxValue(rightStats.getMaxValue());
             }
-        } else {
-            if (rightStats.getMaxValue() != null) {
-                LiteralExpr maxValue = leftStats.getMaxValue().compareTo(rightStats.getMaxValue()) > 0
-                        ? leftStats.getMaxValue() : rightStats.getMaxValue();
-                leftStats.setMaxValue(maxValue);
-            }
+        } else if (!Double.isNaN(rightStats.getMaxValue())) {
+            double maxValue = Math.min(leftStats.getMaxValue(), rightStats.getMaxValue());
+            leftStats.setMaxValue(maxValue);
         }
     }
 
     /**
      * This method is for unit test.
      */
-    public void putColumnStats(String name, ColumnStats columnStats) {
-        nameToColumnStats.put(name, columnStats);
+    public void putColumnStats(String name, ColumnStat columnStat) {
+        nameToColumnStats.put(name, columnStat);
     }
 }

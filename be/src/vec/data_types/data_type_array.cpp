@@ -21,10 +21,10 @@
 #include "vec/data_types/data_type_array.h"
 
 #include "gen_cpp/data.pb.h"
+#include "util/stack_util.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/string_utils/string_utils.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
@@ -55,40 +55,44 @@ size_t DataTypeArray::get_number_of_dimensions() const {
                    ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
 }
 
-int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                         int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
-    return sizeof(IColumn::Offset64) * (column.size() + 1) +
-           get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data());
+    return sizeof(ColumnArray::Offset64) * (column.size() + 1) +
+           get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data(),
+                                                                be_exec_version);
 }
 
-char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
+char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
     // row num
-    *reinterpret_cast<IColumn::Offset64*>(buf) = column.size();
-    buf += sizeof(IColumn::Offset64);
+    *reinterpret_cast<ColumnArray::Offset64*>(buf) = column.size();
+    buf += sizeof(ColumnArray::Offset64);
     // offsets
-    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(IColumn::Offset64));
-    buf += column.size() * sizeof(IColumn::Offset64);
+    memcpy(buf, data_column.get_offsets().data(), column.size() * sizeof(ColumnArray::Offset64));
+    buf += column.size() * sizeof(ColumnArray::Offset64);
     // children
-    return get_nested_type()->serialize(data_column.get_data(), buf);
+    return get_nested_type()->serialize(data_column.get_data(), buf, be_exec_version);
 }
 
-const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeArray::deserialize(const char* buf, IColumn* column,
+                                       int be_exec_version) const {
     auto* data_column = assert_cast<ColumnArray*>(column);
     auto& offsets = data_column->get_offsets();
 
     // row num
-    IColumn::Offset64 row_num = *reinterpret_cast<const IColumn::Offset64*>(buf);
-    buf += sizeof(IColumn::Offset64);
+    ColumnArray::Offset64 row_num = *reinterpret_cast<const ColumnArray::Offset64*>(buf);
+    buf += sizeof(ColumnArray::Offset64);
     // offsets
     offsets.resize(row_num);
-    memcpy(offsets.data(), buf, sizeof(IColumn::Offset64) * row_num);
-    buf += sizeof(IColumn::Offset64) * row_num;
+    memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * row_num);
+    buf += sizeof(ColumnArray::Offset64) * row_num;
     // children
-    return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable());
+    return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable(),
+                                          be_exec_version);
 }
 
 void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
@@ -172,14 +176,20 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
 }
 
 Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
+    DCHECK(!rb.eof());
     // only support one level now
     auto* array_column = assert_cast<ColumnArray*>(column);
     auto& offsets = array_column->get_offsets();
 
     IColumn& nested_column = array_column->get_data();
+    DCHECK(nested_column.is_nullable());
     if (*rb.position() != '[') {
         return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
                                        *rb.position());
+    }
+    if (*(rb.end() - 1) != ']') {
+        return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
+                                       *(rb.end() - 1));
     }
     ++rb.position();
     bool first = true;
@@ -198,26 +208,62 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         if (*rb.position() == ']') {
             break;
         }
-        size_t nested_str_len = 1;
+        size_t nested_str_len = 0;
         char* temp_char = rb.position() + nested_str_len;
         while (*(temp_char) != ']' && *(temp_char) != ',' && temp_char != rb.end()) {
             ++nested_str_len;
             temp_char = rb.position() + nested_str_len;
         }
 
-        // dispose the case of ["123"] or ['123']
-        ReadBuffer read_buffer(rb.position(), nested_str_len);
-        auto begin_char = *rb.position();
-        auto end_char = *(rb.position() + nested_str_len - 1);
-        if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {
-            read_buffer = ReadBuffer(rb.position() + 1, nested_str_len - 2);
+        // dispose the case of [123,,,]
+        if (nested_str_len == 0) {
+            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
+            nested_null_col.get_nested_column().insert_default();
+            nested_null_col.get_null_map_data().push_back(0);
+            ++size;
+            continue;
         }
 
-        auto st = nested->from_string(read_buffer, &nested_column);
-        if (!st.ok()) {
-            // we should do revert if error
-            array_column->pop_back(size);
-            return st;
+        // Note: here we will trim elements, such as
+        // ["2020-09-01", "2021-09-01"  , "2022-09-01" ] ==> ["2020-09-01","2021-09-01","2022-09-01"]
+        size_t begin_pos = 0;
+        size_t end_pos = nested_str_len - 1;
+        while (begin_pos < end_pos) {
+            if (isspace(*(rb.position() + begin_pos))) {
+                ++begin_pos;
+            } else if (isspace(*(rb.position() + end_pos))) {
+                --end_pos;
+            } else {
+                break;
+            }
+        }
+
+        // dispose the case of ["123"] or ['123']
+        bool has_quota = false;
+        size_t tmp_len = nested_str_len;
+        ReadBuffer read_buffer(rb.position(), nested_str_len);
+        auto begin_char = *(rb.position() + begin_pos);
+        auto end_char = *(rb.position() + end_pos);
+        if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {
+            int64_t length = end_pos - begin_pos - 1;
+            read_buffer = ReadBuffer(rb.position() + begin_pos + 1, (length > 0 ? length : 0));
+            tmp_len = (length > 0 ? length : 0);
+            has_quota = true;
+        }
+
+        // handle null, need to distinguish null and "null"
+        if (!has_quota && tmp_len == 4 && strncmp(read_buffer.position(), "null", 4) == 0) {
+            // insert null
+            auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
+            nested_null_col.get_nested_column().insert_default();
+            nested_null_col.get_null_map_data().push_back(1);
+        } else {
+            auto st = nested->from_string(read_buffer, &nested_column);
+            if (!st.ok()) {
+                // we should do revert if error
+                array_column->pop_back(size);
+                return st;
+            }
         }
         rb.position() += nested_str_len;
         DCHECK_LE(rb.position(), rb.end());

@@ -19,11 +19,14 @@ package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
+import org.apache.doris.nereids.jobs.rewrite.VisitorRewriteJob;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,10 +61,21 @@ public abstract class BatchRulesJob {
         for (RuleFactory ruleFactory : ruleFactories) {
             rules.addAll(ruleFactory.buildRules());
         }
-        return new RewriteTopDownJob(
-                cascadesContext.getMemo().getRoot(),
-                rules,
+        return new RewriteTopDownJob(cascadesContext.getMemo().getRoot(), rules,
                 cascadesContext.getCurrentJobContext());
+    }
+
+    protected Job topDownBatch(List<RuleFactory> ruleFactories, boolean once) {
+        List<Rule> rules = new ArrayList<>();
+        for (RuleFactory ruleFactory : ruleFactories) {
+            rules.addAll(ruleFactory.buildRules());
+        }
+        return new RewriteTopDownJob(cascadesContext.getMemo().getRoot(), rules,
+                cascadesContext.getCurrentJobContext(), once);
+    }
+
+    protected Job visitorJob(DefaultPlanRewriter<JobContext> planRewriter) {
+        return new VisitorRewriteJob(cascadesContext, planRewriter, true);
     }
 
     protected Job optimize() {
@@ -70,10 +84,16 @@ public abstract class BatchRulesJob {
                 cascadesContext.getCurrentJobContext());
     }
 
+    /**
+     * execute.
+     */
     public void execute() {
         for (Job job : rulesJob) {
-            cascadesContext.pushJob(job);
-            cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+            do {
+                cascadesContext.getCurrentJobContext().setRewritten(false);
+                cascadesContext.pushJob(job);
+                cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+            } while (!job.isOnce() && cascadesContext.getCurrentJobContext().isRewritten());
         }
     }
 }

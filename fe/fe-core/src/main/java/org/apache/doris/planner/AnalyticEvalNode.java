@@ -143,7 +143,7 @@ public class AnalyticEvalNode extends PlanNode {
             return;
         }
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -214,7 +214,7 @@ public class AnalyticEvalNode extends PlanNode {
             return "";
         }
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "functions: ");
+        output.append(prefix).append("functions: ");
         List<String> strings = Lists.newArrayList();
 
         for (Expr fnCall : analyticFnCalls) {
@@ -227,7 +227,7 @@ public class AnalyticEvalNode extends PlanNode {
         output.append("\n");
 
         if (!partitionExprs.isEmpty()) {
-            output.append(prefix + "partition by: ");
+            output.append(prefix).append("partition by: ");
             strings.clear();
 
             for (Expr partitionExpr : partitionExprs) {
@@ -239,7 +239,7 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!orderByElements.isEmpty()) {
-            output.append(prefix + "order by: ");
+            output.append(prefix).append("order by: ");
             strings.clear();
 
             for (OrderByElement element : orderByElements) {

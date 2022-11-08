@@ -97,6 +97,6 @@ INFO Totally checked 5611 files, valid: 3926, invalid: 0, ignored: 1685, fixed: 
 
 请参阅各组件的编译文档验证编译。
 
-* Doris 主代码编译，请参阅 [编译文档](../../install/source-install/compilation.md)
-* Flink Doris Connector 编译，请参阅 [编译文档](../../ecosystem/flink-doris-connector.md)
-* Spark Doris Connector 编译，请参阅 [编译文档](../../ecosystem/spark-doris-connector.md)
+* Doris 主代码编译，请参阅 [编译文档](/docs/install/source-install/compilation)
+* Flink Doris Connector 编译，请参阅 [编译文档](/docs/ecosystem/flink-doris-connector)
+* Spark Doris Connector 编译，请参阅 [编译文档](/docs/ecosystem/spark-doris-connector)

@@ -20,17 +20,20 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include "gen_cpp/descriptors.pb.h"
+#include "olap/utils.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
 FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     std::string upper_type_str = type_str;
-    std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(), toupper);
+    std::transform(type_str.begin(), type_str.end(), upper_type_str.begin(),
+                   [](auto c) { return std::toupper(c); });
     FieldType type;
 
     if (0 == upper_type_str.compare("TINYINT")) {
@@ -79,6 +82,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_VARCHAR;
     } else if (0 == upper_type_str.compare("STRING")) {
         type = OLAP_FIELD_TYPE_STRING;
+    } else if (0 == upper_type_str.compare("JSONB")) {
+        type = OLAP_FIELD_TYPE_JSONB;
     } else if (0 == upper_type_str.compare("BOOLEAN")) {
         type = OLAP_FIELD_TYPE_BOOL;
     } else if (0 == upper_type_str.compare(0, 3, "HLL")) {
@@ -105,7 +110,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
 
 FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::string& str) {
     std::string upper_str = str;
-    std::transform(str.begin(), str.end(), upper_str.begin(), toupper);
+    std::transform(str.begin(), str.end(), upper_str.begin(),
+                   [](auto c) { return std::toupper(c); });
     FieldAggregationMethod aggregation_type;
 
     if (0 == upper_str.compare("NONE")) {
@@ -201,6 +207,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
+
+    case OLAP_FIELD_TYPE_JSONB:
+        return "JSONB";
 
     case OLAP_FIELD_TYPE_STRING:
         return "STRING";
@@ -299,6 +308,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return string_length + sizeof(OLAP_VARCHAR_MAX_LENGTH);
     case TPrimitiveType::STRING:
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
+    case TPrimitiveType::JSONB:
+        return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
     case TPrimitiveType::DECIMAL32:
@@ -465,6 +476,11 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
     if (column.is_nullable()) {
         _num_null_columns++;
     }
+    if (UNLIKELY(column.name() == DELETE_SIGN)) {
+        _delete_sign_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
+        _sequence_col_idx = _num_columns;
+    }
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
     if (!is_dropped_column) {
@@ -552,8 +568,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
-    _delete_sign_idx = ori_tablet_schema.delete_sign_idx();
-    _sequence_col_idx = ori_tablet_schema.sequence_col_idx();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
 
@@ -578,6 +592,11 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         }
         if (column.is_bf_column()) {
             has_bf_columns = true;
+        }
+        if (UNLIKELY(column.name() == DELETE_SIGN)) {
+            _delete_sign_idx = _num_columns;
+        } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
+            _sequence_col_idx = _num_columns;
         }
         _field_name_to_index[column.name()] = _num_columns;
         _field_id_to_index[column.unique_id()] = _num_columns;

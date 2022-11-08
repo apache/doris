@@ -140,6 +140,22 @@ public:
         return emplaceImpl(key_holder, hash_value, data);
     }
 
+    template <typename Data, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(Data& data,
+                                                                                  size_t row,
+                                                                                  Arena& pool,
+                                                                                  Func&& f) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return lazy_emplace_impl(key_holder, data, std::forward<Func>(f));
+    }
+
+    template <typename Data, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t hash_value, size_t row, Arena& pool, Func&& f) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return lazy_emplace_impl(key_holder, hash_value, data, std::forward<Func>(f));
+    }
+
     template <typename Data>
     ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
@@ -162,6 +178,17 @@ public:
     ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         data.prefetch(key_holder);
+    }
+
+    template <bool READ, typename Data>
+    ALWAYS_INLINE void prefetch(Data& data, size_t row, Arena& pool) {
+        auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        data.template prefetch<READ>(key_holder);
+    }
+
+    template <bool READ, typename Data>
+    ALWAYS_INLINE void prefetch_by_hash(Data& data, size_t hash_value) {
+        data.template prefetch_by_hash<READ>(hash_value);
     }
 
 protected:
@@ -262,6 +289,23 @@ protected:
             return EmplaceResult(*lookup_result_get_mapped(it), *cached, inserted);
         else
             return EmplaceResult(inserted);
+    }
+
+    template <typename Data, typename KeyHolder, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
+            KeyHolder& key_holder, Data& data, Func&& f) {
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
+    template <typename Data, typename KeyHolder, typename Func>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
+            KeyHolder& key_holder, size_t hash_value, Data& data, Func&& f) {
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
+
+        return *lookup_result_get_mapped(it);
     }
 
     template <typename Data, typename Key>

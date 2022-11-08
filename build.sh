@@ -39,21 +39,21 @@ usage() {
 Usage: $0 <options>
   Optional options:
      [no option]        build all components
-     --fe               build Frontend and Spark DPP application
-     --be               build Backend
-     --meta-tool        build Backend meta tool
-     --broker           build Broker
-     --audit            build audit loader
-     --spark-dpp        build Spark DPP application
-     --hive-udf         build Hive UDF library for Spark Load
-     --java-udf         build Java UDF library
+     --fe               build Frontend and Spark DPP application. Default ON.
+     --be               build Backend. Default ON.
+     --meta-tool        build Backend meta tool. Default OFF.
+     --broker           build Broker. Default ON.
+     --audit            build audit loader. Default ON.
+     --spark-dpp        build Spark DPP application. Default ON.
+     --hive-udf         build Hive UDF library for Spark Load. Default ON.
      --clean            clean and build target
      -j                 build Backend parallel
 
   Environment variables:
-    USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
-    STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-
+    USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
+    DISABLE_JAVA_UDF            If set DISABLE_JAVA_UDF=ON, we will do not build binary with java-udf. Default is OFF.
+    DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -62,7 +62,7 @@ Usage: $0 <options>
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --broker                             build Broker
-    $0 --be --fe --java-udf                 build Backend, Frontend, Spark Dpp application and Java UDF library
+    $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -97,6 +97,13 @@ clean_fe() {
     popd
 }
 
+# Copy the common files like licenses, notice.txt to output folder
+function copy_common_files() {
+    cp -r -p "${DORIS_HOME}/NOTICE.txt" "$1/"
+    cp -r -p "${DORIS_HOME}/dist/LICENSE-dist.txt" "$1/"
+    cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
+}
+
 if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -106,7 +113,6 @@ if ! OPTS="$(getopt \
     -l 'audit' \
     -l 'meta-tool' \
     -l 'spark-dpp' \
-    -l 'java-udf' \
     -l 'hive-udf' \
     -l 'clean' \
     -l 'help' \
@@ -124,7 +130,7 @@ BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
 BUILD_SPARK_DPP=0
-BUILD_JAVA_UDF=0
+BUILD_JAVA_UDF=1
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -138,7 +144,6 @@ if [[ "$#" == 1 ]]; then
     BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
-    BUILD_JAVA_UDF=0 # TODO: open it when ready
     BUILD_HIVE_UDF=1
     CLEAN=0
 else
@@ -147,6 +152,7 @@ else
         --fe)
             BUILD_FE=1
             BUILD_SPARK_DPP=1
+            BUILD_HIVE_UDF=1
             shift
             ;;
         --be)
@@ -166,12 +172,6 @@ else
             shift
             ;;
         --spark-dpp)
-            BUILD_SPARK_DPP=1
-            shift
-            ;;
-        --java-udf)
-            BUILD_JAVA_UDF=1
-            BUILD_FE=1
             BUILD_SPARK_DPP=1
             shift
             ;;
@@ -242,7 +242,11 @@ if [[ -z "${WITH_MYSQL}" ]]; then
     WITH_MYSQL='OFF'
 fi
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    GLIBC_COMPATIBILITY='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        GLIBC_COMPATIBILITY='ON'
+    else
+        GLIBC_COMPATIBILITY='OFF'
+    fi
 fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
@@ -251,16 +255,28 @@ if [[ -z "${WITH_LZO}" ]]; then
     WITH_LZO='OFF'
 fi
 if [[ -z "${USE_LIBCPP}" ]]; then
-    USE_LIBCPP='OFF'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
 fi
 if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
 if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    USE_MEM_TRACKER='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_MEM_TRACKER='ON'
+    else
+        USE_MEM_TRACKER='OFF'
+    fi
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
-    USE_JEMALLOC='OFF'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_JEMALLOC='OFF'
+    else
+        USE_JEMALLOC='OFF'
+    fi
 fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'
@@ -268,6 +284,40 @@ fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
+fi
+
+if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
+    DISABLE_JAVA_UDF='OFF'
+fi
+
+if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
+    DISABLE_JAVA_CHECK_STYLE='OFF'
+fi
+
+if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
+    RECORD_COMPILER_SWITCHES='OFF'
+fi
+
+if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
+    if [[ -z "${JAVA_HOME}" ]]; then
+        CAUSE='the environment variable JAVA_HOME is not set'
+    else
+        LIBJVM="$(find "${JAVA_HOME}/" -name 'libjvm.dylib')"
+        if [[ -z "${LIBJVM}" ]]; then
+            CAUSE="the library libjvm.dylib is missing"
+        elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then
+            CAUSE='the architecture which the library libjvm.dylib is built for does not match'
+        fi
+    fi
+
+    if [[ -n "${CAUSE}" ]]; then
+        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with JAVA UDF due to ${CAUSE}.\033[0m"
+        BUILD_JAVA_UDF=0
+    fi
+fi
+
+if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
+    BUILD_JAVA_UDF=0
 fi
 
 echo "Get params:
@@ -316,6 +366,7 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     modules+=("spark-dpp")
 fi
 if [[ "${BUILD_JAVA_UDF}" -eq 1 ]]; then
+    modules+=("fe-common")
     modules+=("java-udf")
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
@@ -396,7 +447,7 @@ function build_ui() {
         ui_dist="${CUSTOM_UI_DIST}"
     else
         cd "${DORIS_HOME}/ui"
-        "${NPM}" install
+        "${NPM}" install --legacy-peer-deps
         "${NPM}" run build
     fi
     echo "ui dist: ${ui_dist}"
@@ -417,7 +468,11 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
+    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests -Dcheckstyle.skip=true
+    else
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
+    fi
     cd "${DORIS_HOME}"
 fi
 
@@ -442,6 +497,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
+    copy_common_files "${DORIS_OUTPUT}/fe/"
     mkdir -p "${DORIS_OUTPUT}/fe/log"
     mkdir -p "${DORIS_OUTPUT}/fe/doris-meta"
 fi
@@ -462,6 +518,10 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+
+    # Fix Killed: 9 error on MacOS (arm64).
+    # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
+    rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
 
     # make a soft link palo_be point to doris_be, for forward compatibility
@@ -487,6 +547,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
+    copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
 fi
@@ -498,6 +559,7 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     ./build.sh
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
+    copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
     cd "${DORIS_HOME}"
 fi
 

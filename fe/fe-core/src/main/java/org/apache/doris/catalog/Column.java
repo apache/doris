@@ -99,6 +99,8 @@ public class Column implements Writable {
     @SerializedName(value = "uniqueId")
     private int uniqueId;
 
+    private boolean isCompoundKey = false;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -167,6 +169,7 @@ public class Column implements Writable {
         this.aggregationType = column.getAggregationType();
         this.isAggregationTypeImplicit = column.isAggregationTypeImplicit();
         this.isKey = column.isKey();
+        this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
         this.defaultValueExprDef = column.defaultValueExprDef;
@@ -594,10 +597,9 @@ public class Column implements Writable {
                 && getStrLen() == other.getStrLen()
                 && getPrecision() == other.getPrecision()
                 && getScale() == other.getScale()
-                && comment.equals(other.comment)
+                && Objects.equals(comment, other.comment)
                 && visible == other.visible
-                && children.size() == other.children.size()
-                && children.equals(other.children);
+                && Objects.equals(children, other.children);
     }
 
     @Override
@@ -640,6 +642,9 @@ public class Column implements Writable {
             case CHAR:
             case VARCHAR:
                 sb.append(String.format(typeStringMap.get(dataType), getStrLen()));
+                break;
+            case JSONB:
+                sb.append(type.toString());
                 break;
             case DECIMALV2:
             case DECIMAL32:
@@ -685,5 +690,13 @@ public class Column implements Writable {
         if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
             tColumn.setIsBloomFilterColumn(true);
         }
+    }
+
+    public boolean isCompoundKey() {
+        return isCompoundKey;
+    }
+
+    public void setCompoundKey(boolean compoundKey) {
+        isCompoundKey = compoundKey;
     }
 }

@@ -72,8 +72,6 @@ public:
         return pos;
     }
 
-    void update_hash_with_value(size_t /*n*/, SipHash& /*hash*/) const override {}
-
     void insert_from(const IColumn&, size_t) override { ++s; }
 
     void insert_range_from(const IColumn& /*src*/, size_t /*start*/, size_t length) override {

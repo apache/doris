@@ -114,9 +114,6 @@ class FixedHashTable : private boost::noncopyable,
     static constexpr size_t NUM_CELLS = 1ULL << (sizeof(Key) * 8);
 
 protected:
-    friend class const_iterator;
-    friend class iterator;
-
     using Self = FixedHashTable;
 
     Cell* buf; /// A piece of memory for all elements.
@@ -269,6 +266,31 @@ public:
         this->increase_size();
     }
 
+    class Constructor {
+    public:
+        friend class FixedHashTable;
+        template <typename... Args>
+        void operator()(Args&&... args) const {
+            new (_cell) Cell(std::forward<Args>(args)...);
+        }
+
+    private:
+        Constructor(Cell* cell) : _cell(cell) {}
+        Cell* _cell;
+    };
+
+    template <typename Func>
+    void ALWAYS_INLINE lazy_emplace(const Key& x, LookupResult& it, Func&& f) {
+        it = &buf[x];
+
+        if (!buf[x].is_zero(*this)) {
+            return;
+        }
+
+        f(Constructor(&buf[x]), x);
+        this->increase_size();
+    }
+
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;
         emplace(Cell::get_key(x), res.first, res.second);
@@ -315,14 +337,14 @@ public:
     void read(doris::vectorized::BufferReadable& rb) {
         Cell::State::read(rb);
         destroy_elements();
-        size_t m_size;
+        doris::vectorized::UInt64 m_size;
         doris::vectorized::read_var_uint(m_size, rb);
         this->set_size(m_size);
         free();
         alloc();
 
         for (size_t i = 0; i < m_size; ++i) {
-            size_t place_value = 0;
+            doris::vectorized::UInt64 place_value = 0;
             doris::vectorized::read_var_uint(place_value, rb);
             Cell x;
             x.read(rb);

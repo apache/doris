@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 
 import com.google.common.collect.Lists;
@@ -31,6 +32,7 @@ import java.util.Objects;
  * Spec of sort order.
  */
 public class OrderSpec {
+    // TODO: use a OrderKey with ExprId list to instead of current orderKeys for easy to use.
     private final List<OrderKey> orderKeys;
 
     public OrderSpec() {
@@ -59,9 +61,22 @@ public class OrderSpec {
         return true;
     }
 
-    public GroupExpression addEnforcer(Group child) {
+    /**
+     * add a local quick sort as order enforcer on child group.
+     */
+    public GroupExpression addLocalQuickSortEnforcer(Group child) {
         return new GroupExpression(
-                new PhysicalQuickSort(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
+                new PhysicalLocalQuickSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
+                Lists.newArrayList(child)
+        );
+    }
+
+    /**
+     * add a global quick sort as order enforcer on child group.
+     */
+    public GroupExpression addGlobalQuickSortEnforcer(Group child) {
+        return new GroupExpression(
+                new PhysicalQuickSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
                 Lists.newArrayList(child)
         );
     }
@@ -91,4 +106,5 @@ public class OrderSpec {
     public int hashCode() {
         return Objects.hash(orderKeys);
     }
+
 }

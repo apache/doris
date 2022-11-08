@@ -20,6 +20,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#include <cinttypes>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -29,7 +30,10 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/mem_pool.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_utils.h"
 #include "util/mem_util.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
@@ -551,6 +555,10 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_STRING> {
     using CppType = Slice;
 };
 template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_JSONB> {
+    using CppType = Slice;
+};
+template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
@@ -782,7 +790,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
         int128_t value = reinterpret_cast<const PackedInt128*>(src)->value;
         if (value >= std::numeric_limits<int64_t>::min() &&
             value <= std::numeric_limits<int64_t>::max()) {
-            snprintf(buf, sizeof(buf), "%ld", (int64_t)value);
+            snprintf(buf, sizeof(buf), "%" PRId64, (int64_t)value);
         } else {
             char* current = buf;
             uint128_t abs_value = value;
@@ -1554,6 +1562,36 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
     }
 
     static void set_to_min(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+    static int cmp(const void* left, const void* right) {
+        LOG(WARNING) << "can not compare JSONB values";
+        return -1; // always update ?
+    }
+
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        // TODO support schema change
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
+    }
+
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
+                               MemPool* mem_pool, size_t variable_len = 0) {
+        // TODO support schema change
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
+    }
+
+    static void set_to_min(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+
+    static void set_to_max(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
     }

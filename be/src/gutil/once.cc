@@ -33,7 +33,7 @@ void GoogleOnceInternalInit(Atomic32* control, void (*func)(), void (*func_with_
     if (base::subtle::Acquire_CompareAndSwap(control, GOOGLE_ONCE_INTERNAL_INIT,
                                              GOOGLE_ONCE_INTERNAL_RUNNING) ==
                 GOOGLE_ONCE_INTERNAL_INIT ||
-        base::internal::SpinLockWait(control, ARRAYSIZE(trans), trans) ==
+        base::internal::SpinLockWait(control, ARRAYSIZE_UNSAFE(trans), trans) ==
                 GOOGLE_ONCE_INTERNAL_INIT) {
         if (func != nullptr) {
             (*func)();

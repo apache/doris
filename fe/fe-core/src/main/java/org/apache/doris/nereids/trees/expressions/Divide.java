@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -49,5 +50,11 @@ public class Divide extends BinaryArithmetic {
     @Override
     public AbstractDataType inputType() {
         return NumericType.INSTANCE;
+    }
+
+    // Divide is implemented as a scalar function which return type is always nullable.
+    @Override
+    public boolean nullable() throws UnboundException {
+        return true;
     }
 }

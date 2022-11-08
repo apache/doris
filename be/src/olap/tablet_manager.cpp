@@ -663,10 +663,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 last_failure_ms = tablet_ptr->last_base_compaction_failure_time();
             }
             if (now_ms - last_failure_ms <= config::min_compaction_failure_interval_sec * 1000) {
-                VLOG_DEBUG << "Too often to check compaction, skip it. "
-                           << "compaction_type=" << compaction_type_str
-                           << ", last_failure_time_ms=" << last_failure_ms
-                           << ", tablet_id=" << tablet_ptr->tablet_id();
                 continue;
             }
 
@@ -722,7 +718,6 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
                                             TSchemaHash schema_hash, const string& meta_binary,
                                             bool update_meta, bool force, bool restore,
                                             bool check_path) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status status = tablet_meta->deserialize(meta_binary);
     if (!status.ok()) {
@@ -805,7 +800,6 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                                            SchemaHash schema_hash, const string& schema_hash_path,
                                            bool force, bool restore) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
@@ -866,7 +860,7 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
 
 Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
-    LOG(INFO) << "begin to build all report tablets info";
+    VLOG_NOTICE << "begin to build all report tablets info";
 
     // build the expired txn map first, outside the tablet map lock
     std::map<TabletInfo, std::vector<int64_t>> expire_txn_map;
@@ -1148,7 +1142,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
             //    unique_id in old_tablet to be the column's ordinal number in new_tablet
             // 2. if column exists only in new_tablet, assign next_unique_id of old_tablet
             //    to the new column
-            int32_t old_col_idx = base_tablet->field_index(column.column_name);
+            int32_t old_col_idx = base_tablet->tablet_schema()->field_index(column.column_name);
             if (old_col_idx != -1) {
                 uint32_t old_unique_id =
                         base_tablet->tablet_schema()->column(old_col_idx).unique_id();

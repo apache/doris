@@ -36,7 +36,7 @@ The data synchronization (Sync Job) function supports users to submit a resident
 
 Currently, the data synchronization job only supports connecting to Canal, obtaining the parsed Binlog data from the Canal Server and importing it into Doris.
 
-Users can view the data synchronization job status through [SHOW SYNC JOB](../../../sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB.md).
+Users can view the data synchronization job status through [SHOW SYNC JOB](../../../Show-Statements/SHOW-SYNC-JOB).
 
 grammar:
 

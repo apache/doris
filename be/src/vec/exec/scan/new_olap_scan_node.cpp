@@ -37,7 +37,7 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
 
 Status NewOlapScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    _scanner_mem_tracker = std::make_unique<MemTracker>("OlapScanners");
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     return Status::OK();
 }
 
@@ -124,12 +124,23 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     filters_string += "[";
     for (auto it = filters.cbegin(); it != filters.cend(); it++) {
         if (it != filters.cbegin()) {
-            filters_string += ",";
+            filters_string += ", ";
         }
         filters_string += olap_filter_to_string(*it);
     }
     filters_string += "]";
     return filters_string;
+}
+
+static std::string tablets_id_to_string(
+        const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
+    std::stringstream ss;
+    ss << "[" << scan_ranges[0]->tablet_id;
+    for (int i = 1; i < scan_ranges.size(); ++i) {
+        ss << ", " << scan_ranges[i]->tablet_id;
+    }
+    ss << "]";
+    return ss.str();
 }
 
 Status NewOlapScanNode::_process_conjuncts() {
@@ -161,8 +172,12 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
-                    RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    // make a copy or range and pass to extend_scan_key, keep the range unchanged
+                    // because extend_scan_key method may change the first parameter.
+                    // but the original range may be converted to olap filters, if it's not a exact_range.
+                    auto temp_range = range;
+                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
+                                                               &exact_range));
                     if (exact_range) {
                         _colname_to_value_range.erase(iter->first);
                     }
@@ -180,74 +195,29 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         }
     }
 
-    _runtime_profile->add_info_string("PushDownPredicates", olap_filters_to_string(_olap_filters));
-    _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
+    // Append value ranges in "_not_in_value_ranges"
+    for (auto& range : _not_in_value_ranges) {
+        std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
+                   range);
+    }
+
+    if (_state->enable_profile()) {
+        _runtime_profile->add_info_string("PushDownPredicates",
+                                          olap_filters_to_string(_olap_filters));
+        _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
+        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+    }
     VLOG_CRITICAL << _scan_keys.debug_string();
 
     return Status::OK();
 }
 
-bool NewOlapScanNode::_should_push_down_binary_predicate(
-        VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
-        int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker) {
-    if (!fn_checker(fn_call->fn().name.function_name)) {
-        return false;
-    }
-
-    const auto& children = fn_call->children();
-    DCHECK(children.size() == 2);
-    for (size_t i = 0; i < children.size(); i++) {
-        if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
-            // not a slot ref(column)
-            continue;
-        }
-        if (!children[1 - i]->is_constant()) {
-            // only handle constant value
-            return false;
-        } else {
-            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
-                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
-                *slot_ref_child = i;
-                *constant_val = const_column->get_data_at(0);
-            } else {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-bool NewOlapScanNode::_should_push_down_in_predicate(VInPredicate* pred, VExprContext* expr_ctx,
-                                                     bool is_not_in) {
-    if (pred->is_not_in() != is_not_in) {
-        return false;
-    }
-    InState* state = reinterpret_cast<InState*>(
-            expr_ctx->fn_context(pred->fn_context_index())
-                    ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    HybridSetBase* set = state->hybrid_set.get();
-
-    // if there are too many elements in InPredicate, exceed the limit,
-    // we will not push any condition of this column to storage engine.
-    // because too many conditions pushed down to storage engine may even
-    // slow down the query process.
-    // ATTN: This is just an experience value. You may need to try
-    // different thresholds to improve performance.
-    if (set->size() > _max_pushdown_conditions_per_column) {
-        VLOG_NOTICE << "Predicate value num " << set->size() << " exceed limit "
-                    << _max_pushdown_conditions_per_column;
-        return false;
-    }
-    return true;
-}
-
-bool NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                        VExprContext* expr_ctx,
-                                                        StringVal* constant_str,
-                                                        doris_udf::FunctionContext** fn_ctx) {
+VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
+        VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringVal* constant_str,
+        doris_udf::FunctionContext** fn_ctx) {
     // Now only `like` function filters is supported to push down
     if (fn_call->fn().name.function_name != "like") {
-        return false;
+        return PushDownType::UNACCEPTABLE;
     }
 
     const auto& children = fn_call->children();
@@ -261,19 +231,19 @@ bool NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_cal
         }
         if (!children[1 - i]->is_constant()) {
             // only handle constant value
-            return false;
+            return PushDownType::UNACCEPTABLE;
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
             if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
                         children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
-                return false;
+                return PushDownType::UNACCEPTABLE;
             }
         }
     }
     *fn_ctx = func_cxt;
-    return true;
+    return PushDownType::ACCEPTABLE;
 }
 
 // PlanFragmentExecutor will call this method to set scan range
@@ -338,7 +308,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
         if (config::doris_scan_range_max_mb > 0) {
             size_based_scanners_per_tablet = std::max(
-                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+                    1, (int)(tablet->tablet_footprint() / (config::doris_scan_range_max_mb << 20)));
         }
 
         int ranges_per_scanner =
@@ -357,7 +327,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
-                    _need_agg_finalize, *scan_range, _scanner_mem_tracker.get());
+                    _need_agg_finalize, *scan_range, _scanner_profile.get());
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);

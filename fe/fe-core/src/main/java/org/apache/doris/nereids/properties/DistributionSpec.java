@@ -20,7 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribution;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 
 import com.google.common.collect.Lists;
 
@@ -42,7 +42,7 @@ public abstract class DistributionSpec {
     public GroupExpression addEnforcer(Group child) {
         // TODO:maybe we need to new a LogicalProperties or just do not set logical properties for this node.
         // If we don't set LogicalProperties explicitly, node will compute a applicable LogicalProperties for itself.
-        PhysicalDistribution distribution = new PhysicalDistribution(
+        PhysicalDistribute<GroupPlan> distribution = new PhysicalDistribute<>(
                 this,
                 child.getLogicalProperties(),
                 new GroupPlan(child));
@@ -51,7 +51,7 @@ public abstract class DistributionSpec {
 
     @Override
     public String toString() {
-        return this.getClass().toString();
+        return this.getClass().getSimpleName();
     }
 
     @Override

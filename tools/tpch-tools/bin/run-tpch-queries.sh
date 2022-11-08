@@ -95,15 +95,15 @@ echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 echo "Time Unit: ms"
 
-pre_set() {
+run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
 
 echo '============================================'
-pre_set "show variables;"
+run_sql "show variables;"
 echo '============================================'
-pre_set "show table status;"
+run_sql "show table status;"
 echo '============================================'
 
 sum=0
@@ -118,7 +118,7 @@ for i in $(seq 1 22); do
         total=$((total + end - start))
     done
     cost=$((total / run))
-    echo "q${i}: ${cost}"
+    echo "q${i}: ${cost} ms"
     sum=$((sum + cost))
 done
-echo "Total cost: ${sum}"
+echo "Total cost: ${sum} ms"

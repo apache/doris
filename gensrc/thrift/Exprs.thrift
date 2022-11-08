@@ -51,6 +51,9 @@ enum TExprNodeType {
 
   // only used in runtime filter
   BLOOM_PRED,
+
+  // for josn
+  JSON_LITERAL,
 }
 
 //enum TAggregationOp {
@@ -73,7 +76,7 @@ enum TExprNodeType {
 struct TAggregateExpr {
   // Indicates whether this expr is the merge() of an aggregation.
   1: required bool is_merge_agg
-  2: required list<Types.TTypeDesc> param_types
+  2: optional list<Types.TTypeDesc> param_types
 }
 struct TBoolLiteral {
   1: required bool value
@@ -140,6 +143,10 @@ struct TStringLiteral {
   1: required string value;
 }
 
+struct TJsonLiteral {
+  1: required string value;
+}
+
 struct TInfoFunc {
   1: required i64 int_value;
   2: required string str_value;
@@ -192,6 +199,8 @@ struct TExprNode {
 
   // For vectorized engine
   29: optional bool is_nullable
+  
+  30: optional TJsonLiteral json_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

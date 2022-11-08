@@ -500,7 +500,7 @@ public class SparkLoadJobTest {
             @Mocked ResourceMgr resourceMgr) throws Exception {
         long dbId = 1000L;
         SparkResource sparkResource = new SparkResource("my_spark", Maps.newHashMap(), "/path/to/", "bos",
-                Maps.newHashMap());
+                Maps.newHashMap(), Maps.newHashMap());
         new Expectations() {
             {
                 env.getResourceMgr();

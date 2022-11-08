@@ -22,11 +22,11 @@ suite("test_array_insert", "load") {
     def testTable02 = "tbl_test_array_insert02"
 
     def create_test_table = {testTablex, enable_vectorized_flag ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """
+        } else {
+            sql """ set enable_vectorized_engine = false """
         }
 
         def result1 = sql """
@@ -55,8 +55,6 @@ suite("test_array_insert", "load") {
     }
     
     def create_test_table01 = {testTabley ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
         
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable01} (
@@ -100,9 +98,6 @@ suite("test_array_insert", "load") {
     }
 
     def create_test_table02 = {testTablez ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-        
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable02} (
               `k1` int(11) NULL,
@@ -190,6 +185,45 @@ suite("test_array_insert", "load") {
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable01}")
+        try_sql("DROP TABLE IF EXISTS ${testTable02}")
+    }
+
+    // case4: test the array_sort(collect_list()) result to insert and select
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable01}"
+        sql "DROP TABLE IF EXISTS ${testTable02}"
+
+        create_test_table01.call(testTable01)
+        create_test_table02.call(testTable02)
+        
+        sql """INSERT INTO ${testTable02} select k1, array_sort(collect_list(k2)),  array_sort(collect_list(k3)), array_sort(collect_list(k4)), 
+            array_sort(collect_list(k5)), array_sort(collect_list(k6)), array_sort(collect_list(k7)), array_sort(collect_list(k8)),
+            array_sort(collect_list(k9)), array_sort(collect_list(k10)), array_sort(collect_list(k11)), array_sort(collect_list(k12)),
+            array_sort(collect_list(k13)) from ${testTable01} group by k1;
+        """
+        // select the table and check whether the data is correct
+        qt_select "select * from ${testTable02} order by k1"
+        qt_select "select array_avg(k2), array_avg(k3), array_avg(k4), array_avg(k9), array_avg(k10) from ${testTable02} order by k1"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable01}")
+        try_sql("DROP TABLE IF EXISTS ${testTable02}")
+    }
+
+    // case5: test to insert 'array<boolean>'
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable02}"
+
+        create_test_table02.call(testTable02)
+        
+        sql """INSERT INTO ${testTable02} VALUES (200, [1, 2, 3], [32767, 32768, 32769], [65534, 65535, 65536], 
+                ['a', 'b', 'c'], ["hello", "world"], ['2022-07-13'], ['2022-07-13 12:30:00'], [0.33, 0.67], [3.1415926, 0.878787878],
+                [4, 5.5, 6.67], '[1, 0, 1, 0]', ['happy life'])
+            """
+        // select the table and check whether the data is correct
+        qt_select "select * from ${testTable02} order by k1"
+
+    } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable02}")
     }
 }

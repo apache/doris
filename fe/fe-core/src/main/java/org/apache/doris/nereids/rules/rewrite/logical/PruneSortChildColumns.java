@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.util.SlotExtractor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -45,7 +44,7 @@ public class PruneSortChildColumns extends AbstractPushDownProjectRule<LogicalSo
 
     @Override
     protected Plan pushDownProject(LogicalSort<GroupPlan> sortPlan, Set<Slot> references) {
-        Set<Slot> sortSlots = SlotExtractor.extractSlot(sortPlan.getExpressions());
+        Set<Slot> sortSlots = sortPlan.getOutputSet();
         Set<Slot> required = Stream.concat(references.stream(), sortSlots.stream()).collect(Collectors.toSet());
         if (required.containsAll(sortPlan.child().getOutput())) {
             return sortPlan;

@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * TinyInt type in Nereids.
  */
 public class TinyIntType extends IntegralType {
-    public static TinyIntType INSTANCE = new TinyIntType();
+    public static final TinyIntType INSTANCE = new TinyIntType();
 
     private static final int WIDTH = 1;
 
@@ -47,7 +48,7 @@ public class TinyIntType extends IntegralType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof TinyIntType;
     }
 

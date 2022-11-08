@@ -49,7 +49,11 @@ public class AssertNumRowsNode extends PlanNode {
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();
         this.children.add(input);
-        this.tupleIds.addAll(input.getTupleIds());
+        if (input.getOutputTupleDesc() != null) {
+            this.tupleIds.add(input.getOutputTupleDesc().getId());
+        } else {
+            this.tupleIds.addAll(input.getTupleIds());
+        }
         this.tblRefIds.addAll(input.getTblRefIds());
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
     }
@@ -60,7 +64,7 @@ public class AssertNumRowsNode extends PlanNode {
         super.computeStats(analyzer);
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
             StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-            cardinality = statsDeriveResult.getRowCount();
+            cardinality = (long) statsDeriveResult.getRowCount();
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats AssertNumRows: cardinality={}", cardinality);
@@ -73,7 +77,7 @@ public class AssertNumRowsNode extends PlanNode {
             return "";
         }
         StringBuilder output = new StringBuilder()
-                .append(prefix + "assert number of rows: ")
+                .append(prefix).append("assert number of rows: ")
                 .append(assertion).append(" ").append(desiredNumOfRows).append("\n");
         return output.toString();
     }

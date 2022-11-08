@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -221,7 +222,8 @@ public final class RuntimeFilterGenerator {
             // from the ON clause.
             if (!joinNode.getJoinOp().isLeftOuterJoin()
                     && !joinNode.getJoinOp().isFullOuterJoin()
-                    && !joinNode.getJoinOp().isAntiJoin()) {
+                    && !joinNode.getJoinOp().equals(JoinOperator.LEFT_ANTI_JOIN)
+                    && !joinNode.getJoinOp().equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 joinConjuncts.addAll(joinNode.getEqJoinConjuncts());
             }
 

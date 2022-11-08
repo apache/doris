@@ -67,7 +67,7 @@
     "message": "Join 优化",
     "description": "The label for category Join Optimization in sidebar docs"
   },
-  "sidebar.docs.category.Date Cache": {
+  "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
     "description": "The label for category Date Cache in sidebar docs"
   },
@@ -91,9 +91,9 @@
     "message": "SeaTunnel",
     "description": "The label for category SeaTunnel in sidebar docs"
   },
-  "sidebar.docs.category.UDFA": {
-    "message": "UDFA",
-    "description": "The label for category UDFA in sidebar docs"
+  "sidebar.docs.category.UDAF": {
+    "message": "UDAF",
+    "description": "The label for category UDAF in sidebar docs"
   },
   "sidebar.docs.category.UDF": {
     "message": "自定义函数",

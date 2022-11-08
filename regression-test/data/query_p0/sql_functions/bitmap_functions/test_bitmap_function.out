@@ -47,13 +47,22 @@ true
 -- !sql --
 false
 
--- !sql --
+-- !sql_bitmap_hash1 --
 1
 
--- !sql --
+-- !sql_bitmap_hash2 --
 1
 
--- !sql --
+-- !sql_bitmap_hash3 --
+0
+
+-- !sql_bitmap_hash64_1 --
+1
+
+-- !sql_bitmap_hash64_2 --
+1
+
+-- !sql_bitmap_hash64_3 --
 0
 
 -- !sql --
@@ -239,4 +248,26 @@ false
 
 -- !sql --
 0
+
+-- !sql --
+[1, 2, 3]
+[1, 2, 3, 4, 5]
+
+-- !sql --
+[]
+
+-- !sql --
+[3, 4, 100, 200]
+
+-- !sql --
+1,2,3
+
+-- !sql --
+1
+
+-- !sql --
+100
+
+-- !sql --
+20221103
 

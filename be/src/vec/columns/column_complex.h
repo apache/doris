@@ -55,7 +55,7 @@ public:
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(static_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
@@ -76,6 +76,17 @@ public:
             pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
+        }
+    }
+
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            const size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+
+        for (size_t i = 0; i != num; ++i) {
+            insert_binary_data(data + offsets[i], offsets[i + 1] - offsets[i]);
         }
     }
 
@@ -150,7 +161,7 @@ public:
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        auto& col = static_cast<const Self&>(src);
+        auto& col = assert_cast<const Self&>(src);
         auto& src_data = col.get_data();
         auto st = src_data.begin() + start;
         auto ed = st + length;
@@ -173,7 +184,7 @@ public:
     }
 
     void pop_back(size_t n) override { data.erase(data.end() - n, data.end()); }
-    // it's impossable to use ComplexType as key , so we don't have to implemnt them
+    // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not implemented";
@@ -183,7 +194,20 @@ public:
         LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
     }
 
+    // maybe we do not need to impl the function
     void update_hash_with_value(size_t n, SipHash& hash) const override {
+        // TODO add hash function
+    }
+
+    virtual void update_hashes_with_value(
+            std::vector<SipHash>& hashes,
+            const uint8_t* __restrict null_data = nullptr) const override {
+            // TODO add hash function
+    };
+
+    virtual void update_hashes_with_value(
+            uint64_t* __restrict hashes,
+            const uint8_t* __restrict null_data = nullptr) const override {
         // TODO add hash function
     }
 
@@ -223,7 +247,8 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
@@ -237,7 +262,7 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = static_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
@@ -254,7 +279,7 @@ MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
     auto res = this->create();
 
     if (size > 0) {
-        auto& new_col = static_cast<Self&>(*res);
+        auto& new_col = assert_cast<Self&>(*res);
         new_col.data = this->data;
     }
 
@@ -335,16 +360,17 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
 }
 
 template <typename T>
-void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size,
-                                     IColumn& column) const {
-    size_t size = data.size();
+void ColumnComplexType<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
+                                     size_t begin, int count_sz) const {
+    size_t size = count_sz < 0 ? data.size() : count_sz;
     if (0 == size) return;
 
     auto& res = reinterpret_cast<ColumnComplexType<T>&>(column);
     typename Self::Container& res_data = res.get_data();
     res_data.reserve(target_size);
 
-    for (size_t i = 0; i < size; ++i) {
+    size_t end = size + begin;
+    for (size_t i = begin; i < end; ++i) {
         size_t size_to_replicate = counts[i];
         for (size_t j = 0; j < size_to_replicate; ++j) {
             res_data.push_back(data[i]);

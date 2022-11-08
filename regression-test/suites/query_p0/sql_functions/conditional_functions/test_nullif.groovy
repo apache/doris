@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_nullif") {
+    qt_ifnull_const1 """select CONCAT('a', ifnull(split_part('A.B','.',1), 'x'));"""
+    qt_ifnull_const2 """select CONCAT('a', ifnull(split_part('A.B','.',1), null));"""
+
     def tableName = "datetype"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -77,6 +80,7 @@ suite("test_nullif") {
 
     qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
     qt_select "select if(c_date is null,c_timestamp,c_date) from ${tableName} where c_date is null and c_timestamp is not null"
+    qt_select "select if(c_bigint > 10,c_timestamp,c_date) from ${tableName}"
     qt_select "select if(c_date_1 is null,c_timestamp_1,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_1 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_2,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_2 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_3,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_3 is not null"

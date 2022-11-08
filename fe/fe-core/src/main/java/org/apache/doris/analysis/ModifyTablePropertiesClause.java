@@ -104,6 +104,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
             this.needTableStable = false;
             setStoragePolicy(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, ""));
+        } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
+            throw new AnalysisException("Alter tablet type not supported");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

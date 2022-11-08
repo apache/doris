@@ -159,14 +159,19 @@ struct ArrayAggregateImpl {
         const IColumn* data = array.get_data_ptr().get();
 
         const auto& offsets = array.get_offsets();
-        if (execute_type<Int8>(res, type, data, offsets) ||
+        if (execute_type<UInt8>(res, type, data, offsets) ||
+            execute_type<Int8>(res, type, data, offsets) ||
             execute_type<Int16>(res, type, data, offsets) ||
             execute_type<Int32>(res, type, data, offsets) ||
             execute_type<Int64>(res, type, data, offsets) ||
             execute_type<Int128>(res, type, data, offsets) ||
             execute_type<Float32>(res, type, data, offsets) ||
             execute_type<Float64>(res, type, data, offsets) ||
-            execute_type<Decimal128>(res, type, data, offsets)) {
+            execute_type<Decimal128>(res, type, data, offsets) ||
+            execute_type<Date>(res, type, data, offsets) ||
+            execute_type<DateTime>(res, type, data, offsets) ||
+            execute_type<DateV2>(res, type, data, offsets) ||
+            execute_type<DateTimeV2>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {

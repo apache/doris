@@ -33,6 +33,7 @@
 #include "runtime/string_value.h"
 #include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
+#include "util/exception.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 
@@ -78,8 +79,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
           _num_tuples_per_row(input_batch.row_tuples_size()),
           _row_desc(row_desc),
           _auxiliary_mem_usage(0),
-          _need_to_return(false),
-          _tuple_data_pool() {
+          _need_to_return(false) {
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
@@ -286,7 +286,7 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
             std::exception_ptr p = std::current_exception();
             LOG(WARNING) << "Try to alloc " << max_compressed_size
                          << " bytes for compression scratch failed. "
-                         << (p ? p.__cxa_exception_type()->name() : "null");
+                         << get_current_exception_type_name(p);
         }
     }
     if (can_compress) {

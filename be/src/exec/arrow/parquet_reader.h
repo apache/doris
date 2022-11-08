@@ -62,16 +62,15 @@ class RowGroupReader;
 class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
     // batch_size is not use here
-    ParquetReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
+    ParquetReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
+                      FileReader* file_reader, int32_t num_of_columns_from_file,
                       int64_t range_start_offset, int64_t range_size, bool case_sensitive = true);
     ~ParquetReaderWrap() override = default;
 
     // Read
-    Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                MemPool* mem_pool, bool* eof) override;
+    Status read(Tuple* tuple, MemPool* mem_pool, bool* eof) override;
     Status size(int64_t* size) override;
     Status init_reader(const TupleDescriptor* tuple_desc,
-                       const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::vector<ExprContext*>& conjunct_ctxs,
                        const std::string& timezone) override;
     Status init_parquet_type();
@@ -102,6 +101,7 @@ private:
     std::string _timezone;
     int64_t _range_start_offset;
     int64_t _range_size;
+    bool _need_filter_row_group = false;
 
 private:
     std::unique_ptr<doris::RowGroupReader> _row_group_reader;

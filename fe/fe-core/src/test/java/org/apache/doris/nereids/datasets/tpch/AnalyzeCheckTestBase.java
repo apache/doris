@@ -19,6 +19,7 @@ package org.apache.doris.nereids.datasets.tpch;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.utframe.TestWithFeService;
@@ -28,6 +29,12 @@ import org.junit.jupiter.api.Assertions;
 import java.util.List;
 
 public abstract class AnalyzeCheckTestBase extends TestWithFeService {
+
+    @Override
+    public void runBeforeEach() throws Exception {
+        NamedExpressionUtil.clear();
+    }
+
     protected void checkAnalyze(String sql) {
         LogicalPlan analyzed = analyze(sql);
         Assertions.assertTrue(checkBound(analyzed));
@@ -48,7 +55,7 @@ public abstract class AnalyzeCheckTestBase extends TestWithFeService {
             }
         }
 
-        List<Expression> expressions = plan.getExpressions();
+        List<? extends Expression> expressions = plan.getExpressions();
         return expressions.stream().allMatch(this::checkExpressionBound);
     }
 

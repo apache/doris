@@ -20,11 +20,8 @@ package org.apache.doris.common;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloRole;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
-
-import java.util.Map;
 
 public class FeNameFormat {
     private static final String LABEL_REGEX = "^[-_A-Za-z0-9]{1,128}$";
@@ -33,15 +30,6 @@ public class FeNameFormat {
     private static final String COLUMN_NAME_REGEX = "^[_a-zA-Z@][a-zA-Z0-9_]{0,63}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
-
-    public static void checkClusterName(String clusterName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(clusterName) || !clusterName.matches(COMMON_NAME_REGEX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CLUSTER_NAME, clusterName);
-        }
-        if (clusterName.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CLUSTER_NAME, clusterName);
-        }
-    }
 
     public static void checkCatalogName(String catalogName) throws AnalysisException {
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName) && (Strings.isNullOrEmpty(catalogName)
@@ -60,7 +48,8 @@ public class FeNameFormat {
         if (Strings.isNullOrEmpty(tableName)
                 || !tableName.matches(COMMON_TABLE_NAME_REGEX)
                 || tableName.length() > Config.table_name_length_limit) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME, tableName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME, tableName,
+                    COMMON_TABLE_NAME_REGEX);
         }
     }
 
@@ -76,10 +65,12 @@ public class FeNameFormat {
 
     public static void checkColumnName(String columnName) throws AnalysisException {
         if (Strings.isNullOrEmpty(columnName) || !columnName.matches(COLUMN_NAME_REGEX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }
         if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }
     }
 
@@ -123,12 +114,7 @@ public class FeNameFormat {
         }
     }
 
-    /**
-     * Check the type property of the catalog props.
-     */
-    public static void checkCatalogProperties(Map<String, String> props) throws AnalysisException {
-        if (!props.containsKey("type")) {
-            throw new AnalysisException("All the external catalog should contain the type property.");
-        }
+    public static String getColumnNameRegex() {
+        return COLUMN_NAME_REGEX;
     }
 }

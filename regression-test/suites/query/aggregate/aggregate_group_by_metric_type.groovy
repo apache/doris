@@ -20,7 +20,7 @@ suite("aggregate_group_by_metric_type") {
     sql "DROP TABLE IF EXISTS test_group_by_hll_and_bitmap"
 
     sql """
-        CREATE TABLE test_group_by_hll_and_bitmap (id int, user_ids bitmap bitmap_union, hll_set hll hll_union) 
+        CREATE TABLE IF NOT EXISTS test_group_by_hll_and_bitmap (id int, user_ids bitmap bitmap_union, hll_set hll hll_union) 
         ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 properties("replication_num" = "1");
         """
 
@@ -49,9 +49,8 @@ suite("aggregate_group_by_metric_type") {
     sql "DROP TABLE test_group_by_hll_and_bitmap"
 
     sql "DROP TABLE IF EXISTS test_group_by_array"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     sql """
-        CREATE TABLE test_group_by_array (id int, c_array array<int>) ENGINE=OLAP DUPLICATE KEY(`id`)
+        CREATE TABLE IF NOT EXISTS test_group_by_array (id int, c_array array<int>) ENGINE=OLAP DUPLICATE KEY(`id`)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
         """
     sql "insert into test_group_by_array values(1, [1,2,3])"

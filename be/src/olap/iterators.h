@@ -77,6 +77,7 @@ public:
     std::vector<ColumnPredicate*> column_predicates;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
     std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> col_id_to_del_predicates;
+    TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
@@ -94,8 +95,8 @@ public:
 // Used to read data in RowBlockV2 one by one
 class RowwiseIterator {
 public:
-    RowwiseIterator() {}
-    virtual ~RowwiseIterator() {}
+    RowwiseIterator() = default;
+    virtual ~RowwiseIterator() = default;
 
     // Initialize this iterator and make it ready to read with
     // input options.
@@ -116,6 +117,12 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
+    virtual Status next_block_view(vectorized::BlockView* block_view) {
+        return Status::NotSupported("to be implemented");
+    }
+
+    virtual bool support_return_data_by_ref() { return false; }
+
     virtual Status current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
         return Status::NotSupported("to be implemented");
     }
@@ -129,6 +136,8 @@ public:
     // Return the data id such as segment id, used for keep the insert order when do
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
+
+    virtual bool update_profile(RuntimeProfile* profile) { return false; }
 };
 
 } // namespace doris

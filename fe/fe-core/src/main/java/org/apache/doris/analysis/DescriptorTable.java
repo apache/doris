@@ -36,6 +36,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Repository for tuple (and slot) descriptors.
@@ -52,6 +53,8 @@ public class DescriptorTable {
     private final IdGenerator<TupleId> tupleIdGenerator = TupleId.createGenerator();
     private final IdGenerator<SlotId> slotIdGenerator = SlotId.createGenerator();
     private final HashMap<SlotId, SlotDescriptor> slotDescs = Maps.newHashMap();
+
+    private final HashMap<SlotDescriptor, SlotDescriptor> outToIntermediateSlots = new HashMap<>();
 
     public DescriptorTable() {
     }
@@ -163,6 +166,16 @@ public class DescriptorTable {
     public void computeStatAndMemLayout() {
         for (TupleDescriptor d : tupleDescs.values()) {
             d.computeStatAndMemLayout();
+        }
+    }
+
+    public void addSlotMappingInfo(Map<SlotDescriptor, SlotDescriptor> mapping) {
+        outToIntermediateSlots.putAll(mapping);
+    }
+
+    public void materializeIntermediateSlots() {
+        for (Map.Entry<SlotDescriptor, SlotDescriptor> entry : outToIntermediateSlots.entrySet()) {
+            entry.getValue().setIsMaterialized(entry.getKey().isMaterialized());
         }
     }
 

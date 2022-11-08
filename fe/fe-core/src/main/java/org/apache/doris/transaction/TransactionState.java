@@ -171,6 +171,7 @@ public class TransactionState implements Writable {
 
     private long dbId;
     private List<Long> tableIdList;
+    private int replicaNum = 0;
     private long transactionId;
     private String label;
     // requestId is used to judge whether a begin request is a internal retry request.
@@ -188,9 +189,10 @@ public class TransactionState implements Writable {
     private String reason = "";
     // error replica ids
     private Set<Long> errorReplicas;
-    private CountDownLatch latch;
+    // this latch will be counted down when txn status change to VISIBLE
+    private CountDownLatch visibleLatch;
 
-    // this state need not to be serialized
+    // this state need not be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
     private long publishVersionTime = -1;
@@ -246,7 +248,7 @@ public class TransactionState implements Writable {
         this.errorReplicas = Sets.newHashSet();
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
-        this.latch = new CountDownLatch(1);
+        this.visibleLatch = new CountDownLatch(1);
         this.authCode = UUID.randomUUID().toString();
     }
 
@@ -269,7 +271,7 @@ public class TransactionState implements Writable {
         this.errorReplicas = Sets.newHashSet();
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
-        this.latch = new CountDownLatch(1);
+        this.visibleLatch = new CountDownLatch(1);
         this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
         this.authCode = UUID.randomUUID().toString();
@@ -285,11 +287,6 @@ public class TransactionState implements Writable {
 
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
-    }
-
-    public boolean isRunning() {
-        return transactionStatus == TransactionStatus.PREPARE
-                || transactionStatus == TransactionStatus.COMMITTED;
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
@@ -384,7 +381,6 @@ public class TransactionState implements Writable {
 
         // after status changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
-            this.latch.countDown();
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             }
@@ -462,8 +458,12 @@ public class TransactionState implements Writable {
         }
     }
 
+    public void countdownVisibleLatch() {
+        this.visibleLatch.countDown();
+    }
+
     public void waitTransactionVisible(long timeoutMillis) throws InterruptedException {
-        this.latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
+        this.visibleLatch.await(timeoutMillis, TimeUnit.MILLISECONDS);
     }
 
     public void setPrepareTime(long prepareTime) {
@@ -496,6 +496,14 @@ public class TransactionState implements Writable {
 
     public List<Long> getTableIdList() {
         return tableIdList;
+    }
+
+    public int getReplicaNum() {
+        return replicaNum;
+    }
+
+    public void setReplicaNum(int replicaNum) {
+        this.replicaNum = replicaNum;
     }
 
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {

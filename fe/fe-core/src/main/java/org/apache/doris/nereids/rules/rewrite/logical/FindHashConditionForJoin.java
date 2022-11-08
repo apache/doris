@@ -22,48 +22,54 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * this rule aims to find a conjunct list from on clause expression, which could
  * be used to build hash-table.
- *
+ * <p>
  * For example:
- *  A join B on A.x=B.x and A.y>1 and A.x+1=B.x+B.y and A.z=B.z+A.x and (A.z=B.z or A.x=B.x)
- *  {A.x=B.x, A.x+1=B.x+B.y} could be used to build hash table,
- *  but {A.y>1, A.z=B.z+A.z, (A.z=B.z or A.x=B.x)} are not.
- *
+ * A join B on A.x=B.x and A.y>1 and A.x+1=B.x+B.y and A.z=B.z+A.x and (A.z=B.z or A.x=B.x)
+ * {A.x=B.x, A.x+1=B.x+B.y} could be used to build hash table,
+ * but {A.y>1, A.z=B.z+A.z, (A.z=B.z or A.x=B.x)} are not.
+ * <p>
  * CAUTION:
- *  This rule must be applied after BindSlotReference
+ * This rule must be applied after BindSlotReference
  */
 public class FindHashConditionForJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin().then(join -> {
-            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(join);
+            List<Slot> leftSlots = join.left().getOutput();
+            List<Slot> rightSlots = join.right().getOutput();
+            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(leftSlots,
+                    rightSlots, join.getOtherJoinConjuncts());
+
             List<Expression> extractedHashJoinConjuncts = pair.first;
-            Optional<Expression> remaindNonHashJoinConjuncts = Optional.of(ExpressionUtils.and(pair.second));
-            if (!extractedHashJoinConjuncts.isEmpty()) {
-                List<Expression> combinedHashJoinConjuncts = new ImmutableList.Builder<Expression>()
-                                    .addAll(join.getHashJoinConjuncts())
-                                    .addAll(extractedHashJoinConjuncts)
-                                    .build();
-                return new LogicalJoin(join.getJoinType(),
-                    combinedHashJoinConjuncts,
-                    remaindNonHashJoinConjuncts,
-                    Optional.empty(),
-                    Optional.empty(),
-                    join.left(), join.right());
-            } else {
+            List<Expression> remainedNonHashJoinConjuncts = pair.second;
+            if (extractedHashJoinConjuncts.isEmpty()) {
                 return join;
             }
+
+            List<Expression> combinedHashJoinConjuncts = new ImmutableList.Builder<Expression>()
+                    .addAll(join.getHashJoinConjuncts())
+                    .addAll(extractedHashJoinConjuncts)
+                    .build();
+            JoinType joinType = join.getJoinType();
+            if (joinType == JoinType.CROSS_JOIN && !combinedHashJoinConjuncts.isEmpty()) {
+                joinType = JoinType.INNER_JOIN;
+            }
+            return new LogicalJoin<>(joinType,
+                    combinedHashJoinConjuncts,
+                    remainedNonHashJoinConjuncts,
+                    join.left(), join.right());
         }).toRule(RuleType.FIND_HASH_CONDITION_FOR_JOIN);
     }
 }

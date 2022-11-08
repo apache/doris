@@ -104,7 +104,8 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
     if (UNLIKELY(dst->ptr == nullptr)) {
         dst->is_null = false;
         dst->len = sizeof(BitmapValue);
-        dst->ptr = (uint8_t*)new BitmapValue((char*)src.ptr);
+        dst->ptr = (uint8_t*)new BitmapValue();
+        BitmapFunctions::bitmap_union(ctx, src, dst);
         return;
     }
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
@@ -113,6 +114,19 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
         (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(src.ptr);
     } else {
         (*dst_bitmap) &= BitmapValue((char*)src.ptr);
+    }
+}
+
+void BitmapFunctions::group_bitmap_xor(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        (*dst_bitmap) ^= *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        (*dst_bitmap) ^= BitmapValue((char*)src.ptr);
     }
 }
 
@@ -159,12 +173,76 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::to_bitmap_with_check(doris_udf::FunctionContext* ctx,
+                                                const doris_udf::StringVal& src) {
+    BitmapValue bitmap;
+
+    if (!src.is_null) {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+        if (parse_result == StringParser::PARSE_SUCCESS) {
+            bitmap.add(int_value);
+        } else {
+            std::stringstream ss;
+            ss << "The input: " << src.to_string()
+               << " is not valid, to_bitmap only support bigint value from 0 to "
+                  "18446744073709551615 currently, cannot load negative values to column with"
+                  " to_bitmap MV on it.";
+            ctx->set_error(ss.str().c_str());
+            return StringVal::null();
+        }
+    }
+
+    return serialize(ctx, &bitmap);
+}
+
+StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
+                                     const doris_udf::BigIntVal& src) {
+    BitmapValue bitmap;
+    if (LIKELY(!src.is_null && src.val >= 0)) {
+        bitmap.add(src.val);
+    }
+    return serialize(ctx, &bitmap);
+}
+
+StringVal BitmapFunctions::to_bitmap_with_check(doris_udf::FunctionContext* ctx,
+                                                const doris_udf::BigIntVal& src) {
+    BitmapValue bitmap;
+
+    if (!src.is_null) {
+        if (LIKELY(src.val >= 0)) {
+            bitmap.add(src.val);
+        } else {
+            std::stringstream ss;
+            ss << "The input: " << src.val
+               << " is not valid, to_bitmap only support bigint value from 0 to "
+                  "18446744073709551615 currently, cannot load negative values to column with"
+                  " to_bitmap MV on it.";
+            ctx->set_error(ss.str().c_str());
+            return StringVal::null();
+        }
+    }
+
+    return serialize(ctx, &bitmap);
+}
+
 StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
                                        const doris_udf::StringVal& src) {
     BitmapValue bitmap;
     if (!src.is_null) {
         uint32_t hash_value =
                 HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
+        bitmap.add(hash_value);
+    }
+    return serialize(ctx, &bitmap);
+}
+StringVal BitmapFunctions::bitmap_hash64(doris_udf::FunctionContext* ctx,
+                                         const doris_udf::StringVal& src) {
+    BitmapValue bitmap;
+    if (!src.is_null) {
+        uint64_t hash_value = 0;
+        murmur_hash3_x64_64(src.ptr, src.len, 0, &hash_value);
         bitmap.add(hash_value);
     }
     return serialize(ctx, &bitmap);
@@ -822,10 +900,19 @@ void BitmapFunctions::orthogonal_bitmap_count_merge(FunctionContext* context, co
 // finalize for ORTHOGONAL_BITMAP_UNION_COUNT(bitmap)
 BigIntVal BitmapFunctions::orthogonal_bitmap_count_finalize(FunctionContext* context,
                                                             const StringVal& src) {
-    auto* pval = reinterpret_cast<int64_t*>(src.ptr);
-    int64_t result = *pval;
-    delete pval;
-    return result;
+    if (src.is_null) {
+        return BigIntVal::null();
+    } else if (src.len == sizeof(int64_t)) {
+        auto* pval = reinterpret_cast<int64_t*>(src.ptr);
+        BigIntVal result = BigIntVal(*pval);
+        delete pval;
+        return result;
+    } else {
+        auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        BigIntVal result = BigIntVal(src_bitmap->cardinality());
+        delete src_bitmap;
+        return result;
+    }
 }
 
 // This is a serialize function for orthogonal_bitmap_intersect_count(bitmap,t,t).

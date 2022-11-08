@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <type_traits>
+
+#include "runtime/decimalv2_value.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -241,9 +244,13 @@ struct DecimalBinaryOperation {
             }
         }
 
-        /// default: use it if no return before
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a[i], b[i]);
+        if constexpr (OpTraits::is_multiply && std::is_same_v<A, Decimal128> &&
+                      std::is_same_v<B, Decimal128>) {
+            Op::vector_vector(a, b, c);
+        } else {
+            for (size_t i = 0; i < size; i++) {
+                c[i] = apply(a[i], b[i]);
+            }
         }
     }
 
@@ -499,7 +506,7 @@ struct DecimalBinaryOperation {
     }
 
 private:
-    /// there's implicit type convertion here
+    /// there's implicit type conversion here
     static NativeResultType apply(NativeResultType a, NativeResultType b) {
         if (config::enable_decimalv3) {
             if constexpr (OpTraits::can_overflow && check_overflow) {

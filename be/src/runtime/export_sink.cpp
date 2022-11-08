@@ -26,6 +26,7 @@
 #include "gutil/strings/numbers.h"
 #include "io/file_factory.h"
 #include "runtime/large_int_value.h"
+#include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
@@ -207,6 +208,12 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 int output_scale = _output_expr_ctxs[i]->root()->output_scale();
                 decimal_str = decimal_val.to_string(output_scale);
                 (*ss) << decimal_str;
+                break;
+            }
+            case TYPE_ARRAY: {
+                auto col_type = _output_expr_ctxs[i]->root()->type();
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                RawValue::print_value(item, col_type, output_scale, ss);
                 break;
             }
             default: {

@@ -27,6 +27,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
@@ -42,6 +43,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,16 +52,13 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
- * Collect statistics about a database
+ * Collect statistics.
  *
  * syntax:
  * ANALYZE [[ db_name.tb_name ] [( column_name [, ...] )], ...] [ PROPERTIES(...) ]
- *
- *      db_name.tb_name: collect table and column statistics from tb_name
- *
- *      column_name: collect column statistics from column_name
- *
- *      properties: properties of statistics jobs
+ *     db_name.tb_name: collect table and column statistics from tb_name
+ *     column_name: collect column statistics from column_name
+ *     properties: properties of statistics jobs
  */
 public class AnalyzeStmt extends DdlStmt {
     // time to wait for collect  statistics
@@ -135,6 +134,13 @@ public class AnalyzeStmt extends DdlStmt {
         return partitionNames;
     }
 
+    /**
+     * The statistics task obtains partitions and then collects partition statistics,
+     * we need to filter out partitions that do not have data.
+     *
+     * @return map of tableId and partitionName
+     * @throws AnalysisException not analyzed
+     */
     public Map<Long, List<String>> getTableIdToPartitionName() throws AnalysisException {
         Preconditions.checkArgument(isAnalyzed(),
                 "The partitionIds must be obtained after the parsing is complete");
@@ -145,10 +151,11 @@ public class AnalyzeStmt extends DdlStmt {
             try {
                 OlapTable olapTable = (OlapTable) table;
                 List<String> partitionNames = getPartitionNames();
-                if (partitionNames.isEmpty() && olapTable.isPartitioned()) {
-                    partitionNames.addAll(olapTable.getPartitionNames());
+                List<String> newPartitionNames = new ArrayList<>(partitionNames);
+                if (newPartitionNames.isEmpty() && olapTable.isPartitioned()) {
+                    newPartitionNames.addAll(olapTable.getPartitionNames());
                 }
-                tableIdToPartitionName.put(table.getId(), partitionNames);
+                tableIdToPartitionName.put(table.getId(), newPartitionNames);
             } finally {
                 table.readUnlock();
             }
@@ -217,7 +224,8 @@ public class AnalyzeStmt extends DdlStmt {
                             .filter(entity -> !baseSchema.contains(entity)).findFirst();
                     if (optional.isPresent()) {
                         String columnName = optional.get();
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                                columnName, FeNameFormat.getColumnNameRegex());
                     }
                 } finally {
                     table.readUnlock();
@@ -335,7 +343,7 @@ public class AnalyzeStmt extends DdlStmt {
             sb.append(optTableName.toSql());
         }
 
-        if  (optColumnNames != null) {
+        if (optColumnNames != null) {
             sb.append("(");
             sb.append(StringUtils.join(optColumnNames, ","));
             sb.append(")");

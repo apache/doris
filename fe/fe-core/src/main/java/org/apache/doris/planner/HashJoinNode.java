@@ -91,7 +91,7 @@ public class HashJoinNode extends PlanNode {
     private String colocateReason = ""; // if can not do colocate join, set reason here
     private boolean isBucketShuffle = false; // the flag for bucket shuffle join
 
-    private List<SlotId> hashOutputSlotIds;
+    private List<SlotId> hashOutputSlotIds = new ArrayList<>(); //init for nereids
     private TupleDescriptor vOutputTupleDesc;
     private ExprSubstitutionMap vSrcToOutputSMap;
     private List<TupleDescriptor> vIntermediateTupleDescList;
@@ -452,7 +452,15 @@ public class HashJoinNode extends PlanNode {
         int leftNullableNumber = 0;
         int rightNullableNumber = 0;
         if (copyLeft) {
-            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getOutputTupleIds())) {
+            //cross join do not have OutputTblRefIds
+            List<TupleId> srcTupleIds = getChild(0) instanceof CrossJoinNode ? getChild(0).getOutputTupleIds()
+                    : getChild(0).getOutputTblRefIds();
+            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(srcTupleIds)) {
+                // if the child is cross join node, the only way to get the correct nullable info of its output slots
+                // is to check if the output tuple ids are outer joined or not.
+                // then pass this nullable info to hash join node will be correct.
+                boolean needSetToNullable =
+                        getChild(0) instanceof CrossJoinNode && analyzer.isOuterJoined(leftTupleDesc.getId());
                 for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(leftSlotDesc, getChild(0).getOutputSmap())) {
                         continue;
@@ -463,13 +471,19 @@ public class HashJoinNode extends PlanNode {
                         outputSlotDesc.setIsNullable(true);
                         leftNullableNumber++;
                     }
+                    if (needSetToNullable) {
+                        outputSlotDesc.setIsNullable(true);
+                    }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
                 }
             }
         }
         if (copyRight) {
-            for (TupleDescriptor rightTupleDesc :
-                    analyzer.getDescTbl().getTupleDesc(getChild(1).getOutputTupleIds())) {
+            List<TupleId> srcTupleIds = getChild(1) instanceof CrossJoinNode ? getChild(1).getOutputTupleIds()
+                    : getChild(1).getOutputTblRefIds();
+            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(srcTupleIds)) {
+                boolean needSetToNullable =
+                        getChild(1) instanceof CrossJoinNode && analyzer.isOuterJoined(rightTupleDesc.getId());
                 for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
                     if (!isMaterailizedByChild(rightSlotDesc, getChild(1).getOutputSmap())) {
                         continue;
@@ -479,6 +493,9 @@ public class HashJoinNode extends PlanNode {
                     if (rightNullable) {
                         outputSlotDesc.setIsNullable(true);
                         rightNullableNumber++;
+                    }
+                    if (needSetToNullable) {
+                        outputSlotDesc.setIsNullable(true);
                     }
                     srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
                 }
@@ -838,7 +855,7 @@ public class HashJoinNode extends PlanNode {
         }
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats HashJoin:" + id + ", cardinality: " + cardinality);
@@ -961,7 +978,7 @@ public class HashJoinNode extends PlanNode {
         Preconditions.checkState(joinOp.isSemiJoin());
 
         // Return -1 if the cardinality of the returned side is unknown.
-        long cardinality;
+        double cardinality;
         if (joinOp == JoinOperator.RIGHT_SEMI_JOIN || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
             if (getChild(1).cardinality == -1) {
                 return -1;
@@ -1041,6 +1058,11 @@ public class HashJoinNode extends PlanNode {
         }
     }
 
+    //nereids only
+    public void addSlotIdToHashOutputSlotIds(SlotId slotId) {
+        hashOutputSlotIds.add(slotId);
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.HASH_JOIN_NODE;
@@ -1099,6 +1121,7 @@ public class HashJoinNode extends PlanNode {
                         .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
             return output.toString();
         }
 
@@ -1247,6 +1270,13 @@ public class HashJoinNode extends PlanNode {
             }
         }
         return true;
+    }
+
+    /**
+     * Used by nereids.
+     */
+    public void setOtherJoinConjuncts(List<Expr> otherJoinConjuncts) {
+        this.otherJoinConjuncts = otherJoinConjuncts;
     }
 
     /**

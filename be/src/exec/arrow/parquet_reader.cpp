@@ -22,6 +22,7 @@
 #include <time.h>
 
 #include <algorithm>
+#include <cinttypes>
 #include <mutex>
 #include <thread>
 
@@ -37,10 +38,13 @@
 namespace doris {
 
 // Broker
-ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                     int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                     int64_t range_size, bool case_sensitive)
-        : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file, case_sensitive),
+ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
+                                     const std::vector<SlotDescriptor*>& file_slot_descs,
+                                     FileReader* file_reader, int32_t num_of_columns_from_file,
+                                     int64_t range_start_offset, int64_t range_size,
+                                     bool case_sensitive)
+        : ArrowReaderWrap(state, file_slot_descs, file_reader, num_of_columns_from_file,
+                          case_sensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0),
@@ -48,7 +52,6 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size
           _range_size(range_size) {}
 
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
-                                      const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                       const std::vector<ExprContext*>& conjunct_ctxs,
                                       const std::string& timezone) {
     try {
@@ -97,8 +100,9 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 
         _timezone = timezone;
 
-        RETURN_IF_ERROR(column_indices(tuple_slot_descs));
-        if (config::parquet_predicate_push_down) {
+        RETURN_IF_ERROR(column_indices());
+        _need_filter_row_group = (tuple_desc != nullptr);
+        if (_need_filter_row_group) {
             int64_t file_size = 0;
             size(&file_size);
             _row_group_reader.reset(new RowGroupReader(_range_start_offset, _range_size,
@@ -238,8 +242,7 @@ Status ParquetReaderWrap::init_parquet_type() {
     return Status::OK();
 }
 
-Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                               MemPool* mem_pool, bool* eof) {
+Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
     if (_batch == nullptr) {
         _current_line_of_group += _rows_of_group;
         return read_record_batch(eof);
@@ -251,7 +254,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     try {
         size_t slots = _include_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
-            auto slot_desc = tuple_slot_descs[i];
+            auto slot_desc = _file_slot_descs[i];
             column_index = i; // column index in batch record
             switch (_parquet_column_type[i]) {
             case arrow::Type::type::STRING: {
@@ -272,7 +275,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int32_t value = int32_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -284,7 +287,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int64_t value = int64_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%ld", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRId64, value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -296,7 +299,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint32_t value = uint32_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%u", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%u", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -308,7 +311,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint64_t value = uint64_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%lu", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRIu64, value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -357,7 +360,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint8_t value = uint8_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -369,7 +372,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int8_t value = int8_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -381,7 +384,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint16_t value = uint16_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -393,7 +396,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int16_t value = int16_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -405,7 +408,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     float value = half_float_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%f", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -420,7 +423,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     // Because the decimal type currently only supports (27, 9).
                     // Therefore, we use %.9f to give priority to the progress of the decimal type.
                     // Cannot use %f directly, this will cause 4000.9 to be converted to 4000.8999
-                    wbytes = sprintf((char*)tmp_buf, "%.9f", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%.9f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -432,7 +435,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     double value = double_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%.9f", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%.9f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -550,7 +553,7 @@ void ParquetReaderWrap::read_batches(arrow::RecordBatchVector& batches, int curr
 }
 
 bool ParquetReaderWrap::filter_row_group(int current_group) {
-    if (config::parquet_predicate_push_down) {
+    if (_need_filter_row_group) {
         auto filter_group_set = _row_group_reader->filter_groups();
         if (filter_group_set.end() != filter_group_set.find(current_group)) {
             // find filter group, skip

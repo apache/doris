@@ -35,27 +35,19 @@ namespace segment_v2 {
 
 using strings::Substitute;
 
-Status PageIO::compress_page_body(const BlockCompressionCodec* codec, double min_space_saving,
+Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {
     size_t uncompressed_size = Slice::compute_total_size(body);
-    if (codec != nullptr && uncompressed_size > 0) {
-        size_t max_compressed_size = codec->max_compressed_len(uncompressed_size);
-        if (max_compressed_size) {
-            faststring buf;
-            buf.resize(max_compressed_size);
-            Slice compressed_slice(buf);
-            RETURN_IF_ERROR(codec->compress(body, &compressed_slice));
-            buf.resize(compressed_slice.get_size());
-
-            double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
-            // return compressed body only when it saves more than min_space_saving
-            if (space_saving > 0 && space_saving >= min_space_saving) {
-                // shrink the buf to fit the len size to avoid taking
-                // up the memory of the size MAX_COMPRESSED_SIZE
-                buf.shrink_to_fit();
-                *compressed_body = buf.build();
-                return Status::OK();
-            }
+    if (codec != nullptr && !codec->exceed_max_compress_len(uncompressed_size)) {
+        faststring buf;
+        RETURN_IF_ERROR(codec->compress(body, uncompressed_size, &buf));
+        double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
+        // return compressed body only when it saves more than min_space_saving
+        if (space_saving > 0 && space_saving >= min_space_saving) {
+            // shrink the buf to fit the len size to avoid taking
+            // up the memory of the size MAX_COMPRESSED_SIZE
+            *compressed_body = buf.build();
+            return Status::OK();
         }
     }
     // otherwise, do not compress

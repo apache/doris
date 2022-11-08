@@ -35,18 +35,28 @@
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
+#include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
 namespace segment_v2 {
 
 using io::FileCacheManager;
 
-Status Segment::open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
-                     uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+Status Segment::open(io::FileSystemSPtr fs, const std::string& path, const std::string& cache_path,
+                     uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
+    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
     io::FileReaderSPtr file_reader;
+#ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
+#else
+    // be ut use local file reader instead of remote file reader while use remote cache
+    if (!config::file_cache_type.empty()) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, &file_reader));
+    } else {
+        RETURN_IF_ERROR(fs->open_file(path, &file_reader));
+    }
+#endif
     if (fs->type() != io::FileSystemType::LOCAL && !config::file_cache_type.empty()) {
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, file_reader,
@@ -61,8 +71,11 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, const std::str
     return Status::OK();
 }
 
-Segment::Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema)
-        : _segment_id(segment_id), _tablet_schema(tablet_schema), _meta_mem_usage(0) {}
+Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema)
+        : _segment_id(segment_id),
+          _rowset_id(rowset_id),
+          _tablet_schema(tablet_schema),
+          _meta_mem_usage(0) {}
 
 Segment::~Segment() {
 #ifndef BE_TEST
@@ -100,7 +113,12 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     }
 
     RETURN_IF_ERROR(load_index());
-    iter->reset(new SegmentIterator(this->shared_from_this(), schema));
+    if (read_options.col_id_to_del_predicates.empty() &&
+        read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
+        iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), schema));
+    } else {
+        iter->reset(new SegmentIterator(this->shared_from_this(), schema));
+    }
     iter->get()->init(read_options);
     return Status::OK();
 }

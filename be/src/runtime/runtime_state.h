@@ -20,20 +20,13 @@
 
 #pragma once
 
-#include <atomic>
 #include <fstream>
-#include <memory>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <vector>
 
 #include "cctz/time_zone.h"
 #include "common/global_types.h"
 #include "common/object_pool.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
-#include "runtime/mem_pool.h"
 #include "runtime/query_fragments_ctx.h"
 #include "runtime/thread_resource_mgr.h"
 #include "util/runtime_profile.h"
@@ -83,14 +76,13 @@ public:
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
-    // Set up four-level hierarchy of mem trackers: process, query, fragment instance.
-    // The instance tracker is tied to our profile.
-    // Specific parts of the fragment (i.e. exec nodes, sinks, data stream senders, etc)
-    // will add a fourth level when they are initialized.
-    Status init_mem_trackers(const TUniqueId& query_id);
-
-    // for ut only
-    Status init_instance_mem_tracker();
+    // after SCOPED_ATTACH_TASK;
+    void init_scanner_mem_trackers() {
+        _scanner_mem_tracker = std::make_shared<MemTracker>(
+                fmt::format("Scanner#QueryId={}", print_id(_query_id)));
+    }
+    // for ut and non-query.
+    Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
     // Gets/Creates the query wide block mgr.
     Status create_block_mgr();
@@ -123,7 +115,7 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
-    std::shared_ptr<MemTrackerLimiter> instance_mem_tracker() { return _instance_mem_tracker; }
+    std::shared_ptr<MemTracker> scanner_mem_tracker() { return _scanner_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
@@ -328,6 +320,13 @@ public:
 
     bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
 
+    int be_exec_version() const {
+        if (!_query_options.__isset.be_exec_version) {
+            return 0;
+        }
+        return _query_options.be_exec_version;
+    }
+
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
     }
@@ -340,13 +339,22 @@ public:
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }
 
-    segment_v2::CompressionTypePB fragement_transmission_compression_type() {
+    segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;
             }
         }
         return segment_v2::CompressionTypePB::SNAPPY;
+    }
+
+    bool skip_storage_engine_merge() const {
+        return _query_options.__isset.skip_storage_engine_merge &&
+               _query_options.skip_storage_engine_merge;
+    }
+
+    bool skip_delete_predicate() const {
+        return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
     }
 
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
@@ -372,6 +380,10 @@ public:
 
     QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
 
+    void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
+        _query_mem_tracker = tracker;
+    }
+
     OpentelemetryTracer get_tracer() { return _tracer; }
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
@@ -388,12 +400,9 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    // MemTracker that is shared by all fragment instances running on this host.
-    // The query mem tracker must be released after the _instance_mem_tracker.
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
-
-    // Memory usage of this fragment instance
-    std::shared_ptr<MemTrackerLimiter> _instance_mem_tracker;
+    // Count the memory consumption of Scanner
+    std::shared_ptr<MemTracker> _scanner_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.

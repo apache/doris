@@ -20,6 +20,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
@@ -65,6 +66,8 @@ public abstract class DataSink {
             return new MysqlTableSink((MysqlTable) table);
         } else if (table instanceof OdbcTable) {
             return new OdbcTableSink((OdbcTable) table);
+        } else if (table instanceof JdbcTable) {
+            return new JdbcTableSink((JdbcTable) table);
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }

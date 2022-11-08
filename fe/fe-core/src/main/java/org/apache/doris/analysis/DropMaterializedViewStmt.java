@@ -71,26 +71,39 @@ public class DropMaterializedViewStmt extends DdlStmt {
         return tableName;
     }
 
+    public TableName getMTMVName() {
+        return mtmvName;
+    }
+
     public boolean isIfExists() {
         return ifExists;
     }
 
+    public boolean isForMTMV() {
+        return mtmvName != null;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (mtmvName != null && tableName == null) {
-            throw new AnalysisException("Multi table materialized view is not supported now.");
-        }
-        if (Strings.isNullOrEmpty(mvName)) {
-            throw new AnalysisException("The materialized name could not be empty or null.");
-        }
-        tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+        if (!isForMTMV()) {
+            if (Strings.isNullOrEmpty(mvName)) {
+                throw new AnalysisException("The materialized name could not be empty or null.");
+            }
+            tableName.analyze(analyzer);
+            // disallow external catalog
+            Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        // check access
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.DROP)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            // check access
+            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                    tableName.getTbl(), PrivPredicate.DROP)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            }
+        } else {
+            mtmvName.analyze(analyzer);
+            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), mtmvName.getDb(),
+                    mtmvName.getTbl(), PrivPredicate.DROP)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
+            }
         }
     }
 

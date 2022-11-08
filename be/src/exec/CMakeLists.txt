@@ -88,6 +88,7 @@ set(EXEC_FILES
     schema_scanner/schema_files_scanner.cpp
     schema_scanner/schema_partitions_scanner.cpp
     schema_scanner/schema_rowsets_scanner.cpp
+    schema_scanner/schema_backends_scanner.cpp
 
     partitioned_hash_table.cc
     partitioned_aggregation_node.cc
@@ -96,6 +97,7 @@ set(EXEC_FILES
     parquet_writer.cpp
     orc_scanner.cpp
     odbc_connector.cpp
+    table_connector.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp
 

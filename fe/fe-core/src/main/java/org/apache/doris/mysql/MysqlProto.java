@@ -20,6 +20,7 @@ package org.apache.doris.mysql;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -49,13 +50,14 @@ public class MysqlProto {
     // user_name#HIGH@cluster_name
     private static boolean authenticate(ConnectContext context, byte[] scramble,
             byte[] randomString, String qualifiedUser) {
-        String usePasswd = scramble.length == 0 ? "NO" : "YES";
         String remoteIp = context.getMysqlChannel().getRemoteIp();
-
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
-        if (!Env.getCurrentEnv().getAuth().checkPassword(qualifiedUser, remoteIp,
-                scramble, randomString, currentUserIdentity)) {
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, usePasswd);
+
+        try {
+            Env.getCurrentEnv().getAuth().checkPassword(qualifiedUser, remoteIp,
+                    scramble, randomString, currentUserIdentity);
+        } catch (AuthenticationException e) {
+            ErrorReport.report(e.errorCode, e.msgs);
             return false;
         }
 

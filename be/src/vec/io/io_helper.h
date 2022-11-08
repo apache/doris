@@ -39,6 +39,7 @@ namespace doris::vectorized {
 // Define in the namespace and avoid defining global macros,
 // because it maybe conflict with other libs
 static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
+static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
 template <typename T>
@@ -122,6 +123,10 @@ inline void write_string_binary(const char* s, BufferWritable& buf) {
     write_string_binary(StringRef {s}, buf);
 }
 
+inline void write_json_binary(JsonbField s, BufferWritable& buf) {
+    write_string_binary(StringRef {s.get_value(), s.get_size()}, buf);
+}
+
 template <typename Type>
 void write_vector_binary(const std::vector<Type>& v, BufferWritable& buf) {
     write_var_uint(v.size(), buf);
@@ -161,7 +166,7 @@ inline void read_float_binary(Type& x, BufferReadable& buf) {
 
 inline void read_string_binary(std::string& s, BufferReadable& buf,
                                size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
@@ -174,7 +179,7 @@ inline void read_string_binary(std::string& s, BufferReadable& buf,
 
 inline void read_string_binary(StringRef& s, BufferReadable& buf,
                                size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
@@ -185,7 +190,7 @@ inline void read_string_binary(StringRef& s, BufferReadable& buf,
 }
 
 inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     char* data = arena.alloc(size);
@@ -194,10 +199,16 @@ inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
     return StringRef(data, size);
 }
 
+inline void read_json_binary(JsonbField val, BufferReadable& buf,
+                             size_t MAX_JSON_SIZE = DEFAULT_MAX_JSON_SIZE) {
+    StringRef jrf = StringRef {val.get_value(), val.get_size()};
+    read_string_binary(jrf, buf);
+}
+
 template <typename Type>
 void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
                         size_t MAX_VECTOR_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     if (size > MAX_VECTOR_SIZE) {

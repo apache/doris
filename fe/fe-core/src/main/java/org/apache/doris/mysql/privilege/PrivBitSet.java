@@ -18,10 +18,15 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,6 +40,7 @@ import java.util.List;
 //        |--------last priv(7)
 public class PrivBitSet implements Writable {
 
+    @SerializedName(value = "set")
     private long set = 0;
 
     public PrivBitSet() {
@@ -47,7 +53,7 @@ public class PrivBitSet implements Writable {
 
     public void unset(int index) {
         Preconditions.checkState(index < PaloPrivilege.privileges.length, index);
-        set ^= 1 << index;
+        set &= ~(1 << index);
     }
 
     public boolean get(int index) {
@@ -95,7 +101,7 @@ public class PrivBitSet implements Writable {
 
     public boolean containsDbTablePriv() {
         return containsPrivs(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV, PaloPrivilege.ALTER_PRIV,
-                             PaloPrivilege.CREATE_PRIV, PaloPrivilege.DROP_PRIV);
+                PaloPrivilege.CREATE_PRIV, PaloPrivilege.DROP_PRIV);
     }
 
     public boolean containsPrivs(PaloPrivilege... privs) {
@@ -151,17 +157,17 @@ public class PrivBitSet implements Writable {
     }
 
     public static PrivBitSet read(DataInput in) throws IOException {
-        PrivBitSet privBitSet = new PrivBitSet();
-        privBitSet.readFields(in);
-        return privBitSet;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_113) {
+            PrivBitSet privBitSet = new PrivBitSet();
+            privBitSet.set = in.readLong();
+            return privBitSet;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), PrivBitSet.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(set);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        set = in.readLong();
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 }

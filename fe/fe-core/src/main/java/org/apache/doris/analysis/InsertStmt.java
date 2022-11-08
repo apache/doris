@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -355,7 +356,8 @@ public class InsertStmt extends DdlStmt {
             }
             // will use it during create load job
             indexIdToSchemaHash = olapTable.getIndexIdToSchemaHash();
-        }  else if (targetTable instanceof MysqlTable || targetTable instanceof OdbcTable) {
+        } else if (targetTable instanceof MysqlTable || targetTable instanceof OdbcTable
+                || targetTable instanceof JdbcTable) {
             if (targetPartitionNames != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }

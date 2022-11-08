@@ -43,15 +43,15 @@ public class ExpectedInputTypesTest {
     public void testAnd() {
         TypeCheckResult typeCheckResult;
 
-        And secondInputIsNotBoolean = new And(new IntegerLiteral(1), new BooleanLiteral(true));
+        And secondInputIsNotBoolean = new And(new IntegerLiteral(1), BooleanLiteral.TRUE);
         typeCheckResult = secondInputIsNotBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
 
-        And firstInputIsNotBoolean = new And(new BooleanLiteral(true), new IntegerLiteral(1));
+        And firstInputIsNotBoolean = new And(BooleanLiteral.TRUE, new IntegerLiteral(1));
         typeCheckResult = firstInputIsNotBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
 
-        And bothInputAreBoolean = new And(new BooleanLiteral(true), new BooleanLiteral(false));
+        And bothInputAreBoolean = new And(BooleanLiteral.TRUE, BooleanLiteral.FALSE);
         typeCheckResult = bothInputAreBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.success());
     }
@@ -60,15 +60,15 @@ public class ExpectedInputTypesTest {
     public void testOr() {
         TypeCheckResult typeCheckResult;
 
-        Or secondInputIsNotBoolean = new Or(new IntegerLiteral(1), new BooleanLiteral(true));
+        Or secondInputIsNotBoolean = new Or(new IntegerLiteral(1), BooleanLiteral.TRUE);
         typeCheckResult = secondInputIsNotBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
 
-        Or firstInputIsNotBoolean = new Or(new BooleanLiteral(true), new IntegerLiteral(1));
+        Or firstInputIsNotBoolean = new Or(BooleanLiteral.TRUE, new IntegerLiteral(1));
         typeCheckResult = firstInputIsNotBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
 
-        Or bothInputAreBoolean = new Or(new BooleanLiteral(true), new BooleanLiteral(false));
+        Or bothInputAreBoolean = new Or(BooleanLiteral.TRUE, BooleanLiteral.FALSE);
         typeCheckResult = bothInputAreBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.success());
     }
@@ -129,7 +129,7 @@ public class ExpectedInputTypesTest {
         // this means has two type check error
         Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
 
-        Divide bool = new Divide(new BooleanLiteral(false), new BooleanLiteral(true));
+        Divide bool = new Divide(BooleanLiteral.FALSE, BooleanLiteral.TRUE);
         typeCheckResult = bool.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
         // this means has two type check error
@@ -192,7 +192,7 @@ public class ExpectedInputTypesTest {
         typeCheckResult = string.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.success());
 
-        LessThan bool = new LessThan(new BooleanLiteral(false), new BooleanLiteral(true));
+        LessThan bool = new LessThan(BooleanLiteral.FALSE, BooleanLiteral.TRUE);
         typeCheckResult = bool.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.success());
 
@@ -257,7 +257,7 @@ public class ExpectedInputTypesTest {
         // this means has two type check error
         Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
 
-        Multiply bool = new Multiply(new BooleanLiteral(false), new BooleanLiteral(true));
+        Multiply bool = new Multiply(BooleanLiteral.FALSE, BooleanLiteral.TRUE);
         typeCheckResult = bool.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
         // this means has two type check error
@@ -326,7 +326,7 @@ public class ExpectedInputTypesTest {
         // this means has two type check error
         Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
 
-        Subtract bool = new Subtract(new BooleanLiteral(false), new BooleanLiteral(true));
+        Subtract bool = new Subtract(BooleanLiteral.FALSE, BooleanLiteral.TRUE);
         typeCheckResult = bool.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
         // this means has two type check error
@@ -395,7 +395,7 @@ public class ExpectedInputTypesTest {
         // this means has two type check error
         Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
 
-        Mod bool = new Mod(new BooleanLiteral(false), new BooleanLiteral(true));
+        Mod bool = new Mod(BooleanLiteral.FALSE, BooleanLiteral.TRUE);
         typeCheckResult = bool.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
         // this means has two type check error
@@ -464,7 +464,7 @@ public class ExpectedInputTypesTest {
         // this means has two type check error
         Assertions.assertEquals(4, typeCheckResult.getMessage().split(",").length);
 
-        Add bool = new Add(new BooleanLiteral(false), new BooleanLiteral(true));
+        Add bool = new Add(BooleanLiteral.FALSE, BooleanLiteral.TRUE);
         typeCheckResult = bool.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
         // this means has two type check error
@@ -485,7 +485,7 @@ public class ExpectedInputTypesTest {
         typeCheckResult = childIsNotBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
 
-        Not childIsBoolean = new Not(new BooleanLiteral(true));
+        Not childIsBoolean = new Not(BooleanLiteral.TRUE);
         typeCheckResult = childIsBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.success());
     }
@@ -494,11 +494,11 @@ public class ExpectedInputTypesTest {
     public void testWhenClause() {
         TypeCheckResult typeCheckResult;
 
-        WhenClause firstInputIsNotBoolean = new WhenClause(new IntegerLiteral(1), new BooleanLiteral(true));
+        WhenClause firstInputIsNotBoolean = new WhenClause(new IntegerLiteral(1), BooleanLiteral.TRUE);
         typeCheckResult = firstInputIsNotBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.failed());
 
-        WhenClause firstInputIsBoolean = new WhenClause(new BooleanLiteral(true), new BooleanLiteral(true));
+        WhenClause firstInputIsBoolean = new WhenClause(BooleanLiteral.TRUE, BooleanLiteral.TRUE);
         typeCheckResult = firstInputIsBoolean.checkInputDataTypes();
         Assertions.assertTrue(typeCheckResult.success());
     }

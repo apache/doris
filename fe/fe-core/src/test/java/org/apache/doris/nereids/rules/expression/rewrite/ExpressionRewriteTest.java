@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
@@ -25,22 +24,32 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqua
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
 
 /**
  * all expr rewrite rule test case.
  */
-public class ExpressionRewriteTest {
-    private static final NereidsParser PARSER = new NereidsParser();
-    private ExpressionRuleExecutor executor;
+public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testNotRewrite() {
-        executor = new ExpressionRuleExecutor(SimplifyNotExprRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyNotExprRule.INSTANCE));
 
         assertRewrite("not x", "not x");
         assertRewrite("not not x", "x");
@@ -65,7 +74,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testNormalizeExpressionRewrite() {
-        executor = new ExpressionRuleExecutor(NormalizeBinaryPredicatesRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(NormalizeBinaryPredicatesRule.INSTANCE));
 
         assertRewrite("1 = 1", "1 = 1");
         assertRewrite("2 > x", "x < 2");
@@ -77,7 +86,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testDistinctPredicatesRewrite() {
-        executor = new ExpressionRuleExecutor(DistinctPredicatesRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(DistinctPredicatesRule.INSTANCE));
 
         assertRewrite("a = 1", "a = 1");
         assertRewrite("a = 1 and a = 1", "a = 1");
@@ -89,7 +98,7 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testExtractCommonFactorRewrite() {
-        executor = new ExpressionRuleExecutor(ExtractCommonFactorRule.INSTANCE);
+        executor = new ExpressionRuleExecutor(ImmutableList.of(ExtractCommonFactorRule.INSTANCE));
 
         assertRewrite("a", "a");
 
@@ -142,7 +151,8 @@ public class ExpressionRewriteTest {
 
     @Test
     public void testBetweenToCompoundRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE, SimplifyNotExprRule.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(BetweenToCompoundRule.INSTANCE,
+                SimplifyNotExprRule.INSTANCE));
 
         assertRewrite("a between c and d", "(a >= c) and (a <= d)");
         assertRewrite("a not between c and d)", "(a < c) or (a > d)");
@@ -176,19 +186,30 @@ public class ExpressionRewriteTest {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
 
         // deduplicate
-        assertRewrite("CAST(1 AS int)", "1");
-        assertRewrite("CAST('str' AS string)", "'str'");
-        assertRewrite("CAST(CAST(1 AS int) AS int)", "1");
+        assertRewrite("CAST(1 AS tinyint)", "1");
+        assertRewrite("CAST('str' AS varchar)", "'str'");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS tinyint)", "1");
 
         // deduplicate inside
-        assertRewrite("CAST(CAST('str' AS string) AS double)", "CAST('str' AS double)");
-        assertRewrite("CAST(CAST(1 AS int) AS double)", "CAST(1 AS double)");
-    }
+        assertRewrite("CAST(CAST('str' AS varchar) AS double)", "CAST('str' AS double)");
+        assertRewrite("CAST(CAST(1 AS tinyint) AS double)", "CAST(1 AS double)");
 
-    private void assertRewrite(String expression, String expected) {
-        Expression needRewriteExpression = PARSER.parseExpression(expression);
-        Expression expectedExpression = PARSER.parseExpression(expected);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
-        Assertions.assertEquals(expectedExpression, rewrittenExpression);
+        // string literal
+        assertRewrite(new Cast(new CharLiteral("123", 3), VarcharType.createVarcharType(10)),
+                new VarcharLiteral("123", 10));
+        assertRewrite(new Cast(new VarcharLiteral("123", 3), VarcharType.createVarcharType(10)),
+                new VarcharLiteral("123", 10));
+        assertRewrite(new Cast(new CharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
+        assertRewrite(new Cast(new VarcharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
+
+        // decimal literal
+        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new IntegerLiteral(1), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new BigIntLiteral(1L), DecimalType.createDecimalType(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
     }
 }

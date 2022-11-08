@@ -50,4 +50,4 @@ RECOVER PARTITION p1 FROM example_tbl;
 
 ## More Help
 
-For more detailed syntax and best practices used by RECOVER, please refer to the [RECOVER](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RECOVER.md) command manual, You can also type `HELP RECOVER` on the MySql client command line for more help.
+For more detailed syntax and best practices used by RECOVER, please refer to the [RECOVER](../../../sql-manual/sql-reference/Database-Administration-Statements/RECOVER) command manual, You can also type `HELP RECOVER` on the MySql client command line for more help.

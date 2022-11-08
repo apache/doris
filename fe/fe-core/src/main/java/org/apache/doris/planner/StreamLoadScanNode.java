@@ -142,9 +142,12 @@ public class StreamLoadScanNode extends LoadScanNode {
             }
         }
 
-        Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */,
-                exprsByName, analyzer, srcTupleDesc, slotDescByName, params,
-                taskInfo.getFormatType(), taskInfo.getHiddenColumns(), VectorizedUtil.isVectorized());
+        if (params.getSrcSlotIds() == null) {
+            params.setSrcSlotIds(Lists.newArrayList());
+        }
+        Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */, exprsByName, analyzer, srcTupleDesc,
+                slotDescByName, params.getSrcSlotIds(), taskInfo.getFormatType(), taskInfo.getHiddenColumns(),
+                VectorizedUtil.isVectorized());
 
         // analyze where statement
         initAndSetPrecedingFilter(taskInfo.getPrecedingFilter(), this.srcTupleDesc, analyzer);

@@ -37,7 +37,6 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 
 public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMatchSupported {
 
@@ -89,12 +88,13 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
         for (String sql : testSql) {
             NamedExpressionUtil.clear();
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-            PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
+            NereidsPlanner planner = new NereidsPlanner(statementContext);
+            PhysicalPlan plan = planner.plan(
                     parser.parseSingle(sql),
                     PhysicalProperties.ANY
             );
             // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(planner.getCascadesContext()));
         }
     }
 
@@ -135,10 +135,10 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                             )
                         )
                         .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                        .when(FieldChecker.check("otherJoinCondition",
-                            Optional.of(new EqualTo(
-                                    new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1")),
-                                    new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("T")))))
+                        .when(FieldChecker.check("otherJoinConjuncts",
+                                ImmutableList.of(new EqualTo(
+                                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1")),
+                                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("T")))))
                         )
                     ).when(FieldChecker.check("projects", ImmutableList.of(
                         new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT1")),
@@ -161,7 +161,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                             logicalOlapScan()
                         )
                         .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                        .when(FieldChecker.check("otherJoinCondition", Optional.of(new EqualTo(
+                        .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(new EqualTo(
                                 new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("default_cluster:test", "T1")),
                                 new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2")))))
                         )

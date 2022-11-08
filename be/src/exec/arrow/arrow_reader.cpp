@@ -29,17 +29,21 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
+#include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
+#include "vec/core/block.h"
+#include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris {
 
-// Broker
-
-ArrowReaderWrap::ArrowReaderWrap(FileReader* file_reader, int64_t batch_size,
-                                 int32_t num_of_columns_from_file, bool case_sensitive)
-        : _batch_size(batch_size),
+ArrowReaderWrap::ArrowReaderWrap(RuntimeState* state,
+                                 const std::vector<SlotDescriptor*>& file_slot_descs,
+                                 FileReader* file_reader, int32_t num_of_columns_from_file,
+                                 bool case_sensitive)
+        : _state(state),
+          _file_slot_descs(file_slot_descs),
           _num_of_columns_from_file(num_of_columns_from_file),
           _case_sensitive(case_sensitive) {
     _arrow_file = std::shared_ptr<ArrowFile>(new ArrowFile(file_reader));
@@ -65,26 +69,21 @@ void ArrowReaderWrap::close() {
     }
 }
 
-Status ArrowReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
-    DCHECK(_num_of_columns_from_file <= tuple_slot_descs.size());
+Status ArrowReaderWrap::column_indices() {
     _include_column_ids.clear();
-    for (int i = 0; i < _num_of_columns_from_file; i++) {
-        auto slot_desc = tuple_slot_descs.at(i);
+    for (auto& slot_desc : _file_slot_descs) {
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(iter->second);
         } else {
-            std::stringstream str_error;
-            str_error << "Invalid Column Name:" << slot_desc->col_name();
-            LOG(WARNING) << str_error.str();
-            return Status::InvalidArgument(str_error.str());
+            _missing_cols.push_back(slot_desc->col_name());
         }
     }
     return Status::OK();
 }
 
-int ArrowReaderWrap::get_cloumn_index(std::string column_name) {
+int ArrowReaderWrap::get_column_index(std::string column_name) {
     std::string real_column_name = _case_sensitive ? column_name : to_lower(column_name);
     auto iter = _map_column.find(real_column_name);
     if (iter != _map_column.end()) {
@@ -97,13 +96,47 @@ int ArrowReaderWrap::get_cloumn_index(std::string column_name) {
     }
 }
 
+Status ArrowReaderWrap::get_next_block(vectorized::Block* block, size_t* read_row, bool* eof) {
+    size_t rows = 0;
+    bool tmp_eof = false;
+    do {
+        if (_batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
+            RETURN_IF_ERROR(next_batch(&_batch, &tmp_eof));
+            // We need to make sure the eof is set to true iff block is empty.
+            if (tmp_eof) {
+                *eof = (rows == 0);
+                break;
+            }
+        }
+
+        size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
+                                               (_batch->num_rows() - _arrow_batch_cur_idx));
+        for (auto i = 0; i < _file_slot_descs.size(); ++i) {
+            SlotDescriptor* slot_desc = _file_slot_descs[i];
+            if (slot_desc == nullptr) {
+                continue;
+            }
+            std::string real_column_name =
+                    is_case_sensitive() ? slot_desc->col_name() : slot_desc->col_name_lower_case();
+            auto* array = _batch->GetColumnByName(real_column_name).get();
+            auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
+            RETURN_IF_ERROR(arrow_column_to_doris_column(
+                    array, _arrow_batch_cur_idx, column_with_type_and_name.column,
+                    column_with_type_and_name.type, num_elements, _state->timezone_obj()));
+        }
+        rows += num_elements;
+        _arrow_batch_cur_idx += num_elements;
+    } while (!tmp_eof && rows < _state->batch_size());
+    *read_row = rows;
+    return Status::OK();
+}
+
 Status ArrowReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
     std::unique_lock<std::mutex> lock(_mtx);
     while (!_closed && _queue.empty()) {
         if (_batch_eof) {
             _include_column_ids.clear();
             *eof = true;
-            _batch_eof = false;
             return Status::OK();
         }
         _queue_reader_cond.wait_for(lock, std::chrono::seconds(1));
@@ -114,6 +147,7 @@ Status ArrowReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, b
     *batch = _queue.front();
     _queue.pop_front();
     _queue_writer_cond.notify_one();
+    _arrow_batch_cur_idx = 0;
     return Status::OK();
 }
 

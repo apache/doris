@@ -23,11 +23,13 @@
 #include <iostream>
 #include <string>
 
+#include "agent/be_exec_version_manager.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/data.pb.h"
 #include "runtime/row_batch.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -145,7 +147,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         }
         EXPECT_EQ(column2->get_int(i), k2++);
         EXPECT_EQ(column3->get_float64(i), k3);
-        EXPECT_STREQ(column4->get_data_at(i).data, std::to_string(k1).c_str());
+        EXPECT_EQ(column4->get_data_at(i).to_string(), std::to_string(k1));
         auto decimal_field =
                 column5->operator[](i).get<vectorized::DecimalField<vectorized::Decimal128>>();
         DecimalV2Value decimalv2_num(std::to_string(k3));
@@ -185,7 +187,8 @@ void block_to_pb(
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
-    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, compression_type);
+    Status st = block.serialize(BeExecVersionManager::get_newest_version(), pblock,
+                                &uncompressed_bytes, &compressed_bytes, compression_type);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
@@ -196,10 +199,10 @@ void block_to_pb(
 }
 
 void fill_block_with_array_int(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset64>::create();
+    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
     auto data_column = vectorized::ColumnVector<int32_t>::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
-    std::vector<vectorized::IColumn::Offset64> offs = {0, 3, 3, 4, 6};
+    std::vector<vectorized::ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -218,10 +221,10 @@ void fill_block_with_array_int(vectorized::Block& block) {
 }
 
 void fill_block_with_array_string(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::IColumn::Offset64>::create();
+    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
     auto data_column = vectorized::ColumnString::create();
     // init column array with [["abc","de"],["fg"],[], [""]];
-    std::vector<vectorized::IColumn::Offset64> offs = {0, 2, 3, 3, 4};
+    std::vector<vectorized::ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
     std::vector<std::string> vals = {"abc", "de", "fg", ""};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);

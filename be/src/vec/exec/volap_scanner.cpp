@@ -28,8 +28,7 @@
 namespace doris::vectorized {
 
 VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
-                           bool need_agg_finalize, const TPaloScanRange& scan_range,
-                           MemTracker* tracker)
+                           bool need_agg_finalize, const TPaloScanRange& scan_range)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -37,17 +36,15 @@ VOlapScanner::VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, b
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1),
-          _mem_tracker(tracker) {
+          _version(-1) {
     _tablet_schema = std::make_shared<TabletSchema>();
 }
 
 Status VOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader->set_batch_size(
@@ -71,7 +68,8 @@ Status VOlapScanner::prepare(
             return Status::InternalError(ss.str());
         }
         _tablet_schema->copy_from(*_tablet->tablet_schema());
-        if (!_parent->_olap_scan_node.columns_desc.empty() &&
+        if (_parent->_olap_scan_node.__isset.columns_desc &&
+            !_parent->_olap_scan_node.columns_desc.empty() &&
             _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             // Originally scanner get TabletSchema from tablet object in BE.
             // To support lightweight schema change for adding / dropping columns,
@@ -118,7 +116,6 @@ Status VOlapScanner::prepare(
 
 Status VOlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
@@ -153,7 +150,7 @@ TabletStorageType VOlapScanner::get_storage_type() {
 // it will be called under tablet read lock because capture rs readers need
 Status VOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     bool single_version =
@@ -171,14 +168,22 @@ Status VOlapScanner::_init_tablet_reader_params(
                       ->rowset_meta()
                       ->is_segments_overlapping());
 
-    _tablet_reader_params.direct_mode = _aggregation || single_version;
-
-    RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
+    if (_runtime_state->skip_storage_engine_merge()) {
+        _tablet_reader_params.direct_mode = true;
+        _aggregation = true;
+    } else {
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
+                                            _parent->_olap_scan_node.__isset.push_down_agg_type_opt;
+    }
+    RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
+    if (_parent->_olap_scan_node.__isset.push_down_agg_type_opt)
+        _tablet_reader_params.push_down_agg_type_opt =
+                _parent->_olap_scan_node.push_down_agg_type_opt;
     _tablet_reader_params.version = Version(0, _version);
 
     // Condition
@@ -192,10 +197,12 @@ Status VOlapScanner::_init_tablet_reader_params(
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
-    auto& delete_preds = _tablet->delete_predicates();
-    std::copy(delete_preds.cbegin(), delete_preds.cend(),
-              std::inserter(_tablet_reader_params.delete_predicates,
-                            _tablet_reader_params.delete_predicates.begin()));
+    if (!_runtime_state->skip_delete_predicate()) {
+        auto& delete_preds = _tablet->delete_predicates();
+        std::copy(delete_preds.cbegin(), delete_preds.cend(),
+                  std::inserter(_tablet_reader_params.delete_predicates,
+                                _tablet_reader_params.delete_predicates.begin()));
+    }
 
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred_rs : _tablet_reader_params.delete_predicates) {
@@ -236,6 +243,22 @@ Status VOlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.return_columns.push_back(index);
             }
         }
+        // expand the sequence column
+        if (_tablet_schema->has_sequence_col()) {
+            bool has_replace_col = false;
+            for (auto col : _return_columns) {
+                if (_tablet_schema->column(col).aggregation() ==
+                    FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                    has_replace_col = true;
+                    break;
+                }
+            }
+            if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
+                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                                             sequence_col_idx) == _return_columns.end()) {
+                _tablet_reader_params.return_columns.push_back(sequence_col_idx);
+            }
+        }
     }
 
     // If a agg node is this scan node direct parent
@@ -251,21 +274,23 @@ Status VOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.delete_bitmap = &_tablet->tablet_meta()->delete_bitmap();
     }
 
-    if (_parent->_olap_scan_node.__isset.sort_info &&
-        _parent->_olap_scan_node.sort_info.is_asc_order.size() > 0) {
-        _limit = _parent->_limit_per_scanner;
-        _tablet_reader_params.read_orderby_key = true;
-        if (!_parent->_olap_scan_node.sort_info.is_asc_order[0]) {
-            _tablet_reader_params.read_orderby_key_reverse = true;
+    if (!_runtime_state->skip_storage_engine_merge()) {
+        if (_parent->_olap_scan_node.__isset.sort_info &&
+            _parent->_olap_scan_node.sort_info.is_asc_order.size() > 0) {
+            _limit = _parent->_limit_per_scanner;
+            _tablet_reader_params.read_orderby_key = true;
+            if (!_parent->_olap_scan_node.sort_info.is_asc_order[0]) {
+                _tablet_reader_params.read_orderby_key_reverse = true;
+            }
+            _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                    _parent->_olap_scan_node.sort_info.is_asc_order.size();
         }
-        _tablet_reader_params.read_orderby_key_num_prefix_columns =
-                _parent->_olap_scan_node.sort_info.is_asc_order.size();
     }
 
     return Status::OK();
 }
 
-Status VOlapScanner::_init_return_columns(bool need_seq_col) {
+Status VOlapScanner::_init_return_columns() {
     for (auto slot : _tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -274,7 +299,6 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         int32_t index = slot->col_unique_id() >= 0
                                 ? _tablet_schema->field_index(slot->col_unique_id())
                                 : _tablet_schema->field_index(slot->col_name());
-
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -287,23 +311,6 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
         }
     }
 
-    // expand the sequence column
-    if (_tablet_schema->has_sequence_col() && need_seq_col) {
-        bool has_replace_col = false;
-        for (auto col : _return_columns) {
-            if (_tablet_schema->column(col).aggregation() ==
-                FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
-                has_replace_col = true;
-                break;
-            }
-        }
-        if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                         sequence_col_idx) == _return_columns.end()) {
-            _return_columns.push_back(sequence_col_idx);
-        }
-    }
-
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
@@ -313,7 +320,6 @@ Status VOlapScanner::_init_return_columns(bool need_seq_col) {
 Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {

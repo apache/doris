@@ -130,6 +130,30 @@ public:
         it = zero_value();
     }
 
+    class Constructor {
+    public:
+        friend struct StringHashTableEmpty;
+        template <typename... Args>
+        void operator()(Args&&... args) const {
+            new (_cell) Cell(std::forward<Args>(args)...);
+        }
+
+    private:
+        Constructor(Cell* cell) : _cell(cell) {}
+        Cell* _cell;
+    };
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        if (!has_zero()) {
+            const auto& key = key_holder_get_key(key_holder);
+            set_has_zero(key);
+            std::forward<Func>(f)(Constructor(zero_value()), key);
+        }
+        it = zero_value();
+    }
+
     template <typename Key>
     LookupResult ALWAYS_INLINE find(const Key&, size_t = 0) {
         return has_zero() ? zero_value() : nullptr;
@@ -179,7 +203,7 @@ struct StringHashTableLookupResult {
 };
 
 template <typename Mapped>
-ALWAYS_INLINE inline auto lookup_result_get_mapped(StringHashTableLookupResult<Mapped*> cell) {
+ALWAYS_INLINE inline auto lookup_result_get_mapped(StringHashTableLookupResult<Mapped> cell) {
     return &cell.get_mapped();
 }
 
@@ -209,9 +233,6 @@ protected:
     Ts ms;
 
     using Cell = typename Ts::cell_type;
-
-    friend class const_iterator;
-    friend class iterator;
 
     template <typename Derived, bool is_const>
     class iterator_base {
@@ -548,6 +569,27 @@ public:
         this->dispatch(*this, key_holder, EmplaceCallable(it, inserted));
     }
 
+    template <typename Func>
+    struct LazyEmplaceCallable {
+        LookupResult& mapped;
+        Func&& f;
+
+        LazyEmplaceCallable(LookupResult& mapped_, Func&& f_)
+                : mapped(mapped_), f(std::forward<Func>(f_)) {}
+
+        template <typename Map, typename KeyHolder>
+        void ALWAYS_INLINE operator()(Map& map, KeyHolder&& key_holder, size_t hash) {
+            typename Map::LookupResult result;
+            map.lazy_emplace(key_holder, result, hash, std::forward<Func>(f));
+            mapped = &result->get_second();
+        }
+    };
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        this->dispatch(*this, key_holder, LazyEmplaceCallable<Func>(it, std::forward<Func>(f)));
+    }
+
     struct FindCallable {
         // find() doesn't need any key memory management, so we don't work with
         // any key holders here, only with normal keys. The key type is still
@@ -612,4 +654,11 @@ public:
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     size_t get_collisions() const { return 0; }
 #endif
+};
+
+template <typename SubMaps>
+struct HashTableTraits<StringHashTable<SubMaps>> {
+    static constexpr bool is_phmap = false;
+    static constexpr bool is_parallel_phmap = false;
+    static constexpr bool is_string_hash_table = true;
 };

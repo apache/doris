@@ -44,7 +44,7 @@ import java.util.Optional;
  */
 public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Sort {
 
-    private final List<OrderKey> orderKeys;
+    private final ImmutableList<OrderKey> orderKeys;
 
     public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child) {
         this(orderKeys, Optional.empty(), Optional.empty(), child);
@@ -56,7 +56,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     public LogicalSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
-        this.orderKeys = Objects.requireNonNull(orderKeys, "orderKeys can not be null");
+        this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
     }
 
     @Override
@@ -97,7 +97,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public List<Expression> getExpressions() {
+    public List<? extends Expression> getExpressions() {
         return orderKeys.stream()
                 .map(OrderKey::getExpr)
                 .collect(ImmutableList.toImmutableList());
@@ -111,7 +111,7 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override

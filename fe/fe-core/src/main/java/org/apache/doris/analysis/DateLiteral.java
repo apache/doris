@@ -40,6 +40,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.Year;
@@ -495,14 +496,27 @@ public class DateLiteral extends LiteralExpr {
     // Date column and Datetime column's hash value is not same.
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
-        // This hash value should be computed using new String since precision is introduced to datetime.
-        // But it is hard to keep compatibility. So I don't change this function here.
-        String value = convertToString(type);
         ByteBuffer buffer;
-        try {
-            buffer = ByteBuffer.wrap(value.getBytes("UTF-8"));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        if (type == PrimitiveType.DATEV2) {
+            int value = (int) ((year << 9) | (month << 5) | day);
+            buffer = ByteBuffer.allocate(4);
+            buffer.order(ByteOrder.LITTLE_ENDIAN);
+            buffer.putInt(value);
+        } else if (type == PrimitiveType.DATETIMEV2) {
+            long value =  (year << 50) | (month << 46) | (day << 41) | (hour << 36)
+                    | (minute << 30) | (second << 24) | microsecond;
+            buffer = ByteBuffer.allocate(8);
+            buffer.order(ByteOrder.LITTLE_ENDIAN);
+            buffer.putLong(value);
+        } else {
+            // This hash value should be computed using new String since precision is introduced to datetime.
+            // But it is hard to keep compatibility. So I don't change this function here.
+            String value = convertToString(type);
+            try {
+                buffer = ByteBuffer.wrap(value.getBytes("UTF-8"));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         }
         return buffer;
     }
@@ -541,6 +555,11 @@ public class DateLiteral extends LiteralExpr {
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
     }
 
     public void roundCeiling(int newScale) {
@@ -586,7 +605,11 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public long getLongValue() {
-        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+        if (this.getType().isDate() || this.getType().isDateV2()) {
+            return year * 10000 + month * 100 + day;
+        } else {
+            return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+        }
     }
 
     @Override

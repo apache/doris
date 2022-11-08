@@ -19,11 +19,10 @@
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
 
-#include "exprs/expr_context.h"
+#include "exec/olap_common.h"
+#include "parquet_common.h"
 
 namespace doris::vectorized {
-class ParquetReader;
-struct RowRange;
 
 class PageIndex {
 public:
@@ -31,8 +30,10 @@ public:
     ~PageIndex() = default;
     Status create_skipped_row_range(tparquet::OffsetIndex& offset_index, int total_rows_of_group,
                                     int page_idx, RowRange* row_range);
-    Status collect_skipped_page_range(std::vector<ExprContext*> conjuncts,
-                                      std::vector<int> page_range);
+    Status collect_skipped_page_range(tparquet::ColumnIndex* column_index,
+                                      ColumnValueRangeType& col_val_range,
+                                      const FieldSchema* col_schema,
+                                      std::vector<int>& skipped_ranges);
     bool check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns);
     Status parse_column_index(const tparquet::ColumnChunk& chunk, const uint8_t* buff,
                               tparquet::ColumnIndex* _column_index);

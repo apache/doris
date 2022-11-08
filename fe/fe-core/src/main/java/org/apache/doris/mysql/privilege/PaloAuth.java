@@ -17,11 +17,14 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.AlterUserStmt;
+import org.apache.doris.analysis.AlterUserStmt.OpType;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
+import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
@@ -35,8 +38,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
@@ -47,6 +52,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapPrivsChecker;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -94,6 +100,8 @@ public class PaloAuth implements Writable {
     private LdapInfo ldapInfo = new LdapInfo();
 
     private LdapManager ldapManager = new LdapManager();
+
+    private PasswordPolicyManager passwdPolicyManager = new PasswordPolicyManager();
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -145,8 +153,12 @@ public class PaloAuth implements Writable {
         return ldapManager;
     }
 
+    public PasswordPolicyManager getPasswdPolicyManager() {
+        return passwdPolicyManager;
+    }
+
     private GlobalPrivEntry grantGlobalPrivs(UserIdentity userIdentity, boolean errOnExist, boolean errOnNonExist,
-                                             PrivBitSet privs) throws DdlException {
+            PrivBitSet privs) throws DdlException {
         if (errOnExist && errOnNonExist) {
             throw new DdlException("Can only specified errOnExist or errOnNonExist");
         }
@@ -307,11 +319,8 @@ public class PaloAuth implements Writable {
      * check password, if matched, save the userIdentity in matched entry.
      * the following auth checking should use userIdentity saved in currentUser.
      */
-    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) {
-        if (!Config.enable_auth_check) {
-            return true;
-        }
+    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
         if ((remoteUser.equals(ROOT_USER) || remoteUser.equals(ADMIN_USER)) && remoteHost.equals("127.0.0.1")) {
             // root and admin user is allowed to login from 127.0.0.1, in case user forget password.
             if (remoteUser.equals(ROOT_USER)) {
@@ -319,30 +328,41 @@ public class PaloAuth implements Writable {
             } else {
                 currentUser.add(UserIdentity.ADMIN);
             }
-            return true;
+            return;
         }
 
         readLock();
         try {
-            return userPrivTable.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
+            userPrivTable.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
         } finally {
             readUnlock();
         }
     }
 
-    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+    // For unit test only, wrapper of "void checkPlainPassword"
+    public boolean checkPlainPasswordForTest(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) {
-        if (!Config.enable_auth_check) {
+        try {
+            checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
             return true;
+        } catch (AuthenticationException e) {
+            return false;
         }
+    }
 
+    public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
         // Check the LDAP password when the user exists in the LDAP service.
         if (ldapManager.doesUserExist(remoteUser)) {
-            return ldapManager.checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser);
+            if (!ldapManager.checkUserPasswd(remoteUser, remotePasswd, remoteHost, currentUser)) {
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                        Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
+            }
+            return;
         }
         readLock();
         try {
-            return userPrivTable.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
+            userPrivTable.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
         } finally {
             readUnlock();
         }
@@ -353,9 +373,6 @@ public class PaloAuth implements Writable {
     }
 
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-        if (!Config.enable_auth_check) {
-            return true;
-        }
         PrivBitSet savedPrivs = PrivBitSet.of();
         if (checkGlobalInternal(currentUser, wanted, savedPrivs)) {
             return true;
@@ -370,9 +387,6 @@ public class PaloAuth implements Writable {
     }
 
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        if (!Config.enable_auth_check) {
-            return true;
-        }
         if (wanted.getPrivs().containsNodePriv()) {
             LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
                     currentUser, ctl);
@@ -411,9 +425,6 @@ public class PaloAuth implements Writable {
      * If the given db is null, which means it will no check if database name is matched.
      */
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        if (!Config.enable_auth_check) {
-            return true;
-        }
         if (wanted.getPrivs().containsNodePriv()) {
             LOG.debug("should not check NODE priv in Database level. user: {}, db: {}",
                     currentUser, db);
@@ -481,9 +492,6 @@ public class PaloAuth implements Writable {
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        if (!Config.enable_auth_check) {
-            return true;
-        }
         if (wanted.getPrivs().containsNodePriv()) {
             LOG.debug("should check NODE priv in GLOBAL level. user: {}, db: {}, tbl: {}", currentUser, db, tbl);
             return false;
@@ -510,10 +518,6 @@ public class PaloAuth implements Writable {
     }
 
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        if (!Config.enable_auth_check) {
-            return true;
-        }
-
         PrivBitSet savedPrivs = PrivBitSet.of();
         if (checkGlobalInternal(currentUser, wanted, savedPrivs)
                 || checkResourceInternal(currentUser, resourceName, wanted, savedPrivs)) {
@@ -683,12 +687,13 @@ public class PaloAuth implements Writable {
     // create user
     public void createUser(CreateUserStmt stmt) throws DdlException {
         createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
-                stmt.getPassword(), stmt.isIfNotExist(), false);
+                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(), false);
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
         try {
-            createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false, true);
+            createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false,
+                    privInfo.getPasswordOptions(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
@@ -702,7 +707,7 @@ public class PaloAuth implements Writable {
      * 4. grant privs of role to user, if role is specified.
      */
     private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
-            boolean ignoreIfExists, boolean isReplay) throws DdlException {
+            boolean ignoreIfExists, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
         writeLock();
         try {
             // 1. check if role exist
@@ -757,8 +762,11 @@ public class PaloAuth implements Writable {
                 System.exit(-1);
             }
 
+            // 5. update password policy
+            passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
+
             if (!isReplay) {
-                PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName);
+                PrivInfo privInfo = new PrivInfo(userIdent, null, password, roleName, passwordOptions);
                 Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
             LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
@@ -768,26 +776,49 @@ public class PaloAuth implements Writable {
     }
 
     private void grantPrivsByRole(UserIdentity userIdent, PaloRole role) throws DdlException {
+        if (role == null) {
+            return;
+        }
         writeLock();
         try {
-            if (role != null) {
-                for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
-                    // use PrivBitSet copy to avoid same object being changed synchronously
-                    grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
-                            false /* err on non exist */, true /* is replay */);
-                }
-                for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
-                    // use PrivBitSet copy to avoid same object being changed synchronously
-                    grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
-                            false /* err on non exist */, true /* is replay */);
-                }
-                // add user to this role
-                role.addUser(userIdent);
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
+                // use PrivBitSet copy to avoid same object being changed synchronously
+                grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
+                        false /* err on non exist */, true /* is replay */);
             }
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
+                // use PrivBitSet copy to avoid same object being changed synchronously
+                grantInternal(userIdent, null /* role */, entry.getKey(), entry.getValue().copy(),
+                        false /* err on non exist */, true /* is replay */);
+            }
+            // add user to this role
+            role.addUser(userIdent);
         } finally {
             writeUnlock();
         }
     }
+
+    private void revokePrivsByRole(UserIdentity userIdent, PaloRole role) throws DdlException {
+        if (role == null) {
+            return;
+        }
+        writeLock();
+        try {
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
+                revokeInternal(userIdent, null, entry.getKey(), entry.getValue().copy(), false, true);
+            }
+
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
+                revokeInternal(userIdent, null, entry.getKey(), entry.getValue().copy(),
+                        false, true);
+            }
+            // drop user from this role
+            role.dropUser(userIdent);
+        } finally {
+            writeUnlock();
+        }
+    }
+
 
     // drop user
     public void dropUser(DropUserStmt stmt) throws DdlException {
@@ -837,6 +868,7 @@ public class PaloAuth implements Writable {
                 // but we need to remove the specified domain from this user.
                 propertyMgr.removeDomainFromUser(userIdent);
             }
+            passwdPolicyManager.dropUser(userIdent);
 
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logNewDropUser(userIdent);
@@ -875,6 +907,7 @@ public class PaloAuth implements Writable {
         }
     }
 
+    // grant for TablePattern
     private void grantInternal(UserIdentity userIdent, String role, TablePattern tblPattern,
             PrivBitSet privs, boolean errOnNonExist, boolean isReplay)
             throws DdlException {
@@ -906,8 +939,9 @@ public class PaloAuth implements Writable {
         }
     }
 
+    // grant for ResourcePattern
     private void grantInternal(UserIdentity userIdent, String role, ResourcePattern resourcePattern, PrivBitSet privs,
-                               boolean errOnNonExist, boolean isReplay) throws DdlException {
+            boolean errOnNonExist, boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (role != null) {
@@ -1176,6 +1210,12 @@ public class PaloAuth implements Writable {
         Preconditions.checkArgument(!setByResolver || domainUserIdent != null, setByResolver + ", " + domainUserIdent);
         writeLock();
         try {
+            if (!isReplay) {
+                if (!passwdPolicyManager.checkPasswordHistory(userIdent, password)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_CREDENTIALS_CONTRADICT_TO_HISTORY,
+                            userIdent.getQualifiedUser(), userIdent.getHost());
+                }
+            }
             if (userIdent.isDomain()) {
                 // throw exception if this user already contains this domain
                 propertyMgr.setPasswordForDomain(userIdent, password,
@@ -1195,9 +1235,13 @@ public class PaloAuth implements Writable {
                 }
                 userPrivTable.setPassword(passwdEntry, errOnNonExist);
             }
+            if (password != null) {
+                // save password to password history
+                passwdPolicyManager.updatePassword(userIdent, password);
+            }
 
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(userIdent, null, password, null);
+                PrivInfo info = new PrivInfo(userIdent, null, password, null, null);
                 Env.getCurrentEnv().getEditLog().logSetPassword(info);
             }
         } finally {
@@ -1243,7 +1287,7 @@ public class PaloAuth implements Writable {
             roleManager.addRole(emptyPrivsRole, true /* err on exist */);
 
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(null, null, null, role);
+                PrivInfo info = new PrivInfo(null, null, null, role, null);
                 Env.getCurrentEnv().getEditLog().logCreateRole(info);
             }
         } finally {
@@ -1276,7 +1320,7 @@ public class PaloAuth implements Writable {
             roleManager.dropRole(role, true /* err on non exist */);
 
             if (!isReplay) {
-                PrivInfo info = new PrivInfo(null, null, null, role);
+                PrivInfo info = new PrivInfo(null, null, null, role, null);
                 Env.getCurrentEnv().getEditLog().logDropRole(info);
             }
         } finally {
@@ -1314,6 +1358,15 @@ public class PaloAuth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxConn(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getQueryTimeout(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryTimeout(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1359,15 +1412,6 @@ public class PaloAuth implements Writable {
         readLock();
         try {
             return propertyMgr.getExecMemLimit(qualifiedUser);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getLoadMemLimit(String qualifiedUser) {
-        readLock();
-        try {
-            return propertyMgr.getLoadMemLimit(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1672,11 +1716,11 @@ public class PaloAuth implements Writable {
             UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
             rootUser.setIsAnalyzed();
             createUserInternal(rootUser, PaloRole.OPERATOR_ROLE, new byte[0],
-                    false /* ignore if exists */, true /* is replay */);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
             UserIdentity adminUser = new UserIdentity(ADMIN_USER, "%");
             adminUser.setIsAnalyzed();
             createUserInternal(adminUser, PaloRole.ADMIN_ROLE, new byte[0],
-                    false /* ignore if exists */, true /* is replay */);
+                    false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
         }
@@ -1813,6 +1857,78 @@ public class PaloAuth implements Writable {
         }
     }
 
+    public List<List<String>> getPasswdPolicyInfo(UserIdentity userIdent) {
+        return passwdPolicyManager.getPolicyInfo(userIdent);
+    }
+
+    public void alterUser(AlterUserStmt stmt) throws DdlException {
+        alterUserInternal(stmt.isIfExist(), stmt.getOpType(), stmt.getUserIdent(), stmt.getPassword(), stmt.getRole(),
+                stmt.getPasswordOptions(), false);
+    }
+
+    public void replayAlterUser(AlterUserOperationLog log) {
+        try {
+            alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
+                    log.getPasswordOptions(), true);
+        } catch (DdlException e) {
+            LOG.error("should not happen", e);
+        }
+    }
+
+    private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
+            String role, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
+        writeLock();
+        try {
+            if (!doesUserExist(userIdent)) {
+                if (ifExists) {
+                    return;
+                }
+                throw new DdlException("User " + userIdent + " does not exist");
+            }
+            switch (opType) {
+                case SET_PASSWORD:
+                    setPasswordInternal(userIdent, password, null, false, false, isReplay);
+                    break;
+                case SET_ROLE:
+                    setRoleToUser(userIdent, role);
+                    break;
+                case SET_PASSWORD_POLICY:
+                    passwdPolicyManager.updatePolicy(userIdent, null, passwordOptions);
+                    break;
+                case UNLOCK_ACCOUNT:
+                    passwdPolicyManager.unlockUser(userIdent);
+                    break;
+                default:
+                    throw new DdlException("Unknown alter user operation type: " + opType.name());
+            }
+            if (opType != OpType.SET_PASSWORD && !isReplay) {
+                // For SET_PASSWORD:
+                //      the edit log is wrote in "setPasswordInternal"
+                AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,
+                        passwordOptions);
+                Env.getCurrentEnv().getEditLog().logAlterUser(log);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void setRoleToUser(UserIdentity userIdent, String role) throws DdlException {
+        // 1. check if role exist
+        PaloRole newRole = roleManager.getRole(role);
+        if (newRole == null) {
+            throw new DdlException("Role " + role + " does not exist");
+        }
+        // 2. find the origin role which the user belongs to
+        PaloRole originRole = roleManager.findRoleForUser(userIdent);
+        if (originRole != null) {
+            // User belong to a role, first revoke privs of origin role from user.
+            revokePrivsByRole(userIdent, originRole);
+        }
+        // 3. grant privs of new role to user
+        grantPrivsByRole(userIdent, newRole);
+    }
+
     public static PaloAuth read(DataInput in) throws IOException {
         PaloAuth auth = new PaloAuth();
         auth.readFields(in);
@@ -1830,6 +1946,7 @@ public class PaloAuth implements Writable {
         resourcePrivTable.write(out);
         propertyMgr.write(out);
         ldapInfo.write(out);
+        passwdPolicyManager.write(out);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1853,6 +1970,11 @@ public class PaloAuth implements Writable {
         if (userPrivTable.isEmpty()) {
             // init root and admin user
             initUser();
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+            passwdPolicyManager = PasswordPolicyManager.read(in);
+        } else {
+            passwdPolicyManager = new PasswordPolicyManager();
         }
     }
 

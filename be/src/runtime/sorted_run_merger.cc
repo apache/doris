@@ -183,7 +183,7 @@ private:
     std::condition_variable _batch_prepared_cv;
 
     void process_sorted_run_task(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-        SCOPED_ATTACH_TASK(mem_tracker, ThreadContext::TaskType::QUERY);
+        SCOPED_ATTACH_TASK(mem_tracker);
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {
             _batch_prepared_cv.wait(lock, [this]() { return !_backup_ready.load(); });

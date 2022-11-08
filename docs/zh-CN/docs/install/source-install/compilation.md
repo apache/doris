@@ -58,31 +58,34 @@ under the License.
 | apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
 | apache/doris:build-env-for-1.0.0| | 1.0.0 |
 | apache/doris:build-env-for-1.1.0| | 1.1.0 |
-| apache/doris:build-env-ldb-toolchain-latest | trunk | |
+| apache/doris:build-env-ldb-toolchain-latest | | 1.1.x, trunk |
+| apache/doris:build-env-ldb-toolchain-no-avx2-latest | | 1.1.x, trunk |
 
 **注意**：
 
-> 1. 编译镜像 [ChangeLog](https://github.com/apache/doris/blob/master/thirdparty/CHANGELOG.md)。
+> 1. 名称中带有 no-avx2 字样的镜像中的第三方库，可以运行在不支持 avx2 指令的 CPU 上。可以配合 USE_AVX2=0 选项，编译 Doris。
 
-> 2. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，0.14.x 版本的代码将使用apache/incubator-doris:build-env-1.3.1。
+> 2. 编译镜像 [ChangeLog](https://github.com/apache/doris/blob/master/thirdparty/CHANGELOG.md)。
 
-> 3. 从 build-env-1.3.1 的docker镜像起，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
-     >
-     >   切换到 JDK 8：
-     >
-     >   ```
->   $ alternatives --set java java-1.8.0-openjdk.x86_64
->   $ alternatives --set javac java-1.8.0-openjdk.x86_64
->   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
->   ```
-     >
-     >   切换到 JDK 11：
-     >
-     >   ```
->   $ alternatives --set java java-11-openjdk.x86_64
->   $ alternatives --set javac java-11-openjdk.x86_64
->   $ export JAVA_HOME=/usr/lib/jvm/java-11
->   ```
+> 3. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，0.14.x 版本的代码将使用apache/incubator-doris:build-env-1.3.1。
+
+> 4. 从 build-env-1.3.1 的docker镜像起，同时包含了 OpenJDK 8 和 OpenJDK 11，请通过 `java -version` 确认默认 JDK 版本。也可以通过以下方式切换版本（建议默认使用 JDK8）
+    >
+    >   切换到 JDK 8：
+    >
+    >   ```
+    >   alternatives --set java java-1.8.0-openjdk.x86_64
+    >   alternatives --set javac java-1.8.0-openjdk.x86_64
+    >   export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+    >   ```
+    >
+    >   切换到 JDK 11：
+    >
+    >   ```
+    >   alternatives --set java java-11-openjdk.x86_64
+    >   alternatives --set javac java-11-openjdk.x86_64
+    >   export JAVA_HOME=/usr/lib/jvm/java-11
+    >   ```
 
 2. 运行镜像
 
@@ -132,7 +135,7 @@ under the License.
    >
    >如果你是第一次使用 `build-env-for-0.15.0` 或之后的版本，第一次编译的时候要使用如下命令：
    >
-   > `sh build.sh --clean --be --fe --ui`
+   > `sh build.sh --clean --be --fe`
    >
    > 这是因为 build-env-for-0.15.0 版本镜像升级了 thrift(0.9 -> 0.13)，需要通过 --clean 命令强制使用新版本的 thrift 生成代码文件，否则会出现不兼容的代码。
    

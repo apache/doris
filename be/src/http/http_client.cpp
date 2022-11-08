@@ -18,6 +18,7 @@
 #include "http/http_client.h"
 
 #include "common/config.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -162,7 +163,8 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
-        LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code);
+        LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code)
+                     << ", trace=" << get_stack_trace();
         return Status::InternalError(_to_errmsg(code));
     }
     return Status::OK();

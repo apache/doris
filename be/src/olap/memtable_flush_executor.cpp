@@ -29,16 +29,14 @@ namespace doris {
 class MemtableFlushTask final : public Runnable {
 public:
     MemtableFlushTask(FlushToken* flush_token, std::unique_ptr<MemTable> memtable,
-                      int64_t submit_task_time, const std::shared_ptr<MemTrackerLimiter>& tracker)
+                      int64_t submit_task_time)
             : _flush_token(flush_token),
               _memtable(std::move(memtable)),
-              _submit_task_time(submit_task_time),
-              _tracker(tracker) {}
+              _submit_task_time(submit_task_time) {}
 
     ~MemtableFlushTask() override = default;
 
     void run() override {
-        SCOPED_ATTACH_TASK(_tracker, ThreadContext::TaskType::LOAD);
         _flush_token->_flush_memtable(_memtable.get(), _submit_task_time);
         _memtable.reset();
     }
@@ -47,7 +45,6 @@ private:
     FlushToken* _flush_token;
     std::unique_ptr<MemTable> _memtable;
     int64_t _submit_task_time;
-    std::shared_ptr<MemTrackerLimiter> _tracker;
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
@@ -60,15 +57,13 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     return os;
 }
 
-Status FlushToken::submit(std::unique_ptr<MemTable> mem_table,
-                          const std::shared_ptr<MemTrackerLimiter>& tracker) {
+Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     ErrorCode s = _flush_status.load();
     if (s != OLAP_SUCCESS) {
         return Status::OLAPInternalError(s);
     }
     int64_t submit_task_time = MonotonicNanos();
-    auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time,
-                                                    tracker);
+    auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time);
     _stats.flush_running_count++;
     return _flush_token->submit(std::move(task));
 }
@@ -133,9 +128,10 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
 Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* flush_token,
-                                                 RowsetTypePB rowset_type, bool is_high_priority) {
+                                                 RowsetTypePB rowset_type, bool should_serial,
+                                                 bool is_high_priority) {
     if (!is_high_priority) {
-        if (rowset_type == BETA_ROWSET) {
+        if (rowset_type == BETA_ROWSET && !should_serial) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
             flush_token->reset(
                     new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
@@ -145,7 +141,7 @@ Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* fl
                     new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
         }
     } else {
-        if (rowset_type == BETA_ROWSET) {
+        if (rowset_type == BETA_ROWSET && !should_serial) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
             flush_token->reset(new FlushToken(
                     _high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));

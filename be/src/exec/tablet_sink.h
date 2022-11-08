@@ -96,6 +96,8 @@ public:
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        cntl.Reset();
     }
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
@@ -122,6 +124,7 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         cntl.Reset();
         cid = cntl.call_id();
     }
@@ -184,6 +187,8 @@ public:
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
+    Status add_row(const BlockRow& block_row, int64_t tablet_id);
+
     virtual Status add_block(vectorized::Block* block,
                              const std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
                                              std::vector<int64_t>>& payload) {
@@ -233,7 +238,7 @@ public:
 
     void clear_all_batches();
 
-    virtual void clear_all_blocks() { LOG(FATAL) << "NodeChannel::clear_all_blocks not supported"; }
+    virtual void clear_all_blocks() {}
 
     std::string channel_info() const {
         return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
@@ -286,7 +291,7 @@ protected:
 
     // limit _pending_batches size
     std::atomic<size_t> _pending_batches_bytes {0};
-    size_t _max_pending_batches_bytes {10 * 1024 * 1024};
+    size_t _max_pending_batches_bytes {(size_t)config::nodechannel_pending_queue_max_bytes};
     std::mutex _pending_batches_lock;          // reuse for vectorized
     std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
@@ -446,6 +451,8 @@ private:
     // set stop_processing is we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
+    bool _validate_cell(const TypeDescriptor& type, const std::string& col_name, void* slot,
+                        size_t slot_index, fmt::memory_buffer& error_msg, RowBatch* batch);
 
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.

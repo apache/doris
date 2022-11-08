@@ -24,6 +24,8 @@ suite("join") {
         SET enable_nereids_planner=true
     """
 
+    sql "SET enable_fallback_to_original_planner=false"
+
     order_qt_inner_join_1 """
         SELECT * FROM lineorder JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey
     """
@@ -66,6 +68,14 @@ suite("join") {
 
     order_qt_cross_join """
         SELECT * FROM lineorder CROSS JOIN supplier;
+    """
+
+    order_qt_inner_join_with_other_condition """
+        select lo_orderkey, lo_partkey, p_partkey, p_size from lineorder inner join part on lo_partkey = p_partkey where lo_orderkey - 1310000 > p_size;
+    """
+
+    order_qt_outer_join_with_filter """
+        select lo_orderkey, lo_partkey, p_partkey, p_size from lineorder inner join part on lo_partkey = p_partkey where lo_orderkey - 1310000 > p_size;
     """
 }
 

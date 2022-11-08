@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW ALTER TABLE MATERIALIZED VIEW",
+    "title": "SHOW-STATUS",
     "language": "en"
 }
 ---
@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW ALTER TABLE MATERIALIZED VIEW
+## SHOW-STATUS
 
 ### Name
 
-SHOW ALTER TABLE MATERIALIZED VIEW
+SHOW STATUS
 
 ### Description
 
-This command is used to view the execution of the Create Materialized View job submitted through the [CREATE-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) statement.
+This command is used to view the execution of the Create Materialized View job submitted through the [CREATE-MATERIALIZED-VIEW](../../Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW) statement.
 
 > This statement is equivalent to `SHOW ALTER TABLE ROLLUP`;
 
@@ -106,15 +106,9 @@ RollupIndexName: r1
 
 ### Example
 
-1. View the materialized view jobs under the database example_db
-
-   ```sql
-   SHOW ALTER TABLE MATERIALIZED VIEW FROM example_db;
-   ````
-
 ### Keywords
 
-    SHOW, ALTER, TABLE, MATERIALIZED, VIEW
+    SHOW, STATUS
 
 ### Best Practice
 

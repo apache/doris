@@ -40,27 +40,27 @@
 
 namespace doris {
 ColumnPredicate* BloomFilterColumnPredicateFactory::create_column_predicate(
-        uint32_t column_id, const std::shared_ptr<IBloomFilterFuncBase>& bloom_filter,
-        FieldType type) {
-    std::shared_ptr<IBloomFilterFuncBase> filter;
+        uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& bloom_filter,
+        FieldType type, int be_exec_version) {
+    std::shared_ptr<BloomFilterFuncBase> filter;
     switch (type) {
-#define M(NAME)                                                         \
-    case OLAP_FIELD_##NAME: {                                           \
-        filter.reset(create_bloom_filter(NAME));                        \
-        filter->light_copy(bloom_filter.get());                         \
-        return new BloomFilterColumnPredicate<NAME>(column_id, filter); \
+#define M(NAME)                                                                          \
+    case OLAP_FIELD_##NAME: {                                                            \
+        filter.reset(create_bloom_filter(NAME));                                         \
+        filter->light_copy(bloom_filter.get());                                          \
+        return new BloomFilterColumnPredicate<NAME>(column_id, filter, be_exec_version); \
     }
         APPLY_FOR_PRIMTYPE(M)
 #undef M
     case OLAP_FIELD_TYPE_DECIMAL: {
         filter.reset(create_bloom_filter(TYPE_DECIMALV2));
         filter->light_copy(bloom_filter.get());
-        return new BloomFilterColumnPredicate<TYPE_DECIMALV2>(column_id, filter);
+        return new BloomFilterColumnPredicate<TYPE_DECIMALV2>(column_id, filter, be_exec_version);
     }
     case OLAP_FIELD_TYPE_BOOL: {
         filter.reset(create_bloom_filter(TYPE_BOOLEAN));
         filter->light_copy(bloom_filter.get());
-        return new BloomFilterColumnPredicate<TYPE_BOOLEAN>(column_id, filter);
+        return new BloomFilterColumnPredicate<TYPE_BOOLEAN>(column_id, filter, be_exec_version);
     }
     default:
         return nullptr;

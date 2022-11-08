@@ -17,19 +17,38 @@
 
 package org.apache.doris.nereids.rules;
 
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
+import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscomProject;
 import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
-import org.apache.doris.nereids.rules.exploration.join.JoinCommuteProject;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
+import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
+import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.implementation.LogicalAggToPhysicalHashAgg;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
+import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
+import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -41,13 +60,31 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(JoinCommute.SWAP_OUTER_SWAP_ZIG_ZAG)
-            .add(JoinCommuteProject.SWAP_OUTER_SWAP_ZIG_ZAG)
+            .add(JoinCommute.ZIG_ZAG)
+            .add(InnerJoinLAsscom.INSTANCE)
+            .add(InnerJoinLAsscomProject.INSTANCE)
+            .add(OuterJoinLAsscom.INSTANCE)
+            .add(OuterJoinLAsscomProject.INSTANCE)
+            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
+            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
+            .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
+            .add(new AggregateDisassemble())
+            .add(new PushdownFilterThroughProject())
+            .add(new MergeProjects())
             .build();
 
-    public static final List<Rule> REWRITE_RULES = planRuleFactories()
-            .add(new AggregateDisassemble())
-            .build();
+    public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
+            new PushdownFilterThroughProject(),
+            new PushdownJoinOtherCondition(),
+            new PushdownFilterThroughJoin(),
+            new PushdownExpressionsInHashCondition(),
+            new PushdownFilterThroughAggregation(),
+            new PushdownProjectThroughLimit(),
+            new EliminateOuterJoin(),
+            new MergeProjects(),
+            new MergeFilters(),
+            new MergeLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalAggToPhysicalHashAgg())
@@ -60,6 +97,42 @@ public class RuleSet {
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
+            .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
+            .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
+            .build();
+
+    public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
+            // .add(JoinCommute.LEFT_DEEP)
+            // .add(JoinLAsscom.INNER)
+            // .add(JoinLAsscomProject.INNER)
+            // .add(JoinLAsscom.OUTER)
+            // .add(JoinLAsscomProject.OUTER)
+            // semi join Transpose ....
+            .build();
+
+    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
+            // .add(JoinCommute.ZIG_ZAG)
+            // .add(JoinLAsscom.INNER)
+            // .add(JoinLAsscomProject.INNER)
+            // .add(JoinLAsscom.OUTER)
+            // .add(JoinLAsscomProject.OUTER)
+            // semi join Transpose ....
+            .build();
+
+    public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
+            .add(JoinCommute.BUSHY)
+            // TODO: add more rule
+            // .add(JoinLeftAssociate.INNER)
+            // .add(JoinLeftAssociateProject.INNER)
+            // .add(JoinRightAssociate.INNER)
+            // .add(JoinRightAssociateProject.INNER)
+            // .add(JoinExchange.INNER)
+            // .add(JoinExchangeBothProject.INNER)
+            // .add(JoinExchangeLeftProject.INNER)
+            // .add(JoinExchangeRightProject.INNER)
+            // .add(JoinRightAssociate.OUTER)
+            // .add(JoinLAsscom.OUTER)
+            // semi join Transpose ....
             .build();
 
     public List<Rule> getExplorationRules() {
@@ -82,6 +155,11 @@ public class RuleSet {
 
         public RuleFactories add(RuleFactory ruleFactory) {
             rules.addAll(ruleFactory.buildRules());
+            return this;
+        }
+
+        public RuleFactories addAll(List<Rule> rules) {
+            this.rules.addAll(rules);
             return this;
         }
 

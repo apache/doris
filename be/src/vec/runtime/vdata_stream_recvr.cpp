@@ -152,7 +152,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         return;
     }
     Block* nblock = new Block(block->get_columns_with_type_and_name());
-    nblock->info = block->info;
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {
@@ -171,6 +170,8 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_size)) {
+        // yiguolei
+        // It is too tricky here, if the running thread is bthread then the tid may be wrong.
         std::thread::id tid = std::this_thread::get_id();
         MonotonicStopWatch monotonicStopWatch;
         monotonicStopWatch.start();
@@ -250,11 +251,12 @@ void VDataStreamRecvr::SenderQueue::close() {
 }
 
 VDataStreamRecvr::VDataStreamRecvr(
-        VDataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
+        VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
         const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
         bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
+          _state(state),
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _total_buffer_limit(total_buffer_limit),
@@ -315,6 +317,8 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
 
 void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                  int64_t packet_seq, ::google::protobuf::Closure** done) {
+    SCOPED_ATTACH_TASK(_state->query_mem_tracker(), print_id(_state->query_id()),
+                       _fragment_instance_id);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);

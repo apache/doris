@@ -24,7 +24,7 @@ namespace doris::vectorized {
 class VBloomPredicate final : public VExpr {
 public:
     VBloomPredicate(const TExprNode& node);
-    ~VBloomPredicate() = default;
+    ~VBloomPredicate() override = default;
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
                           int* result_column_id) override;
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
@@ -37,12 +37,13 @@ public:
         return pool->add(new VBloomPredicate(*this));
     }
     const std::string& expr_name() const override;
-    void set_filter(std::shared_ptr<IBloomFilterFuncBase>& filter);
+    void set_filter(std::shared_ptr<BloomFilterFuncBase>& filter);
 
-    std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() const override { return _filter; }
+    std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const override { return _filter; }
 
 private:
-    std::shared_ptr<IBloomFilterFuncBase> _filter;
+    std::shared_ptr<BloomFilterFuncBase> _filter;
     std::string _expr_name;
+    int _be_exec_version;
 };
 } // namespace doris::vectorized

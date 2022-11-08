@@ -110,6 +110,7 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::DATE_LITERAL:
     case TExprNodeType::STRING_LITERAL:
+    case TExprNodeType::JSON_LITERAL:
     case TExprNodeType::NULL_LITERAL: {
         *expr = pool->add(new VLiteral(texpr_node));
         return Status::OK();
@@ -318,7 +319,12 @@ ColumnPtrWrapper* VExpr::get_const_col(VExprContext* context) {
 
     int result = -1;
     Block block;
-    execute(context, &block, &result);
+    // If block is empty, some functions will produce no result. So we insert a column with
+    // single value here.
+    block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
+    if (!execute(context, &block, &result).ok()) {
+        return nullptr;
+    }
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);

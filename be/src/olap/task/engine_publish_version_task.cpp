@@ -59,15 +59,12 @@ void EnginePublishVersionTask::notify() {
 Status EnginePublishVersionTask::finish() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
+    OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
     // each partition
-    bool meet_version_not_continuous = false;
     std::atomic<int64_t> total_task_num(0);
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
-        if (meet_version_not_continuous) {
-            break;
-        }
         int64_t partition_id = par_ver_info.partition_id;
         // get all partition related tablets and check whether the tablet have the related version
         std::set<TabletInfo> partition_related_tablet_infos;
@@ -87,9 +84,6 @@ Status EnginePublishVersionTask::finish() {
 
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
-            if (meet_version_not_continuous) {
-                break;
-            }
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
@@ -121,18 +115,27 @@ Status EnginePublishVersionTask::finish() {
             if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
                 tablet->enable_unique_key_merge_on_write()) {
                 Version max_version;
+                TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
                     max_version = tablet->max_version();
+                    tablet_state = tablet->tablet_state();
                 }
-                if (version.first != max_version.second + 1) {
+                if (tablet_state == TabletState::TABLET_RUNNING &&
+                    version.first != max_version.second + 1) {
                     VLOG_NOTICE << "uniq key with merge-on-write version not continuous, current "
                                    "max "
                                    "version="
                                 << max_version.second << ", publish_version=" << version.first
                                 << " tablet_id=" << tablet->tablet_id();
-                    meet_version_not_continuous = true;
-                    res = Status::OLAPInternalError(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS);
+                    // If a tablet migrates out and back, the previously failed
+                    // publish task may retry on the new tablet, so check
+                    // whether the version exists. if not exist, then set
+                    // publish failed
+                    if (!tablet->check_version_exist(version)) {
+                        add_error_tablet_id(tablet_info.tablet_id);
+                        res = Status::OLAPInternalError(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS);
+                    }
                     continue;
                 }
             }
@@ -179,7 +182,7 @@ Status EnginePublishVersionTask::finish() {
     }
 
     LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id
+              << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
               << ", error_tablet_size=" << _error_tablet_ids->size() << ", res=" << res.to_string();
     return res;
 }

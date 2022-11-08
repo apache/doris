@@ -37,8 +37,9 @@ std::string DataTypeDecimal<T>::do_get_name() const {
 
 template <typename T>
 bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
-    if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs))
+    if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs)) {
         return scale == ptype->get_scale();
+    }
     return false;
 }
 
@@ -86,12 +87,13 @@ Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
 
 // binary: row_num | value1 | value2 | ...
 template <typename T>
-int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                              int be_exec_version) const {
     return sizeof(uint32_t) + column.size() * sizeof(FieldType);
 }
 
 template <typename T>
-char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf) const {
+char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     // row num
     const auto row_num = column.size();
     *reinterpret_cast<uint32_t*>(buf) = row_num;
@@ -105,7 +107,8 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf) const {
 }
 
 template <typename T>
-const char* DataTypeDecimal<T>::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeDecimal<T>::deserialize(const char* buf, IColumn* column,
+                                            int be_exec_version) const {
     // row num
     uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
@@ -152,7 +155,7 @@ T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
     T value = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
                                                         &result);
     if (result != StringParser::PARSE_SUCCESS) {
-        LOG(FATAL) << "Failed to parse string of decimal";
+        LOG(WARNING) << "Failed to parse string of decimal";
     }
     return value;
 }
@@ -167,10 +170,11 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {
         LOG(FATAL) << "Negative scales and scales larger than precision are not supported";
     }
 
-    if (precision_value <= max_decimal_precision<Decimal32>())
+    if (precision_value <= max_decimal_precision<Decimal32>()) {
         return std::make_shared<DataTypeDecimal<Decimal32>>(precision_value, scale_value);
-    else if (precision_value <= max_decimal_precision<Decimal64>())
+    } else if (precision_value <= max_decimal_precision<Decimal64>()) {
         return std::make_shared<DataTypeDecimal<Decimal64>>(precision_value, scale_value);
+    }
     return std::make_shared<DataTypeDecimal<Decimal128>>(precision_value, scale_value);
 }
 
@@ -208,7 +212,7 @@ void convert_to_decimal(T* from_value, T* to_value, int32_t from_scale, int32_t 
                                  static_cast<T>(DataTypeDecimal<Decimal<T>>::get_scale_multiplier(
                                          to_scale - from_scale)),
                                  *to_value)) {
-            LOG(FATAL) << "Decimal convert overflow";
+            LOG(WARNING) << "Decimal convert overflow";
         }
     }
 }

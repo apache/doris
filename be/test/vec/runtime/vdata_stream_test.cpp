@@ -24,8 +24,8 @@
 #include "runtime/exec_env.h"
 #include "service/brpc.h"
 #include "testutil/desc_tbl_builder.h"
+#include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -114,7 +114,7 @@ TEST_F(VDataStreamTest, BasicTest) {
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_instance_mem_tracker();
+    runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
     runtime_stat.set_be_number(1);
     runtime_stat._exec_env = _object_pool.add(new ExecEnv);

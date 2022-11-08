@@ -238,48 +238,369 @@ parser code {:
 
 :};
 
-// Total keywords of doris
-terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
-    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_QUANTILE_STATE, KW_QUANTILE_UNION, KW_BLOB, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILD, KW_BUILTIN,
-    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS, KW_CLEAN, KW_CURRENT_TIMESTAMP,
-    KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT, KW_COMPLETE,
-    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COPY, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
-    KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DATEV2, KW_DATETIMEV2, KW_DAY, KW_DECIMAL, KW_DECIMALV3, KW_DECOMMISSION, KW_DEFAULT, KW_DEFERRED, KW_DEMAND, KW_DESC, KW_DESCRIBE,
-    KW_DELETE, KW_UPDATE, KW_DIAGNOSE, KW_DISK, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
-    KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
-    KW_EXISTS, KW_EXPORT, KW_EXTENDED, KW_EXTERNAL, KW_EXTRACT,
-    KW_FAST, KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIELDS, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
-    KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GRAPH, KW_GROUP, KW_GROUPING,
-    KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
-    KW_IDENTIFIED, KW_IF, KW_IMMEDIATE, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
-    KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
-    KW_JOB, KW_JOIN,
-    KW_KEY, KW_KEYS, KW_KILL,
-    KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LIST, KW_LOAD,
-    KW_LOCAL, KW_LOCATION, KW_LOCK, KW_LOW_PRIORITY, KW_LATERAL,
-    KW_MAP, KW_MATERIALIZED, KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
-    KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NEVER, KW_NEXT, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
-    KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
-    KW_PARAMETER, KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_LDAP_ADMIN_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
-    KW_PLUGIN, KW_PLUGINS, KW_POLICY,
-    KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROFILE, KW_PROPERTIES, KW_PROPERTY,
-    KW_QUERY, KW_QUOTA,
-    KW_RANDOM, KW_RANGE, KW_READ, KW_REBALANCE, KW_RECOVER, KW_REFRESH, KW_REGEXP, KW_RELEASE, KW_RENAME,
-    KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
-    KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
-    KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW, KW_SIGNED,
+// Total keywords of doris, keep them in lexicographical order
+terminal String
+    KW_ACCOUNT_LOCK,
+    KW_ACCOUNT_UNLOCK,
+    KW_ADD,
+    KW_ADMIN,
+    KW_AFTER,
+    KW_AGGREGATE,
+    KW_ALIAS,
+    KW_ALL,
+    KW_ALTER,
+    KW_ANALYZE,
+    KW_AND,
+    KW_ANTI,
+    KW_APPEND,
+    KW_ARRAY,
+    KW_AS,
+    KW_ASC,
+    KW_AUTHORS,
+    KW_BACKEND,
+    KW_BACKENDS,
+    KW_BACKUP,
+    KW_BEGIN,
+    KW_BETWEEN,
+    KW_BIGINT,
+    KW_BIN,
+    KW_BINLOG,
+    KW_BITMAP,
+    KW_BITMAP_UNION,
+    KW_BLOB,
+    KW_BOOLEAN,
+    KW_BROKER,
+    KW_BUCKETS,
+    KW_BUILD,
+    KW_BUILTIN,
+    KW_BY,
+    KW_CANCEL,
+    KW_CASE,
+    KW_CAST,
+    KW_CATALOG,
+    KW_CATALOGS,
+    KW_CHAIN,
+    KW_CHAR,
+    KW_CHARSET,
+    KW_CHECK,
+    KW_CLEAN,
+    KW_CLUSTER,
+    KW_CLUSTERS,
+    KW_COLLATE,
+    KW_COLLATION,
+    KW_COLUMN,
+    KW_COLUMNS,
+    KW_COMMENT,
+    KW_COMMIT,
+    KW_COMMITTED,
+    KW_COMPACT,
+    KW_COMPLETE,
+    KW_CONFIG,
+    KW_CONNECTION,
+    KW_CONNECTION_ID,
+    KW_CONSISTENT,
+    KW_CONVERT,
+    KW_COPY,
+    KW_COUNT,
+    KW_CREATE,
+    KW_CREATION,
+    KW_CROSS,
+    KW_CUBE,
+    KW_CURRENT,
+    KW_CURRENT_TIMESTAMP,
+    KW_CURRENT_USER,
+    KW_DATA,
+    KW_DATABASE,
+    KW_DATABASES,
+    KW_DATE,
+    KW_DATETIME,
+    KW_DATETIMEV2,
+    KW_DATEV2,
+    KW_DAY,
+    KW_DECIMAL,
+    KW_DECIMALV3,
+    KW_DECOMMISSION,
+    KW_DEFAULT,
+    KW_DEFERRED,
+    KW_DELETE,
+    KW_DEMAND,
+    KW_DESC,
+    KW_DESCRIBE,
+    KW_DIAGNOSE,
+    KW_DISK,
+    KW_DISTINCT,
+    KW_DISTINCTPC,
+    KW_DISTINCTPCSA,
+    KW_DISTRIBUTED,
+    KW_DISTRIBUTION,
+    KW_DIV,
+    KW_DOUBLE,
+    KW_DROP,
+    KW_DROPP,
+    KW_DUPLICATE,
+    KW_DYNAMIC,
+    KW_ELSE,
+    KW_ENABLE,
+    KW_ENCRYPTKEY,
+    KW_ENCRYPTKEYS,
+    KW_END,
+    KW_ENGINE,
+    KW_ENGINES,
+    KW_ENTER,
+    KW_ERRORS,
+    KW_EVENTS,
+    KW_EXCEPT,
+    KW_EXCLUDE,
+    KW_EXISTS,
+    KW_EXPORT,
+    KW_EXTENDED,
+    KW_EXTERNAL,
+    KW_EXTRACT,
+    KW_FAILED_LOGIN_ATTEMPTS,
+    KW_FALSE,
+    KW_FAST,
+    KW_FEATURE,
+    KW_FIELDS,
+    KW_FILE,
+    KW_FILTER,
+    KW_FIRST,
+    KW_FLOAT,
+    KW_FOLLOWER,
+    KW_FOLLOWING,
+    KW_FOR,
+    KW_FORCE,
+    KW_FORMAT,
+    KW_FREE,
+    KW_FROM,
+    KW_FRONTEND,
+    KW_FRONTENDS,
+    KW_FULL,
+    KW_FUNCTION,
+    KW_FUNCTIONS,
+    KW_GLOBAL,
+    KW_GRANT,
+    KW_GRANTS,
+    KW_GRAPH,
+    KW_GROUP,
+    KW_GROUPING,
+    KW_HASH,
+    KW_HAVING,
+    KW_HDFS,
+    KW_HELP,
+    KW_HLL,
+    KW_HLL_UNION,
+    KW_HOUR,
+    KW_HUB,
+    KW_IDENTIFIED,
+    KW_IF,
+    KW_IMMEDIATE,
+    KW_IN,
+    KW_INDEX,
+    KW_INDEXES,
+    KW_INFILE,
+    KW_INNER,
+    KW_INSERT,
+    KW_INSTALL,
+    KW_INT,
+    KW_INTERMEDIATE,
+    KW_INTERSECT,
+    KW_INTERVAL,
+    KW_INTO,
+    KW_IS,
+    KW_ISNULL,
+    KW_ISOLATION,
+    KW_JOB,
+    KW_JOIN,
+    KW_JSON,
+    KW_KEY,
+    KW_KEYS,
+    KW_KILL,
+    KW_LABEL,
+    KW_LARGEINT,
+    KW_LAST,
+    KW_LATERAL,
+    KW_LDAP_ADMIN_PASSWORD,
+    KW_LEFT,
+    KW_LESS,
+    KW_LEVEL,
+    KW_LIKE,
+    KW_LIMIT,
+    KW_LINK,
+    KW_LIST,
+    KW_LOAD,
+    KW_LOCAL,
+    KW_LOCATION,
+    KW_LOCK,
+    KW_LOW_PRIORITY,
+    KW_MAP,
+    KW_MATERIALIZED,
+    KW_MAX,
+    KW_MAX_VALUE,
+    KW_MERGE,
+    KW_MIGRATE,
+    KW_MIGRATIONS,
+    KW_MIN,
+    KW_MINUS,
+    KW_MINUTE,
+    KW_MODIFY,
+    KW_MONTH,
+    KW_NAME,
+    KW_NAMES,
+    KW_NATURAL,
+    KW_NEGATIVE,
+    KW_NEVER,
+    KW_NEXT,
+    KW_NO,
+    KW_NOT,
+    KW_NULL,
+    KW_NULLS,
+    KW_OBSERVER,
+    KW_OFFSET,
+    KW_ON,
+    KW_ONLY,
+    KW_OPEN,
+    KW_OR,
+    KW_ORDER,
+    KW_OUTER,
+    KW_OUTFILE,
+    KW_OVER,
+    KW_PARAMETER,
+    KW_PARTITION,
+    KW_PARTITIONS,
+    KW_PASSWORD,
+    KW_PASSWORD_EXPIRE,
+    KW_PASSWORD_HISTORY,
+    KW_PASSWORD_LOCK_TIME,
+    KW_PASSWORD_REUSE,
+    KW_PATH,
+    KW_PAUSE,
+    KW_PIPE,
+    KW_PLUGIN,
+    KW_PLUGINS,
+    KW_POLICY,
+    KW_PRECEDING,
+    KW_PERCENT,
+    KW_RECYCLE,
+    KW_PROC,
+    KW_PROCEDURE,
+    KW_PROCESSLIST,
+    KW_PROFILE,
+    KW_PROPERTIES,
+    KW_PROPERTY,
+    KW_QUANTILE_STATE,
+    KW_QUANTILE_UNION,
+    KW_QUERY,
+    KW_QUOTA,
+    KW_RANDOM,
+    KW_RANGE,
+    KW_READ,
+    KW_REBALANCE,
+    KW_RECOVER,
+    KW_REFRESH,
+    KW_REGEXP,
+    KW_RELEASE,
+    KW_RENAME,
+    KW_REPAIR,
+    KW_REPEATABLE,
+    KW_REPLACE,
+    KW_REPLACE_IF_NOT_NULL,
+    KW_REPLICA,
+    KW_REPOSITORIES,
+    KW_REPOSITORY,
+    KW_RESOURCE,
+    KW_RESOURCES,
+    KW_RESTORE,
+    KW_RESUME,
+    KW_RETURNS,
+    KW_REVOKE,
+    KW_RIGHT,
+    KW_ROLE,
+    KW_ROLES,
+    KW_ROLLBACK,
+    KW_ROLLUP,
+    KW_ROUTINE,
+    KW_ROW,
+    KW_ROWS,
+    KW_S3,
+    KW_SCHEMA,
+    KW_SCHEMAS,
+    KW_SECOND,
+    KW_SELECT,
+    KW_SEMI,
+    KW_SERIALIZABLE,
+    KW_SESSION,
+    KW_SET,
+    KW_SETS,
+    KW_SHOW,
+    KW_SIGNED,
     KW_SKEW,
-    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
-    KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM, KW_SQL_BLOCK_RULE,
-    KW_TABLE, KW_TABLES, KW_TABLET, KW_TABLETS, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_TEXT, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
-    KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
-    KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNLOCK, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
-    KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
-    KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
-    KW_YEAR,
-    KW_NOT_NULL,
-    KW_CATALOG, KW_CATALOGS,
-    KW_SWITCH;
+    KW_SMALLINT,
+    KW_SNAPSHOT,
+    KW_SONAME,
+    KW_SPLIT,
+    KW_SQL_BLOCK_RULE,
+    KW_START,
+    KW_STATS,
+    KW_STATUS,
+    KW_STOP,
+    KW_STORAGE,
+    KW_STREAM,
+    KW_STRING,
+    KW_STRUCT,
+    KW_SUM,
+    KW_SUPERUSER,
+    KW_SWITCH,
+    KW_SYNC,
+    KW_SYSTEM,
+    KW_TABLE,
+    KW_TABLES,
+    KW_TABLESAMPLE,
+    KW_TABLET,
+    KW_TABLETS,
+    KW_TASK,
+    KW_TEMPORARY,
+    KW_TERMINATED,
+    KW_TEXT,
+    KW_THAN,
+    KW_THEN,
+    KW_TIME,
+    KW_TIMESTAMP,
+    KW_TINYINT,
+    KW_TO,
+    KW_TRANSACTION,
+    KW_TRASH,
+    KW_TRIGGERS,
+    KW_TRIM,
+    KW_TRUE,
+    KW_TRUNCATE,
+    KW_TYPE,
+    KW_TYPES,
+    KW_UNBOUNDED,
+    KW_UNCOMMITTED,
+    KW_UNINSTALL,
+    KW_UNION,
+    KW_UNIQUE,
+    KW_UNLOCK,
+    KW_UNSIGNED,
+    KW_UPDATE,
+    KW_USE,
+    KW_USER,
+    KW_USING,
+    KW_VALUE,
+    KW_VALUES,
+    KW_VARCHAR,
+    KW_VARIABLES,
+    KW_VERBOSE,
+    KW_VIEW,
+    KW_WARNINGS,
+    KW_WEEK,
+    KW_WHEN,
+    KW_WHERE,
+    KW_WHITELIST,
+    KW_WITH,
+    KW_WORK,
+    KW_WRITE,
+    KW_YEAR;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -304,7 +625,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -355,9 +676,11 @@ nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
-nonterminal String select_alias, opt_table_alias, lock_alias;
+nonterminal String select_alias, opt_table_alias, lock_alias, opt_alias;
 nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
+nonterminal ArrayList<Long> opt_tablet_list, tablet_list;
+nonterminal TableSample opt_table_sample, table_sample;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name, opt_table_name;
@@ -447,6 +770,7 @@ nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
 nonterminal KeysDesc opt_mv_keys;
+nonterminal Long opt_id;
 
 nonterminal PartitionKeyDesc partition_key_desc;
 nonterminal PartitionKeyDesc list_partition_key_desc;
@@ -481,6 +805,12 @@ nonterminal TablePattern tbl_pattern;
 nonterminal ResourcePattern resource_pattern;
 nonterminal String ident_or_star;
 
+// password policy
+nonterminal PasswordOptions opt_password_option;
+nonterminal Integer opt_passwd_history_policy, opt_passwd_reuse_policy;
+nonterminal Integer opt_failed_login_attempts, passwd_history_opt, passwd_reuse_opt, opt_lock_account, passwd_time_unit;
+nonterminal Long opt_passwd_expire_policy, opt_password_lock_time, passwd_expire_opt, passwd_lock_time_opt;
+
 // Routine load
 nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
@@ -501,10 +831,11 @@ nonterminal List<ArrayList<Expr>> grouping_set_list;
 nonterminal ArrayList<Expr> grouping_set;
 nonterminal GroupByClause group_by_clause, grouping_elements;
 //
-nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
+nonterminal String keyword, ident, ident_or_text, variable_name,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
         collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
         literal_or_ident;
+nonterminal PassVar text_or_password;
 
 // sync job
 nonterminal List<ChannelDescription> channel_desc_list;
@@ -560,6 +891,7 @@ precedence left KW_LIKE, KW_REGEXP;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
+precedence left KW_EXCEPT;
 precedence left BITAND, BITOR, BITXOR;
 precedence left KW_PIPE;
 precedence left BITNOT;
@@ -764,6 +1096,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | clean_stmt:stmt
     {: RESULT = stmt; :}
+    | analyze_stmt:stmt
+    {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
         RESULT = new EmptyStmt();
@@ -800,6 +1134,10 @@ refresh_stmt ::=
     | KW_REFRESH KW_DATABASE ident:db
     {:
         RESULT = new RefreshDbStmt(db);
+    :}
+    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db
+    {:
+        RESULT = new RefreshDbStmt(ctl, db);
     :}
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
     {:
@@ -945,6 +1283,14 @@ alter_stmt ::=
     | KW_ALTER KW_MATERIALIZED KW_VIEW table_name:mv opt_mv_refersh_info:refreshInfo
     {:
         RESULT = new AlterMaterializedViewStmt(mv, refreshInfo);
+    :}
+    | KW_ALTER KW_USER
+      opt_if_exists:ifExists
+      grant_user:user
+      opt_user_role:userRole
+      opt_password_option:passwdOptions
+    {:
+        RESULT = new AlterUserStmt(ifExists, user, userRole, passwdOptions);
     :}
     ;
 
@@ -1440,9 +1786,13 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index), columns, query_def);
     :}
     /* User */
-    | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
+    | KW_CREATE KW_USER
+      opt_if_not_exists:ifNotExists
+      grant_user:user
+      opt_user_role:userRole
+      opt_password_option:passwdOptions
     {:
-        RESULT = new CreateUserStmt(ifNotExists, user, userRole);
+        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions);
     :}
     | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
@@ -1485,14 +1835,14 @@ create_stmt ::=
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, comment), false)));
     :}
     /* resource */
-    | KW_CREATE opt_external:isExternal KW_RESOURCE ident_or_text:resourceName opt_properties:properties
+    | KW_CREATE opt_external:isExternal KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
     {:
-        RESULT = new CreateResourceStmt(isExternal, resourceName, properties);
+        RESULT = new CreateResourceStmt(isExternal, ifNotExists, resourceName, properties);
     :}
     /* encryptkey */
-    | KW_CREATE KW_ENCRYPTKEY encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
+    | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
     {:
-        RESULT = new CreateEncryptKeyStmt(keyName, keyString);
+        RESULT = new CreateEncryptKeyStmt(ifNotExists, keyName, keyString);
     :}
     /* sync job */
     | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
@@ -1623,12 +1973,12 @@ grant_user ::=
     | user_identity:user_id KW_IDENTIFIED KW_BY STRING_LITERAL:password
     {:
         /* plain text password */
-        RESULT = new UserDesc(user_id, password, true);
+        RESULT = new UserDesc(user_id, new PassVar(password, true));
     :}
     | user_identity:user_id KW_IDENTIFIED KW_BY KW_PASSWORD STRING_LITERAL:password
     {:
         /* hashed password */
-        RESULT = new UserDesc(user_id, password, false);
+        RESULT = new UserDesc(user_id, new PassVar(password, false));
     :}
     ;
 
@@ -1644,6 +1994,145 @@ opt_user_role ::=
     | KW_DEFAULT KW_ROLE STRING_LITERAL:role
     {:
         RESULT = role;
+    :}
+    ;
+
+opt_password_option ::=
+    opt_passwd_history_policy:historyPolicy
+    opt_passwd_expire_policy:expirePolicy
+    opt_passwd_reuse_policy:reusePolicy
+    opt_failed_login_attempts:loginAttempts
+    opt_password_lock_time:passwdLockTime
+    opt_lock_account:lockAccount
+    {:
+        RESULT = new PasswordOptions(expirePolicy, historyPolicy, reusePolicy, loginAttempts, passwdLockTime, lockAccount);
+    :}
+    ;
+
+opt_passwd_expire_policy ::=
+    {:
+        RESULT = (long) PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_EXPIRE passwd_expire_opt:opt
+    {:
+        RESULT = opt;
+    :}
+    ;
+
+opt_passwd_history_policy ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_HISTORY passwd_history_opt:opt
+    {:
+        RESULT = opt;
+    :}
+    ;
+
+opt_passwd_reuse_policy ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_REUSE KW_INTERVAL passwd_reuse_opt:opt
+    {:
+        RESULT = opt;
+    :}
+    ;
+
+opt_lock_account ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_ACCOUNT_LOCK
+    {:
+        RESULT = -1;
+    :}
+    | KW_ACCOUNT_UNLOCK
+    {:
+        RESULT = 1;
+    :}
+    ;
+
+passwd_expire_opt ::=
+    KW_DEFAULT
+    {:
+        RESULT = -1L;
+    :}
+    | KW_NEVER
+    {:
+        RESULT = 0L;
+    :}
+    | KW_INTERVAL INTEGER_LITERAL:n passwd_time_unit:unit
+    {:
+        RESULT = n * unit;
+    :}
+    ;
+
+passwd_time_unit ::=
+    KW_DAY
+    {:
+        RESULT = 86400;
+    :}
+    | KW_HOUR
+    {:
+        RESULT = 3600;
+    :}
+    | KW_SECOND
+    {:
+        RESULT = 1;
+    :}
+    ;
+
+passwd_history_opt ::=
+    KW_DEFAULT
+    {:
+        RESULT = -1;
+    :}
+    | INTEGER_LITERAL:n
+    {:
+        RESULT = n.intValue();
+    :}
+    ;
+
+passwd_reuse_opt ::=
+    KW_DEFAULT
+    {:
+        RESULT = -1;
+    :}
+    | INTEGER_LITERAL:n KW_DAY
+    {:
+        RESULT = n.intValue();
+    :}
+    ;
+
+opt_failed_login_attempts ::=
+    {:
+        RESULT = PasswordOptions.UNSET;
+    :}
+    | KW_FAILED_LOGIN_ATTEMPTS INTEGER_LITERAL:n
+    {:
+        RESULT = n.intValue();
+    :}
+    ;
+
+opt_password_lock_time ::=
+    {:
+        RESULT = (long) PasswordOptions.UNSET;
+    :}
+    | KW_PASSWORD_LOCK_TIME passwd_lock_time_opt:opt
+    {:
+        RESULT = opt;
+    :} 
+    ;
+
+passwd_lock_time_opt ::=
+    INTEGER_LITERAL:n passwd_time_unit:unit
+    {:
+        RESULT = n * unit;
+    :}
+    | KW_UNBOUNDED
+    {:
+        RESULT = -1L;
     :}
     ;
 
@@ -2079,6 +2568,14 @@ show_create_routine_load_stmt ::=
     :}
     ;
 
+// analyze statment
+analyze_stmt ::=
+    KW_ANALYZE opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    {:
+        RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
+    :}
+    ;
+
 // Grant statement
 grant_stmt ::=
     KW_GRANT privilege_list:privs KW_ON tbl_pattern:tblPattern KW_TO user_identity:userId
@@ -2221,13 +2718,13 @@ drop_stmt ::=
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
     :}
-    | KW_DROP KW_RESOURCE ident_or_text:resourceName
+    | KW_DROP KW_RESOURCE opt_if_exists:ifExists ident_or_text:resourceName
     {:
-        RESULT = new DropResourceStmt(resourceName);
+        RESULT = new DropResourceStmt(ifExists, resourceName);
     :}
-    | KW_DROP KW_ENCRYPTKEY encryptkey_name:keyName
+    | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
-        RESULT = new DropEncryptKeyStmt(keyName);
+        RESULT = new DropEncryptKeyStmt(ifExists, keyName);
     :}
     | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
     {:
@@ -2245,21 +2742,26 @@ drop_stmt ::=
     {:
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null);
     :}
+    /* statistics */
+    | KW_DROP KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
+    {:
+        RESULT = new DropTableStatsStmt(tbl, partitionNames);
+    :}
     ;
 
 // Recover statement
 recover_stmt ::=
-    KW_RECOVER KW_DATABASE ident:dbName
+    KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_alias:alias
     {:
-        RESULT = new RecoverDbStmt(dbName);
+        RESULT = new RecoverDbStmt(dbName, dbId, alias);
     :}
-    | KW_RECOVER KW_TABLE table_name:dbTblName
+    | KW_RECOVER KW_TABLE table_name:dbTblName opt_id:tableId opt_alias:alias
     {:
-        RESULT = new RecoverTableStmt(dbTblName);
+        RESULT = new RecoverTableStmt(dbTblName, tableId, alias);
     :}
-    | KW_RECOVER KW_PARTITION ident:partitionName KW_FROM table_name:dbTblName
+    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_alias:alias KW_FROM table_name:dbTblName
     {:
-        RESULT = new RecoverPartitionStmt(dbTblName, partitionName);
+        RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
     :}
     ;
 
@@ -3093,14 +3595,14 @@ show_param ::=
         RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show table stats */
-    | KW_TABLE KW_STATS opt_table_name:tbl
+    | KW_TABLE KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowTableStatsStmt(tbl);
+        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
-    | KW_COLUMN KW_STATS table_name:tbl
+    | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new ShowColumnStatsStmt(tbl);
+        RESULT = new ShowColumnStatsStmt(tbl, partitionNames);
     :}
     /* show table creation statement */
     | KW_TABLE KW_CREATION opt_db:db opt_wild_where
@@ -3115,6 +3617,19 @@ show_param ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_ON table_name:tableName
     {:
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
+    :}
+    /* show analyze job */
+    | KW_ANALYZE integer_list:jobIds
+    {:
+        RESULT = new ShowAnalyzeStmt(jobIds);
+    :}
+    | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
+    :}
+    | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
+    {:
+        RESULT = new ShowCatalogRecycleBinStmt(parser.where);
     :}
     ;
 
@@ -3231,6 +3746,17 @@ opt_wild_where ::=
     | KW_WHERE expr:where
     {:
         parser.where = where;
+    :}
+    ;
+
+opt_id ::=
+    /* empty */
+    {:
+        RESULT = (long)-1;
+    :}
+    | INTEGER_LITERAL:id
+    {:
+        RESULT = id;
     :}
     ;
 
@@ -3947,12 +4473,12 @@ text_or_password ::=
     STRING_LITERAL:text
     {:
         // This is hashed text
-        RESULT = text;
+        RESULT = new PassVar(text, false);
     :}
-    | KW_PASSWORD LPAREN STRING_LITERAL:passwd RPAREN
+    | KW_PASSWORD LPAREN STRING_LITERAL:text RPAREN
     {:
         // This is plain text
-        RESULT = new String(MysqlPassword.makeScrambledPassword(passwd));
+        RESULT = new PassVar(text, true);
     :}
     ;
 
@@ -4234,6 +4760,12 @@ select_list ::=
         list.addItem(SelectListItem.createStarItem(null));
         RESULT = list;
     :}
+    | STAR KW_EXCEPT LPAREN select_sublist: list RPAREN
+    {:
+        SelectList res = new SelectList(list);
+        list.setIsExcept(true);
+        RESULT = list;
+    :}
     ;
 
 select_sublist ::=
@@ -4453,9 +4985,9 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_partition_names:partitionNames opt_table_alias:alias opt_common_hints:commonHints
+    table_name:name opt_partition_names:partitionNames opt_tablet_list:tabletIds opt_table_alias:alias opt_table_sample:tableSample opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, partitionNames, commonHints);
+        RESULT = new TableRef(name, alias, partitionNames, tabletIds, tableSample, commonHints);
     :}
     ;
 
@@ -4471,6 +5003,17 @@ opt_common_hints ::=
     |
     {:
         RESULT = null;
+    :}
+    ;
+
+opt_alias ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_AS ident:alias
+    {:
+        RESULT = alias;
     :}
     ;
 
@@ -4504,6 +5047,24 @@ opt_partition_names ::=
     :}
     ;
 
+opt_tablet_list ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | tablet_list:tabletList
+    {:
+        RESULT = tabletList;
+    :}
+    ;
+
+tablet_list ::=
+    KW_TABLET LPAREN integer_list:tabletIds RPAREN
+    {:
+        RESULT = Lists.newArrayList(tabletIds);
+    :}
+    ;
+
 partition_names ::=
     KW_PARTITION LPAREN ident_list:partitions RPAREN
     {:
@@ -4528,6 +5089,36 @@ partition_names ::=
     | KW_TEMPORARY KW_PARTITION ident:partName
     {:
         RESULT = new PartitionNames(true, Lists.newArrayList(partName));
+    :}
+    ;
+
+opt_table_sample ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | table_sample:tableSample
+    {:
+        RESULT = tableSample;
+    :}
+    ;
+
+table_sample ::=
+    KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_PERCENT RPAREN
+    {:
+        RESULT = new TableSample(true, sampleValue);
+    :}
+    | KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_ROWS RPAREN
+    {:
+        RESULT = new TableSample(false, sampleValue);
+    :}
+    | KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_PERCENT RPAREN KW_REPEATABLE INTEGER_LITERAL:seek
+    {:
+        RESULT = new TableSample(true, sampleValue, seek);
+    :}
+    | KW_TABLESAMPLE LPAREN INTEGER_LITERAL:sampleValue KW_ROWS RPAREN KW_REPEATABLE INTEGER_LITERAL:seek
+    {:
+        RESULT = new TableSample(false, sampleValue, seek);
     :}
     ;
 
@@ -4582,6 +5173,12 @@ join_operator ::=
   {: RESULT = JoinOperator.RIGHT_ANTI_JOIN; :}
   | KW_CROSS KW_JOIN
   {: RESULT = JoinOperator.CROSS_JOIN; :}
+  | KW_NATURAL KW_JOIN
+  {:
+      if (RESULT == null) {
+          throw new AnalysisException("natural join is not supported, please use inner join instead.");
+      }
+  :}
   ;
 
 opt_inner ::=
@@ -4845,6 +5442,8 @@ type ::=
   {: RESULT = Type.QUANTILE_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
+  | KW_JSON
+  {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
@@ -5750,6 +6349,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BEGIN:id
     {: RESULT = id; :}
+    | KW_BIN:id
+    {: RESULT = id; :}
     | KW_BITMAP:id
     {: RESULT = id; :}
     | KW_QUANTILE_STATE:id
@@ -5838,6 +6439,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_FAST:id
     {: RESULT = id; :}
+    | KW_FAILED_LOGIN_ATTEMPTS:id
+    {: RESULT = id; :}
     | KW_FILE:id
     {: RESULT = id; :}
     | KW_FIELDS:id
@@ -5892,6 +6495,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
+    | KW_JSON:id
+    {: RESULT = id; :}
     | KW_ENCRYPTKEY:id
     {: RESULT = id; :}
     | KW_ENCRYPTKEYS:id
@@ -5943,6 +6548,14 @@ keyword ::=
     | KW_PARTITIONS:id
     {: RESULT = id; :}
     | KW_PASSWORD:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_EXPIRE:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_REUSE:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_HISTORY:id
+    {: RESULT = id; :}
+    | KW_PASSWORD_LOCK_TIME:id
     {: RESULT = id; :}
     | KW_LDAP_ADMIN_PASSWORD:id
     {: RESULT = id; :}
@@ -6105,6 +6718,8 @@ keyword ::=
     | KW_CATALOG:id
     {: RESULT = id; :}
     | KW_CATALOGS:id
+    {: RESULT = id; :}
+    | KW_RECYCLE:id
     {: RESULT = id; :}
     ;
 

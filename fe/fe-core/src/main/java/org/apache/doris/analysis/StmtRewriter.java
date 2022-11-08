@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 
@@ -755,8 +756,8 @@ public class StmtRewriter {
             // For the case of a NOT IN with an eq join conjunct, replace the join
             // conjunct with a conjunct that uses the null-matching eq operator.
             if (expr instanceof InPredicate) {
-                // joinOp = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
-                joinOp = JoinOperator.LEFT_ANTI_JOIN;
+                joinOp = VectorizedUtil.isVectorized()
+                        ? JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN : JoinOperator.LEFT_ANTI_JOIN;
                 List<TupleId> tIds = Lists.newArrayList();
                 joinConjunct.getIds(tIds, null);
                 if (tIds.size() <= 1 || !tIds.contains(inlineView.getDesc().getId())) {
@@ -804,7 +805,8 @@ public class StmtRewriter {
             for (int j = 0; j < tableIdx; ++j) {
                 TableRef tableRef = stmt.fromClause.get(j);
                 if (tableRef.getJoinOp() == JoinOperator.LEFT_SEMI_JOIN
-                        || tableRef.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN) {
+                        || tableRef.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN
+                        || tableRef.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
                     continue;
                 }
                 newItems.add(SelectListItem.createStarItem(tableRef.getAliasAsName()));

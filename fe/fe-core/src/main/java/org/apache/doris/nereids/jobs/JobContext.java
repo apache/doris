@@ -32,6 +32,7 @@ public class JobContext {
     protected final CascadesContext cascadesContext;
     protected final PhysicalProperties requiredProperties;
     protected double costUpperBound;
+    protected boolean rewritten = false;
 
     protected Map<RuleType, Integer> ruleInvokeTimes = Maps.newLinkedHashMap();
 
@@ -55,6 +56,14 @@ public class JobContext {
 
     public void setCostUpperBound(double costUpperBound) {
         this.costUpperBound = costUpperBound;
+    }
+
+    public boolean isRewritten() {
+        return rewritten;
+    }
+
+    public void setRewritten(boolean rewritten) {
+        this.rewritten = rewritten;
     }
 
     public void onInvokeRule(RuleType ruleType) {

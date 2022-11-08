@@ -106,7 +106,7 @@ Planning example for concurrent export:
 
 ## Usage example
 
-For details, please refer to [OUTFILE Document](../sql-reference/sql-statements/Data%20Manipulation/OUTFILE.md).
+For details, please refer to [OUTFILE Document](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md).
 
 ## Return result
 
@@ -163,4 +163,4 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 
 ## More Help
 
-For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.
+For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.

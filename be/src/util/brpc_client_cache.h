@@ -89,6 +89,9 @@ public:
         if (connect_type != "") {
             options.connection_type = connect_type;
         }
+        options.connect_timeout_ms = 2000;
+        options.max_retry = 10;
+
         std::unique_ptr<brpc::Channel> channel(new brpc::Channel());
         int ret_code = 0;
         if (host_port.find("://") == std::string::npos) {

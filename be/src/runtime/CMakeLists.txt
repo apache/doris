@@ -46,6 +46,7 @@ set(RUNTIME_FILES
     runtime_state.cpp
     runtime_filter_mgr.cpp
     string_value.cpp
+    jsonb_value.cpp
     thread_context.cpp
     thread_resource_mgr.cpp
     threadlocal.cc
@@ -54,7 +55,6 @@ set(RUNTIME_FILES
     collection_value.cpp
     tuple.cpp
     tuple_row.cpp
-    qsorter.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
     load_path_mgr.cpp
@@ -99,7 +99,6 @@ set(RUNTIME_FILES
     memory/chunk_allocator.cpp
     memory/mem_tracker_limiter.cpp
     memory/mem_tracker.cpp
-    memory/mem_tracker_task_pool.cpp
     memory/thread_mem_tracker_mgr.cpp
     fold_constant_executor.cpp
     cache/result_node.cpp
@@ -111,6 +110,12 @@ if (WITH_MYSQL)
     set(RUNTIME_FILES ${RUNTIME_FILES}
         mysql_table_writer.cpp
         mysql_table_sink.cpp
+        )
+endif()
+
+if (USE_JEMALLOC)
+    set(RUNTIME_FILES ${RUNTIME_FILES}
+        memory/jemalloc_hook.cpp
         )
 endif()
 

@@ -32,6 +32,7 @@ import org.apache.doris.regression.suite.event.TeamcityEventListener
 import org.apache.doris.regression.util.Recorder
 import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
+import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.codehaus.groovy.control.CompilerConfiguration
 
 import java.beans.Introspector
@@ -82,9 +83,24 @@ class RegressionTest {
         compileConfig = new CompilerConfiguration()
         compileConfig.setScriptBaseClass((SuiteScript as Class).name)
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
-        scriptExecutors = Executors.newFixedThreadPool(config.parallel)
-        suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel)
-        actionExecutors = Executors.newFixedThreadPool(config.actionParallel)
+
+        BasicThreadFactory scriptFactory = new BasicThreadFactory.Builder()
+            .namingPattern("script-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        scriptExecutors = Executors.newFixedThreadPool(config.parallel, scriptFactory)
+
+        BasicThreadFactory suiteFactory = new BasicThreadFactory.Builder()
+            .namingPattern("suite-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
+
+        BasicThreadFactory actionFactory = new BasicThreadFactory.Builder()
+            .namingPattern("action-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        actionExecutors = Executors.newFixedThreadPool(config.actionParallel, actionFactory)
 
         loadPlugins(config)
     }
@@ -120,7 +136,6 @@ class RegressionTest {
             canRun(config, suiteName, groupName)
         }
         def file = source.getFile()
-        log.info("run ${file}")
         def eventListeners = getEventListeners(config, recorder)
         new ScriptContext(file, suiteExecutors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->
@@ -283,12 +298,12 @@ class RegressionTest {
         if (!pluginPath.exists() || !pluginPath.isDirectory()) {
             return
         }
-        pluginPath.eachFileRecurse { it ->
+        pluginPath.eachFileRecurse({ it ->
             if (it.name.endsWith(".groovy")) {
                 ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
                         config, [], { name -> true })
                 File pluginFile = it
-                context.start {
+                context.start({
                     try {
                         SuiteScript pluginScript = new GroovyFileSource(pluginFile).toScript(context, shell)
                         log.info("Begin to load plugin: ${pluginFile.getCanonicalPath()}")
@@ -297,9 +312,9 @@ class RegressionTest {
                     } catch (Throwable t) {
                         log.error("Load plugin failed: ${pluginFile.getCanonicalPath()}", t)
                     }
-                }
+                })
             }
-        }
+        })
     }
 
     static void printPassed() {

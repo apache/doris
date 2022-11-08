@@ -24,6 +24,8 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.thrift.TStorageType;
 
@@ -35,6 +37,7 @@ public class PlanConstructor {
     public static OlapTable student;
     public static OlapTable score;
     public static OlapTable course;
+    private static final IdGenerator<RelationId> RELATION_ID_GENERATOR = RelationId.createGenerator();
 
     static {
         student = new OlapTable(0L, "student",
@@ -74,6 +77,10 @@ public class PlanConstructor {
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
+        return newOlapTable(tableId, tableName, hashColumn, KeysType.PRIMARY_KEYS);
+    }
+
+    public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, KeysType keysType) {
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
                 new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
@@ -82,19 +89,27 @@ public class PlanConstructor {
                 ImmutableList.of(columns.get(hashColumn)));
 
         OlapTable table = new OlapTable(tableId, tableName, columns,
-                KeysType.PRIMARY_KEYS, new PartitionInfo(), hashDistributionInfo);
+                keysType, new PartitionInfo(), hashDistributionInfo);
         table.setIndexMeta(-1,
                 tableName,
                 table.getFullSchema(),
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
-                KeysType.PRIMARY_KEYS);
+                keysType);
         return table;
     }
 
     // With OlapTable.
     // Warning: equals() of Table depends on tableId.
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+        return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+    }
+
+    public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName, int hashColumn) {
+        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+    }
+
+    public static RelationId getNextRelationId() {
+        return RELATION_ID_GENERATOR.getNextId();
     }
 }

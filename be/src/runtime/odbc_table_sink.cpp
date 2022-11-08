@@ -65,7 +65,7 @@ Status OdbcTableSink::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
     // create writer
     _writer.reset(new ODBCConnector(_odbc_param));
-    RETURN_IF_ERROR(_writer->open());
+    RETURN_IF_ERROR(_writer->open(state));
     if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }
@@ -80,8 +80,11 @@ Status OdbcTableSink::send(RuntimeState* state, RowBatch* batch) {
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < batch->num_rows()) {
-        auto status = _writer->append(_odbc_tbl, batch, start_send_row, &num_row_sent);
-        if (UNLIKELY(!status.ok())) return status;
+        auto status =
+                _writer->append(_odbc_tbl, batch, _output_expr_ctxs, start_send_row, &num_row_sent);
+        if (UNLIKELY(!status.ok())) {
+            return status;
+        }
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }

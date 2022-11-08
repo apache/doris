@@ -64,11 +64,11 @@ BE 的配置项有两种方式进行配置：
 
 ## 应用举例
 
-1. 静态方式修改 `max_base_compaction_concurrency`
+1. 静态方式修改 `max_base_compaction_threads`
 
   通过在 `be.conf` 文件中添加：
 
-  ```max_base_compaction_concurrency=5```
+  ```max_base_compaction_threads=5```
 
   之后重启 BE 进程以生效该配置。
 
@@ -346,14 +346,6 @@ BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 * 默认值: true
 
 如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
-
-### `cumulative_compaction_policy`
-
-* 类型：string
-* 描述：配置 cumulative compaction 阶段的合并策略，目前实现了两种合并策略，num_based和size_based
-* 默认值：size_based
-
-详细说明，ordinary，是最初版本的cumulative compaction合并策略，做一次cumulative compaction之后直接base compaction流程。size_based，通用策略是ordinary策略的优化版本，仅当rowset的磁盘体积在相同数量级时才进行版本合并。合并之后满足条件的rowset进行晋升到base compaction阶段。能够做到在大量小批量导入的情况下：降低base compact的写入放大率，并在读取放大率和空间放大率之间进行权衡，同时减少了文件版本的数据。
 
 ### `cumulative_size_based_promotion_size_mbytes`
 
@@ -707,11 +699,17 @@ load错误日志将在此时间后删除
 
 ### `load_process_max_memory_limit_percent`
 
-默认值：80
+默认值：50
 
-单节点上所有的导入线程占据的内存上限比例，默认80%
+单节点上所有的导入线程占据的内存上限比例，默认50%
 
 将这些默认值设置得很大，因为我们不想在用户升级 Doris 时影响负载性能。 如有必要，用户应正确设置这些配置。
+
+### `load_process_soft_mem_limit_percent`
+
+默认值：50
+
+soft limit是指站单节点导入内存上限的比例。例如所有导入任务导入的内存上限是20GB，则soft limit默认为该值的50%，即10GB。导入内存占用超过soft limit时，会挑选占用内存最大的作业进行下刷以提前释放内存空间，默认50%
 
 ### `log_buffer_level`
 
@@ -841,9 +839,15 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
 * 默认值：80%
 
-### `memory_limitation_per_thread_for_schema_change`
+### `memory_mode`
 
-默认值：2 （GB）
+* 类型：string
+* 描述：控制tcmalloc的回收。如果配置为performance，内存使用超过mem_limit的90%时，doris会释放tcmalloc cache中的内存，如果配置为compact，内存使用超过mem_limit的50%时，doris会释放tcmalloc cache中的内存。
+* 默认值：performance
+
+### `memory_limitation_per_thread_for_schema_change_bytes`
+
+默认值：2147483648
 
 单个schema change任务允许占用的最大内存
 
@@ -1027,13 +1031,6 @@ pprof profile保存目录
 默认值：3
 
 导入线程数，用于处理NORMAL优先级任务
-
-### `push_write_mbytes_per_sec`
-
-+ 类型：int32
-+ 描述：导入数据速度控制，默认最快每秒10MB。适用于所有的导入方式。
-+ 单位：MB
-+ 默认值：10
 
 ### `query_scratch_dirs`
 
@@ -1372,6 +1369,8 @@ tablet状态缓存的更新间隔，单位：秒
 
 在远程BE 中打开tablet writer的 rpc 超时。 操作时间短，可设置短超时时间
 
+导入过程中，发送一个 Batch（1024行）的 RPC 超时时间。默认 60 秒。因为该 RPC 可能涉及多个 分片内存块的写盘操作，所以可能会因为写盘导致 RPC 超时，可以适当调整这个超时时间来减少超时错误（如 send batch fail 错误）。同时，如果调大 write_buffer_size 配置，也需要适当调大这个参数
+
 ### `tablet_writer_ignore_eovercrowded`
 
 * 类型：bool
@@ -1379,26 +1378,6 @@ tablet状态缓存的更新间隔，单位：秒
 * 默认值：false
 
 当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
-
-### `tc_free_memory_rate`
-
-默认值：20   (%)
-
-可用内存，取值范围：[0-100]
-
-### `tc_max_total_thread_cache_bytes`
-
-* 类型：int64
-* 描述：用来限制 tcmalloc 中总的线程缓存大小。这个限制不是硬限，因此实际线程缓存使用可能超过这个限制。具体可参阅 [TCMALLOC\_MAX\_TOTAL\_THREAD\_CACHE\_BYTES](https://gperftools.github.io/gperftools/tcmalloc.html)
-* 默认值： 1073741824
-
-如果发现系统在高压力场景下，通过 BE 线程堆栈发现大量线程处于 tcmalloc 的锁竞争阶段，如大量的 `SpinLock` 相关堆栈，则可以尝试增大该参数来提升系统性能。[参考](https://github.com/gperftools/gperftools/issues/1111)
-
-### `tc_use_memory_min`
-
-默认值：10737418240
-
-TCmalloc 的最小内存，当使用的内存小于这个时，不返回给操作系统
 
 ### `thrift_client_retry_interval_ms`
 
@@ -1469,12 +1448,6 @@ txn_lock 分片大小，取值为2^n，n=0,1,2,3,4，  这是一项增强功能�
 
 上传文件最大线程数
 
-### `use_mmap_allocate_chunk`
-
-默认值：false
-
-是否使用 mmap 分配块。 如果启用此功能，最好增加 vm.max_map_count 的值，其默认值为 65530。您可以通过“sysctl -w vm.max_map_count=262144”或“echo 262144 > /proc/sys/vm/”以 root 身份进行操作 max_map_count" ，当这个设置为true时，你必须将chunk_reserved_bytes_limit设置为一个相对较大的数字，否则性能非常非常糟糕。
-
 ### `user_function_dir`
 
 默认值：${DORIS_HOME}/lib/udf
@@ -1497,6 +1470,8 @@ webserver默认工作线程数
 默认值：104857600
 
 刷写前缓冲区的大小
+
+导入数据在 BE 上会先写入到一个内存块，当这个内存块达到阈值后才会写回磁盘。默认大小是 100MB。过小的阈值可能导致 BE 上存在大量的小文件。可以适当提高这个阈值减少文件数量。但过大的阈值可能导致 RPC 超时
 
 ### `zone_map_row_num_threshold`
 
@@ -1602,7 +1577,7 @@ webserver默认工作线程数
 ### `enable_quick_compaction`
 * 类型: bool
 * 描述: 是否开启quick_compaction,主要用在小数据量频繁导入的场景,通过快速compaction的机制及时合并导入版本可以有效避免-235的问题，小数据量的定义目前是根据行数来定义
-* 默认值: false
+* 默认值: true
 
 ### `quick_compaction_max_rows`
 * 类型: int32
@@ -1638,3 +1613,21 @@ webserver默认工作线程数
 * 类型：int64
 * 描述：缓存文件的保存时间，单位：秒
 * 默认值：604800（1个星期）
+
+### `enable_segcompaction`
+
+* 类型：bool
+* 描述：在导入时进行 segment compaction 来减少 segment 数量
+* 默认值：false
+
+### `segcompaction_threshold_segment_num`
+
+* 类型：int32
+* 描述：当 segment 数量超过此阈值时触发 segment compaction
+* 默认值：10
+
+### `segcompaction_small_threshold`
+
+* 类型：int32
+* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 默认值：1048576

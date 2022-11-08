@@ -165,7 +165,10 @@ IntVal TimestampFunctions::day_of_month(FunctionContext* context, const DateTime
         return IntVal::null();
     }
     const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
-    return IntVal(ts_value.day());
+    if (ts_value.is_valid_date()) {
+        return IntVal(ts_value.day());
+    }
+    return IntVal::null();
 }
 
 IntVal TimestampFunctions::day_of_year(FunctionContext* context, const DateTimeVal& ts_val) {
@@ -702,6 +705,37 @@ DateTimeVal TimestampFunctions::from_days(FunctionContext* ctx, const IntVal& da
     DateTimeVal ts_val;
     ts_value.to_datetime_val(&ts_val);
     return ts_val;
+}
+
+DateTimeVal TimestampFunctions::last_day(FunctionContext* ctx, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeValue ts_value = DateTimeValue::from_datetime_val(ts_val);
+
+    bool is_leap_year = doris::is_leap(ts_value.year());
+    if (ts_value.month() == 2) {
+        int day = is_leap_year ? 29 : 28;
+        ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+    } else {
+        if (ts_value.month() == 1 || ts_value.month() == 3 || ts_value.month() == 5 ||
+            ts_value.month() == 7 || ts_value.month() == 8 || ts_value.month() == 10 ||
+            ts_value.month() == 12) {
+            ts_value.set_time(ts_value.year(), ts_value.month(), 31, 0, 0, 0, 0);
+        } else {
+            ts_value.set_time(ts_value.year(), ts_value.month(), 30, 0, 0, 0, 0);
+        }
+    }
+
+    ts_value.set_type(TIME_DATE);
+    if (!ts_value.is_valid_date()) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeVal result_ts_val;
+    ts_value.to_datetime_val(&result_ts_val);
+    return result_ts_val;
 }
 
 IntVal TimestampFunctions::to_days(FunctionContext* ctx, const DateTimeVal& ts_val) {

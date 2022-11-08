@@ -95,6 +95,6 @@ If invalid is 0, then the validation passes.
 
 Please see the compilation documentation of each component to verify the compilation.
 
-* For Doris Core, see [compilation documentation](../../install/source-install/compilation.md)
-* Flink Doris Connector, see [compilation documentation](../../ecosystem/flink-doris-connector.md)
-* Spark Doris Connector, see [compilation documentation](../../ecosystem/spark-doris-connector.md)
+* For Doris Core, see [compilation documentation](/docs/install/source-install/compilation)
+* Flink Doris Connector, see [compilation documentation](/docs/ecosystem/flink-doris-connector)
+* Spark Doris Connector, see [compilation documentation](/docs/ecosystem/spark-doris-connector)

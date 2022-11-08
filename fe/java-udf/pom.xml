@@ -70,6 +70,11 @@ under the License.
             <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>${hikaricp.version}</version>
+        </dependency>
     </dependencies>
     <build>
         <finalName>java-udf</finalName>

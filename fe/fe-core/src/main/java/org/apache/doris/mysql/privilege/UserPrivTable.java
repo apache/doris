@@ -18,7 +18,10 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
@@ -62,11 +65,12 @@ public class UserPrivTable extends PrivTable {
     // validate the connection by host, user and password.
     // return true if this connection is valid, and 'savedPrivs' save all global privs got from user table.
     // if currentUser is not null, save the current user identity
-    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) {
+    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
         LOG.debug("check password for user: {} from {}, password: {}, random string: {}",
-                  remoteUser, remoteHost, remotePasswd, randomString);
+                remoteUser, remoteHost, remotePasswd, randomString);
 
+        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
         // TODO(cmy): for now, we check user table from first entry to last,
         // This may not efficient, but works.
         for (PrivEntry entry : entries) {
@@ -82,17 +86,19 @@ public class UserPrivTable extends PrivTable {
                 continue;
             }
 
+            UserIdentity curUser = globalPrivEntry.getDomainUserIdent();
             // check password
             byte[] saltPassword = MysqlPassword.getSaltFromPassword(globalPrivEntry.getPassword());
             // when the length of password is zero, the user has no password
             if ((remotePasswd.length == saltPassword.length)
                     && (remotePasswd.length == 0
                             || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
+                passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
                 // found the matched entry
                 if (currentUser != null) {
-                    currentUser.add(globalPrivEntry.getDomainUserIdent());
+                    currentUser.add(curUser);
                 }
-                return true;
+                return;
             } else {
                 // case A. this means we already matched a entry by user@host, but password is incorrect.
                 // return false, NOT continue matching other entries.
@@ -100,15 +106,20 @@ public class UserPrivTable extends PrivTable {
                 // 1. cmy@"192.168.%" identified by '123';
                 // 2. cmy@"%" identified by 'abc';
                 // if user cmy@'192.168.1.1' try to login with password 'abc', it will be denied.
-                return false;
+                passwdPolicyMgr.onFailedLogin(curUser);
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                        remotePasswd.length == 0 ? "NO" : "YES");
             }
         }
 
-        return false;
+        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                remotePasswd.length == 0 ? "NO" : "YES");
     }
 
-    public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
-            List<UserIdentity> currentUser) {
+    public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+
         for (PrivEntry entry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
 
@@ -122,19 +133,24 @@ public class UserPrivTable extends PrivTable {
                 continue;
             }
 
+            UserIdentity curUser = globalPrivEntry.getDomainUserIdent();
             if (MysqlPassword.checkPlainPass(globalPrivEntry.getPassword(), remotePasswd)) {
+                passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
                 if (currentUser != null) {
                     currentUser.add(globalPrivEntry.getDomainUserIdent());
                 }
-                return true;
+                return;
             } else {
                 // set case A. in checkPassword()
-                return false;
+                passwdPolicyMgr.onFailedLogin(curUser);
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                        "YES");
             }
         }
-
-        return false;
+        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                "YES");
     }
+
 
     /*
      * set password for specified entry. It is same as adding an entry to the user priv table.
@@ -193,7 +209,7 @@ public class UserPrivTable extends PrivTable {
                 try {
                     // USAGE_PRIV is no need to degrade.
                     PrivBitSet removeUsagePriv = globalPrivEntry.privSet.copy();
-                    removeUsagePriv.xor(PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
+                    removeUsagePriv.unset(PaloPrivilege.USAGE_PRIV.getIdx());
                     CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
                             InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, removeUsagePriv);
                     entry.setSetByDomainResolver(false);

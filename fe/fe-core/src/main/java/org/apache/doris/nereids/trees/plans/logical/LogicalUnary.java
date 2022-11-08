@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -49,12 +48,4 @@ public abstract class LogicalUnary<CHILD_TYPE extends Plan>
     }
 
     public abstract List<Slot> computeOutput();
-
-    @Override
-    public LogicalProperties computeLogicalProperties() {
-        if (child().getLogicalProperties() instanceof UnboundLogicalProperties) {
-            return new UnboundLogicalProperties();
-        }
-        return new LogicalProperties(() -> computeOutput());
-    }
 }

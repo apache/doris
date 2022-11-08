@@ -63,11 +63,11 @@ public class ShowCreateDbStmt extends ShowStmt {
         db = ClusterNamespace.getFullName(getClusterName(), db);
 
         if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db,
-                                                               PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                                              PaloPrivilege.ALTER_PRIV,
-                                                                                              PaloPrivilege.CREATE_PRIV,
-                                                                                              PaloPrivilege.DROP_PRIV),
-                                                                                Operator.OR))) {
+                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                                PaloPrivilege.ALTER_PRIV,
+                                PaloPrivilege.CREATE_PRIV,
+                                PaloPrivilege.DROP_PRIV),
+                        Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                                                 ConnectContext.get().getQualifiedUser(), db);
         }

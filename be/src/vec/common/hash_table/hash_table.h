@@ -117,7 +117,7 @@ void set(T& x) {
   * takes any pointer-like object;
   * for (3) and (4), LookupResult = Cell *, and both getters are implemented.
   * They have to be specialized for each particular Cell class to supersede the
-  * default verision that takes a generic pointer-like object.
+  * default version that takes a generic pointer-like object.
   */
 struct VoidKey {};
 struct VoidMapped {
@@ -428,8 +428,6 @@ class HashTable : private boost::noncopyable,
                                              Cell> /// empty base optimization
 {
 protected:
-    friend class const_iterator;
-    friend class iterator;
     friend class Reader;
 
     template <typename, typename, typename, typename, typename, typename, size_t>
@@ -765,6 +763,27 @@ protected:
         return false;
     }
 
+    template <typename Func>
+    bool ALWAYS_INLINE lazy_emplace_if_zero(const Key& x, LookupResult& it, size_t hash_value,
+                                            Func&& f) {
+        /// If it is claimed that the zero key can not be inserted into the table.
+        if (!Cell::need_zero_value_storage) return false;
+
+        if (Cell::is_zero(x, *this)) {
+            it = this->zero_value();
+            if (!this->get_has_zero()) {
+                ++m_size;
+                this->set_get_has_zero();
+                std::forward<Func>(f)(Constructor(it), x);
+                this->zero_value()->set_hash(hash_value);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace_non_zero_impl(size_t place_value, KeyHolder&& key_holder,
                                              LookupResult& it, bool& inserted, size_t hash_value) {
@@ -804,6 +823,43 @@ protected:
         }
     }
 
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace_non_zero_impl(size_t place_value, KeyHolder&& key_holder,
+                                                  LookupResult& it, size_t hash_value, Func&& f) {
+        it = &buf[place_value];
+
+        if (!buf[place_value].is_zero(*this)) {
+            key_holder_discard_key(key_holder);
+            return;
+        }
+
+        key_holder_persist_key(key_holder);
+        const auto& key = key_holder_get_key(key_holder);
+
+        f(Constructor(&buf[place_value]), key);
+        buf[place_value].set_hash(hash_value);
+        ++m_size;
+
+        if (UNLIKELY(grower.overflow(m_size))) {
+            try {
+                resize();
+            } catch (...) {
+                /** If we have not resized successfully, then there will be problems.
+                  * There remains a key, but uninitialized mapped-value,
+                  *  which, perhaps, can not even be called a destructor.
+                  */
+                --m_size;
+                buf[place_value].set_zero();
+                throw;
+            }
+
+            // The hash table was rehashed, so we have to re-find the key.
+            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+            assert(!buf[new_place].is_zero(*this));
+            it = &buf[new_place];
+        }
+    }
+
     /// Only for non-zero keys. Find the right place, insert the key there, if it does not already exist. Set iterator to the cell in output parameter.
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace_non_zero(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
@@ -811,6 +867,14 @@ protected:
         const auto& key = key_holder_get_key(key_holder);
         size_t place_value = find_cell(key, hash_value, grower.place(hash_value));
         emplace_non_zero_impl(place_value, key_holder, it, inserted, hash_value);
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace_non_zero(KeyHolder&& key_holder, LookupResult& it,
+                                             size_t hash_value, Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        size_t place_value = find_cell(key, hash_value, grower.place(hash_value));
+        lazy_emplace_non_zero_impl(place_value, key_holder, it, hash_value, std::forward<Func>(f));
     }
 
 public:
@@ -842,10 +906,43 @@ public:
         __builtin_prefetch(&buf[place_value]);
     }
 
+    template <bool READ>
+    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
+    template <bool READ, typename KeyHolder>
+    void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
+        // Two optional arguments:
+        // 'rw': 1 means the memory access is write
+        // 'locality': 0-3. 0 means no temporal locality. 3 means high temporal locality.
+        const auto& key = key_holder_get_key(key_holder);
+        auto hash_value = hash(key);
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 1);
+    }
+
     /// Reinsert node pointed to by iterator
     void ALWAYS_INLINE reinsert(iterator& it, size_t hash_value) {
         reinsert(*it.get_ptr(), hash_value);
     }
+
+    class Constructor {
+    public:
+        friend class HashTable;
+        template <typename... Args>
+        void operator()(Args&&... args) const {
+            new (_cell) Cell(std::forward<Args>(args)...);
+        }
+
+    private:
+        Constructor(Cell* cell) : _cell(cell) {}
+        Cell* _cell;
+    };
 
     /** Insert the key.
       * Return values:
@@ -875,6 +972,26 @@ public:
         const auto& key = key_holder_get_key(key_holder);
         if (!emplace_if_zero(key, it, inserted, hash_value))
             emplace_non_zero(key_holder, it, inserted, hash_value);
+    }
+
+    template <typename KeyHolder>
+    void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                               bool& inserted) {
+        emplace(key_holder, it, inserted, hash_value);
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        lazy_emplace(key_holder, it, hash(key), std::forward<Func>(f));
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        const auto& key = key_holder_get_key(key_holder);
+        if (!lazy_emplace_if_zero(key, it, hash_value, std::forward<Func>(f)))
+            lazy_emplace_non_zero(key_holder, it, hash_value, std::forward<Func>(f));
     }
 
     /// Copy the cell from another hash table. It is assumed that the cell is not zero, and also that there was no such key in the table yet.
@@ -938,7 +1055,7 @@ public:
         this->clear_get_has_zero();
         m_size = 0;
 
-        size_t new_size = 0;
+        doris::vectorized::UInt64 new_size = 0;
         doris::vectorized::read_var_uint(new_size, rb);
 
         free();

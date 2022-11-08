@@ -44,13 +44,13 @@ BloomFilterPredicate::BloomFilterPredicate(const BloomFilterPredicate& other)
           _scan_rows() {}
 
 Status BloomFilterPredicate::prepare(RuntimeState* state,
-                                     std::shared_ptr<IBloomFilterFuncBase> filter) {
+                                     std::shared_ptr<BloomFilterFuncBase> filter) {
     // DCHECK(filter != nullptr);
     if (_is_prepare) {
         return Status::OK();
     }
     _filter = filter;
-    if (nullptr == _filter.get()) {
+    if (nullptr == _filter) {
         return Status::InternalError("Unknown column type.");
     }
     _is_prepare = true;
@@ -77,7 +77,7 @@ BooleanVal BloomFilterPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row
     }
     _filtered_rows++;
 
-    if (!_has_calculate_filter && _scan_rows % _loop_size == 0) {
+    if (!_has_calculate_filter && _scan_rows >= config::bloom_filter_predicate_check_row_num) {
         double rate = (double)_filtered_rows / _scan_rows;
         if (rate < _expect_filter_rate) {
             _always_true = true;

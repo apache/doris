@@ -39,9 +39,15 @@ Status sync_dir(const io::Path& dirname) {
     if (-1 == fd) {
         return Status::IOError("cannot open {}: {}", dirname.native(), std::strerror(errno));
     }
+#ifdef __APPLE__
+    if (fcntl(fd, F_FULLFSYNC) < 0) {
+        return Status::IOError("cannot sync {}: {}", dirname.native(), std::strerror(errno));
+    }
+#else
     if (0 != ::fdatasync(fd)) {
         return Status::IOError("cannot fdatasync {}: {}", dirname.native(), std::strerror(errno));
     }
+#endif
     ::close(fd);
     return Status::OK();
 }
@@ -148,9 +154,15 @@ Status LocalFileWriter::_close(bool sync) {
         return Status::OK();
     }
     if (sync && _dirty) {
+#ifdef __APPLE__
+        if (fcntl(_fd, F_FULLFSYNC) < 0) {
+            return Status::IOError("cannot sync {}: {}", _path.native(), std::strerror(errno));
+        }
+#else
         if (0 != ::fdatasync(_fd)) {
             return Status::IOError("cannot fdatasync {}: {}", _path.native(), std::strerror(errno));
         }
+#endif
         RETURN_IF_ERROR(detail::sync_dir(_path.parent_path()));
         _dirty = false;
     }

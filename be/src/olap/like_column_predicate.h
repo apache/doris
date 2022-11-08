@@ -98,18 +98,18 @@ private:
                             continue;
                         }
 
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] &= _opposite ^ flag;
                         } else {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] = _opposite ^ flag;
                         }
                     }
@@ -122,18 +122,18 @@ private:
                             vectorized::ColumnDictionary<vectorized::Int32>>(column);
                     auto& data_array = nested_col_ptr->get_data();
                     for (uint16_t i = 0; i < size; i++) {
-                        StringValue cell_value = nested_col_ptr->get_value(data_array[i]);
+                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] &= _opposite ^ flag;
                         } else {
                             unsigned char flag = 0;
-                            (_state->function)(
+                            (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    cell_value, pattern, &flag);
+                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
                             flags[i] = _opposite ^ flag;
                         }
                     }
@@ -142,6 +142,11 @@ private:
                 }
             }
         }
+    }
+
+    std::string _debug_string() override {
+        std::string info = "LikeColumnPredicate";
+        return info;
     }
 
     std::string _origin;

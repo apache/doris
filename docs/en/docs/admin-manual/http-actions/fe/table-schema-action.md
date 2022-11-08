@@ -97,7 +97,7 @@ None
 	"count": 0
 }
 ```
-Note: The difference is that the `http` method returns more `aggregation_type` fields than the `http v2` method. The `http v2` is enabled by setting `enable_http_server_v2`. For detailed parameter descriptions, see [fe parameter settings](https://doris.apache.org/administrator-guide/config/fe_config.html)
+Note: The difference is that the `http` method returns more `aggregation_type` fields than the `http v2` method. The `http v2` is enabled by setting `enable_http_server_v2`. For detailed parameter descriptions, see [fe parameter settings](../../../config/fe-config)
 
 ## Examples
 

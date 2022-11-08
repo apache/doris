@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
@@ -37,6 +38,7 @@ import org.apache.thrift.protocol.TCompactProtocol;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class BackendServiceProxy {
@@ -50,12 +52,24 @@ public class BackendServiceProxy {
         serviceMap = Maps.newConcurrentMap();
     }
 
-    private static class SingletonHolder {
-        private static final BackendServiceProxy INSTANCE = new BackendServiceProxy();
+    private static class Holder {
+        private static final int PROXY_NUM = 20;
+        private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
+        private static AtomicInteger count = new AtomicInteger();
+
+        static {
+            for (int i = 0; i < proxies.length; i++) {
+                proxies[i] = new BackendServiceProxy();
+            }
+        }
+
+        static BackendServiceProxy get() {
+            return proxies[Math.abs(count.addAndGet(1) % PROXY_NUM)];
+        }
     }
 
     public static BackendServiceProxy getInstance() {
-        return SingletonHolder.INSTANCE;
+        return Holder.get();
     }
 
     public void removeProxy(TNetworkAddress address) {
@@ -109,6 +123,8 @@ public class BackendServiceProxy {
         builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_2);
 
         final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
+        MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
+        MetricRepo.BE_COUNTER_QUERY_RPC_SIZE.getOrAdd(address.hostname).increase((long) pRequest.getSerializedSize());
         try {
             final BackendServiceClient client = getProxy(address);
             if (twoPhaseExecution) {
@@ -168,6 +184,18 @@ public class BackendServiceProxy {
             return client.fetchDataSync(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
+            TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchTableStructureAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch table structure catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }

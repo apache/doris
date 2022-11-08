@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
@@ -78,7 +77,7 @@ public class LoadStmtTest {
 
     @Test
     public void testNormal(@Injectable DataDescription desc, @Mocked Env env,
-                           @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
+            @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
         String resourceName = "spark0";
@@ -115,8 +114,6 @@ public class LoadStmtTest {
                 + "(XXX)", stmt.toString());
 
         // test ResourceDesc
-        // TODO(wyb): spark-load
-        Config.enable_spark_load = true;
         stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
                             new ResourceDesc(resourceName, null), null);
         stmt.analyze(analyzer);

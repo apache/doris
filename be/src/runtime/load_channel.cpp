@@ -25,11 +25,11 @@
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                          bool is_vec)
         : _load_id(load_id),
-          _mem_tracker(mem_tracker),
+          _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
@@ -45,8 +45,6 @@ LoadChannel::~LoadChannel() {
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
               << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip
               << ", is_vec=" << _is_vec;
-    // Load channel tracker cannot be completely accurate, offsetting the impact on the load channel mgr tracker.
-    _mem_tracker->parent()->cache_consume_local(-_mem_tracker->consumption());
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -60,8 +58,11 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _mem_tracker, _is_high_priority, _is_vec));
-            _tablets_channels.insert({index_id, channel});
+            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _is_vec));
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.insert({index_id, channel});
+            }
         }
     }
 
@@ -90,28 +91,6 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
     is_finished = false;
     channel = it->second;
     return Status::OK();
-}
-
-void LoadChannel::handle_mem_exceed_limit(bool force) {
-    // lock so that only one thread can check mem limit
-    std::lock_guard<std::mutex> l(_lock);
-    if (!(force || _mem_tracker->limit_exceeded())) {
-        return;
-    }
-
-    if (!force) {
-        LOG(INFO) << "reducing memory of " << *this << " because its mem consumption "
-                  << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
-    }
-
-    std::shared_ptr<TabletsChannel> channel;
-    if (_find_largest_consumption_channel(&channel)) {
-        channel->reduce_mem_usage(_mem_tracker->limit());
-    } else {
-        // should not happen, add log to observe
-        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
-                     << "load_id=" << _load_id;
-    }
 }
 
 // lock should be held when calling this method

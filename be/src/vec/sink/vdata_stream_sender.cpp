@@ -22,12 +22,12 @@
 
 #include <random>
 
-#include "runtime/client_cache.h"
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/brpc_client_cache.h"
 #include "util/proto_util.h"
 #include "vec/common/sip_hash.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -95,7 +95,7 @@ Status VDataStreamSender::Channel::send_current_block(bool eos) {
         return send_local_block(eos);
     }
     auto block = _mutable_block->to_block();
-    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block, &_compressed_data_buffer));
+    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
     block.clear_column_data();
     _mutable_block->set_muatable_columns(block.mutate_columns());
     RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
@@ -133,11 +133,13 @@ Status VDataStreamSender::Channel::send_local_block(Block* block) {
 }
 
 Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
+    SCOPED_TIMER(_parent->_brpc_send_timer);
     if (_closure == nullptr) {
         _closure = new RefCountClosure<PTransmitDataResult>();
         _closure->ref();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         _closure->cntl.Reset();
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
@@ -160,6 +162,7 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     if (_parent->_transfer_large_data_by_brpc && _brpc_request.has_block() &&
         _brpc_request.block().has_column_values() &&
         _brpc_request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         Status st = request_embed_attachment_contain_block<PTransmitDataParams,
                                                            RefCountClosure<PTransmitDataResult>>(
                 &_brpc_request, _closure);
@@ -173,8 +176,10 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
                 brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
         _closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _closure->cntl.http_request().set_content_type("application/json");
-        _brpc_http_stub->transmit_block_by_http(&_closure->cntl, NULL, &_closure->result, _closure);
+        _brpc_http_stub->transmit_block_by_http(&_closure->cntl, nullptr, &_closure->result,
+                                                _closure);
     } else {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         _closure->cntl.http_request().Clear();
         _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     }
@@ -184,28 +189,12 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     return Status::OK();
 }
 
-Status VDataStreamSender::Channel::add_row(Block* block, int row) {
-    if (_fragment_instance_id.lo == -1) {
-        return Status::OK();
-    }
-
-    if (_mutable_block.get() == nullptr) {
-        _mutable_block.reset(new MutableBlock(block->clone_empty()));
-    }
-    _mutable_block->add_row(block, row);
-
-    if (_mutable_block->rows() == _parent->state()->batch_size()) {
-        RETURN_IF_ERROR(send_current_block());
-    }
-    return Status::OK();
-}
-
 Status VDataStreamSender::Channel::add_rows(Block* block, const std::vector<int>& rows) {
     if (_fragment_instance_id.lo == -1) {
         return Status::OK();
     }
 
-    if (_mutable_block.get() == nullptr) {
+    if (_mutable_block == nullptr) {
         _mutable_block.reset(new MutableBlock(block->clone_empty()));
     }
 
@@ -337,6 +326,8 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _compress_timer(nullptr),
+          _brpc_send_timer(nullptr),
+          _brpc_wait_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
@@ -355,6 +346,8 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _compress_timer(nullptr),
+          _brpc_send_timer(nullptr),
+          _brpc_wait_timer(nullptr),
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
@@ -409,7 +402,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     }
     std::string title = fmt::format("VDataStreamSender (dst_id={}, dst_fragments=[{}])",
                                     _dest_node_id, instances);
-    _profile = _pool->add(new RuntimeProfile(std::move(title)));
+    _profile = _pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = std::make_unique<MemTracker>(
             "VDataStreamSender:" + print_id(state->fragment_instance_id()), _profile);
@@ -421,6 +414,9 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
         shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        if (_state->query_options().__isset.enable_new_shuffle_hash_method) {
+            _new_shuffle_hash_method = _state->query_options().enable_new_shuffle_hash_method;
+        }
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
     } else {
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
@@ -435,6 +431,8 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _local_sent_rows = ADD_COUNTER(profile(), "LocalSentRows", TUnit::UNIT);
     _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
     _compress_timer = ADD_TIMER(profile(), "CompressTime");
+    _brpc_send_timer = ADD_TIMER(profile(), "BrpcSendTime");
+    _brpc_wait_timer = ADD_TIMER(profile(), "BrpcSendTime.Wait");
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -474,15 +472,16 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         // 3. rollover block
         int local_size = 0;
         for (auto channel : _channels) {
-            if (channel->is_local()) local_size++;
+            if (channel->is_local()) {
+                local_size++;
+            }
         }
         if (local_size == _channels.size()) {
             for (auto channel : _channels) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else {
-            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, &_compressed_data_buffer,
-                                            _channels.size()));
+            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
             for (auto channel : _channels) {
                 if (channel->is_local()) {
                     RETURN_IF_ERROR(channel->send_local_block(block));
@@ -500,13 +499,13 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         if (current_channel->is_local()) {
             RETURN_IF_ERROR(current_channel->send_local_block(block));
         } else {
-            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block(),
-                                            &_compressed_data_buffer));
+            RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
             RETURN_IF_ERROR(current_channel->send_block(current_channel->ch_cur_pb_block()));
             current_channel->ch_roll_pb_block();
         }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
-    } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
+    } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
+               _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         // will only copy schema
         // we don't want send temp columns
         auto column_to_keep = block->columns();
@@ -517,60 +516,49 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 
         // vectorized calculate hash
         int rows = block->rows();
-        // for each row, we have a siphash val
-        std::vector<SipHash> siphashs(rows);
-        // result[j] means column index, i means rows index
-        for (int j = 0; j < result_size; ++j) {
-            auto column = block->get_by_position(result[j]).column;
-            for (int i = 0; i < rows; ++i) {
-                column->update_hash_with_value(i, siphashs[i]);
-            }
-        }
+        auto element_size = _channels.size();
+        std::vector<uint64_t> hash_vals(rows);
+        auto* __restrict hashes = hash_vals.data();
 
-        // channel2rows' subscript means channel id
-        std::vector<vectorized::UInt64> hash_vals(rows);
-        for (int i = 0; i < rows; i++) {
-            hash_vals[i] = siphashs[i].get64();
-        }
+        // TODO: after we support new shuffle hash method, should simple the code
+        if (_part_type == TPartitionType::HASH_PARTITIONED) {
+            if (!_new_shuffle_hash_method) {
+                // for each row, we have a siphash val
+                std::vector<SipHash> siphashs(rows);
+                // result[j] means column index, i means rows index
+                for (int j = 0; j < result_size; ++j) {
+                    block->get_by_position(result[j]).column->update_hashes_with_value(siphashs);
+                }
+                for (int i = 0; i < rows; i++) {
+                    hashes[i] = siphashs[i].get64() % element_size;
+                }
+            } else {
+                // result[j] means column index, i means rows index, here to calculate the xxhash value
+                for (int j = 0; j < result_size; ++j) {
+                    block->get_by_position(result[j]).column->update_hashes_with_value(hashes);
+                }
 
-        Block::erase_useless_column(block, column_to_keep);
-        RETURN_IF_ERROR(channel_add_rows(_channels, _channels.size(), hash_vals, rows, block));
-    } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        // will only copy schema
-        // we don't want send temp columns
-        auto column_to_keep = block->columns();
-        // 1. calculate hash
-        // 2. dispatch rows to channel
-        int result_size = _partition_expr_ctxs.size();
-        int result[result_size];
-        RETURN_IF_ERROR(get_partition_column_result(block, result));
-
-        // vectorized calculate hash val
-        int rows = block->rows();
-        // for each row, we have a hash_val
-        std::vector<size_t> hash_vals(rows);
-
-        // result[j] means column index, i means rows index
-        for (int j = 0; j < result_size; ++j) {
-            auto& column = block->get_by_position(result[j]).column;
-            for (int i = 0; i < rows; ++i) {
-                auto val = column->get_data_at(i);
-                if (val.data == nullptr) {
-                    // nullptr is treat as 0 when hash
-                    static const int INT_VALUE = 0;
-                    static const TypeDescriptor INT_TYPE(TYPE_INT);
-                    hash_vals[i] = RawValue::zlib_crc32(&INT_VALUE, INT_TYPE, hash_vals[i]);
-                } else {
-                    hash_vals[i] = RawValue::zlib_crc32(val.data, val.size,
-                                                        _partition_expr_ctxs[j]->root()->type(),
-                                                        hash_vals[i]);
+                for (int i = 0; i < rows; i++) {
+                    hashes[i] = hashes[i] % element_size;
                 }
             }
-        }
 
-        Block::erase_useless_column(block, column_to_keep);
-        RETURN_IF_ERROR(channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(),
-                                         hash_vals, rows, block));
+            Block::erase_useless_column(block, column_to_keep);
+            RETURN_IF_ERROR(channel_add_rows(_channels, element_size, hashes, rows, block));
+        } else {
+            for (int j = 0; j < result_size; ++j) {
+                block->get_by_position(result[j]).column->update_crcs_with_value(
+                        hash_vals, _partition_expr_ctxs[j]->root()->type().type);
+            }
+            element_size = _channel_shared_ptrs.size();
+            for (int i = 0; i < rows; i++) {
+                hashes[i] = hashes[i] % element_size;
+            }
+
+            Block::erase_useless_column(block, column_to_keep);
+            RETURN_IF_ERROR(
+                    channel_add_rows(_channel_shared_ptrs, element_size, hashes, rows, block));
+        }
     } else {
         // Range partition
         // 1. calculate range
@@ -580,7 +568,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 }
 
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
-    if (_closed) return Status::OK();
+    if (_closed) {
+        return Status::OK();
+    }
 
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::close");
     Status final_st = Status::OK();
@@ -606,16 +596,11 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
 }
 
 Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_receivers) {
-    return serialize_block(src, dest, &_compressed_data_buffer, num_receivers);
-}
-
-Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, std::string* compressed_buffer,
-                                          int num_receivers) {
     {
         SCOPED_TIMER(_serialize_batch_timer);
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        RETURN_IF_ERROR(src->serialize(dest, compressed_buffer, &uncompressed_bytes,
+        RETURN_IF_ERROR(src->serialize(_state->be_exec_version(), dest, &uncompressed_bytes,
                                        &compressed_bytes, _compression_type,
                                        _transfer_large_data_by_brpc));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);

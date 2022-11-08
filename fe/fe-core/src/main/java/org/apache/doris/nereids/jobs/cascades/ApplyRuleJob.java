@@ -36,7 +36,6 @@ import java.util.List;
 public class ApplyRuleJob extends Job {
     private final GroupExpression groupExpression;
     private final Rule rule;
-    private final boolean exploredOnly;
 
     /**
      * Constructor of ApplyRuleJob.
@@ -49,7 +48,6 @@ public class ApplyRuleJob extends Job {
         super(JobType.APPLY_RULE, context);
         this.groupExpression = groupExpression;
         this.rule = rule;
-        this.exploredOnly = false;
     }
 
     @Override
@@ -61,7 +59,10 @@ public class ApplyRuleJob extends Job {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
+            String traceBefore = enableTrace ? getTraceLog(rule) : null;
             context.onInvokeRule(rule.getRuleType());
+
+            boolean changed = false;
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
                 CopyInResult result = context.getCascadesContext()
@@ -71,18 +72,18 @@ public class ApplyRuleJob extends Job {
                     continue;
                 }
 
+                changed = true;
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
-                    if (exploredOnly) {
-                        pushTask(new ExploreGroupExpressionJob(newGroupExpression, context));
-                        pushTask(new DeriveStatsJob(newGroupExpression, context));
-                        continue;
-                    }
-                    pushTask(new OptimizeGroupExpressionJob(newGroupExpression, context));
-                    pushTask(new DeriveStatsJob(newGroupExpression, context));
+                    pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
+                    pushJob(new DeriveStatsJob(newGroupExpression, context));
                 } else {
-                    pushTask(new CostAndEnforcerJob(newGroupExpression, context));
+                    pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
+            }
+            if (changed && enableTrace) {
+                String traceAfter = getTraceLog(rule);
+                printTraceLog(rule, traceBefore, traceAfter);
             }
         }
         groupExpression.setApplied(rule);

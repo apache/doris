@@ -29,7 +29,6 @@
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/hash_table/ph_hash_map.h"
-#include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {
@@ -95,7 +94,7 @@ struct HashMethodString : public columns_hashing_impl::HashMethodBase<
     }
 
     auto get_key_holder(ssize_t row, [[maybe_unused]] Arena& pool) const {
-        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1] - 1);
+        StringRef key(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
 
         if constexpr (place_string_to_arena) {
             return ArenaKeyHolder {key, pool};
@@ -132,9 +131,6 @@ struct HashMethodSerialized
 
     void set_serialized_keys(const StringRef* keys_) { keys = keys_; }
 
-protected:
-    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
-
     ALWAYS_INLINE KeyHolderType get_key_holder(size_t row, Arena& pool) const {
         if constexpr (keys_pre_serialized) {
             return KeyHolderType {keys[row], pool};
@@ -143,6 +139,9 @@ protected:
                     serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
         }
     }
+
+protected:
+    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 };
 
 template <typename HashMethod>
@@ -258,6 +257,37 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
             return EmplaceResult(inserted);
     }
 
+    template <typename Data, typename Func, typename CreatorForNull>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t row, Arena& pool, Func&& f, CreatorForNull&& null_creator) {
+        if (key_columns[0]->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+            if (!has_null_key) std::forward<CreatorForNull>(null_creator)(data.get_null_key_data());
+            return data.get_null_key_data();
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
+    template <typename Data, typename Func, typename CreatorForNull>
+    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
+            Data& data, size_t row, Arena& pool, size_t hash_value, Func&& f,
+            CreatorForNull&& null_creator) {
+        if (key_columns[0]->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+            if (!has_null_key) std::forward<CreatorForNull>(null_creator)(data.get_null_key_data());
+            return data.get_null_key_data();
+        }
+        auto key_holder = Base::get_key_holder(row, pool);
+        typename Data::LookupResult it;
+        data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
+        return *lookup_result_get_mapped(it);
+    }
+
     template <typename Data>
     ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
         if (key_columns[0]->is_null_at(row)) {
@@ -275,6 +305,17 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         else
             return FindResult(it != nullptr);
     }
+};
+
+template <typename HashMethod>
+struct IsSingleNullableColumnMethod {
+    static constexpr bool value = false;
+};
+
+template <typename SingleColumnMethod, typename Mapped, bool use_cache>
+struct IsSingleNullableColumnMethod<
+        HashMethodSingleLowNullableColumn<SingleColumnMethod, Mapped, use_cache>> {
+    static constexpr bool value = true;
 };
 
 } // namespace ColumnsHashing

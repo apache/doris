@@ -23,6 +23,9 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnAgg;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnProjectUnderAgg;
 import org.apache.doris.nereids.rules.rewrite.logical.ExistsApplyToJoin;
@@ -31,13 +34,12 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
 import org.apache.doris.nereids.rules.rewrite.logical.ScalarApplyToJoin;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.Max;
-import org.apache.doris.nereids.trees.expressions.functions.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
@@ -45,6 +47,9 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -69,12 +74,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
             + "t7.k3 in (select t8.k1 from t8 where t8.k1 = 3) "
             + "and t7.v2 > (select sum(t9.k2) from t9 where t9.k2 = t7.v1))";
     // exists and not exists
-    private final String sql9 = "select * from t6 where exists (select t7.k3 from t7 where t6.k2 = t7.v2) and not exists (select t8.k2 from t8 where t6.k2 = t8.k2)";
+    private final String sql9
+            = "select * from t6 where exists (select t7.k3 from t7 where t6.k2 = t7.v2) and not exists (select t8.k2 from t8 where t6.k2 = t8.k2)";
     // with subquery alias
-    private final String sql10 = "select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )";
+    private final String sql10
+            = "select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )";
     private final List<String> testSql = ImmutableList.of(
             sql1, sql2, sql3, sql4, sql5, sql6, sql7, sql8, sql9, sql10
-
     );
 
     @Override
@@ -112,6 +118,13 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
 
     @Test
     public void testTranslateCase() throws Exception {
+        new MockUp<RuleSet>() {
+            @Mock
+            public List<Rule> getExplorationRules() {
+                return Lists.newArrayList(new AggregateDisassemble().build());
+            }
+        };
+
         for (String sql : testSql) {
             NamedExpressionUtil.clear();
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
@@ -126,7 +139,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
 
     @Test
     public void testWhereSql2AfterAnalyzed() {
-        //after analyze
+        // after analyze
         PlanChecker.from(connectContext)
                 .analyze(sql2)
                 .matches(
@@ -150,7 +163,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
 
     @Test
     public void testWhereSql2AfterAggFilterRule() {
-        //after aggFilter rule
+        // after aggFilter rule
         PlanChecker.from(connectContext)
                 .analyze(sql2)
                 .applyBottomUp(new ApplyPullFilterOnAgg())
@@ -184,7 +197,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
 
     @Test
     public void testWhereSql2AfterScalarToJoin() {
-        //after Scalar CorrelatedJoin to join
+        // after Scalar CorrelatedJoin to join
         PlanChecker.from(connectContext)
                 .analyze(sql2)
                 .applyBottomUp(new ApplyPullFilterOnAgg())
@@ -194,9 +207,10 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 any(),
                                 logicalAggregate()
                         ).when(FieldChecker.check("joinType", JoinType.LEFT_OUTER_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition",
-                                        Optional.of(new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t7")),
+                                .when(FieldChecker.check("otherJoinConjuncts",
+                                        ImmutableList.of(new EqualTo(
+                                                new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
+                                                        ImmutableList.of("default_cluster:test", "t7")),
                                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("default_cluster:test", "t6"))))))
                 );
@@ -263,15 +277,15 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
-                                        new And(new EqualTo(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
+                                .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
+                                        new EqualTo(new SlotReference(new ExprId(0), "k1", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
                                                 new SlotReference(new ExprId(2), "k1", BigIntType.INSTANCE, false,
                                                         ImmutableList.of("default_cluster:test", "t7"))),
-                                                new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
-                                                        ImmutableList.of("default_cluster:test", "t7")),
-                                                        new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                                ImmutableList.of("default_cluster:test", "t6"))))
+                                        new EqualTo(new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
+                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
+                                                        ImmutableList.of("default_cluster:test", "t6")))
                                 )))
                 );
     }
@@ -337,7 +351,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                 .applyBottomUp(new ExistsApplyToJoin())
                 .matches(
                         logicalJoin().when(FieldChecker.check("joinType", JoinType.LEFT_SEMI_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
+                                .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
                                         new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
@@ -348,7 +362,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
 
     @Test
     public void testSql10AfterAnalyze() {
-        //select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )
+        // select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )
         PlanChecker.from(connectContext)
                 .analyze(sql10)
                 .matches(
@@ -358,16 +372,19 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         logicalProject(
                                                 logicalFilter()
                                         ).when(FieldChecker.check("projects", ImmutableList.of(
-                                                new Alias(new ExprId(0), new SlotReference(new ExprId(6), "v1", BigIntType.INSTANCE, true,
+                                                new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
+                                                        true,
                                                         ImmutableList.of("default_cluster:test", "t7")), "aa")
                                         )))
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(0), "aa", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("t2"))), "max(aa)")
+                                        new Alias(new ExprId(8),
+                                                new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                        true,
+                                                        ImmutableList.of("t2"))), "max(aa)")
                                 )))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of()))
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
-                                new SlotReference(new ExprId(2), "k2", BigIntType.INSTANCE, true,
+                                new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                         ImmutableList.of("default_cluster:test", "t6")))))
                 );
     }
@@ -383,17 +400,17 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 logicalAggregate(
                                         logicalFilter(
                                                 logicalProject().when(FieldChecker.check("projects", ImmutableList.of(
-                                                        new Alias(new ExprId(0), new SlotReference(new ExprId(6), "v1", BigIntType.INSTANCE, true,
+                                                        new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE, true,
                                                                 ImmutableList.of("default_cluster:test", "t7")), "aa"),
-                                                        new SlotReference(new ExprId(3), "k1", BigIntType.INSTANCE, false,
+                                                        new SlotReference(new ExprId(2), "k1", BigIntType.INSTANCE, false,
                                                                 ImmutableList.of("default_cluster:test", "t7")),
-                                                        new SlotReference(new ExprId(4), "k2", new VarcharType(128), true,
+                                                        new SlotReference(new ExprId(3), "k2", new VarcharType(128), true,
                                                                 ImmutableList.of("default_cluster:test", "t7")),
-                                                        new SlotReference(new ExprId(5), "k3", BigIntType.INSTANCE, true,
+                                                        new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
                                                                 ImmutableList.of("default_cluster:test", "t7")),
-                                                        new SlotReference(new ExprId(6), "v1", BigIntType.INSTANCE, true,
-                                                                        ImmutableList.of("default_cluster:test", "t7")),
-                                                        new SlotReference(new ExprId(7), "v2", BigIntType.INSTANCE, true,
+                                                        new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE, true,
+                                                                ImmutableList.of("default_cluster:test", "t7")),
+                                                        new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                                 ImmutableList.of("default_cluster:test", "t7"))
                                                 )))
                                         )
@@ -414,12 +431,12 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                 logicalAggregate(
                                         logicalProject()
                                 ).when(FieldChecker.check("outputExpressions", ImmutableList.of(
-                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(0), "aa", BigIntType.INSTANCE, true,
+                                        new Alias(new ExprId(8), new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("t2"))), "max(aa)"),
-                                        new SlotReference(new ExprId(7), "v2", BigIntType.INSTANCE, true,
+                                        new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t7")))))
                                         .when(FieldChecker.check("groupByExpressions", ImmutableList.of(
-                                                new SlotReference(new ExprId(7), "v2", BigIntType.INSTANCE, true,
+                                                new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("default_cluster:test", "t7"))
                                         )))
                         )
@@ -440,10 +457,10 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         logicalProject()
                                 )
                         ).when(FieldChecker.check("joinType", JoinType.LEFT_OUTER_JOIN))
-                                .when(FieldChecker.check("otherJoinCondition", Optional.of(
-                                        new EqualTo(new SlotReference(new ExprId(2), "k2", BigIntType.INSTANCE, true,
+                                .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
+                                        new EqualTo(new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
                                                 ImmutableList.of("default_cluster:test", "t6")),
-                                                new SlotReference(new ExprId(7), "v2", BigIntType.INSTANCE, true,
+                                                new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("default_cluster:test", "t7")))
                                 )))
                 );

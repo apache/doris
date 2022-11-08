@@ -19,6 +19,7 @@
 
 #include <aws/core/utils/threading/Executor.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/CopyObjectRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
@@ -35,6 +36,7 @@
 #include "gutil/strings/stringpiece.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
+#include "io/fs/s3_file_writer.h"
 
 namespace doris {
 namespace io {
@@ -51,6 +53,9 @@ S3FileSystem::S3FileSystem(S3Conf s3_conf, ResourceId resource_id)
                   fmt::format("{}/{}/{}", s3_conf.endpoint, s3_conf.bucket, s3_conf.prefix),
                   std::move(resource_id), FileSystemType::S3),
           _s3_conf(std::move(s3_conf)) {
+    if (_s3_conf.prefix.size() > 0 && _s3_conf.prefix[0] == '/') {
+        _s3_conf.prefix = _s3_conf.prefix.substr(1);
+    }
     _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
             resource_id.c_str(), config::s3_transfer_executor_pool_size);
 }
@@ -133,7 +138,8 @@ Status S3FileSystem::batch_upload(const std::vector<Path>& local_paths,
 }
 
 Status S3FileSystem::create_file(const Path& path, FileWriterPtr* writer) {
-    return Status::NotSupported("not support");
+    *writer = std::make_unique<S3FileWriter>(Path(get_key(path)), get_client(), _s3_conf);
+    return Status::OK();
 }
 
 Status S3FileSystem::open_file(const Path& path, FileReaderSPtr* reader) {

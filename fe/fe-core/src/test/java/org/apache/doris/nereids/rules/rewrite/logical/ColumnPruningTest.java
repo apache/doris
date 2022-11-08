@@ -269,6 +269,28 @@ public class ColumnPruningTest extends TestWithFeService implements PatternMatch
                 );
     }
 
+    @Test
+    public void pruneColumnForOneSideOnCrossJoin() {
+        PlanChecker.from(connectContext)
+                .analyze("select id,name from student cross join score")
+                .applyTopDown(new ColumnPruning())
+                .matchesFromRoot(
+                        logicalProject(
+                                    logicalJoin(
+                                            logicalProject(logicalRelation())
+                                                    .when(p -> getOutputQualifiedNames(p)
+                                                            .containsAll(ImmutableList.of(
+                                                                    "default_cluster:test.student.id",
+                                                                    "default_cluster:test.student.name"))),
+                                            logicalProject(logicalRelation())
+                                                    .when(p -> getOutputQualifiedNames(p)
+                                                            .containsAll(ImmutableList.of(
+                                                                    "default_cluster:test.score.sid")))
+                                    )
+                        )
+                );
+    }
+
     private List<String> getOutputQualifiedNames(LogicalProject<? extends Plan> p) {
         return p.getProjects().stream().map(NamedExpression::getQualifiedName).collect(Collectors.toList());
     }

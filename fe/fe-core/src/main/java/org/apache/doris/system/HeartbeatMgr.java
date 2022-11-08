@@ -26,6 +26,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.FrontendService;
@@ -252,8 +253,12 @@ public class HeartbeatMgr extends MasterDaemon {
                     long beStartTime = tBackendInfo.isSetBeStartTime()
                             ? tBackendInfo.getBeStartTime() : System.currentTimeMillis();
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
+                    String nodeRole = Tag.VALUE_MIX;
+                    if (tBackendInfo.isSetBeNodeRole()) {
+                        nodeRole = tBackendInfo.getBeNodeRole();
+                    }
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
-                            System.currentTimeMillis(), beStartTime, version);
+                            System.currentTimeMillis(), beStartTime, version, nodeRole);
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(),
                             result.getStatus().getErrorMsgs().isEmpty()

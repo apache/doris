@@ -22,9 +22,12 @@ Expect: varchar(32)
 Type before bug fix: varchar(*)
 */
  suite("test_view_varchar_length") {
-     sql """ DROP TABLE IF EXISTS T """
+     def tableName = "t_view_varchar_length";
+     def viewName = "v_test_view_varchar_length";
+
+     sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-         CREATE TABLE `T` (
+         CREATE TABLE IF NOT EXISTS ${tableName} (
              `id` int,
              `name` varchar(32) 
          ) ENGINE=OLAP
@@ -36,13 +39,16 @@ Type before bug fix: varchar(*)
              "storage_format" = "V2"
          );
      """
-     sql "drop view if exists V;"
+     sql "drop view if exists ${viewName};"
      sql """
-         create view V as select name from T;
+         create view ${viewName} as select name from ${tableName};
      """
 
      qt_sql """
-         desc V;
+         desc v_test_view_varchar_length;
      """
+
+     sql "DROP VIEW ${viewName}"
+     sql "DROP TABLE ${tableName}"
  }
 

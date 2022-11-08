@@ -34,21 +34,10 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
           _input_rowsets_size(0),
           _input_row_num(0),
           _state(CompactionState::INITED) {
-#ifndef BE_TEST
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, label, StorageEngine::instance()->compaction_mem_tracker());
-#else
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(-1, label);
-#endif
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
 }
 
-Compaction::~Compaction() {
-#ifndef BE_TEST
-    // Compaction tracker cannot be completely accurate, offset the global impact.
-    StorageEngine::instance()->compaction_mem_tracker()->cache_consume_local(
-            -_mem_tracker->consumption());
-#endif
-}
+Compaction::~Compaction() {}
 
 Status Compaction::compact() {
     RETURN_NOT_OK(prepare_compact());
@@ -192,7 +181,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
@@ -227,6 +216,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         }
     }
 
+    auto cumu_policy = _tablet->cumulative_compaction_policy();
     LOG(INFO) << "succeed to do " << merge_type << compaction_name()
               << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
@@ -235,8 +225,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ", output_row_num=" << _output_rowset->num_rows()
               << ". elapsed time=" << watch.get_elapse_second()
               << "s. cumulative_compaction_policy="
-              << _tablet->cumulative_compaction_policy()->name()
-              << ", compact_row_per_second=" << _input_row_num / watch.get_elapse_second();
+              << (cumu_policy == nullptr ? "quick" : cumu_policy->name())
+              << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
 
     return Status::OK();
 }
@@ -336,7 +326,7 @@ Status Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
         LOG(WARNING) << "row_num does not match between cumulative input and output! "
-                     << "input_row_num=" << _input_row_num
+                     << "tablet=" << _tablet->full_name() << ", input_row_num=" << _input_row_num
                      << ", merged_row_num=" << stats.merged_rows
                      << ", filtered_row_num=" << stats.filtered_rows
                      << ", output_row_num=" << _output_rowset->num_rows();

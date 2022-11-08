@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view_date", "rollup") {
-    def tbName1 = "test_materialized_view1"
+    def tbName1 = "test_materialized_view_date"
 
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -23,7 +23,7 @@ suite("test_materialized_view_date", "rollup") {
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
-            CREATE TABLE ${tbName1}(
+            CREATE TABLE IF NOT EXISTS ${tbName1}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -51,6 +51,7 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
+    Thread.sleep(2)
     max_try_secs = 60
     sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
@@ -65,6 +66,7 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
+    Thread.sleep(2)
     max_try_secs = 60
     sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
@@ -79,6 +81,7 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
+    Thread.sleep(2)
     max_try_secs = 60
     sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {

@@ -46,7 +46,6 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     argument_template.reserve(2);
     argument_template.emplace_back(std::move(child_column), child->data_type(), child_name);
     argument_template.emplace_back(_cast_param, _cast_param_data_type, _target_data_type_name);
-
     _function = SimpleFunctionFactory::instance().get_function(function_name, argument_template,
                                                                _data_type);
 
@@ -54,7 +53,7 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
         return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
     }
     VExpr::register_function_context(state, context);
-    _expr_name = fmt::format("(CAST {}, TO {})", child_name, _target_data_type_name);
+    _expr_name = fmt::format("(CAST {} TO {})", child_name, _target_data_type_name);
     return Status::OK();
 }
 

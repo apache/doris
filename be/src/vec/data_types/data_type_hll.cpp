@@ -26,7 +26,7 @@ namespace doris::vectorized {
 // Two part of binary: <row num > + <size array> | <hll data array>
 // first: row num | hll1 size | hll2 size | ...
 // second: hll1 | hll2 | ...
-char* DataTypeHLL::serialize(const IColumn& column, char* buf) const {
+char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
 
@@ -52,7 +52,7 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf) const {
 // Two part of binary: <row num > + <size array> | <hll data array>
 // first: row num | hll1 size | hll2 size | ...
 // second: hll1 | hll2 | ...
-const char* DataTypeHLL::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeHLL::deserialize(const char* buf, IColumn* column, int be_exec_version) const {
     auto& data_column = assert_cast<ColumnHLL&>(*column);
     auto& data = data_column.get_data();
 
@@ -71,7 +71,8 @@ const char* DataTypeHLL::deserialize(const char* buf, IColumn* column) const {
     return buf;
 }
 
-int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeHLL::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                       int be_exec_version) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
 

@@ -103,10 +103,10 @@ SNAPPY_SOURCE=snappy-1.1.8
 SNAPPY_MD5SUM="70e48cba7fecf289153d009791c9977f"
 
 # gperftools
-GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/archive/gperftools-2.9.1.tar.gz"
-GPERFTOOLS_NAME=gperftools-2.9.1.tar.gz
-GPERFTOOLS_SOURCE=gperftools-gperftools-2.9.1
-GPERFTOOLS_MD5SUM="e340f1b247ff512119a2db98c1538dc1"
+GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.10/gperftools-2.10.tar.gz"
+GPERFTOOLS_NAME=gperftools-2.10.tar.gz
+GPERFTOOLS_SOURCE=gperftools-2.10
+GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
 
 # zlib
 ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
@@ -222,10 +222,10 @@ LIBRDKAFKA_SOURCE=librdkafka-1.8.2
 LIBRDKAFKA_MD5SUM="0abec0888d10c9553cdcbcbf9172d558"
 
 # zstd
-ZSTD_DOWNLOAD="https://github.com/facebook/zstd/archive/v1.5.0.tar.gz"
-ZSTD_NAME=zstd-1.5.0.tar.gz
-ZSTD_SOURCE=zstd-1.5.0
-ZSTD_MD5SUM="d5ac89d5df9e81243ce40d0c6a66691d"
+ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.2/zstd-1.5.2.tar.gz"
+ZSTD_NAME=zstd-1.5.2.tar.gz
+ZSTD_SOURCE=zstd-1.5.2
+ZSTD_MD5SUM="072b10f71f5820c24761a65f31f43e73"
 
 # brotli
 BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
@@ -297,10 +297,10 @@ CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 # The origin download url is always changing: https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.25
 # So we put it in our own http server.
 # If someone can offer an official url for DataTables, please update this.
-DATATABLES_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/DataTables.zip"
+DATATABLES_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/datatables-1.12.1/DataTables.zip"
 DATATABLES_NAME="DataTables.zip"
-DATATABLES_SOURCE="DataTables-1.10.25"
-DATATABLES_MD5SUM="c8fd73997c9871e213ee4211847deed5"
+DATATABLES_SOURCE="DataTables-1.12.1"
+DATATABLES_MD5SUM="a3dd92a2a8b7254443e102a43036d743"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
@@ -423,6 +423,18 @@ SSE2NEON_NAME=sse2neon-1.5.1.tar.gz
 SSE2NEON_SOURCE=sse2neon-1.5.1
 SSE2NEON_MD5SUM="9de5dc2970aa7efac7faee59e2826c51"
 
+# xxhash
+XXHASH_DOWNLOAD="https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.1.tar.gz"
+XXHASH_NAME=xxHash-0.8.1.tar.gz
+XXHASH_SOURCE=xxHash-0.8.1
+XXHASH_MD5SUM="b67c587f5ff4894253da0095ba7ea393"
+
+# concurrentqueue
+CONCURRENTQUEUE_DOWNLOAD="https://github.com/cameron314/concurrentqueue/archive/refs/tags/v1.0.3.tar.gz"
+CONCURRENTQUEUE_NAME=concurrentqueue-1.0.3.tar.gz
+CONCURRENTQUEUE_SOURCE=concurrentqueue-1.0.3
+CONCURRENTQUEUE_MD5SUM="118e5bb661b567634647312991e10222"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -484,4 +496,23 @@ export TP_ARCHIVES=(
     'OPENTELEMETRY'
     'LIBBACKTRACE'
     'SSE2NEON'
+    'XXHASH'
+    'CONCURRENTQUEUE'
 )
+
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    #binutils
+    BINUTILS_DOWNLOAD='https://mirrors.aliyun.com/gnu/binutils/binutils-2.39.tar.gz'
+    BINUTILS_NAME=binutils-2.39.tar.gz
+    BINUTILS_SOURCE=binutils-2.39
+    BINUTILS_MD5SUM='ab6825df57514ec172331e988f55fc10'
+
+    #gettext
+    GETTEXT_DOWNLOAD='https://mirrors.aliyun.com/gnu/gettext/gettext-0.21.tar.gz'
+    GETTEXT_NAME='gettext-0.21.tar.gz'
+    GETTEXT_SOURCE='gettext-0.21'
+    GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'
+
+    read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} BINUTILS GETTEXT"
+    export TP_ARCHIVES
+fi

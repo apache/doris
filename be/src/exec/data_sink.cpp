@@ -35,6 +35,7 @@
 #include "runtime/result_sink.h"
 #include "runtime/runtime_state.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vjdbc_table_sink.h"
 #include "vec/sink/vmysql_table_sink.h"
 #include "vec/sink/vodbc_table_sink.h"
 #include "vec/sink/vresult_file_sink.h"
@@ -161,6 +162,22 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             sink->reset(new vectorized::VOdbcTableSink(pool, row_desc, output_exprs));
         } else {
             sink->reset(new OdbcTableSink(pool, row_desc, output_exprs));
+        }
+        break;
+    }
+
+    case TDataSinkType::JDBC_TABLE_SINK: {
+        if (!thrift_sink.__isset.jdbc_table_sink) {
+            return Status::InternalError("Missing data jdbc sink.");
+        }
+        if (is_vec) {
+#ifdef LIBJVM
+            sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
+#else
+            return Status::InternalError("Jdbc table sink is disabled since no libjvm is found!");
+#endif
+        } else {
+            return Status::InternalError("only support jdbc sink in vectorized engine.");
         }
         break;
     }

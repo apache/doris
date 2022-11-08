@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -85,7 +86,14 @@ public class DatabaseProperty implements Writable {
         Map<String, String> icebergProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : this.properties.entrySet()) {
             if (entry.getKey().startsWith(ICEBERG_PROPERTY_PREFIX)) {
-                icebergProperties.put(entry.getKey(), entry.getValue());
+                if (Config.disable_iceberg_hudi_table) {
+                    throw new DdlException(
+                            "database for iceberg is no longer supported. Use multi catalog feature instead."
+                                    + ". Or you can temporarily set 'disable_iceberg_hudi_table=false'"
+                                    + " in fe.conf to reopen this feature.");
+                } else {
+                    icebergProperties.put(entry.getKey(), entry.getValue());
+                }
             }
         }
         if (icebergProperties.size() > 0) {

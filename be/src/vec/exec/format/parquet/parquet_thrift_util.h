@@ -31,29 +31,24 @@
 namespace doris::vectorized {
 
 constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
-constexpr int64_t PARQUET_FOOTER_READ_SIZE = 64 * 1024;
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 
 static Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData>& file_metadata) {
-    // try with buffer on stack
-    uint8_t buff[PARQUET_FOOTER_READ_SIZE];
+    uint8_t footer[PARQUET_FOOTER_SIZE];
     int64_t file_size = file->size();
-    // read footer bytes
-    uint64_t footer_read_size = std::min(file_size, PARQUET_FOOTER_READ_SIZE);
-
     int64_t bytes_read = 0;
-    RETURN_IF_ERROR(
-            file->readat(file_size - footer_read_size, footer_read_size, &bytes_read, buff));
+    RETURN_IF_ERROR(file->readat(file_size - PARQUET_FOOTER_SIZE, PARQUET_FOOTER_SIZE, &bytes_read,
+                                 footer));
+    DCHECK_EQ(bytes_read, PARQUET_FOOTER_SIZE);
 
     // validate magic
-    uint8_t* magic_ptr = buff + footer_read_size - sizeof(PARQUET_VERSION_NUMBER);
+    uint8_t* magic_ptr = footer + PARQUET_FOOTER_SIZE - sizeof(PARQUET_VERSION_NUMBER);
     if (memcmp(magic_ptr, PARQUET_VERSION_NUMBER, sizeof(PARQUET_VERSION_NUMBER)) != 0) {
         return Status::Corruption("Invalid magic number in parquet file");
     }
 
     // get metadata_size
-    uint8_t* footer_buff = buff + footer_read_size - PARQUET_FOOTER_SIZE;
-    uint32_t metadata_size = decode_fixed32_le(footer_buff);
+    uint32_t metadata_size = decode_fixed32_le(footer);
     if (metadata_size > file_size - PARQUET_FOOTER_SIZE) {
         Status::Corruption("Parquet file size is ", file_size,
                            " bytes, smaller than the size reported by footer's (", metadata_size,
@@ -61,8 +56,11 @@ static Status parse_thrift_footer(FileReader* file, std::shared_ptr<FileMetaData
     }
     tparquet::FileMetaData t_metadata;
     // deserialize footer
-    RETURN_IF_ERROR(
-            deserialize_thrift_msg(footer_buff - metadata_size, &metadata_size, true, &t_metadata));
+    uint8_t meta_buff[metadata_size];
+    RETURN_IF_ERROR(file->readat(file_size - PARQUET_FOOTER_SIZE - metadata_size, metadata_size,
+                                 &bytes_read, meta_buff));
+    DCHECK_EQ(bytes_read, metadata_size);
+    RETURN_IF_ERROR(deserialize_thrift_msg(meta_buff, &metadata_size, true, &t_metadata));
     file_metadata.reset(new FileMetaData(t_metadata));
     RETURN_IF_ERROR(file_metadata->init_schema());
     return Status::OK();

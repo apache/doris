@@ -17,24 +17,25 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 
 /**
  * The util of named expression.
  */
 public class NamedExpressionUtil {
-    /**
-     * Tool class for generate next ExprId.
-     */
-    private static final IdGenerator<ExprId> ID_GENERATOR = ExprId.createGenerator();
+
+    // for test only
+    private static StatementContext statementContext = new StatementContext();
 
     public static ExprId newExprId() {
-        return ID_GENERATOR.getNextId();
+        // this branch is for test only
+        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
+            return statementContext.getNextExprId();
+        }
+        return ConnectContext.get().getStatementContext().getNextExprId();
     }
 
     /**
@@ -42,11 +43,9 @@ public class NamedExpressionUtil {
      */
     @VisibleForTesting
     public static void clear() throws Exception {
-        Field f = NamedExpressionUtil.class.getDeclaredField("ID_GENERATOR");
-        f.setAccessible(true);
-        Field mf = Field.class.getDeclaredField("modifiers");
-        mf.setAccessible(true);
-        mf.setInt(f, f.getModifiers() & ~Modifier.FINAL);
-        f.set(NamedExpressionUtil.class, ExprId.createGenerator());
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().setStatementContext(new StatementContext());
+        }
+        statementContext = new StatementContext();
     }
 }

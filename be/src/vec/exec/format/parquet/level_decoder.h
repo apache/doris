@@ -35,18 +35,12 @@ public:
     Status init(Slice* slice, tparquet::Encoding::type encoding, level_t max_level,
                 uint32_t num_levels);
 
-    bool has_levels() const { return _num_levels > 0; }
+    inline bool has_levels() const { return _num_levels > 0; }
 
     size_t get_levels(level_t* levels, size_t n);
 
-    size_t next_repeated_count() {
-        DCHECK_EQ(_encoding, tparquet::Encoding::RLE);
-        return _rle_decoder.repeated_count();
-    }
-
-    level_t get_repeated_value(size_t count) {
-        DCHECK_EQ(_encoding, tparquet::Encoding::RLE);
-        return _rle_decoder.get_repeated_value(count);
+    inline size_t get_next_run(level_t* val, size_t max_run) {
+        return _rle_decoder.GetNextRun(val, max_run);
     }
 
 private:

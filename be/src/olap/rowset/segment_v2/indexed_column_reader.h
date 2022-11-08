@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 #include "env/env.h"
@@ -114,6 +115,10 @@ public:
     // Return NotFound if the given key is greater than all keys in this column.
     // Return NotSupported for column without value index.
     Status seek_at_or_after(const void* key, bool* exact_match);
+    Status seek_at_or_after(const std::string* key, bool* exact_match) {
+        Slice slice(key->data(), key->size());
+        return seek_at_or_after(static_cast<const void*>(&slice), exact_match);
+    }
 
     // Get the ordinal index that the iterator is currently pointed to.
     ordinal_t get_current_ordinal() const {
@@ -143,7 +148,7 @@ private:
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
     // iterator owned compress codec, should NOT be shared by threads, initialized before used
-    std::unique_ptr<BlockCompressionCodec> _compress_codec;
+    BlockCompressionCodec* _compress_codec = nullptr;
 };
 
 } // namespace segment_v2

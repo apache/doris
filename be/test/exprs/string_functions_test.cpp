@@ -669,6 +669,14 @@ TEST_F(StringFunctionsTest, lower) {
     EXPECT_EQ(StringVal(""), StringFunctions::lower(ctx, StringVal("")));
 }
 
+TEST_F(StringFunctionsTest, elt) {
+    StringVal str[] = {"hello", "world"};
+    EXPECT_EQ(StringVal("hello"), StringFunctions::elt(ctx, 1, 2, str));
+    EXPECT_EQ(StringVal("world"), StringFunctions::elt(ctx, 2, 2, str));
+    EXPECT_EQ(StringVal::null(), StringFunctions::elt(ctx, 0, 2, str));
+    EXPECT_EQ(StringVal::null(), StringFunctions::elt(ctx, 3, 2, str));
+}
+
 TEST_F(StringFunctionsTest, upper) {
     // function test
     EXPECT_EQ(StringVal("HELLO"), StringFunctions::upper(ctx, StringVal("HELLO")));

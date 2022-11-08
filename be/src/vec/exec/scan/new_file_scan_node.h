@@ -25,6 +25,8 @@ class NewFileScanNode : public VScanNode {
 public:
     NewFileScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
+
     Status prepare(RuntimeState* state) override;
 
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
@@ -39,7 +41,5 @@ private:
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;
-    TFileScanNode _file_scan_node;
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
 };
 } // namespace doris::vectorized

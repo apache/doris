@@ -32,7 +32,6 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.DomainResolver;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -207,11 +206,12 @@ public class AuthTest {
 
         // 2. check if cmy from specified ip can access to palo
         List<UserIdentity> currentUser = Lists.newArrayList();
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1", "12345",
-                currentUser));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1",
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1", "12345",
+                        currentUser));
+        Assert.assertFalse(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1",
                 "123456", null));
-        Assert.assertFalse(auth.checkPlainPassword("other:cmy", "192.168.0.1", "12345", null));
+        Assert.assertFalse(auth.checkPlainPasswordForTest("other:cmy", "192.168.0.1", "12345", null));
         Assert.assertTrue(currentUser.get(0).equals(userIdentity));
 
         // 3. create another user: zhangsan@"192.%"
@@ -232,11 +232,12 @@ public class AuthTest {
         }
 
         // 4. check if zhangsan from specified ip can access to palo
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1",
+        Assert.assertTrue(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1",
                 "12345", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "172.168.0.1",
-                "12345", null));
-        Assert.assertFalse(auth.checkPlainPassword("zhangsan", "192.168.0.1", "12345", null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "172.168.0.1",
+                        "12345", null));
+        Assert.assertFalse(auth.checkPlainPasswordForTest("zhangsan", "192.168.0.1", "12345", null));
 
         // 4.1 check if we can create same user
         userIdentity = new UserIdentity("zhangsan", "192.%");
@@ -274,7 +275,7 @@ public class AuthTest {
         } catch (DdlException e) {
             Assert.fail();
         }
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "172.18.1.1",
+        Assert.assertTrue(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "172.18.1.1",
                 "12345", null));
 
         // 5. create a user with domain [palo.domain]
@@ -297,11 +298,11 @@ public class AuthTest {
         resolver.runAfterCatalogReady();
 
         // 6. check if user from resolved ip can access to palo
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1",
+        Assert.assertTrue(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1",
                 "12345", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1",
+        Assert.assertFalse(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1",
                 "123456", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "11.1.1.1",
+        Assert.assertFalse(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "11.1.1.1",
                 "12345", null));
 
         // 7. add duplicated user@['palo.domain1']
@@ -345,11 +346,11 @@ public class AuthTest {
         // 8.1 resolve domain [palo.domain2]
         resolver.runAfterCatalogReady();
 
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1",
+        Assert.assertTrue(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1",
                 "123456", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1",
+        Assert.assertFalse(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1",
                 "123456", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.2",
+        Assert.assertFalse(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.2",
                 "123455", null));
 
         /*
@@ -373,7 +374,7 @@ public class AuthTest {
         }
 
         List<UserIdentity> currentUser2 = Lists.newArrayList();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "172.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "172.1.1.1", "12345", currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         // check auth before grant
         Assert.assertFalse(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
@@ -456,7 +457,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
 
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
@@ -485,7 +487,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2",
                 PrivPredicate.SELECT));
@@ -513,7 +516,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
                 PrivPredicate.ALTER));
@@ -537,18 +541,21 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
                 PrivPredicate.SELECT));
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
                 PrivPredicate.ALTER));
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.3", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.3", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
                 PrivPredicate.DROP));
@@ -642,7 +649,7 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "172.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "172.1.1.1", "12345", currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db",
                 PrivPredicate.CREATE));
@@ -670,7 +677,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2",
                 "tbl2", PrivPredicate.ALTER));
@@ -682,7 +690,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(auth.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2",
                 "tbl2", PrivPredicate.ALTER));
@@ -744,7 +753,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
                 PrivPredicate.DROP));
@@ -757,7 +767,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db3",
                 PrivPredicate.DROP));
@@ -899,7 +910,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":wangwu", "10.17.2.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":wangwu", "10.17.2.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
                 PrivPredicate.DROP));
@@ -923,11 +935,13 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(0, currentUser2.size());
         resolver.runAfterCatalogReady();
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
                 PrivPredicate.DROP));
@@ -969,7 +983,8 @@ public class AuthTest {
         }
 
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
                 PrivPredicate.DROP));
@@ -990,7 +1005,8 @@ public class AuthTest {
             Assert.fail();
         }
         currentUser2.clear();
-        auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345", currentUser2);
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":chenliu", "20.1.1.1", "12345",
+                currentUser2);
         Assert.assertEquals(1, currentUser2.size());
         Assert.assertFalse(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db4",
                 PrivPredicate.DROP));
@@ -1044,8 +1060,10 @@ public class AuthTest {
             Assert.fail();
         }
 
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1", "12345", null));
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1",
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":cmy", "192.168.0.1", "12345",
+                        null));
+        Assert.assertTrue(auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1",
                 "12345", null));
 
         // 32.1 drop user cmy@"%" again with IF EXISTS
@@ -1089,15 +1107,21 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1", "12345", null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1", "12345",
+                        null));
 
         try {
             auth.dropUser(dropUserStmt);
         } catch (DdlException e) {
             Assert.fail();
         }
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1", "12345", null));
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345", null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.0.1", "12345",
+                        null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345",
+                        null));
 
         // 34. create user zhangsan@'10.1.1.1' to overwrite one of zhangsan@['palo.domain1']
         userIdentity = new UserIdentity("zhangsan", "10.1.1.1");
@@ -1110,7 +1134,9 @@ public class AuthTest {
             Assert.fail();
         }
 
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345", null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345",
+                        null));
 
         try {
             auth.createUser(createUserStmt);
@@ -1118,8 +1144,12 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345", null));
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde", null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "12345",
+                        null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde",
+                        null));
 
         // 35. drop user zhangsan@['palo.domain1']
         dropUserStmt = new DropUserStmt(new UserIdentity("zhangsan", "palo.domain1", true));
@@ -1129,18 +1159,26 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345", null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345",
+                        null));
 
         try {
             auth.dropUser(dropUserStmt);
         } catch (DdlException e) {
             Assert.fail();
         }
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345", null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345",
+                        null));
 
         resolver.runAfterCatalogReady();
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345", null));
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde", null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.2", "12345",
+                        null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde",
+                        null));
 
         // 36. drop user lisi@['palo.domain1']
         dropUserStmt = new DropUserStmt(new UserIdentity("lisi", "palo.domain2", true));
@@ -1150,20 +1188,32 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456", null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456",
+                        null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456",
+                        null));
 
         try {
             auth.dropUser(dropUserStmt);
         } catch (DdlException e) {
             Assert.fail();
         }
-        Assert.assertTrue(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456", null));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456",
+                        null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456",
+                        null));
 
         resolver.runAfterCatalogReady();
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456", null));
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456", null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "20.1.1.1", "123456",
+                        null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":lisi", "10.1.1.1", "123456",
+                        null));
 
         // 37. drop zhangsan@'172.18.1.1' and zhangsan@'10.1.1.1'
         dropUserStmt = new DropUserStmt(new UserIdentity("zhangsan", "172.18.1.1", false));
@@ -1193,7 +1243,9 @@ public class AuthTest {
         } catch (DdlException e) {
             Assert.fail();
         }
-        Assert.assertFalse(auth.checkPlainPassword(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde", null));
+        Assert.assertFalse(
+                auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "10.1.1.1", "abcde",
+                        null));
 
         // 38. drop root user(not allowed)
         dropUserStmt = new DropUserStmt(new UserIdentity("root", "%"));
@@ -1347,8 +1399,6 @@ public class AuthTest {
         ResourcePattern anyResourcePattern = new ResourcePattern(anyResource);
         List<AccessPrivilege> usagePrivileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
-        // TODO(wyb): spark-load
-        Config.enable_spark_load = true;
 
         // ------ grant|revoke resource to|from user ------
         // 1. create user with no role

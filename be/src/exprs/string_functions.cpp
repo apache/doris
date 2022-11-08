@@ -37,7 +37,7 @@ void StringFunctions::init() {}
 size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         str_index->push_back(i);
         ++char_len;
     }
@@ -50,10 +50,10 @@ size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
 //  - [optional] len.  No len indicates longest substr possible
 StringVal StringFunctions::substring(FunctionContext* context, const StringVal& str,
                                      const IntVal& pos, const IntVal& len) {
-    if (str.is_null || pos.is_null || len.is_null || pos.val > str.len) {
+    if (str.is_null || pos.is_null || len.is_null) {
         return StringVal::null();
     }
-    if (len.val <= 0 || str.len == 0 || pos.val == 0) {
+    if (len.val <= 0 || str.len == 0 || pos.val == 0 || pos.val > str.len) {
         return StringVal();
     }
 
@@ -65,7 +65,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
     size_t byte_pos = 0;
     std::vector<size_t> index;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         index.push_back(i);
         if (pos.val > 0 && index.size() > pos.val + len.val) {
             break;
@@ -140,6 +140,14 @@ BooleanVal StringFunctions::null_or_empty(FunctionContext* context, const String
         return 1;
     } else {
         return 0;
+    }
+}
+
+BooleanVal StringFunctions::not_null_or_empty(FunctionContext* context, const StringVal& str) {
+    if (str.is_null || str.len == 0) {
+        return 0;
+    } else {
+        return 1;
     }
 }
 
@@ -320,7 +328,7 @@ IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringV
     }
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
         ++char_len;
     }
     return IntVal(char_len);
@@ -347,6 +355,27 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
         return result;
     }
     simd::VStringFunctions::to_upper(str.ptr, str.len, result.ptr);
+    return result;
+}
+
+StringVal StringFunctions::initcap(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return StringVal::null();
+    }
+    StringVal result(context, str.len);
+
+    simd::VStringFunctions::to_lower(str.ptr, str.len, result.ptr);
+
+    bool need_capitalize = true;
+    for (int64_t i = 0; i < str.len; ++i) {
+        if (!::isalnum(result.ptr[i])) {
+            need_capitalize = true;
+        } else if (need_capitalize) {
+            result.ptr[i] = ::toupper(result.ptr[i]);
+            need_capitalize = false;
+        }
+    }
+
     return result;
 }
 
@@ -400,7 +429,7 @@ IntVal StringFunctions::instr(FunctionContext* context, const StringVal& str,
     if (loc > 0) {
         size_t char_len = 0;
         for (size_t i = 0, char_size = 0; i < loc; i += char_size) {
-            char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
             ++char_len;
         }
         loc = char_len;
@@ -448,7 +477,7 @@ IntVal StringFunctions::locate_pos(FunctionContext* context, const StringVal& su
         // Hive returns the position in the original string starting from 1.
         size_t char_len = 0;
         for (size_t i = 0, char_size = 0; i < match_pos; i += char_size) {
-            char_size = get_utf8_byte_length((unsigned)(adjusted_str.ptr)[i]);
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(adjusted_str.ptr)[i]];
             ++char_len;
         }
         match_pos = char_len;
@@ -682,6 +711,15 @@ StringVal StringFunctions::concat_ws(FunctionContext* context, const StringVal& 
     return result;
 }
 
+StringVal StringFunctions::elt(FunctionContext* context, const IntVal& pos, int num_children,
+                               const StringVal* strs) {
+    if (pos.is_null || pos.val < 1 || num_children == 0 || pos.val > num_children) {
+        return StringVal::null();
+    }
+
+    return strs[pos.val - 1];
+}
+
 IntVal StringFunctions::find_in_set(FunctionContext* context, const StringVal& str,
                                     const StringVal& str_set) {
     if (str.is_null || str_set.is_null) {
@@ -701,7 +739,7 @@ IntVal StringFunctions::find_in_set(FunctionContext* context, const StringVal& s
     do {
         end = start;
         // Position end.
-        while (str_set.ptr[end] != ',' && end < str_set.len) {
+        while (end < str_set.len && str_set.ptr[end] != ',') {
             ++end;
         }
         StringValue token(reinterpret_cast<char*>(str_set.ptr) + start, end - start);

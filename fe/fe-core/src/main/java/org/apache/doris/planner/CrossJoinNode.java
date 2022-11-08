@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -29,6 +30,8 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.MoreObjects;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 /**
  * Cross join between left child and right child.
@@ -57,6 +60,22 @@ public class CrossJoinNode extends PlanNode {
         nullableTupleIds.addAll(inner.getNullableTupleIds());
     }
 
+    /**
+     * Only for Nereids.
+     */
+    public CrossJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds) {
+        super(id, "CROSS JOIN", StatisticalType.CROSS_JOIN_NODE);
+        this.innerRef = null;
+        this.tupleIds.addAll(tupleIds);
+        children.add(outer);
+        children.add(inner);
+
+        // Inherits all the nullable tuple from the children
+        // Mark tuples that form the "nullable" side of the outer join as nullable.
+        nullableTupleIds.addAll(outer.getNullableTupleIds());
+        nullableTupleIds.addAll(inner.getNullableTupleIds());
+    }
+
     public TableRef getInnerRef() {
         return innerRef;
     }
@@ -75,7 +94,7 @@ public class CrossJoinNode extends PlanNode {
             return;
         }
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 
     @Override
@@ -103,17 +122,17 @@ public class CrossJoinNode extends PlanNode {
 
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder().append(detailPrefix).append("cross join:").append("\n");
         if (detailLevel == TExplainLevel.BRIEF) {
-            return "";
+            output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            return output.toString();
         }
-        StringBuilder output = new StringBuilder().append(detailPrefix + "cross join:" + "\n");
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix + "predicates: ").append(getExplainString(conjuncts) + "\n");
+            output.append(detailPrefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         } else {
-            output.append(detailPrefix + "predicates is NULL.");
+            output.append(detailPrefix).append("predicates is NULL.");
         }
-        output.append(detailPrefix).append(String.format(
-                "cardinality=%s", cardinality)).append("\n");
+        output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         return output.toString();
     }
 

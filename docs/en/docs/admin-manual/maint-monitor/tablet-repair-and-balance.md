@@ -99,7 +99,7 @@ Multiple copies of a Tablet may cause state inconsistencies due to certain circu
 
 6. FORCE\_REDUNDANT
 
-	This is a special state. It only occurs when the number of expected replicas is greater than or equal to the number of available nodes, and when the Tablet is in the state of replica missing. In this case, you need to delete a copy first to ensure that there are available nodes for creating a new copy.
+	This is a special state. It only occurs when the number of existed replicas is greater than or equal to the number of available nodes, and the number of available nodes is greater than or equal to the number of expected replicas, and when the number of alive replicas is less than the number of expected replicas. In this case, you need to delete a copy first to ensure that there are available nodes for creating a new copy.
 
 7. COLOCATE\_MISMATCH
 
@@ -212,7 +212,7 @@ Priority ensures that severely damaged fragments can be repaired first, and impr
 
 At the same time, in order to ensure the weight of the initial priority, we stipulate that the initial priority is VERY HIGH, and the lowest is lowered to NORMAL. When the initial priority is LOW, it is raised to HIGH at most. The priority adjustment here also adjusts the priority set manually by the user.
 
-## Duplicate Equilibrium
+## Replicas Balance
 
 Doris automatically balances replicas within the cluster. Currently supports two rebalance strategies, BeLoad and Partition. BeLoad rebalance will consider about the disk usage and replica count for each BE. Partition rebalance just aim at replica count for each partition, this helps to avoid hot spots. If you want high read/write performance, you may need this. Note that Partition rebalance do not consider about the disk usage, pay more attention to it when you are using Partition rebalance. The strategy selection config is not mutable at runtime. 
 
@@ -319,7 +319,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 
 	` The ADMIN SHOW REPLICA STATUS `command is mainly used to view the health status of copies. Users can also view additional information about copies of a specified table by using the following commands:
 
-	`SHOW TABLET FROM tbl1;`
+	`SHOW TABLETS FROM tbl1;`
 
     ```
 	+----------+-----------+-----------+------------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+----------+----------+--------+-------------------------+--------------+----------------------+--------------+----------------------+----------------------+----------------------+
@@ -385,7 +385,7 @@ Tablet state view mainly looks at the state of the tablet, as well as the state 
 	+-----------+-----------+---------+-------------+-------------------+-----------------------+------------------+----------------------+---------------+------------+----------+----------+--------+-------+--------------+----------------------+
     ```
    
-	The figure above shows all replicas of the corresponding Tablet. The content shown here is the same as `SHOW TABLET FROM tbl1;`. But here you can clearly see the status of all copies of a specific Tablet.
+	The figure above shows all replicas of the corresponding Tablet. The content shown here is the same as `SHOW TABLETS FROM tbl1;`. But here you can clearly see the status of all copies of a specific Tablet.
 
 ### Duplicate Scheduling Task
 
@@ -639,6 +639,13 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 	* Default value: false
 	* Importance:
 
+The following adjustable parameters are all configurable parameters in be.conf.
+
+* clone\_worker\_count
+
+     * Description: Affects the speed of copy equalization. In the case of low disk pressure, you can speed up replica balancing by adjusting this parameter.
+     * Default: 3
+     * Importance: Medium
 ### Unadjustable parameters
 
 The following parameters do not support modification for the time being, just for illustration.

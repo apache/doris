@@ -17,15 +17,14 @@
 
 #pragma once
 
-#include <condition_variable>
-#include <list>
-#include <map>
-#include <mutex>
-
 #include "exprs/expr_context.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
 
 namespace doris {
 class Predicate;
@@ -43,6 +42,7 @@ class PInFilter;
 class PMinMaxFilter;
 class HashJoinNode;
 class RuntimeProfile;
+class BloomFilterFuncBase;
 
 namespace vectorized {
 class VExpr;
@@ -96,14 +96,20 @@ struct RuntimeFilterParams {
 };
 
 struct UpdateRuntimeFilterParams {
+    UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
+                              butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
+            : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequest* request;
-    const char* data;
+    butil::IOBufAsZeroCopyInputStream* data;
     ObjectPool* pool;
 };
 
 struct MergeRuntimeFilterParams {
+    MergeRuntimeFilterParams(const PMergeFilterRequest* req,
+                             butil::IOBufAsZeroCopyInputStream* data_stream)
+            : request(req), data(data_stream) {}
     const PMergeFilterRequest* request;
-    const char* data;
+    butil::IOBufAsZeroCopyInputStream* data;
 };
 
 /// The runtimefilter is built in the join node.
@@ -139,6 +145,7 @@ public:
     // only used for producer
     void insert(const void* data);
     void insert(const StringRef& data);
+    void insert_batch(vectorized::ColumnPtr column, const std::vector<int>& rows);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
@@ -175,7 +182,7 @@ public:
     bool is_producer() const { return _role == RuntimeFilterRole::PRODUCER; }
     bool is_consumer() const { return _role == RuntimeFilterRole::CONSUMER; }
     void set_role(const RuntimeFilterRole role) { _role = role; }
-    int expr_order() { return _expr_order; }
+    int expr_order() const { return _expr_order; }
 
     // only used for consumer
     // if filter is not ready for filter data scan_node
@@ -189,7 +196,9 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          UniqueId fragment_id = UniqueId(0, 0), int node_id = -1);
+                          UniqueId fragment_id, int node_id = -1);
+
+    BloomFilterFuncBase* get_bloomfilter() const;
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
@@ -199,9 +208,11 @@ public:
 
     // for ut
     const RuntimePredicateWrapper* get_wrapper();
-    static Status create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
+                                 ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
+                                 ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
     Status update_filter(const UpdateRuntimeFilterParams* param);
@@ -209,7 +220,7 @@ public:
     void set_ignored() { _is_ignored = true; }
 
     // for ut
-    bool is_ignored() { return _is_ignored; }
+    bool is_ignored() const { return _is_ignored; }
 
     void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
 
@@ -231,6 +242,10 @@ public:
 
     void ready_for_publish();
 
+    static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
+        return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
+    }
+
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -240,7 +255,7 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(const T* param, ObjectPool* pool,
+    static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     RuntimeState* _state;
@@ -282,7 +297,7 @@ protected:
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
-    std::string _ignored_msg = "";
+    std::string _ignored_msg;
 
     // some runtime filter will generate
     // multiple contexts such as minmax filter

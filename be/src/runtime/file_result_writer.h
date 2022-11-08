@@ -42,8 +42,18 @@ struct ResultFileOptions {
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
     std::string success_file_name = "";
-    std::vector<std::vector<std::string>> schema;
-    std::map<std::string, std::string> file_properties;
+    std::vector<std::vector<std::string>> schema;       //not use in outfile with parquet format
+    std::map<std::string, std::string> file_properties; //not use in outfile with parquet format
+
+    std::vector<TParquetSchema> parquet_schemas;
+    TParquetCompressionType::type parquet_commpression_type;
+    TParquetVersion::type parquet_version;
+    bool parquert_disable_dictionary;
+    //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
+    //But in order to consider the compatibility when upgrading, so add a bool to check
+    //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
+    bool is_refactor_before_flag = false;
+    std::string orc_schema;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -66,9 +76,26 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.schema) {
             schema = t_opt.schema;
+            is_refactor_before_flag = true;
         }
         if (t_opt.__isset.file_properties) {
             file_properties = t_opt.file_properties;
+        }
+        if (t_opt.__isset.parquet_schemas) {
+            is_refactor_before_flag = false;
+            parquet_schemas = t_opt.parquet_schemas;
+        }
+        if (t_opt.__isset.parquet_compression_type) {
+            parquet_commpression_type = t_opt.parquet_compression_type;
+        }
+        if (t_opt.__isset.parquet_disable_dictionary) {
+            parquert_disable_dictionary = t_opt.parquet_disable_dictionary;
+        }
+        if (t_opt.__isset.parquet_version) {
+            parquet_version = t_opt.parquet_version;
+        }
+        if (t_opt.__isset.orc_schema) {
+            orc_schema = t_opt.orc_schema;
         }
     }
 };

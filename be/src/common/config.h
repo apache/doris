@@ -46,23 +46,9 @@ CONF_Int32(single_replica_load_brpc_num_threads, "64");
 // If no ip match this rule, will choose one randomly.
 CONF_String(priority_networks, "");
 
-////
-//// tcmalloc gc parameter
-////
-// min memory for TCmalloc, when used memory is smaller than this, do not returned to OS
-CONF_mInt64(tc_use_memory_min, "10737418240");
-// free memory rate.[0-100]
-CONF_mInt64(tc_free_memory_rate, "20");
-
-// Bound on the total amount of bytes allocated to thread caches.
-// This bound is not strict, so it is possible for the cache to go over this bound
-// in certain circumstances. This value defaults to 1GB
-// If you suspect your application is not scaling to many threads due to lock contention in TCMalloc,
-// you can try increasing this value. This may improve performance, at a cost of extra memory
-// use by TCMalloc.
-// reference: https://gperftools.github.io/gperftools/tcmalloc.html: TCMALLOC_MAX_TOTAL_THREAD_CACHE_BYTES
-//            https://github.com/gperftools/gperftools/issues/1111
-CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
+// memory mode
+// performance or compact
+CONF_String(memory_mode, "performance");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
@@ -159,7 +145,7 @@ CONF_mInt32(status_report_interval, "5");
 // if true, each disk will have a separate thread pool for scanner
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
-CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
+CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of olap scanner thread pool size
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
@@ -181,7 +167,7 @@ CONF_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 CONF_mInt32(doris_scanner_row_bytes, "10485760");
 // number of max scan keys
-CONF_mInt32(doris_max_scan_key_num, "1024");
+CONF_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 CONF_mInt32(max_pushdown_conditions_per_column, "1024");
@@ -189,8 +175,6 @@ CONF_mInt32(max_pushdown_conditions_per_column, "1024");
 CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
-// push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
@@ -225,8 +209,6 @@ CONF_mInt32(snapshot_expire_time_sec, "172800");
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
-//file descriptors cache, by default, cache 32768 descriptors
-CONF_Int32(file_descriptor_cache_capacity, "32768");
 // minimum file descriptor number
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
@@ -268,16 +250,6 @@ CONF_Bool(enable_base_compaction_idle_sched, "true");
 CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-// config the cumulative compaction policy
-// Valid configs: num_based, size_based
-// num_based policy, the original version of cumulative compaction, cumulative version compaction once.
-// size_based policy, a optimization version of cumulative compaction, targeting the use cases requiring
-// lower write amplification, trading off read amplification and space amplification.
-CONF_mString(cumulative_compaction_policy, "size_based");
-CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "num_based";
-});
-
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
@@ -312,6 +284,9 @@ CONF_mInt32(quick_compaction_max_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
+
+// This config can be set to limit thread number in  segcompaction thread pool.
+CONF_mInt32(seg_compaction_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
@@ -405,7 +380,6 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
-CONF_mBool(disable_stream_load_2pc, "false");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -434,14 +408,6 @@ CONF_Int32(max_free_io_buffers, "128");
 // Whether to disable the memory cache pool,
 // including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
-
-// Whether to allocate chunk using mmap. If you enable this, you'd better to
-// increase vm.max_map_count's value whose default value is 65530.
-// you can do it as root via "sysctl -w vm.max_map_count=262144" or
-// "echo 262144 > /proc/sys/vm/max_map_count"
-// NOTE: When this is set to true, you must set chunk_reserved_bytes_limit
-// to a relative large number or the performance is very very bad.
-CONF_Bool(use_mmap_allocate_chunk, "false");
 
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
 // defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
@@ -515,6 +481,13 @@ CONF_mInt64(memtable_max_buffer_size, "419430400");
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
 CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 
+// If the memory consumption of load jobs exceed load_process_max_memory_limit,
+// all load jobs will hang there to wait for memtable flush. We should have a
+// soft limit which can trigger the memtable flush for the load channel who
+// consumes lagest memory size before we reach the hard limit. The soft limit
+// might avoid all load jobs hang at the same time.
+CONF_Int32(load_process_soft_mem_limit_percent, "50");
+
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 
@@ -576,7 +549,7 @@ CONF_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 // The min bytes that should be left of a data dir
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
-CONF_Int32(flush_thread_num_per_store, "2");
+CONF_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
 CONF_Int32(high_priority_flush_thread_num_per_store, "1");
 
@@ -661,16 +634,8 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(enable_tcmalloc_hook, "true");
 
-// If true, switch TLS MemTracker to count more detailed memory,
-// including caches such as ExecNode operators and TabletManager.
-//
-// At present, there is a performance problem in the frequent switch thread mem tracker.
-// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
-// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
-// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
-// TODO: 1. Reduce unnecessary thread mem tracker switches,
-//       2. Consider using raw pointers for mem tracker in thread local
-CONF_Bool(memory_verbose_track, "false");
+// Print more detailed logs, more detailed records, etc.
+CONF_Bool(memory_debug, "false");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
@@ -719,11 +684,6 @@ CONF_mInt32(max_segment_num_per_rowset, "200");
 
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "30");
-
-// The capacity of lur cache in segment loader.
-// Althought it is called "segment cache", but it caches segments in rowset granularity.
-// So the value of this config should corresponding to the number of rowsets on this BE.
-CONF_mInt32(segment_cache_capacity, "1000000");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 CONF_Int64(delete_bitmap_agg_cache_capacity, "104857600");
@@ -799,19 +759,30 @@ CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
 CONF_Validator(string_type_length_soft_limit_bytes,
                [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
+CONF_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
+
+CONF_Validator(jsonb_type_length_soft_limit_bytes,
+               [](const int config) -> bool { return config > 0 && config <= 2147483643; });
+
 // used for olap scanner to save memory, when the size of unused_object_pool
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 CONF_Int32(object_pool_buffer_size, "100");
 
 // ParquetReaderWrap prefetch buffer size
 CONF_Int32(parquet_reader_max_buffer_size, "50");
-CONF_Bool(parquet_predicate_push_down, "true");
-CONF_Int32(parquet_header_max_size, "8388608");
-CONF_Bool(parquet_reader_using_internal, "false");
+// Max size of parquet page header in bytes
+CONF_mInt32(parquet_header_max_size_mb, "1");
+// Max buffer size for parquet row group
+CONF_mInt32(parquet_rowgroup_max_buffer_mb, "128");
+// Max buffer size for parquet chunk column
+CONF_mInt32(parquet_column_max_buffer_mb, "8");
+
+// OrcReader
+CONF_mInt32(orc_natural_read_size_mb, "8");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
 CONF_Bool(enable_decimalv3, "false");
 
@@ -839,6 +810,7 @@ CONF_mString(file_cache_type, "");
 CONF_Validator(file_cache_type, [](const std::string config) -> bool {
     return config == "sub_file_cache" || config == "whole_file_cache" || config == "";
 });
+CONF_mInt64(file_cache_max_size_per_disk, "0"); // zero for no limit
 
 CONF_Int32(s3_transfer_executor_pool_size, "2");
 
@@ -854,6 +826,34 @@ CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 // This config should be removed when the new scan node is ready.
 CONF_Bool(enable_new_scan_node, "true");
 
+// limit the queue of pending batches which will be sent by a single nodechannel
+CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
+
+// Max waiting time to wait the "plan fragment start" rpc.
+// If timeout, the fragment will be cancelled.
+// This parameter is usually only used when the FE loses connection,
+// and the BE can automatically cancel the relevant fragment after the timeout,
+// so as to avoid occupying the execution thread for a long time.
+CONF_mInt32(max_fragment_start_wait_time_seconds, "30");
+
+// Node role tag for backend. Mix role is the default role, and computation role have no
+// any tablet.
+CONF_String(be_node_role, "mix");
+
+// Hide webserver page for safety.
+// Hide the be config page for webserver.
+CONF_Bool(hide_webserver_config_page, "false");
+
+CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+
+// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
+CONF_Int32(segcompaction_threshold_segment_num, "10");
+
+// The segment whose row number above the threshold will be compacted during segcompaction
+CONF_Int32(segcompaction_small_threshold, "1048576");
+
+CONF_String(jvm_max_heap_size, "1024M");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
@@ -864,7 +864,6 @@ CONF_String(test_s3_region, "region");
 CONF_String(test_s3_bucket, "bucket");
 CONF_String(test_s3_prefix, "prefix");
 #endif
-
 } // namespace config
 
 } // namespace doris

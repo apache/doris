@@ -175,8 +175,18 @@ public:
               _day(0),
               _microsecond(0) {}
 
-    explicit DateTimeValue(int64_t t) { from_date_int64(t); }
-
+    explicit DateTimeValue(int64_t t)
+            : _neg(0),
+              _type(TIME_DATETIME),
+              _hour(0),
+              _minute(0),
+              _second(0),
+              _year(0),
+              _month(0),
+              _day(0),
+              _microsecond(0) {
+        from_date_int64(t);
+    }
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
                   uint32_t second, uint32_t microsecond);
 
@@ -485,26 +495,37 @@ public:
 
     const char* day_name() const;
 
-    DateTimeValue& operator++() {
+    DateTimeValue& operator+=(int64_t count) {
+        bool is_neg = false;
+        if (count < 0) {
+            is_neg = true;
+            count = -count;
+        }
         switch (_type) {
         case TIME_DATE: {
-            TimeInterval interval(DAY, 1, false);
+            TimeInterval interval(DAY, count, is_neg);
             date_add_interval(interval, DAY);
             break;
         }
         case TIME_DATETIME: {
-            TimeInterval interval(SECOND, 1, false);
+            TimeInterval interval(SECOND, count, is_neg);
             date_add_interval(interval, SECOND);
             break;
         }
         case TIME_TIME: {
-            TimeInterval interval(SECOND, 1, false);
+            TimeInterval interval(SECOND, count, is_neg);
             date_add_interval(interval, SECOND);
             break;
         }
         }
         return *this;
     }
+
+    DateTimeValue& operator-=(int64_t count) { return *this += -count; }
+
+    DateTimeValue& operator++() { return *this += 1; }
+
+    DateTimeValue& operator--() { return *this += -1; }
 
     void to_datetime_val(doris_udf::DateTimeVal* tv) const {
         tv->packed_time = to_int64_datetime_packed();

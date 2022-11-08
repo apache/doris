@@ -201,6 +201,10 @@ public class Function implements Writable {
         location = loc;
     }
 
+    public void setName(FunctionName name) {
+        this.name = name;
+    }
+
     public TFunctionBinaryType getBinaryType() {
         return binaryType;
     }
@@ -521,6 +525,8 @@ public class Function implements Writable {
             case QUANTILE_STATE:
             case STRING:
                 return "string_val";
+            case JSONB:
+                return "jsonb_val";
             case DATE:
             case DATETIME:
                 return "datetime_val";
@@ -571,6 +577,8 @@ public class Function implements Writable {
             case QUANTILE_STATE:
             case STRING:
                 return "StringVal";
+            case JSONB:
+                return "JsonbVal";
             case DATE:
             case DATETIME:
                 return "DateTimeVal";

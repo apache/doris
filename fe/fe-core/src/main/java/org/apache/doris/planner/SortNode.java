@@ -45,6 +45,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -67,6 +68,10 @@ public class SortNode extends PlanNode {
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private DataPartition inputPartition;
+
+    private boolean isUnusedExprRemoved = false;
+
+    private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
 
     /**
      * Constructor.
@@ -149,7 +154,7 @@ public class SortNode extends PlanNode {
         }
 
         StringBuilder output = new StringBuilder();
-        output.append(detailPrefix + "order by: ");
+        output.append(detailPrefix).append("order by: ");
         Iterator<Expr> expr = info.getOrderingExprs().iterator();
         Iterator<Boolean> isAsc = info.getIsAscOrder().iterator();
         boolean start = true;
@@ -159,11 +164,11 @@ public class SortNode extends PlanNode {
             } else {
                 output.append(", ");
             }
-            output.append(expr.next().toSql() + " ");
+            output.append(expr.next().toSql()).append(" ");
             output.append(isAsc.next() ? "ASC" : "DESC");
         }
         output.append("\n");
-        output.append(detailPrefix + "offset: " + offset + "\n");
+        output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
 
@@ -175,7 +180,7 @@ public class SortNode extends PlanNode {
         }
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats Sort: cardinality=" + cardinality);
@@ -192,7 +197,7 @@ public class SortNode extends PlanNode {
                 cardinality = Math.min(cardinality, limit);
             }
         }
-        LOG.debug("stats Sort: cardinality=" + Long.toString(cardinality));
+        LOG.debug("stats Sort: cardinality=" + Double.toString(cardinality));
     }
 
     public void init(Analyzer analyzer) throws UserException {
@@ -215,10 +220,15 @@ public class SortNode extends PlanNode {
         for (int i = 0; i < slotExprs.size(); ++i) {
             resolvedTupleExprs.add(slotExprs.get(i));
             outputSmap.put(slotExprs.get(i), new SlotRef(sortTupleSlots.get(i)));
+            nullabilityChangedFlags.add(slotExprs.get(i).isNullable());
         }
 
         ExprSubstitutionMap childSmap = getCombinedChildSmap();
         resolvedTupleExprs = Expr.substituteList(resolvedTupleExprs, childSmap, analyzer, false);
+
+        for (int i = 0; i < resolvedTupleExprs.size(); ++i) {
+            nullabilityChangedFlags.set(i, nullabilityChangedFlags.get(i) ^ resolvedTupleExprs.get(i).isNullable());
+        }
 
         // Remap the ordering exprs to the tuple materialized by this sort node. The mapping
         // is a composition of the childSmap and the outputSmap_ because the child node may
@@ -240,14 +250,33 @@ public class SortNode extends PlanNode {
         Expr.getIds(info.getOrderingExprs(), null, ids);
     }
 
+    private void removeUnusedExprs() {
+        if (!isUnusedExprRemoved) {
+            if (resolvedTupleExprs != null) {
+                List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
+                for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
+                    if (!slotDescriptorList.get(i).isMaterialized()) {
+                        resolvedTupleExprs.remove(i);
+                        nullabilityChangedFlags.remove(i);
+                    }
+                }
+            }
+            isUnusedExprRemoved = true;
+        }
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
 
         TSortInfo sortInfo = info.toThrift();
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
+        removeUnusedExprs();
         if (resolvedTupleExprs != null) {
             sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
+            // FIXME this is a bottom line solution for wrong nullability of resolvedTupleExprs
+            // remove the following line after nereids online
+            sortInfo.setSlotExprsNullabilityChangedFlags(nullabilityChangedFlags);
         }
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
 
@@ -273,14 +302,10 @@ public class SortNode extends PlanNode {
 
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        List<SlotDescriptor> slotDescriptorList = this.info.getSortTupleDescriptor().getSlots();
-        for (int i = slotDescriptorList.size() - 1; i >= 0; i--) {
-            if (!slotDescriptorList.get(i).isMaterialized()) {
-                resolvedTupleExprs.remove(i);
-            }
-        }
+        removeUnusedExprs();
+        List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
         List<SlotId> result = Lists.newArrayList();
-        Expr.getIds(resolvedTupleExprs, null, result);
+        Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
     }
 
@@ -299,5 +324,9 @@ public class SortNode extends PlanNode {
         info.setSortTupleDesc(tupleDescriptor);
         info.setSortTupleSlotExprs(resolvedTupleExprs);
 
+        nullabilityChangedFlags.clear();
+        for (int i = 0; i < resolvedTupleExprs.size(); i++) {
+            nullabilityChangedFlags.add(false);
+        }
     }
 }

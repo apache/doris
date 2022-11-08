@@ -20,6 +20,7 @@
 #include "common/config.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
+#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
@@ -31,11 +32,28 @@ namespace doris::vectorized {
 ScannerScheduler::ScannerScheduler() {}
 
 ScannerScheduler::~ScannerScheduler() {
+    if (!_is_init) {
+        return;
+    }
+
+    for (int i = 0; i < QUEUE_NUM; i++) {
+        _pending_queues[i]->shutdown();
+    }
+
     _is_closed = true;
+
     _scheduler_pool->shutdown();
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
-    // TODO: safely delete all objects and graceful exit
+
+    _scheduler_pool->wait();
+    _local_scan_thread_pool->join();
+    _remote_scan_thread_pool->join();
+
+    for (int i = 0; i < QUEUE_NUM; i++) {
+        delete _pending_queues[i];
+    }
+    delete[] _pending_queues;
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
@@ -52,14 +70,16 @@ Status ScannerScheduler::init(ExecEnv* env) {
     }
 
     // 2. local scan thread pool
-    _local_scan_thread_pool = new PriorityWorkStealingThreadPool(
+    _local_scan_thread_pool.reset(new PriorityWorkStealingThreadPool(
             config::doris_scanner_thread_pool_thread_num, env->store_paths().size(),
-            config::doris_scanner_thread_pool_queue_size);
+            config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
-    _remote_scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                                      config::doris_scanner_thread_pool_queue_size);
+    _remote_scan_thread_pool.reset(
+            new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
+                                   config::doris_scanner_thread_pool_queue_size, "remote_scan"));
 
+    _is_init = true;
     return Status::OK();
 }
 
@@ -98,17 +118,15 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     }
 
     std::list<VScanner*> this_run;
-    bool res = ctx->get_next_batch_of_scanners(&this_run);
+    ctx->get_next_batch_of_scanners(&this_run);
     if (this_run.empty()) {
-        if (!res) {
-            // This means we failed to choose scanners this time, and there may be no other scanners running.
-            // So we need to submit this ctx back to queue to be scheduled next time.
-            submit(ctx);
-        } else {
-            // No need to push back this ctx to reschedule
-            // There will be running scanners to push it back.
-            ctx->update_num_running(0, -1);
-        }
+        // There will be 2 cases when this_run is empty:
+        // 1. The blocks queue reaches limit.
+        //      The consumer will continue scheduling the ctx.
+        // 2. All scanners are running.
+        //      There running scanner will schedule the ctx after they are finished.
+        // So here we just return to stop scheduling ctx.
+        ctx->update_num_running(0, -1);
         return;
     }
 
@@ -165,11 +183,10 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScanner* scanner) {
-    // TODO: rethink mem tracker and span
-    // START_AND_SCOPE_SPAN(scanner->runtime_state()->get_tracer(), span,
-    //                    "ScannerScheduler::_scanner_scan");
+    INIT_AND_SCOPE_REENTRANT_SPAN_IF(ctx->state()->enable_profile(), ctx->state()->get_tracer(),
+                                     ctx->scan_span(), "VScanner::scan");
     SCOPED_ATTACH_TASK(scanner->runtime_state());
-
+    SCOPED_CONSUME_MEM_TRACKER(scanner->runtime_state()->scanner_mem_tracker().get());
     Thread::set_self_name("_scanner_scan");
     scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
@@ -264,7 +281,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         scanner->mark_to_need_to_close();
     }
 
-    ctx->push_back_scanner_and_reschedule(scheduler, scanner);
+    ctx->push_back_scanner_and_reschedule(scanner);
 }
 
 } // namespace doris::vectorized

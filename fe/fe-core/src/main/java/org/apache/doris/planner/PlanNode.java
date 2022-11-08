@@ -49,6 +49,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -266,6 +267,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return limit > -1;
     }
 
+    public void setCardinality(long cardinality) {
+        this.cardinality = cardinality;
+    }
+
     public long getCardinality() {
         return cardinality;
     }
@@ -345,7 +350,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return statsDeriveResultList;
     }
 
-    void initCompoundPredicate(Expr expr) {
+    protected void initCompoundPredicate(Expr expr) {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             compoundPredicate.setType(Type.BOOLEAN);
@@ -363,7 +368,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
     }
 
-    Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
+    protected Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
@@ -473,6 +478,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
         if (limit != -1) {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
+        }
+        if (!CollectionUtils.isEmpty(projectList)) {
+            expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");
+            expBuilder.append(detailPrefix).append("project output tuple id: ")
+                    .append(outputTupleDesc.getId().asInt()).append("\n");
         }
         // Output Tuple Ids only when explain plan level is set to verbose
         if (detailLevel.equals(TExplainLevel.VERBOSE)) {
@@ -866,7 +876,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     private void applySelectivity() {
         double selectivity = computeSelectivity();
         Preconditions.checkState(cardinality >= 0);
-        long preConjunctCardinality = cardinality;
+        double preConjunctCardinality = cardinality;
         cardinality = Math.round(cardinality * selectivity);
         // don't round cardinality down to zero for safety.
         if (cardinality == 0 && preConjunctCardinality > 0) {

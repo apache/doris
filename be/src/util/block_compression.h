@@ -34,6 +34,10 @@ namespace doris {
 //
 // NOTICE!! BlockCompressionCodec is NOT thread safe, it should NOT be shared by threads
 //
+
+// max compression reuse buffer size
+// if max_compress_len is bigger than this, don't use faststring in context
+const static int MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE = 1024 * 1024 * 8;
 class BlockCompressionCodec {
 public:
     virtual ~BlockCompressionCodec() {}
@@ -44,20 +48,23 @@ public:
     // output should be preallocated, and its capacity must be large enough
     // for compressed input, which can be get through max_compressed_len function.
     // Size of compressed data will be set in output's size.
-    virtual Status compress(const Slice& input, Slice* output) const = 0;
+    virtual Status compress(const Slice& input, faststring* output) = 0;
 
     // Default implementation will merge input list into a big buffer and call
     // compress(Slice) to finish compression. If compression type support digesting
     // slice one by one, it should reimplement this function.
-    virtual Status compress(const std::vector<Slice>& input, Slice* output) const;
+    virtual Status compress(const std::vector<Slice>& input, size_t uncompressed_size,
+                            faststring* output);
 
     // Decompress input data into output, output's capacity should be large enough
     // for decompressed data.
     // Size of decompressed data will be set in output's size.
-    virtual Status decompress(const Slice& input, Slice* output) const = 0;
+    virtual Status decompress(const Slice& input, Slice* output) = 0;
 
     // Returns an upper bound on the max compressed length.
-    virtual size_t max_compressed_len(size_t len) const = 0;
+    virtual size_t max_compressed_len(size_t len) = 0;
+
+    virtual bool exceed_max_compress_len(size_t uncompressed_size);
 };
 
 // Get a BlockCompressionCodec through type.
@@ -69,9 +76,9 @@ public:
 //
 // Return not OK, if error happens.
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
-                                   std::unique_ptr<BlockCompressionCodec>& codec);
+                                   BlockCompressionCodec** codec);
 
 Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_codec,
-                                   std::unique_ptr<BlockCompressionCodec>& codec);
+                                   BlockCompressionCodec** codec);
 
 } // namespace doris

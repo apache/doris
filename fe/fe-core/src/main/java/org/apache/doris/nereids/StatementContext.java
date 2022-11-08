@@ -18,6 +18,10 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -25,18 +29,42 @@ import org.apache.doris.qe.OriginStatement;
  * Statement context for nereids
  */
 public class StatementContext {
-    private final ConnectContext connectContext;
-    private final OriginStatement originStatement;
+
+    private ConnectContext connectContext;
+
+    private OriginStatement originStatement;
+
+    private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
+
+    private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
 
     private StatementBase parsedStatement;
 
+    private CTEContext cteContext;
+
+    public StatementContext() {
+    }
+
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
+        this(connectContext, originStatement, new CTEContext());
+    }
+
+    public StatementContext(ConnectContext connectContext, OriginStatement originStatement, CTEContext cteContext) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.cteContext = cteContext;
+    }
+
+    public void setConnectContext(ConnectContext connectContext) {
+        this.connectContext = connectContext;
     }
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public void setOriginStatement(OriginStatement originStatement) {
+        this.originStatement = originStatement;
     }
 
     public OriginStatement getOriginStatement() {
@@ -45,6 +73,22 @@ public class StatementContext {
 
     public StatementBase getParsedStatement() {
         return parsedStatement;
+    }
+
+    public ExprId getNextExprId() {
+        return exprIdGenerator.getNextId();
+    }
+
+    public RelationId getNextRelationId() {
+        return relationIdGenerator.getNextId();
+    }
+
+    public CTEContext getCteContext() {
+        return cteContext;
+    }
+
+    public void setCteContext(CTEContext cteContext) {
+        this.cteContext = cteContext;
     }
 
     public void setParsedStatement(StatementBase parsedStatement) {

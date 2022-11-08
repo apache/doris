@@ -168,6 +168,7 @@ public class SlotDescriptor {
         }
         for (Expr expr : sourceExprs) {
             if (!(expr instanceof SlotRef)) {
+                expr.materializeSrcExpr();
                 continue;
             }
             SlotRef slotRef = (SlotRef) expr;
@@ -218,7 +219,7 @@ public class SlotDescriptor {
             }
         }
         // FIXME(dhc): mock ndv
-        stats.setNumDistinctValues(parent.getCardinality());
+        stats.setNumDistinctValues((long) parent.getCardinality());
         return stats;
     }
 

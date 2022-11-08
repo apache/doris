@@ -29,6 +29,8 @@ import org.apache.doris.planner.HashJoinNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +39,9 @@ import java.util.List;
  * Derive HashJoinNode statistics.
  */
 public class HashJoinStatsDerive extends BaseStatsDerive {
+
+    private static final Logger LOG = LogManager.getLogger(HashJoinStatsDerive.class);
+
     private JoinOperator joinOp;
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
 
@@ -60,7 +65,9 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
         } else if (joinOp.isInnerJoin() || joinOp.isOuterJoin()) {
             rowCount = getJoinrowCount();
         } else {
-            Preconditions.checkState(false, "joinOp is not supported");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("joinOp:{} is not supported for HashJoinStatsDerive", joinOp);
+            }
         }
         capRowCountAtLimit();
         return rowCount;
@@ -96,7 +103,7 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
         Preconditions.checkState(joinOp.isSemiJoin());
 
         // Return -1 if the rowCount of the returned side is unknown.
-        long rowCount;
+        double rowCount;
         if (joinOp == JoinOperator.RIGHT_SEMI_JOIN
                 || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
             if (childrenStatsResult.get(1).getRowCount() == -1) {
@@ -111,9 +118,9 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
         }
         double minSelectivity = 1.0;
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
-            long lhsNdv = getNdv(eqJoinPredicate.getChild(0));
+            double lhsNdv = getNdv(eqJoinPredicate.getChild(0));
             lhsNdv = Math.min(lhsNdv, childrenStatsResult.get(0).getRowCount());
-            long rhsNdv = getNdv(eqJoinPredicate.getChild(1));
+            double rhsNdv = getNdv(eqJoinPredicate.getChild(1));
             rhsNdv = Math.min(rhsNdv, childrenStatsResult.get(1).getRowCount());
 
             // Skip conjuncts with unknown NDV on either side.
@@ -174,8 +181,8 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
         Preconditions.checkState(joinOp.isInnerJoin() || joinOp.isOuterJoin());
         Preconditions.checkState(childrenStatsResult.size() == 2);
 
-        long lhsCard = childrenStatsResult.get(0).getRowCount();
-        long rhsCard = childrenStatsResult.get(1).getRowCount();
+        long lhsCard = (long) childrenStatsResult.get(0).getRowCount();
+        long rhsCard = (long) childrenStatsResult.get(1).getRowCount();
         if (lhsCard == -1 || rhsCard == -1) {
             return lhsCard;
         }

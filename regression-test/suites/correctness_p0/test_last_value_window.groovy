@@ -16,12 +16,12 @@
 // under the License.
 
 suite("test_last_value_window") {
-    def tableName = "state"
+    def tableName = "test_last_value_window_state"
 
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
             `myday` INT,
             `time_col` VARCHAR(40) NOT NULL,
             `state` INT

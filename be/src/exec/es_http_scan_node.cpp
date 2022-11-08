@@ -48,7 +48,7 @@ EsHttpScanNode::EsHttpScanNode(ObjectPool* pool, const TPlanNode& tnode, const D
 EsHttpScanNode::~EsHttpScanNode() {}
 
 Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ScanNode::init(tnode));
+    RETURN_IF_ERROR(ScanNode::init(tnode, state));
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;
@@ -424,7 +424,7 @@ static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
 
 void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
     SCOPED_ATTACH_TASK(_runtime_state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);

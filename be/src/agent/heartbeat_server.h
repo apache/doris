@@ -34,7 +34,7 @@ class ThriftServer;
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
     explicit HeartbeatServer(TMasterInfo* master_info);
-    virtual ~HeartbeatServer() {};
+    ~HeartbeatServer() override = default;
 
     virtual void init_cluster_id();
 
@@ -45,7 +45,7 @@ public:
     //
     // Output parameters:
     // * heartbeat_result: The result of heartbeat set
-    virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
+    void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info) override;
 
 private:
     Status _heartbeat(const TMasterInfo& master_info);

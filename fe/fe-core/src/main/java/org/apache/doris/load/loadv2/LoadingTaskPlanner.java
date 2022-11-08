@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
@@ -40,6 +41,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -108,19 +110,51 @@ public class LoadingTaskPlanner {
             throws UserException {
         // Generate tuple descriptor
         TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
+        TupleDescriptor scanTupleDesc = destTupleDesc;
+        if (Config.enable_vectorized_load) {
+            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        }
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            if (Config.enable_vectorized_load) {
+                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+                scanSlotDesc.setIsMaterialized(true);
+                scanSlotDesc.setColumn(col);
+                scanSlotDesc.setIsNullable(col.isAllowNull());
+                if (fileGroups.size() > 0) {
+                    for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
+                        try {
+                            if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                                    && importColumnDesc.getColumnName().equals(col.getName())) {
+                                scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                                break;
+                            }
+                        } catch (Exception e) {
+                            // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed
+                            // now. We just skip this case here.
+                        }
+                    }
+                }
+            }
         }
 
         // Generate plan trees
         // 1. Broker scan node
-        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), destTupleDesc, "BrokerScanNode",
-                fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode, loadParallelism, userInfo);
+        ScanNode scanNode;
+        if (Config.enable_new_load_scan_node) {
+            scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
+            ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
+                    fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
+        } else {
+            scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc, "BrokerScanNode",
+                    fileStatusesList, filesAdded);
+            ((BrokerScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode,
+                    loadParallelism, userInfo);
+        }
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         if (Config.enable_vectorized_load) {

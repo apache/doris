@@ -17,12 +17,21 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
+
 import java.util.List;
 
 public class FunctionGenTable extends Table {
+    private TableValuedFunctionIf tvf;
 
-    public FunctionGenTable(long id, String tableName, TableType type, List<Column> fullSchema) {
+    public FunctionGenTable(long id, String tableName, TableType type, List<Column> fullSchema,
+                            TableValuedFunctionIf tvf) {
         super(id, tableName, type, fullSchema);
+        this.tvf = tvf;
+    }
+
+    public TableValuedFunctionIf getTvf() {
+        return tvf;
     }
 
 }

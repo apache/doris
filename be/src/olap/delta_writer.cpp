@@ -25,6 +25,7 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
@@ -33,14 +34,14 @@
 
 namespace doris {
 
-Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer,
-                         const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec) {
-    *writer = new DeltaWriter(req, StorageEngine::instance(), parent_tracker, is_vec);
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id,
+                         bool is_vec) {
+    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id, is_vec);
     return Status::OK();
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
-                         const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
+                         bool is_vec)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -48,15 +49,13 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
           _tablet_schema(new TabletSchema),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _parent_tracker(parent_tracker),
+          _load_id(load_id),
           _is_vec(is_vec) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
         _garbage_collection();
     }
-
-    _mem_table.reset();
 
     if (!_is_init) {
         return;
@@ -77,6 +76,8 @@ DeltaWriter::~DeltaWriter() {
         _tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
                                                 _rowset_writer->rowset_id().to_string());
     }
+
+    _mem_table.reset();
 }
 
 void DeltaWriter::_garbage_collection() {
@@ -105,11 +106,10 @@ Status DeltaWriter::init() {
     // get rowset ids snapshot
     if (_tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
-        _rowset_ids = _tablet->all_rs_id();
+        _cur_max_version = _tablet->max_version_unlocked().second;
+        _rowset_ids = _tablet->all_rs_id(_cur_max_version);
     }
 
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, fmt::format("DeltaWriter:tabletId={}", _tablet->tablet_id()), _parent_tracker);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         //trigger quick compaction
@@ -141,8 +141,11 @@ Status DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
+    // unique key merge on write should flush serial cause calc delete bitmap should load segment serial
+    bool should_serial = (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                          _tablet->enable_unique_key_merge_on_write());
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
-            &_flush_token, _rowset_writer->type(), _req.is_high_priority));
+            &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
     return Status::OK();
@@ -160,19 +163,17 @@ Status DeltaWriter::write(Tuple* tuple) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
-
     _mem_table->insert(tuple);
 
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        if (++_segment_counter > config::max_segment_num_per_rowset) {
-            return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
-        }
-        RETURN_NOT_OK(_flush_memtable_async());
+        auto s = _flush_memtable_async();
         // create a new memtable for new incoming data
         _reset_mem_table();
+        if (OLAP_UNLIKELY(!s.ok())) {
+            return s;
+        }
     }
     return Status::OK();
 }
@@ -187,15 +188,16 @@ Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
-
     for (const auto& row_idx : row_idxs) {
         _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
     }
 
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_flush_memtable_async());
+        auto s = _flush_memtable_async();
         _reset_mem_table();
+        if (OLAP_UNLIKELY(!s.ok())) {
+            return s;
+        }
     }
 
     return Status::OK();
@@ -214,14 +216,16 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     _mem_table->insert(block, row_idxs);
 
     if (_mem_table->need_to_agg()) {
         _mem_table->shrink_memtable_by_agg();
         if (_mem_table->is_flush()) {
-            RETURN_NOT_OK(_flush_memtable_async());
+            auto s = _flush_memtable_async();
             _reset_mem_table();
+            if (OLAP_UNLIKELY(!s.ok())) {
+                return s;
+            }
         }
     }
 
@@ -229,10 +233,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
-    if (++_segment_counter > config::max_segment_num_per_rowset) {
-        return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
-    }
-    return _flush_token->submit(std::move(_mem_table), _mem_tracker);
+    return _flush_token->submit(std::move(_mem_table));
 }
 
 Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
@@ -249,14 +250,13 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
-    if (_flush_token->get_stats().flush_running_count == 0) {
-        // equal means there is no memtable in flush queue, just flush this memtable
-        VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                    << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                    << ", load id: " << print_id(_req.load_id);
-        RETURN_NOT_OK(_flush_memtable_async());
-        _reset_mem_table();
+    VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
+                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
+                << ", load id: " << print_id(_req.load_id);
+    auto s = _flush_memtable_async();
+    _reset_mem_table();
+    if (OLAP_UNLIKELY(!s.ok())) {
+        return s;
     }
 
     if (need_wait) {
@@ -281,12 +281,35 @@ Status DeltaWriter::wait_flush() {
 }
 
 void DeltaWriter::_reset_mem_table() {
-    if (_tablet->enable_unique_key_merge_on_write()) {
+    if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
         _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
+    }
+#ifndef BE_TEST
+    auto mem_table_insert_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()),
+            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+    auto mem_table_flush_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()),
+            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+#else
+    auto mem_table_insert_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()));
+    auto mem_table_flush_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()));
+#endif
+    {
+        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
+        _mem_table_tracker.push_back(mem_table_insert_tracker);
+        _mem_table_tracker.push_back(mem_table_flush_tracker);
     }
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
-                                  _rowset_ids, _is_vec));
+                                  _rowset_ids, _cur_max_version, mem_table_insert_tracker,
+                                  mem_table_flush_tracker, _is_vec));
 }
 
 Status DeltaWriter::close() {
@@ -304,10 +327,13 @@ Status DeltaWriter::close() {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
 
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
-    RETURN_NOT_OK(_flush_memtable_async());
+    auto s = _flush_memtable_async();
     _mem_table.reset();
-    return Status::OK();
+    if (OLAP_UNLIKELY(!s.ok())) {
+        return s;
+    } else {
+        return Status::OK();
+    }
 }
 
 Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
@@ -319,8 +345,6 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     if (_is_cancelled) {
         return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
     }
-
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::LOAD);
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
 
@@ -389,22 +413,39 @@ Status DeltaWriter::cancel() {
     return Status::OK();
 }
 
-int64_t DeltaWriter::save_mem_consumption_snapshot() {
+void DeltaWriter::save_mem_consumption_snapshot() {
+    std::lock_guard<std::mutex> l(_lock);
     _mem_consumption_snapshot = mem_consumption();
-    return _mem_consumption_snapshot;
+    if (_mem_table == nullptr) {
+        _memtable_consumption_snapshot = 0;
+    } else {
+        _memtable_consumption_snapshot = _mem_table->memory_usage();
+    }
 }
 
-int64_t DeltaWriter::get_mem_consumption_snapshot() const {
-    return _mem_consumption_snapshot;
+int64_t DeltaWriter::get_memtable_consumption_inflush() const {
+    if (!_is_init || _flush_token->get_stats().flush_running_count == 0) return 0;
+    return _mem_consumption_snapshot - _memtable_consumption_snapshot;
 }
 
-int64_t DeltaWriter::mem_consumption() const {
-    if (_mem_tracker == nullptr) {
+int64_t DeltaWriter::get_memtable_consumption_snapshot() const {
+    return _memtable_consumption_snapshot;
+}
+
+int64_t DeltaWriter::mem_consumption() {
+    if (_flush_token == nullptr) {
         // This method may be called before this writer is initialized.
-        // So _mem_tracker may be null.
+        // So _flush_token may be null.
         return 0;
     }
-    return _mem_tracker->consumption();
+    int64_t mem_usage = 0;
+    {
+        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
+        for (auto mem_table_tracker : _mem_table_tracker) {
+            mem_usage += mem_table_tracker->consumption();
+        }
+    }
+    return mem_usage;
 }
 
 int64_t DeltaWriter::partition_id() const {
@@ -428,6 +469,9 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
         _tablet_schema->build_current_tablet_schema(index_id, ptable_schema_param.version(),
                                                     ptable_schema_param.indexes(i),
                                                     ori_tablet_schema);
+    }
+    if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
+        _tablet->update_max_version_schema(_tablet_schema);
     }
 }
 

@@ -90,6 +90,7 @@ enum TPrimitiveType {
   DECIMAL32,
   DECIMAL64,
   DECIMAL128,
+  JSONB,
 }
 
 enum TTypeNodeType {
@@ -356,6 +357,31 @@ struct TFunction {
   13: optional bool vectorized = false
 }
 
+enum TJdbcOperation {
+    READ,
+    WRITE
+}
+
+struct TJdbcExecutorCtorParams {
+  1: optional string statement
+
+  // "jdbc:mysql://127.0.0.1:3307/test";
+  2: optional string jdbc_url
+
+  //root
+  3: optional string jdbc_user
+
+  //password
+  4: optional string jdbc_password
+
+  //"com.mysql.jdbc.Driver"
+  5: optional string jdbc_driver_class
+
+  6: optional i32 batch_size
+
+  7: optional TJdbcOperation op
+}
+
 struct TJavaUdfExecutorCtorParams {
   1: optional TFunction fn
 
@@ -517,7 +543,8 @@ enum TTableType {
     ODBC_TABLE,
     HIVE_TABLE,
     ICEBERG_TABLE,
-    HUDI_TABLE
+    HUDI_TABLE,
+    JDBC_TABLE
 }
 
 enum TOdbcTableType {

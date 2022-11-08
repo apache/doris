@@ -36,6 +36,7 @@
 #include "http/action/tablet_migration_action.h"
 #include "http/action/tablets_distribution_action.h"
 #include "http/action/tablets_info_action.h"
+#include "http/action/version_action.h"
 #include "http/default_path_handlers.h"
 #include "http/ev_http_server.h"
 #include "http/http_method.h"
@@ -87,6 +88,10 @@ Status HttpService::start() {
                                       error_log_download_action);
     _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_load_error_log",
                                       error_log_download_action);
+
+    // Register BE version action
+    VersionAction* version_action = _pool.add(new VersionAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/be_version_info", version_action);
 
     // Register BE health action
     HealthAction* health_action = _pool.add(new HealthAction());

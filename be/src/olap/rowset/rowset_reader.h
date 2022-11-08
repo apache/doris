@@ -38,7 +38,7 @@ using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 class RowsetReader {
 public:
-    virtual ~RowsetReader() {}
+    virtual ~RowsetReader() = default;
 
     // reader init
     virtual Status init(RowsetReaderContext* read_context) = 0;
@@ -51,6 +51,9 @@ public:
     virtual Status next_block(RowBlock** block) = 0;
 
     virtual Status next_block(vectorized::Block* block) = 0;
+
+    virtual Status next_block_view(vectorized::BlockView* block_view) = 0;
+    virtual bool support_return_data_by_ref() { return false; }
 
     virtual bool delete_flag() = 0;
 
@@ -71,6 +74,8 @@ public:
     virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
         return Status::NotSupported("to be implemented");
     }
+
+    virtual bool update_profile(RuntimeProfile* profile) = 0;
 };
 
 } // namespace doris

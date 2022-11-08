@@ -36,6 +36,13 @@ curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 export DORIS_HOME="${curdir}/.."
 export TP_DIR="${curdir}"
 
+# include custom environment variables
+if [[ -f "${DORIS_HOME}/env.sh" ]]; then
+    export BUILD_THIRDPARTY_WIP=1
+    . "${DORIS_HOME}/env.sh"
+    export BUILD_THIRDPARTY_WIP=
+fi
+
 # Check args
 usage() {
     echo "
@@ -102,13 +109,6 @@ echo "Get params:
     PARALLEL            -- ${PARALLEL}
 "
 
-# include custom environment variables
-if [[ -f "${DORIS_HOME}/env.sh" ]]; then
-    export BUILD_THIRDPARTY_WIP=1
-    . "${DORIS_HOME}/env.sh"
-    export BUILD_THIRDPARTY_WIP=
-fi
-
 if [[ ! -f "${TP_DIR}/download-thirdparty.sh" ]]; then
     echo "Download thirdparty script is missing".
     exit 1
@@ -146,6 +146,10 @@ elif [[ "${CC}" == *clang ]]; then
     warning_option_ignored='-Wno-option-ignored'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
+
+    if "${CC}" -xc++ "${warning_unused_but_set_variable}" /dev/null 2>&1 | grep 'unknown warning option'; then
+        warning_unused_but_set_variable=''
+    fi
 fi
 
 # prepare installed prefix
@@ -157,7 +161,7 @@ popd
 check_prerequest() {
     local CMD="$1"
     local NAME="$2"
-    if ! ${CMD}; then
+    if ! eval "${CMD}"; then
         echo "${NAME} is missing"
         exit 1
     else
@@ -246,6 +250,34 @@ remove_all_dylib() {
     fi
 }
 
+if [[ -z "${STRIP_TP_LIB}" ]]; then
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        STRIP_TP_LIB='ON'
+    else
+        STRIP_TP_LIB='OFF'
+    fi
+fi
+
+if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
+    echo "Strip thirdparty libraries"
+else
+    echo "Do not strip thirdparty libraries"
+fi
+
+strip_lib() {
+    if [[ "${STRIP_TP_LIB}" = "ON" ]]; then
+        if [[ -z $1 ]]; then
+            echo "Must specify the library to be stripped."
+            exit 1
+        fi
+        if [[ ! -f "${TP_LIB_DIR}/$1" ]]; then
+            echo "Library to be stripped (${TP_LIB_DIR}/$1) does not exist."
+            exit 1
+        fi
+        strip --strip-debug --strip-unneeded "${TP_LIB_DIR}/$1"
+    fi
+}
+
 #libbacktrace
 build_libbacktrace() {
     check_if_source_exist "${LIBBACKTRACE_SOURCE}"
@@ -278,7 +310,7 @@ build_libevent() {
     "${BUILD_SYSTEM}" install
 
     remove_all_dylib
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libevent.a
+    strip_lib libevent.a
 }
 
 build_openssl() {
@@ -319,15 +351,17 @@ build_thrift() {
     cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cppflags="-I${TP_INCLUDE_DIR}"
+        cflags="-I${TP_INCLUDE_DIR}"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
         ldflags="-L${TP_LIB_DIR} --static"
     else
-        cppflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
+        cxxflags="-I${TP_INCLUDE_DIR} ${warning_unused_but_set_variable}"
         ldflags="-L${TP_LIB_DIR}"
     fi
 
     # NOTE(amos): libtool discard -static. --static works.
-    ./configure CPPFLAGS="${cppflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
+    ./configure CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" LDFLAGS="${ldflags}" LIBS="-lcrypto -ldl -lssl" \
         --prefix="${TP_INSTALL_DIR}" --docdir="${TP_INSTALL_DIR}/doc" --enable-static --disable-shared --disable-tests \
         --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-nodets --without-swift \
         --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-cl \
@@ -340,8 +374,8 @@ build_thrift() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libthrift.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libthriftnb.a
+    strip_lib libthrift.a
+    strip_lib libthriftnb.a
 }
 
 # protobuf
@@ -386,8 +420,8 @@ build_protobuf() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libprotobuf.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libprotoc.a
+    strip_lib libprotobuf.a
+    strip_lib libprotoc.a
 }
 
 # gflags
@@ -423,7 +457,7 @@ build_glog() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libglog.a
+    strip_lib libglog.a
 }
 
 # gtest
@@ -441,7 +475,7 @@ build_gtest() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libgtest.a
+    strip_lib libgtest.a
 }
 
 # rapidjson
@@ -552,7 +586,7 @@ build_zstd() {
         -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libzstd.a
+    strip_lib libzstd.a
 }
 
 # bzip
@@ -574,7 +608,7 @@ build_lzo2() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/liblzo2.a
+    strip_lib liblzo2.a
 }
 
 # curl
@@ -597,7 +631,7 @@ build_curl() {
 
     make curl_LDFLAGS=-all-static -j "${PARALLEL}"
     make curl_LDFLAGS=-all-static install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libcurl.a
+    strip_lib libcurl.a
 }
 
 # re2
@@ -607,7 +641,7 @@ build_re2() {
 
     "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libre2.a
+    strip_lib libre2.a
 }
 
 # hyperscan
@@ -634,7 +668,7 @@ build_hyperscan() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
         -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libhs.a
+    strip_lib libhs.a
 }
 
 # boost
@@ -697,7 +731,7 @@ build_mysql() {
     # copy libmysqlclient.a
     cp libmysql/libmysqlclient.a ../../../installed/lib/
     echo "mysql client lib is installed."
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libmysqlclient.a
+    strip_lib libmysqlclient.a
 }
 
 #leveldb
@@ -713,7 +747,7 @@ build_leveldb() {
     CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
         -DLEVELDB_BUILD_TESTS=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libleveldb.a
+    strip_lib libleveldb.a
 }
 
 # brpc
@@ -738,13 +772,14 @@ build_brpc() {
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=1 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
+        -DBUILD_BRPC_TOOLS=OFF \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
     remove_all_dylib
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libbrpc.a
+    strip_lib libbrpc.a
 }
 
 # rocksdb
@@ -756,7 +791,11 @@ build_rocksdb() {
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         ldflags='-static-libstdc++ -static-libgcc'
     else
-        ldflags=''
+        if [[ "$(uname -m)" != 'x86_64' ]]; then
+            ldflags=''
+        else
+            ldflags="-L${TP_LIB_DIR} -ljemalloc_doris"
+        fi
     fi
 
     # -Wno-range-loop-construct gcc-11
@@ -767,7 +806,7 @@ build_rocksdb() {
         PORTABLE=1 make USE_RTTI=1 -j "${PARALLEL}" static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/librocksdb.a
+    strip_lib librocksdb.a
 }
 
 # cyrus_sasl
@@ -795,15 +834,15 @@ build_librdkafka() {
     cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
+        LDFLAGS="-L${TP_LIB_DIR} -lssl -lcrypto -lzstd -lz -lsasl2" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-sasl --disable-c11threads
 
     make -j "${PARALLEL}"
     make install
 
     remove_all_dylib
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/librdkafka.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/librdkafka++.a
+    strip_lib librdkafka.a
+    strip_lib librdkafka++.a
 }
 
 # libunixodbc
@@ -813,12 +852,12 @@ build_libunixodbc() {
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cppflags="-I${TP_INCLUDE_DIR}"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion"
     else
-        cppflags="-I${TP_INCLUDE_DIR} -Wno-implicit-function-declaration"
+        cflags="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration"
     fi
 
-    CPPFLAGS="${cppflags}" \
+    CFLAGS="${cflags}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -842,9 +881,11 @@ build_flatbuffers() {
         ldflags=''
     fi
 
-    CXXFLAGS="${warning_class_memaccess}" \
-        LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DFLATBUFFERS_BUILD_TESTS=OFF ..
+    LDFLAGS="${ldflags}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DFLATBUFFERS_CXX_FLAGS="${warning_class_memaccess} ${warning_unused_but_set_variable}" \
+        -DFLATBUFFERS_BUILD_TESTS=OFF \
+        ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
@@ -913,9 +954,9 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libarrow.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libjemalloc.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libparquet.a
+    strip_lib libarrow.a
+    strip_lib libjemalloc.a
+    strip_lib libparquet.a
 }
 
 # s2
@@ -948,12 +989,18 @@ build_s2() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libs2.a
+    strip_lib libs2.a
 }
 
 # bitshuffle
 build_bitshuffle() {
     check_if_source_exist "${BITSHUFFLE_SOURCE}"
+    local ld="${DORIS_BIN_UTILS}/ld"
+    local ar="${DORIS_BIN_UTILS}/ar"
+
+    if [[ ! -f "${ld}" ]]; then ld="$(command -v ld)"; fi
+    if [[ ! -f "${ar}" ]]; then ar="$(command -v ar)"; fi
+
     cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
     PREFIX="${TP_INSTALL_DIR}"
 
@@ -981,14 +1028,24 @@ build_bitshuffle() {
             "src/bitshuffle.c" \
             "src/iochain.c"
         # Merge the object files together to produce a combined .o file.
-        "${DORIS_BIN_UTILS}/ld" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
+        "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
         if [[ "${arch}" == "avx2" ]]; then
+            local nm="${DORIS_BIN_UTILS}/nm"
+            local objcopy="${DORIS_BIN_UTILS}/objcopy"
+
+            if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
+            if [[ ! -f "${objcopy}" ]]; then
+                if ! objcopy="$(command -v objcopy)"; then
+                    objcopy="${TP_INSTALL_DIR}/bin/objcopy"
+                fi
+            fi
+
             # Create a mapping file with '<old_sym> <suffixed_sym>' on each line.
-            "${DORIS_BIN_UTILS}/nm" --defined-only --extern-only "${tmp_obj}" | while read -r addr type sym; do
+            "${nm}" --defined-only --extern-only "${tmp_obj}" | while read -r addr type sym; do
                 echo "${sym} ${sym}_${arch}"
             done >renames.txt
-            "${DORIS_BIN_UTILS}/objcopy" --redefine-syms=renames.txt "${tmp_obj}" "${dst_obj}"
+            "${objcopy}" --redefine-syms=renames.txt "${tmp_obj}" "${dst_obj}"
         else
             mv "${tmp_obj}" "${dst_obj}"
         fi
@@ -997,7 +1054,7 @@ build_bitshuffle() {
     local links
     read -r -a links <<<"${to_link}"
     rm -f libbitshuffle.a
-    "${DORIS_BIN_UTILS}/ar" rs libbitshuffle.a "${links[@]}"
+    "${ar}" rs libbitshuffle.a "${links[@]}"
     mkdir -p "${PREFIX}/include/bitshuffle"
     cp libbitshuffle.a "${PREFIX}"/lib/
     cp "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}/src/bitshuffle.h" "${PREFIX}/include/bitshuffle/bitshuffle.h"
@@ -1092,11 +1149,12 @@ build_orc() {
         -DZSTD_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DBUILD_LIBHDFSPP=OFF \
         -DBUILD_CPP_TESTS=OFF \
+        -DSTOP_BUILD_ON_WARNING=OFF \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/liborc.a
+    strip_lib liborc.a
 }
 
 #cctz
@@ -1117,13 +1175,13 @@ build_cctz() {
 build_js_and_css() {
     check_if_source_exist "${DATATABLES_SOURCE}"
     check_if_source_exist 'Bootstrap-3.3.7'
-    check_if_source_exist 'jQuery-3.3.1'
+    check_if_source_exist 'jQuery-3.6.0'
 
     mkdir -p "${TP_INSTALL_DIR}/webroot"
     cd "${TP_SOURCE_DIR}"
     cp -r "${DATATABLES_SOURCE}" "${TP_INSTALL_DIR}/webroot/"
     cp -r Bootstrap-3.3.7 "${TP_INSTALL_DIR}/webroot/"
-    cp -r jQuery-3.3.1 "${TP_INSTALL_DIR}/webroot/"
+    cp -r jQuery-3.6.0 "${TP_INSTALL_DIR}/webroot/"
     cp bootstrap-table.min.js "${TP_INSTALL_DIR}/webroot/Bootstrap-3.3.7/js"
     cp bootstrap-table.min.css "${TP_INSTALL_DIR}/webroot/Bootstrap-3.3.7/css"
 }
@@ -1150,28 +1208,28 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull" -DCPP_STANDARD=17
+        -DBUILD_ONLY="core;s3;s3-crt;transfer" -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-s3-crt.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-s3.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-core.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libs2n.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-crt-cpp.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-http.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-common.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-auth.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-io.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-mqtt.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-s3.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-event-stream.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-cal.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-cpp-sdk-transfer.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-checksums.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libaws-c-compression.a
+    strip_lib libaws-cpp-sdk-s3-crt.a
+    strip_lib libaws-cpp-sdk-s3.a
+    strip_lib libaws-cpp-sdk-core.a
+    strip_lib libs2n.a
+    strip_lib libaws-crt-cpp.a
+    strip_lib libaws-c-http.a
+    strip_lib libaws-c-common.a
+    strip_lib libaws-c-auth.a
+    strip_lib libaws-c-io.a
+    strip_lib libaws-c-mqtt.a
+    strip_lib libaws-c-s3.a
+    strip_lib libaws-c-event-stream.a
+    strip_lib libaws-c-cal.a
+    strip_lib libaws-cpp-sdk-transfer.a
+    strip_lib libaws-checksums.a
+    strip_lib libaws-c-compression.a
 }
 
 # lzma
@@ -1195,7 +1253,7 @@ build_lzma() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/liblzma.a
+    strip_lib liblzma.a
 }
 
 # xml2
@@ -1210,7 +1268,7 @@ build_xml2() {
 
     export ACLOCAL_PATH='/usr/share/aclocal'
 
-    sh autogen.sh
+    sed '/(libtoolize/,/}/d' autogen.sh | bash
     make distclean
 
     mkdir -p "${BUILD_DIR}"
@@ -1222,7 +1280,7 @@ build_xml2() {
 
     make -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libxml2.a
+    strip_lib libxml2.a
 }
 
 # idn
@@ -1287,14 +1345,41 @@ build_hdfs3() {
     cd "${BUILD_DIR}"
     rm -rf ./*
 
-    # build libhdfs3 with kerberos support
-    CPPLAGS="-I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        ../bootstrap --dependency="${TP_INSTALL_DIR}" --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+    if [[ "$(uname -m)" == "x86_64" ]]; then
+        SSE_OPTION='-DENABLE_SSE=ON'
+    else
+        SSE_OPTION='-DENABLE_SSE=OFF'
+    fi
+    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF "${SSE_OPTION}" \
+        -DProtobuf_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" \
+        -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DProtobuf_LIBRARIES="${TP_INSTALL_DIR}/lib/libprotoc.a" \
+        -DKERBEROS_INCLUDE_DIRS="${TP_INSTALL_DIR}/include" \
+        -DKERBEROS_LIBRARIES="${TP_INSTALL_DIR}/lib/libkrb5.a" \
+        -DGSASL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DGSASL_LIBRARIES="${TP_INSTALL_DIR}/lib/libgsasl.a" \
+        ..
 
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"
     make install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libhdfs3.a
+    strip_lib libhdfs3.a
+}
+
+# jemalloc
+build_jemalloc() {
+    check_if_source_exist "${JEMALLOC_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+
+    make -j "${PARALLEL}"
+    make install
+    mv "${TP_INSTALL_DIR}"/lib/libjemalloc.a "${TP_INSTALL_DIR}"/lib/libjemalloc_doris.a
 }
 
 # benchmark
@@ -1366,13 +1451,13 @@ build_opentelemetry() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_exporter_zipkin_trace.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_trace.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_proto.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_resources.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_exporter_ostream_span.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_http_client_curl.a
-    strip --strip-debug --strip-unneeded "${TP_LIB_DIR}"/libopentelemetry_exporter_otlp_http_client.a
+    strip_lib libopentelemetry_exporter_zipkin_trace.a
+    strip_lib libopentelemetry_trace.a
+    strip_lib libopentelemetry_proto.a
+    strip_lib libopentelemetry_resources.a
+    strip_lib libopentelemetry_exporter_ostream_span.a
+    strip_lib libopentelemetry_http_client_curl.a
+    strip_lib libopentelemetry_exporter_otlp_http_client.a
 }
 
 # sse2neon
@@ -1381,6 +1466,57 @@ build_sse2neon() {
     cd "${TP_SOURCE_DIR}/${SSE2NEON_SOURCE}"
     cp sse2neon.h "${TP_INSTALL_DIR}/include/"
 }
+
+# xxhash
+build_xxhash() {
+    check_if_source_exist "${XXHASH_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${XXHASH_SOURCE}"
+
+    make -j "${PARALLEL}"
+    cp -r ./*.h "${TP_INSTALL_DIR}/include/"
+    cp libxxhash.a "${TP_INSTALL_DIR}/lib64"
+}
+
+build_binutils() {
+    check_if_source_exist "${BINUTILS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${BINUTILS_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}" --enable-install-libiberty
+    make -j "${PARALLEL}"
+    make install
+}
+
+build_gettext() {
+    check_if_source_exist "${GETTEXT_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${GETTEXT_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}" --disable-java
+    make -j "${PARALLEL}"
+    make install
+
+    remove_all_dylib
+}
+
+# concurrentqueue
+build_concurrentqueue() {
+    check_if_source_exist "${CONCURRENTQUEUE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CONCURRENTQUEUE_SOURCE}"
+    cp ./*.h "${TP_INSTALL_DIR}/include/"
+}
+
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    echo 'build for Darwin'
+    build_binutils
+    build_gettext
+fi
 
 build_libunixodbc
 build_openssl
@@ -1404,6 +1540,7 @@ build_hyperscan
 build_thrift
 build_leveldb
 build_brpc
+build_jemalloc
 build_rocksdb
 build_cyrus_sasl
 build_librdkafka
@@ -1425,8 +1562,8 @@ build_js_and_css
 build_lzma
 build_xml2
 build_idn
-build_gsasl
 build_krb5
+build_gsasl
 build_hdfs3
 build_benchmark
 build_simdjson
@@ -1434,5 +1571,7 @@ build_nlohmann_json
 build_opentelemetry
 build_libbacktrace
 build_sse2neon
+build_xxhash
+build_concurrentqueue
 
 echo "Finished to build all thirdparties"

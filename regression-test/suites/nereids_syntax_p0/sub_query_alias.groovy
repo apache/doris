@@ -24,6 +24,8 @@ suite("sub_query_alias") {
         SET enable_nereids_planner=true
     """
 
+    sql "SET enable_fallback_to_original_planner=false"
+
     qt_select_1 """
         select t.c_custkey, t.lo_custkey 
         from (

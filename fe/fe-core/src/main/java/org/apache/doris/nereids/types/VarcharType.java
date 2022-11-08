@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
@@ -28,13 +29,16 @@ import java.util.Objects;
  */
 public class VarcharType extends CharacterType {
 
-    public static VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
 
     public VarcharType(int len) {
         super(len);
     }
 
     public static VarcharType createVarcharType(int len) {
+        if (len == SYSTEM_DEFAULT.len) {
+            return SYSTEM_DEFAULT;
+        }
         return new VarcharType(len);
     }
 
@@ -44,7 +48,7 @@ public class VarcharType extends CharacterType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof VarcharType;
     }
 
@@ -60,6 +64,9 @@ public class VarcharType extends CharacterType {
 
     @Override
     public String toSql() {
+        if (len == -1) {
+            return "VARCHAR(*)";
+        }
         return "VARCHAR(" + len + ")";
     }
 

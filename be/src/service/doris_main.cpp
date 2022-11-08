@@ -17,6 +17,7 @@
 
 #include <errno.h>
 #include <gperftools/malloc_extension.h>
+#include <libgen.h>
 #include <setjmp.h>
 #include <sys/file.h>
 #include <unistd.h>
@@ -51,7 +52,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/memory/mem_tracker_task_pool.h"
+#include "runtime/load_channel_mgr.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -181,7 +182,9 @@ void check_required_instructions_impl(volatile InstructionFail& fail) {
 
 #if defined(__ARM_NEON__)
     fail = InstructionFail::ARM_NEON;
+#ifndef __APPLE__
     __asm__ volatile("vadd.i32  q8, q8, q8" : : : "q8");
+#endif
 #endif
 
     fail = InstructionFail::NONE;
@@ -320,15 +323,19 @@ int main(int argc, char** argv) {
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-    // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
-    // not backed by physical pages and do not contribute towards memory consumption.
-    MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
     // Change the total TCMalloc thread cache size if necessary.
-    if (!MallocExtension::instance()->SetNumericProperty(
-                "tcmalloc.max_total_thread_cache_bytes",
-                doris::config::tc_max_total_thread_cache_bytes)) {
-        fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
-        return -1;
+    size_t total_thread_cache_bytes;
+    if (!MallocExtension::instance()->GetNumericProperty("tcmalloc.max_total_thread_cache_bytes",
+                                                         &total_thread_cache_bytes)) {
+        fprintf(stderr, "Failed to get TCMalloc total thread cache size.\n");
+    }
+    const size_t kDefaultTotalThreadCacheBytes = 1024 * 1024 * 1024;
+    if (total_thread_cache_bytes < kDefaultTotalThreadCacheBytes) {
+        if (!MallocExtension::instance()->SetNumericProperty(
+                    "tcmalloc.max_total_thread_cache_bytes", kDefaultTotalThreadCacheBytes)) {
+            fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
+            return -1;
+        }
     }
 #endif
 
@@ -366,6 +373,16 @@ int main(int argc, char** argv) {
     }
     // add logger for thrift internal
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
+
+    Status status = Status::OK();
+#ifdef LIBJVM
+    // Init jni
+    status = doris::JniUtil::Init();
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+        exit(1);
+    }
+#endif
 
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
@@ -406,7 +423,7 @@ int main(int argc, char** argv) {
     doris::ThriftServer* be_server = nullptr;
     EXIT_IF_ERROR(
             doris::BackendService::create_service(exec_env, doris::config::be_port, &be_server));
-    Status status = be_server->start();
+    status = be_server->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris Be server did not start correctly, exiting";
         doris::shutdown_logging();
@@ -477,32 +494,21 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-#ifdef LIBJVM
-    // 6. init jni
-    status = doris::JniUtil::Init();
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
-        doris::shutdown_logging();
-        exit(1);
-    }
-#endif
-
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
-
+        doris::PerfCounters::refresh_proc_status();
+        doris::MemTrackerLimiter::refresh_global_counter();
+        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
-        doris::MemInfo::refresh_current_mem();
+        doris::MemInfo::refresh_allocator_mem();
 #endif
-        doris::PerfCounters::refresh_proc_status();
-
-        // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
-        // this will cause coredump for ASAN build when running regression test,
-        // disable temporarily.
-        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
-        doris::ExecEnv::GetInstance()->process_mem_tracker_raw()->enable_print_log_usage();
+        if (doris::config::memory_debug) {
+            doris::MemTrackerLimiter::print_log_process_usage("memory_debug");
+        }
+        doris::MemTrackerLimiter::enable_print_log_process_usage();
         sleep(1);
     }
 

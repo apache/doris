@@ -76,7 +76,7 @@ public:
         bool end_key_include = false;
 
         std::vector<TCondition> conditions;
-        std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
+        std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
 
@@ -91,6 +91,7 @@ public:
         // use only in vec exec engine
         std::vector<uint32_t>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
+        TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
         // used for comapction to record row ids
         bool record_rowids = false;
@@ -146,6 +147,8 @@ public:
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
+    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+
 protected:
     friend class CollectIterator;
     friend class vectorized::VCollectIterator;
@@ -165,7 +168,7 @@ protected:
     void _init_conditions_param(const ReaderParams& read_params);
 
     ColumnPredicate* _parse_to_predicate(
-            const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
+            const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
 
     virtual ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
 

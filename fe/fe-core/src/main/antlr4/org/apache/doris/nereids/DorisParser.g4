@@ -49,9 +49,8 @@ singleStatement
     ;
 
 statement
-    : query                                                            #statementDefault
-    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)?
-        query                                                          #explain
+    : cte? query                                                        #statementDefault
+    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)? query        #explain
     ;
 
 //  -----------------Query-----------------
@@ -75,6 +74,18 @@ querySpecification
       whereClause?
       aggClause?
       havingClause?                                                         #regularQuerySpecification
+    ;
+
+cte
+    : WITH aliasQuery (COMMA aliasQuery)*
+    ;
+
+aliasQuery
+    : identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
+    ;
+
+columnAliases
+    : LEFT_PAREN identifier (COMMA identifier)* RIGHT_PAREN
     ;
 
 selectClause
@@ -203,6 +214,7 @@ predicate
     | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
+    | IS NOT? kind=NULL
     ;
 
 valueExpression
@@ -294,6 +306,7 @@ quotedIdentifier
 
 number
     : MINUS? INTEGER_VALUE            #integerLiteral
+    | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
 

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -37,6 +38,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -61,8 +63,10 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -72,7 +76,9 @@ import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -80,10 +86,23 @@ import java.util.UUID;
  */
 public class ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
+    private static final TextMapGetter<Map<String, String>> getter =
+            new TextMapGetter<Map<String, String>>() {
+                @Override
+                public Iterable<String> keys(Map<String, String> carrier) {
+                    return carrier.keySet();
+                }
 
+                @Override
+                public String get(Map<String, String> carrier, String key) {
+                    if (carrier.containsKey(key)) {
+                        return carrier.get(key);
+                    }
+                    return "";
+                }
+            };
     private final ConnectContext ctx;
     private ByteBuffer packetBuf;
-
     private StmtExecutor executor = null;
 
     public ConnectProcessor(ConnectContext context) {
@@ -173,6 +192,7 @@ public class ConnectProcessor {
             } else if (ctx.getState().getStateType() == MysqlStateType.OK) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd(ctx.getDatabase()).update(elapseMs);
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                     ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
@@ -202,7 +222,11 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-
+        if (!Env.getCurrentEnv().isMaster()) {
+            if (ctx.executor.isForwardToMaster()) {
+                ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
+            }
+        }
         Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
@@ -225,7 +249,7 @@ public class ConnectProcessor {
                 .setTimestamp(System.currentTimeMillis())
                 .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setDb(ctx.getDatabase())
+                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
@@ -234,14 +258,17 @@ public class ConnectProcessor {
         boolean alreadyAddedToAuditInfoList = false;
         try {
             List<StatementBase> stmts = null;
-            if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
+            Exception nereidsParseException = null;
+            // ctx could be null in some unit tests
+            if (ctx != null && ctx.getSessionVariable().isEnableNereidsPlanner()) {
                 NereidsParser nereidsParser = new NereidsParser();
                 try {
                     stmts = nereidsParser.parseSQL(originStmt);
                 } catch (Exception e) {
                     // TODO: We should catch all exception here until we support all query syntax.
-                    LOG.warn(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt, e);
+                    nereidsParseException = e;
+                    LOG.info(" Fallback to stale planner."
+                            + " Nereids cannot process this statement: \"{}\".", originStmt);
                 }
             }
             // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -255,6 +282,12 @@ public class ConnectProcessor {
                     ctx.resetReturnRows();
                 }
                 parsedStmt = stmts.get(i);
+                if (parsedStmt instanceof SelectStmt && nereidsParseException != null
+                        && ctx.getSessionVariable().isEnableNereidsPlanner()
+                        && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    throw new Exception(String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
+                                parsedStmt.toSql()), nereidsParseException);
+                }
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
@@ -326,6 +359,8 @@ public class ConnectProcessor {
             } else {
                 throw new AnalysisException(errorMessage, e);
             }
+        } catch (ArrayStoreException e) {
+            throw new AnalysisException("Sql parser can't convert the result to array, please check your sql.", e);
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
@@ -464,8 +499,8 @@ public class ConnectProcessor {
         // explain query stmt do not have profile
         if (executor != null && !executor.getParsedStmt().isExplain()
                 && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
-                    || executor.getParsedStmt() instanceof LogicalPlanAdapter
-                    || executor.getParsedStmt() instanceof InsertStmt)) {
+                || executor.getParsedStmt() instanceof LogicalPlanAdapter
+                || executor.getParsedStmt() instanceof InsertStmt)) {
             executor.writeProfile(true);
         }
     }
@@ -529,9 +564,21 @@ public class ConnectProcessor {
             if (request.isSetQueryTimeout()) {
                 ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
             }
-            if (request.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
-            }
+        }
+
+        Map<String, String> traceCarrier = new HashMap<>();
+        if (request.isSetTraceCarrier()) {
+            traceCarrier = request.getTraceCarrier();
+        }
+        Context extractedContext = Telemetry.getOpenTelemetry().getPropagators().getTextMapPropagator()
+                .extract(Context.current(), traceCarrier, getter);
+        // What we want is for the Traceid to remain unchanged during propagation.
+        // ctx.initTracer() will be called only if the Context is valid,
+        // so that the Traceid generated by SDKTracer is the same as the follower. Otherwise,
+        // if the Context is invalid and ctx.initTracer() is called,
+        // SDKTracer will generate a different Traceid.
+        if (Span.fromContext(extractedContext).getSpanContext().isValid()) {
+            ctx.initTracer("master trace");
         }
 
         ctx.setThreadLocalInfo();
@@ -548,7 +595,17 @@ public class ConnectProcessor {
                 UUID uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
-            executor.execute(queryId);
+            Span masterQuerySpan =
+                    ctx.getTracer().spanBuilder("master execute").setParent(extractedContext)
+                            .setSpanKind(SpanKind.SERVER).startSpan();
+            try (Scope scope = masterQuerySpan.makeCurrent()) {
+                executor.execute(queryId);
+            } catch (Exception e) {
+                masterQuerySpan.recordException(e);
+                throw e;
+            } finally {
+                masterQuerySpan.end();
+            }
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
@@ -571,6 +628,7 @@ public class ConnectProcessor {
         }
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setPacket(getResultPacket());
+        result.setStatus(ctx.getState().toString());
         if (executor != null && executor.getProxyResultSet() != null) {
             result.setResultSet(executor.getProxyResultSet().tothrift());
         }

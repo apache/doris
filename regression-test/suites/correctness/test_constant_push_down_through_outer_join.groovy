@@ -19,7 +19,7 @@
      sql """ DROP TABLE IF EXISTS wftest1 """
      sql """ DROP TABLE IF EXISTS wftest2 """
      sql """
-         CREATE TABLE `wftest1` (
+         CREATE TABLE IF NOT EXISTS `wftest1` (
              `aa` varchar(200) NULL COMMENT "",
              `bb` int NULL COMMENT ""
          ) ENGINE=OLAP
@@ -32,7 +32,7 @@
          )
      """
      sql """
-         CREATE TABLE `wftest2` (
+         CREATE TABLE IF NOT EXISTS `wftest2` (
              `cc` varchar(200) NULL COMMENT "",
              `dd` int NULL COMMENT ""
          ) ENGINE=OLAP

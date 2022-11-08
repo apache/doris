@@ -24,12 +24,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
 import java.io.DataInput;
@@ -74,6 +76,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.JSONB, "jsonb");
         TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMAL32, "decimal(%d,%d)");
@@ -354,15 +357,15 @@ public class Util {
         return result;
     }
 
-    public static float getFloatPropertyOrDefault(String valStr, float defaultVal, Predicate<Float> pred,
+    public static double getDoublePropertyOrDefault(String valStr, double defaultVal, Predicate<Double> pred,
                                                 String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
 
-        float result = defaultVal;
+        double result = defaultVal;
         try {
-            result = Float.valueOf(valStr);
+            result = Double.parseDouble(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
@@ -455,7 +458,9 @@ public class Util {
     }
 
     public static boolean showHiddenColumns() {
-        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().showHiddenColumns();
+        return ConnectContext.get() != null && (
+            ConnectContext.get().getSessionVariable().showHiddenColumns()
+            || ConnectContext.get().getSessionVariable().skipStorageEngineMerge());
     }
 
     public static String escapeSingleRegex(String s) {
@@ -472,7 +477,7 @@ public class Util {
     public static void checkCatalogEnabled() throws AnalysisException {
         if (!Config.enable_multi_catalog) {
             throw new AnalysisException("The multi-catalog feature is still in experiment, and you can enable it "
-                    + "manually by set fe configuration named `enable_multi_catalog` to be ture.");
+                    + "manually by set fe configuration named `enable_multi_catalog` to be true.");
         }
     }
 
@@ -504,5 +509,51 @@ public class Util {
             }
         }
         return false;
+    }
+
+    private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
+
+    public static String bytesToHex(byte[] bytes) {
+        char[] hexChars = new char[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+            hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+        }
+        return new String(hexChars);
+    }
+
+
+    @NotNull
+    public static TFileFormatType getFileFormatType(String path) {
+        String lowerCasePath = path.toLowerCase();
+        if (lowerCasePath.endsWith(".parquet") || lowerCasePath.endsWith(".parq")) {
+            return TFileFormatType.FORMAT_PARQUET;
+        } else if (lowerCasePath.endsWith(".gz")) {
+            return TFileFormatType.FORMAT_CSV_GZ;
+        } else if (lowerCasePath.endsWith(".bz2")) {
+            return TFileFormatType.FORMAT_CSV_BZ2;
+        } else if (lowerCasePath.endsWith(".lz4")) {
+            return TFileFormatType.FORMAT_CSV_LZ4FRAME;
+        } else if (lowerCasePath.endsWith(".lzo")) {
+            return TFileFormatType.FORMAT_CSV_LZOP;
+        } else if (lowerCasePath.endsWith(".deflate")) {
+            return TFileFormatType.FORMAT_CSV_DEFLATE;
+        } else {
+            return TFileFormatType.FORMAT_CSV_PLAIN;
+        }
+    }
+
+    public static boolean isCsvFormat(TFileFormatType fileFormatType) {
+        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
+                || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
+                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+    }
+
+    public static void logAndThrowRuntimeException(Logger logger, String msg, Throwable e) {
+        logger.warn(msg, e);
+        throw new RuntimeException(msg, e);
     }
 }

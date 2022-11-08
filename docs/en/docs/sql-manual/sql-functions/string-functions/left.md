@@ -44,4 +44,4 @@ mysql> select left("Hello doris",5);
 +------------------------+
 ```
 ### keywords
-LEFT
+    LEFT

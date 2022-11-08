@@ -42,13 +42,14 @@ public class EmptySetNode extends PlanNode {
 
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
         super(id, tupleIds, "EMPTYSET", StatisticalType.EMPTY_SET_NODE);
+        cardinality = 0L;
         Preconditions.checkArgument(tupleIds.size() > 0);
     }
 
     @Override
     public void computeStats(Analyzer analyzer) throws UserException {
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
         avgRowSize = 0;
         numNodes = 1;
         if (LOG.isDebugEnabled()) {

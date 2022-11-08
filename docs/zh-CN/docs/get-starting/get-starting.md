@@ -179,7 +179,7 @@ Doris FE 的停止可以通过下面的命令完成
 cd apache-doris-x.x.x/be
 ```
 
-修改 FE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks'` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config)说明，进行调整。
+修改 BE 配置文件 `conf/be.conf` ，这里我们主要修改两个参数：`priority_networks'` 及 `storage_root` ，如果你需要更多优化配置，请参考 [BE 参数配置](../admin-manual/config/be-config)说明，进行调整。
 
 1. 添加 priority_networks 参数
 
@@ -195,7 +195,7 @@ priority_networks=172.23.16.0/24
 
 
 ```
-storage_root=/path/your/data_dir
+storage_root_path=/path/your/data_dir
 ```
 
 >注意：

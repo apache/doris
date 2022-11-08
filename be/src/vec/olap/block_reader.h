@@ -47,6 +47,10 @@ public:
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
+    bool update_profile(RuntimeProfile* profile) override {
+        return _vcollect_iter.update_profile(profile);
+    }
+
     ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter) override;
 
 private:
@@ -99,7 +103,7 @@ private:
     std::vector<bool> _stored_has_null_tag;
     std::vector<bool> _stored_has_string_tag;
 
-    phmap::flat_hash_map<const Block*, std::vector<std::pair<int16_t, int16_t>>> _temp_ref_map;
+    phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
     bool _eof = false;
 

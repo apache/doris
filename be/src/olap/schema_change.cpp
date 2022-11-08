@@ -437,9 +437,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
         switch (ref_column.type()) {
         case OLAP_FIELD_TYPE_TINYINT:
             if (*(int8_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int8_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int8_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int8_t*)src;
@@ -449,9 +451,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_SMALLINT:
             if (*(int16_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int16_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int16_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int16_t*)src;
@@ -461,9 +465,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_INT:
             if (*(int32_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int32_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int32_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int32_t*)src;
@@ -473,9 +479,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_BIGINT:
             if (*(int64_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int64_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int64_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int64_t*)src;
@@ -619,7 +627,8 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
             if (!_schema_mapping[i].materialized_function.empty()) {
                 bool (*_do_materialized_transform)(RowCursor*, RowCursor*, const TabletColumn&, int,
                                                    int, MemPool*) = nullptr;
-                if (_schema_mapping[i].materialized_function == "to_bitmap") {
+                if (_schema_mapping[i].materialized_function == "to_bitmap" ||
+                    _schema_mapping[i].materialized_function == "to_bitmap_with_check") {
                     _do_materialized_transform = to_bitmap;
                 } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                     _do_materialized_transform = hll_hash;
@@ -834,8 +843,42 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     }
 
     for (auto it : swap_idx_map) {
-        new_block->get_by_position(it.second).column.swap(
-                ref_block->get_by_position(it.first).column);
+        auto& ref_col = ref_block->get_by_position(it.first);
+        auto& new_col = new_block->get_by_position(it.second);
+
+        bool ref_col_nullable = ref_col.column->is_nullable();
+        bool new_col_nullable = new_col.column->is_nullable();
+
+        if (ref_col_nullable != new_col_nullable) {
+            // not nullable to nullable
+            if (new_col_nullable) {
+                auto* new_nullable_col = assert_cast<vectorized::ColumnNullable*>(
+                        std::move(*new_col.column).mutate().get());
+
+                new_nullable_col->swap_nested_column(ref_col.column);
+                new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
+            } else {
+                // nullable to not nullable:
+                // suppose column `c_phone` is originally varchar(16) NOT NULL,
+                // then do schema change `alter table test modify column c_phone int not null`,
+                // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
+                // so need to handle nullable to not nullable here
+                auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
+                        std::move(*ref_col.column).mutate().get());
+
+                const auto* null_map = ref_nullable_col->get_null_map_column().get_data().data();
+
+                for (size_t i = 0; i < row_size; i++) {
+                    if (null_map[i]) {
+                        return Status::DataQualityError("is_null of data is changed!");
+                    }
+                }
+                ref_nullable_col->swap_nested_column(new_col.column);
+            }
+        } else {
+            new_block->get_by_position(it.second).column.swap(
+                    ref_block->get_by_position(it.first).column);
+        }
     }
 
     return Status::OK();
@@ -1132,7 +1175,7 @@ void RowBlockMerger::_pop_heap() {
 }
 
 Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                                   TabletSharedPtr new_tablet,
+                                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
                                    TabletSchemaSPtr base_tablet_schema) {
     // In some cases, there may be more than one type of rowset in a tablet,
     // in which case the conversion cannot be done directly by linked schema change,
@@ -1142,7 +1185,8 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
                   << " in base tablet is not same as type " << rowset_writer->type()
                   << ", use direct schema change.";
         return SchemaChangeHandler::get_sc_procedure(_row_block_changer, false, true)
-                ->process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema);
+                ->process(rowset_reader, rowset_writer, new_tablet, base_tablet,
+                          base_tablet_schema);
     } else {
         Status status = rowset_writer->add_rowset_for_linked_schema_change(rowset_reader->rowset());
         if (!status) {
@@ -1150,8 +1194,26 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
                          << ", new_tablet=" << new_tablet->full_name()
                          << ", version=" << rowset_writer->version().first << "-"
                          << rowset_writer->version().second << ", error status " << status;
+            return status;
         }
-        return status;
+        // copy delete bitmap to new tablet.
+        if (new_tablet->keys_type() == UNIQUE_KEYS &&
+            new_tablet->enable_unique_key_merge_on_write()) {
+            DeleteBitmap origin_delete_bitmap(base_tablet->tablet_id());
+            base_tablet->tablet_meta()->delete_bitmap().subset(
+                    {rowset_reader->rowset()->rowset_id(), 0, 0},
+                    {rowset_reader->rowset()->rowset_id(), UINT32_MAX, INT64_MAX},
+                    &origin_delete_bitmap);
+            for (auto iter = origin_delete_bitmap.delete_bitmap.begin();
+                 iter != origin_delete_bitmap.delete_bitmap.end(); ++iter) {
+                int ret = new_tablet->tablet_meta()->delete_bitmap().set(
+                        {rowset_writer->rowset_id(), std::get<1>(iter->first),
+                         std::get<2>(iter->first)},
+                        iter->second);
+                DCHECK(ret == 1);
+            }
+        }
+        return Status::OK();
     }
 }
 
@@ -1267,21 +1329,19 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              RowsetWriter* rowset_writer,
                                              TabletSharedPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema) {
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-    auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+    do {
+        auto new_block =
+                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
-    int origin_columns_size = ref_block->columns();
+        rowset_reader->next_block(ref_block.get());
+        if (ref_block->rows() < 1) {
+            break;
+        }
 
-    rowset_reader->next_block(ref_block.get());
-    while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
-
-        new_block->clear_column_data();
-        ref_block->clear_column_data(origin_columns_size);
-        rowset_reader->next_block(ref_block.get());
-    }
+    } while (true);
 
     if (!rowset_writer->flush()) {
         return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
@@ -1503,12 +1563,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     int64_t newest_write_timestamp = rowset->newest_write_timestamp();
     _temp_delta_versions.first = _temp_delta_versions.second;
 
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-    auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
-
-    int origin_columns_size = ref_block->columns();
-
     auto create_rowset = [&]() -> Status {
         if (blocks.empty()) {
             return Status::OK();
@@ -1531,13 +1585,21 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    rowset_reader->next_block(ref_block.get());
-    while (ref_block->rows()) {
+    auto new_block =
+            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+
+    do {
+        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+        rowset_reader->next_block(ref_block.get());
+        if (ref_block->rows() < 1) {
+            break;
+        }
+
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
             RETURN_IF_ERROR(create_rowset());
 
-            if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+            if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
                              << " _memory_limitation=" << _memory_limitation
                              << ", new_block->allocated_bytes()=" << new_block->allocated_bytes()
@@ -1551,10 +1613,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         blocks.push_back(
                 std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
-
-        ref_block->clear_column_data(origin_columns_size);
-        rowset_reader->next_block(ref_block.get());
-    }
+    } while (true);
 
     RETURN_IF_ERROR(create_rowset());
 
@@ -1670,6 +1729,12 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 }
 
 Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
+    if (!request.__isset.desc_tbl) {
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+                .append("desc_tbl is not set. Maybe the FE version is not equal to the BE "
+                        "version.");
+    }
+
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
@@ -1696,7 +1761,8 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 
 std::shared_mutex SchemaChangeHandler::_mutex;
 std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
-std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap"};
+std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap",
+                                                                   "to_bitmap_with_check"};
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
@@ -1746,6 +1812,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     }
 
     std::vector<Version> versions_to_be_changed;
+    int64_t end_version = -1;
     // reader_context is stack variables, it's lifetime should keep the same
     // with rs_readers
     RowsetReaderContext reader_context;
@@ -1791,10 +1858,10 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 
             // should check the max_version >= request.alter_version, if not the convert is useless
             if (max_rowset == nullptr || max_rowset->end_version() < request.alter_version) {
-                LOG(WARNING) << "base tablet's max version="
-                             << (max_rowset == nullptr ? 0 : max_rowset->end_version())
-                             << " is less than request version=" << request.alter_version;
-                res = Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+                res = Status::InternalError(
+                        "base tablet's max version={} is less than request version={}",
+                        (max_rowset == nullptr ? 0 : max_rowset->end_version()),
+                        request.alter_version);
                 break;
             }
             // before calculating version_to_be_changed,
@@ -1836,7 +1903,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // init one delete handler
-            int64_t end_version = -1;
             for (auto& version : versions_to_be_changed) {
                 end_version = std::max(end_version, version.second);
             }
@@ -1874,6 +1940,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.is_unique = base_tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.is_vec = config::enable_vectorized_alter_table;
+            reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
+            reader_context.version = Version(0, end_version);
             for (auto& rs_reader : rs_readers) {
                 res = rs_reader->init(&reader_context);
                 if (!res) {
@@ -1938,20 +2006,88 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             _tablet_ids_in_converting.insert(new_tablet->tablet_id());
         }
         res = _convert_historical_rowsets(sc_params);
-        {
-            std::lock_guard<std::shared_mutex> wrlock(_mutex);
-            _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+        if (new_tablet->keys_type() != UNIQUE_KEYS ||
+            !new_tablet->enable_unique_key_merge_on_write() || !res) {
+            {
+                std::lock_guard<std::shared_mutex> wrlock(_mutex);
+                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+            }
         }
         if (!res) {
             break;
         }
-        // set state to ready
-        std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
-        res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
-        if (!res) {
-            break;
+
+        // For unique with merge-on-write table, should process delete bitmap here.
+        // 1. During double write, the newly imported rowsets does not calculate
+        // delete bitmap and publish successfully.
+        // 2. After conversion, calculate delete bitmap for the rowsets imported
+        // during double write. During this period, new data can still be imported
+        // witout calculating delete bitmap and publish successfully.
+        // 3. Block the new publish, calculate the delete bitmap of the
+        // incremental rowsets.
+        // 4. Switch the tablet status to TABLET_RUNNING. The newly imported
+        // data will calculate delete bitmap.
+        if (new_tablet->keys_type() == UNIQUE_KEYS &&
+            new_tablet->enable_unique_key_merge_on_write()) {
+            // step 2
+            int64_t max_version = new_tablet->max_version().second;
+            std::vector<RowsetSharedPtr> rowsets;
+            if (end_version < max_version) {
+                LOG(INFO)
+                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                        << "double write rowsets for version: " << end_version + 1 << "-"
+                        << max_version;
+                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
+                        {end_version + 1, max_version}, &rowsets));
+            }
+            for (auto rowset_ptr : rowsets) {
+                if (rowset_ptr->version().second <= end_version) {
+                    continue;
+                }
+                std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
+                std::shared_lock<std::shared_mutex> wrlock(new_tablet->get_header_lock());
+                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+            }
+
+            // step 3
+            std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
+            std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            int64_t new_max_version = new_tablet->max_version().second;
+            rowsets.clear();
+            if (max_version < new_max_version) {
+                LOG(INFO)
+                        << "alter table for unique with merge-on-write, calculate delete bitmap of "
+                        << "incremental rowsets for version: " << max_version + 1 << "-"
+                        << new_max_version;
+                RETURN_IF_ERROR(new_tablet->capture_consistent_rowsets(
+                        {max_version + 1, new_max_version}, &rowsets));
+            }
+            for (auto rowset_ptr : rowsets) {
+                if (rowset_ptr->version().second <= max_version) {
+                    continue;
+                }
+                RETURN_IF_ERROR(new_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+            }
+
+            // step 4
+            {
+                std::lock_guard<std::shared_mutex> wrlock(_mutex);
+                _tablet_ids_in_converting.erase(new_tablet->tablet_id());
+            }
+            res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+            if (!res) {
+                break;
+            }
+            new_tablet->save_meta();
+        } else {
+            // set state to ready
+            std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
+            res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
+            if (!res) {
+                break;
+            }
+            new_tablet->save_meta();
         }
-        new_tablet->save_meta();
     } while (false);
 
     if (res) {
@@ -2056,14 +2192,14 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                 rs_reader->version(), VISIBLE,
                 rs_reader->rowset()->rowset_meta()->segments_overlap(), new_tablet->tablet_schema(),
                 rs_reader->oldest_write_timestamp(), rs_reader->newest_write_timestamp(),
-                &rowset_writer);
+                rs_reader->rowset()->rowset_meta()->fs(), &rowset_writer);
         if (!status.ok()) {
             res = Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
             return process_alter_exit();
         }
 
         if (res = sc_procedure->process(rs_reader, rowset_writer.get(), sc_params.new_tablet,
-                                        sc_params.base_tablet_schema);
+                                        sc_params.base_tablet, sc_params.base_tablet_schema);
             !res) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
@@ -2244,6 +2380,18 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         *sc_directly = true;
     }
 
+    // if rs_reader has remote files, link schema change is not supported,
+    // use directly schema change instead.
+    if (!(*sc_directly) && !(*sc_sorting)) {
+        // check has remote rowset
+        for (auto& rs_reader : sc_params.ref_rowset_readers) {
+            if (!rs_reader->rowset()->is_local()) {
+                *sc_directly = true;
+                break;
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -2274,7 +2422,8 @@ Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;
     if (max_continuous_version.second < request.alter_version) {
-        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+        return Status::InternalError("result version={} is less than request version={}",
+                                     max_continuous_version.second, request.alter_version);
     }
 
     std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;

@@ -47,10 +47,10 @@ column_name1 op { value | value_list } [ AND column_name2 op { value | value_lis
 illustrate:
 
 1. The optional types of op include: =, >, <, >=, <=, !=, in, not in
-2. Only conditions on the key column can be specified.
+2. Only conditions on the key column can be specified when using AGGREGATE (UNIQUE) model.
 3. When the selected key column does not exist in a rollup, delete cannot be performed.
 4. Conditions can only have an "and" relationship. If you want to achieve an "or" relationship, you need to write the conditions in two DELETE statements.
-5. If it is a partitioned table, you can specify a partition. If not specified, and the session variable delete_without_partition is true, it will be applied to all partitions. If it is a single-partition table, it can be left unspecified.
+5. If it is a partitioned table, you can specify a partition. If not specified, Doris will infer partition from the given conditions. In two cases, Doris cannot infer the partition from conditions: 1) the conditions do not contain partition columns; 2) The operator of the partition column is not in. When a partition table does not specify the partition, or the partition cannot be inferred from the conditions, the session variable delete_without_partition needs to be true to make delete statement be applied to all partitions.
 
 Notice:
 

@@ -27,6 +27,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
 
@@ -125,22 +126,19 @@ private:
                            vectorized::ColumnVector<T>* res_ptr) {
         auto& res_data = res_ptr->data;
         DCHECK(res_data.empty());
-        res_data.reserve(sel_size);
-        T* t = (T*)res_data.get_end_ptr();
+        res_data.resize(sel_size);
         for (size_t i = 0; i < sel_size; i++) {
-            t[i] = T(data[sel[i]]);
+            res_data[i] = T(data[sel[i]]);
         }
-        res_data.set_end_ptr(t + sel_size);
     }
 
     void insert_many_default_type(const char* data_ptr, size_t num) {
+        auto old_size = data.size();
+        data.resize(old_size + num);
         T* input_val_ptr = (T*)data_ptr;
-        T* res_val_ptr = (T*)data.get_end_ptr();
         for (int i = 0; i < num; i++) {
-            res_val_ptr[i] = input_val_ptr[i];
+            data[old_size + i] = input_val_ptr[i];
         }
-        res_val_ptr += num;
-        data.set_end_ptr(res_val_ptr);
     }
 
 public:
@@ -153,7 +151,7 @@ public:
     }
 
     void insert_from(const IColumn& src, size_t n) override {
-        data.push_back(static_cast<const Self&>(src).get_data()[n]);
+        data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
@@ -162,10 +160,9 @@ public:
 
     // note(wb) type of data_ptr element should be same with current column_vector's T
     void insert_many_in_copy_way(const char* data_ptr, size_t num) {
-        char* res_ptr = (char*)data.get_end_ptr();
-        memcpy(res_ptr, data_ptr, num * sizeof(T));
-        res_ptr += num * sizeof(T);
-        data.set_end_ptr(res_ptr);
+        auto old_size = data.size();
+        data.resize(old_size + num);
+        memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {
@@ -197,14 +194,14 @@ public:
         use by date, datetime, basic type
     */
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        if constexpr (std::is_same_v<T, vectorized::Int128>) {
+        if constexpr (!std::is_same_v<T, vectorized::Int64>) {
             insert_many_in_copy_way(data_ptr, num);
         } else if (IColumn::is_date) {
             insert_date_column(data_ptr, num);
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
         } else {
-            insert_many_default_type(data_ptr, num);
+            insert_many_in_copy_way(data_ptr, num);
         }
     }
 
@@ -246,6 +243,15 @@ public:
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+                                const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
@@ -256,7 +262,7 @@ public:
 
     /// This method implemented in header because it could be possibly devirtualized.
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
-        return CompareHelper<T>::compare(data[n], static_cast<const Self&>(rhs_).data[m],
+        return CompareHelper<T>::compare(data[n], assert_cast<const Self&>(rhs_).data[m],
                                          nan_direction_hint);
     }
 
@@ -333,7 +339,8 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
 
     void get_extremes(Field& min, Field& max) const override;
 
@@ -372,13 +379,20 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
-        data[self_row] = static_cast<const Self&>(rhs).data[row];
+        data[self_row] = assert_cast<const Self&>(rhs).data[row];
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+
+    void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
+                          int direction, std::vector<uint8>& cmp_res,
+                          uint8* __restrict filter) const override;
 
 protected:
     Container data;

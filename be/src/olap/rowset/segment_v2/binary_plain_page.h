@@ -249,21 +249,27 @@ public:
         }
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
-        uint32_t len_array[max_fetch];
-        uint32_t start_offset_array[max_fetch];
-        for (int i = 0; i < max_fetch; i++, _cur_idx++) {
-            const uint32_t start_offset = offset(_cur_idx);
-            uint32_t len = offset(_cur_idx + 1) - start_offset;
-            len_array[i] = len;
-            start_offset_array[i] = start_offset;
+        uint32_t last_offset = guarded_offset(_cur_idx);
+        uint32_t offsets[max_fetch + 1];
+        offsets[0] = last_offset;
+        for (int i = 0; i < max_fetch - 1; i++, _cur_idx++) {
+            const uint32_t start_offset = last_offset;
+            last_offset = guarded_offset(_cur_idx + 1);
+            offsets[i + 1] = last_offset;
             if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
                 }
             }
         }
-        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
-                                     max_fetch);
+        _cur_idx++;
+        offsets[max_fetch] = offset(_cur_idx);
+        if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
+            if (_options.need_check_bitmap) {
+                RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
+            }
+        }
+        dst->insert_many_continuous_binary_data(_data.data, offsets, max_fetch);
 
         *n = max_fetch;
         return Status::OK();
@@ -340,13 +346,20 @@ public:
     }
 
 private:
+    static constexpr size_t SIZE_OF_INT32 = sizeof(uint32_t);
     // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(size_t idx) const {
         if (idx >= _num_elems) {
             return _offsets_pos;
         }
         const uint8_t* p =
-                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * sizeof(uint32_t)]);
+                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * SIZE_OF_INT32]);
+        return decode_fixed32_le(p);
+    }
+
+    uint32_t guarded_offset(size_t idx) const {
+        const uint8_t* p =
+                reinterpret_cast<const uint8_t*>(&_data[_offsets_pos + idx * SIZE_OF_INT32]);
         return decode_fixed32_le(p);
     }
 

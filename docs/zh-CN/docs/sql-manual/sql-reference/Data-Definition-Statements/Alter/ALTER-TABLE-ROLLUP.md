@@ -68,7 +68,7 @@ ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
 
 - 如果没有指定 from_index_name，则默认从 base index 创建
 - rollup 表中的列必须是 from_index 中已有的列
-- 在 properties 中，可以指定存储格式。具体请参阅 [CREATE TABLE](../Create/CREATE-TABLE.html#create-table)
+- 在 properties 中，可以指定存储格式。具体请参阅 [CREATE TABLE](../../Create/CREATE-TABLE)
 
 3. 删除 rollup index
 

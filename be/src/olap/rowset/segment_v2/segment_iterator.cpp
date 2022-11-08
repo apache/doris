@@ -22,7 +22,6 @@
 #include <utility>
 
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_block2.h"
@@ -708,10 +707,10 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
  *   If a type can be read fast, we can try to eliminate Lazy Materialization, because we think for this type, seek cost > read cost.
  *   This is an estimate, if we want more precise cost, statistics collection is necessary(this is a todo).
  *   In short, when returned non-pred columns contains string/hll/bitmap, we using Lazy Materialization.
- *   Otherwish, we disable it.
+ *   Otherwise, we disable it.
  *    
  *   When Lazy Materialization enable, we need to read column at least two times.
- *   Firt time to read Pred col, second time to read non-pred.
+ *   First time to read Pred col, second time to read non-pred.
  *   Here's an interesting question to research, whether read Pred col once is the best plan.
  *   (why not read Pred col twice or more?)
  *
@@ -721,7 +720,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
  *  2 Whether the predicate type can be evaluate in a fast way(using SIMD to eval pred)
  *    Such as integer type and float type, they can be eval fast.
  *    But for BloomFilter/string/date, they eval slow.
- *    If a type can be eval fast, we use vectorizaion to eval it.
+ *    If a type can be eval fast, we use vectorization to eval it.
  *    Otherwise, we use short-circuit to eval it.
  * 
  *  
@@ -872,9 +871,16 @@ void SegmentIterator::_vec_init_char_column_id() {
         auto cid = _schema.column_id(i);
         auto column_desc = _schema.column(cid);
 
-        if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
-            _char_type_idx.emplace_back(i);
-        }
+        do {
+            if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
+                _char_type_idx.emplace_back(i);
+                break;
+            } else if (column_desc->type() != OLAP_FIELD_TYPE_ARRAY) {
+                break;
+            }
+            // for Array<Char> or Array<Array<Char>>
+            column_desc = column_desc->get_sub_field(0);
+        } while (column_desc != nullptr);
     }
 }
 
@@ -1075,8 +1081,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
-                        column_desc->type(), column_desc->is_nullable());
+                _current_return_columns[cid] =
+                        Schema::get_predicate_column_nullable_ptr(*column_desc);
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
@@ -1144,8 +1150,11 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         }
 
         if (!_lazy_materialization_read) {
-            Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                   selected_size);
+            Status ret = Status::OK();
+            if (selected_size > 0) {
+                ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+                                                selected_size);
+            }
             if (!ret.ok()) {
                 return ret;
             }
@@ -1170,8 +1179,10 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // when lazy materialization enables, _first_read_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
         // see _vec_init_lazy_materialization
         // todo(wb) need to tell input columnids from output columnids
-        RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                  selected_size));
+        if (selected_size > 0) {
+            RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+                                                      selected_size));
+        }
     }
 
     // shrink char_type suffix zero data
@@ -1218,6 +1229,8 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
         ColumnPredicate* predicate) {
     auto& column = _current_return_columns[predicate->column_id()];
     auto* col_ptr = column.get();
+    column->set_rowset_segment_id({_segment->rowset_id(), _segment->id()});
+
     if (PredicateTypeTraits::is_range(predicate->type())) {
         col_ptr->convert_dict_codes_if_necessary();
     } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {

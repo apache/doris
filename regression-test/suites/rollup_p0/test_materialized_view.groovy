@@ -24,7 +24,7 @@ suite("test_materialized_view") {
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
-            CREATE TABLE ${tbName1}(
+            CREATE TABLE IF NOT EXISTS ${tbName1}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -35,7 +35,7 @@ suite("test_materialized_view") {
         """
     sql "DROP TABLE IF EXISTS ${tbName2}"
     sql """
-            CREATE TABLE ${tbName2}(
+            CREATE TABLE IF NOT EXISTS ${tbName2}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -105,7 +105,7 @@ suite("test_materialized_view") {
         }
     }
     sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
-    qt_sql "DESC ${tbName1} ALL;"
+    order_qt_sql "DESC ${tbName1} ALL;"
 
     qt_sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
 
@@ -116,5 +116,4 @@ suite("test_materialized_view") {
 
     sql "DROP TABLE ${tbName1} FORCE;"
     sql "DROP TABLE ${tbName2} FORCE;"
-
 }

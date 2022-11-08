@@ -58,7 +58,21 @@ CREATE TABLE IF NOT EXISTS `hive_table`(
 
 ### Hive Bitmap UDF 使用：
 
- Hive Bitmap UDF 需要在 Hive/Spark 中使用
+Hive Bitmap UDF 需要在 Hive/Spark 中使用，首先需要编译fe得到hive-udf-jar-with-dependencies.jar。
+编译准备工作：如果进行过ldb源码编译可直接编译fe，如果没有进行过ldb源码编译，则需要手动安装thrift，可参考：[FE开发环境搭建](/community/developer-guide/fe-idea-dev) 中的编译与安装
+
+```sql
+--clone doris源码
+git clone https://github.com/apache/doris.git
+--安装thrift
+--进入fe目录
+cd fe
+--执行maven打包命令（fe的子module会全部打包）
+mvn package -Dmaven.test.skip=true
+--也可以只打hive-udf module
+mvn package -pl hive-udf -am -Dmaven.test.skip=true
+```
+打包编译完成进入hive-udf目录会有target目录，里面就会有打包完成的hive-udf-jar-with-dependencies.jar包
 
 ```sql
 
@@ -66,14 +80,14 @@ CREATE TABLE IF NOT EXISTS `hive_table`(
 add jar hdfs://node:9001/hive-udf-jar-with-dependencies.jar;
 
 -- 创建UDAF函数
-create temporary function to_bitmap as 'org.apache.doris.udf.ToBitmapUDAF';
-create temporary function bitmap_union as 'org.apache.doris.udf.BitmapUnionUDAF';
+create temporary function to_bitmap as 'org.apache.doris.udf.ToBitmapUDAF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_union as 'org.apache.doris.udf.BitmapUnionUDAF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
 
 -- 创建UDF函数
-create temporary function bitmap_count as 'org.apache.doris.udf.BitmapCountUDF';
-create temporary function bitmap_and as 'org.apache.doris.udf.BitmapAndUDF';
-create temporary function bitmap_or as 'org.apache.doris.udf.BitmapOrUDF';
-create temporary function bitmap_xor as 'org.apache.doris.udf.BitmapXorUDF';
+create temporary function bitmap_count as 'org.apache.doris.udf.BitmapCountUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_and as 'org.apache.doris.udf.BitmapAndUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_or as 'org.apache.doris.udf.BitmapOrUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_xor as 'org.apache.doris.udf.BitmapXorUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
 
 -- 例子：通过 to_bitmap 生成 bitmap 写入 Hive Bitmap 表
 insert into hive_bitmap_table
@@ -101,4 +115,4 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ## Hive bitmap 导入 doris
 
- 详见: 数据导入 -> Spark Load -> 基本操作  -> 创建导入 (示例3：上游数据源是hive binary类型情况)
+ 详见: [Spark Load](../../../data-operate/import/import-way/spark-load-manual) -> 基本操作  -> 创建导入 (示例3：上游数据源是hive binary类型情况)

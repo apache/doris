@@ -1207,6 +1207,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public Expr getRealSlotRef() {
+        return this;
+    }
+
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         Preconditions.checkState(tableIdToColumnNames != null);
         for (Expr child : children) {
@@ -1369,8 +1373,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
         if (!Type.canCastTo(this.type, targetType)) {
-            throw new AnalysisException("type not match, originType=" + this.type
-                    + ", targeType=" + targetType);
+            throw new AnalysisException("can not cast from origin type " + this.type
+                    + " to target type=" + targetType);
 
         }
         return uncheckedCastTo(targetType);
@@ -1738,7 +1742,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         BINARY_PREDICATE(11),
         FUNCTION_CALL(12),
         ARRAY_LITERAL(13),
-        CAST_EXPR(14);
+        CAST_EXPR(14),
+        JSON_LITERAL(15);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1780,6 +1785,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.DECIMAL_LITERAL.getCode());
         } else if (expr instanceof StringLiteral) {
             output.writeInt(ExprSerCode.STRING_LITERAL.getCode());
+        } else if (expr instanceof JsonLiteral) {
+            output.writeInt(ExprSerCode.JSON_LITERAL.getCode());
         } else if (expr instanceof MaxLiteral) {
             output.writeInt(ExprSerCode.MAX_LITERAL.getCode());
         } else if (expr instanceof BinaryPredicate) {
@@ -1825,6 +1832,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return DecimalLiteral.read(in);
             case STRING_LITERAL:
                 return StringLiteral.read(in);
+            case JSON_LITERAL:
+                return JsonLiteral.read(in);
             case MAX_LITERAL:
                 return MaxLiteral.read(in);
             case BINARY_PREDICATE:
@@ -1870,10 +1879,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String getStringValue() {
-        if (this instanceof LiteralExpr) {
-            return ((LiteralExpr) this).getStringValue();
-        }
         return "";
+    }
+
+    // A special method only for array literal, all primitive type in array
+    // will be wrapped by double quote. eg:
+    // ["1", "2", "3"]
+    // ["a", "b", "c"]
+    // [["1", "2", "3"], ["1"], ["3"]]
+    public String getStringValueForArray() {
+        return null;
     }
 
     public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
@@ -1995,4 +2010,29 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public void finalizeImplForNereids() throws AnalysisException {
         throw new AnalysisException("analyze for Nereids do not implementation.");
     }
+
+    public void materializeSrcExpr() {
+        if (this instanceof SlotRef) {
+            SlotRef thisRef = (SlotRef) this;
+            SlotDescriptor slotDesc = thisRef.getDesc();
+            slotDesc.setIsMaterialized(true);
+            slotDesc.getSourceExprs().forEach(Expr::materializeSrcExpr);
+        }
+        for (Expr child : children) {
+            child.materializeSrcExpr();
+        }
+    }
+
+    // This is only for transactional insert operation,
+    // to check it the given value in insert stmt is LiteralExpr.
+    // And if we write "1" to a boolean column, there will be a cast(1 as boolean) expr,
+    // which is also accepted.
+    public boolean isLiteralOrCastExpr() {
+        if (this instanceof CastExpr) {
+            return children.get(0) instanceof LiteralExpr;
+        } else {
+            return this instanceof LiteralExpr;
+        }
+    }
 }
+

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -59,8 +60,9 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
-import org.apache.doris.nereids.trees.expressions.functions.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
@@ -81,9 +83,24 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 /**
  * Use the visitor to visit expression and forward to unified method(visitExpression).
  */
-public abstract class ExpressionVisitor<R, C> {
+public abstract class ExpressionVisitor<R, C>
+        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
+
+    @Override
+    public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
+        return visitBoundFunction(aggregateFunction, context);
+    }
+
+    @Override
+    public R visitScalarFunction(ScalarFunction scalarFunction, C context) {
+        return visitBoundFunction(scalarFunction, context);
+    }
+
+    public R visitBoundFunction(BoundFunction boundFunction, C context) {
+        return visit(boundFunction, context);
+    }
 
     public R visitAlias(Alias alias, C context) {
         return visitNamedExpression(alias, context);
@@ -233,14 +250,6 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(cast, context);
     }
 
-    public R visitBoundFunction(BoundFunction boundFunction, C context) {
-        return visit(boundFunction, context);
-    }
-
-    public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
-        return visitBoundFunction(aggregateFunction, context);
-    }
-
     public R visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, C context) {
         return visitBinaryOperator(binaryArithmetic, context);
     }
@@ -275,6 +284,10 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitInPredicate(InPredicate inPredicate, C context) {
         return visit(inPredicate, context);
+    }
+
+    public R visitIsNull(IsNull isNull, C context) {
+        return visit(isNull, context);
     }
 
     public R visitInSubquery(InSubquery in, C context) {

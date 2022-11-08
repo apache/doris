@@ -18,8 +18,10 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 #include "runtime/buffer_control_block.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -73,7 +75,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     MysqlRowBuffer _buffer;
     int buf_ret = 0;
 
-    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR) {
+    if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR || type == TYPE_JSONB) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -104,6 +106,22 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                     }
                 } else {
                     buf_ret = _buffer.push_string(string_val.data, string_val.size);
+                }
+            }
+            if constexpr (type == TYPE_JSONB) {
+                const auto json_val = column->get_data_at(i);
+                if (json_val.data == nullptr) {
+                    if (json_val.size == 0) {
+                        // 0x01 is a magic num, not useful actually, just for present ""
+                        char* tmp_val = reinterpret_cast<char*>(0x01);
+                        buf_ret = _buffer.push_string(tmp_val, json_val.size);
+                    } else {
+                        buf_ret = _buffer.push_null();
+                    }
+                } else {
+                    std::string json_str =
+                            JsonbToJson::jsonb_to_json_string(json_val.data, json_val.size);
+                    buf_ret = _buffer.push_string(json_str.c_str(), json_str.size());
                 }
             }
 
@@ -244,7 +262,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
             if constexpr (type == TYPE_DECIMALV2) {
                 DecimalV2Value decimal_val(data[i]);
-                auto decimal_str = decimal_val.to_string();
+                auto decimal_str = decimal_val.to_string(scale);
                 buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             }
 
@@ -429,6 +447,7 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
         auto column_ptr = block.get_by_position(i).column->convert_to_full_column_if_const();
         auto type_ptr = block.get_by_position(i).type;
 
+        int scale = _output_vexpr_ctxs[i]->root()->type().scale;
         switch (_output_vexpr_ctxs[i]->root()->result_type()) {
         case TYPE_BOOLEAN:
             if (type_ptr->is_nullable()) {
@@ -524,10 +543,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(column_ptr, result,
-                                                                              nested_type);
+                                                                              nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result,
-                                                                               type_ptr);
+                                                                               type_ptr, scale);
             }
             break;
         }
@@ -536,10 +555,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, true>(column_ptr, result,
-                                                                              nested_type);
+                                                                              nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, false>(column_ptr, result,
-                                                                               type_ptr);
+                                                                               type_ptr, scale);
             }
             break;
         }
@@ -548,10 +567,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, true>(column_ptr, result,
-                                                                              nested_type);
+                                                                              nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, false>(column_ptr, result,
-                                                                               type_ptr);
+                                                                               type_ptr, scale);
             }
             break;
         }
@@ -560,10 +579,18 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, true>(column_ptr, result,
-                                                                               nested_type);
+                                                                               nested_type, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, false>(column_ptr, result,
-                                                                                type_ptr);
+                                                                                type_ptr, scale);
+            }
+            break;
+        }
+        case TYPE_JSONB: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, true>(column_ptr, result);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, false>(column_ptr, result);
             }
             break;
         }
@@ -585,7 +612,6 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             break;
         }
         case TYPE_DATETIMEV2: {
-            int scale = _output_vexpr_ctxs[i]->root()->type().scale;
             if (type_ptr->is_nullable()) {
                 status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(column_ptr, result,
                                                                                nullptr, scale);

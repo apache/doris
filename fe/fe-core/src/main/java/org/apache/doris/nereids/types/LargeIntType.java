@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * LargeInt type in Nereids.
  */
 public class LargeIntType extends IntegralType {
-    public static LargeIntType INSTANCE = new LargeIntType();
+    public static final LargeIntType INSTANCE = new LargeIntType();
 
     private static final int WIDTH = 16;
 
@@ -47,7 +48,7 @@ public class LargeIntType extends IntegralType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof LargeIntType;
     }
 

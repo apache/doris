@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * Integer data type in Nereids.
  */
 public class IntegerType extends IntegralType {
-    public static IntegerType INSTANCE = new IntegerType();
+    public static final IntegerType INSTANCE = new IntegerType();
 
     private static final int WIDTH = 4;
 
@@ -47,7 +48,7 @@ public class IntegerType extends IntegralType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof IntegerType;
     }
 

@@ -114,11 +114,20 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
         break;
-    case TFileFormatType::FORMAT_PARQUET:
-        _parquet_writer = new ParquetWriterWrapper(_file_writer.get(), _output_expr_ctxs,
-                                                   _file_opts->file_properties, _file_opts->schema,
-                                                   _output_object_data);
+    case TFileFormatType::FORMAT_PARQUET: {
+        //TODO: in order to consider the compatibility when upgrading, could remove this code after 1.2
+        if (_file_opts->is_refactor_before_flag) {
+            _parquet_writer = new ParquetWriterWrapper(_file_writer.get(), _output_expr_ctxs,
+                                                       _file_opts->file_properties,
+                                                       _file_opts->schema, _output_object_data);
+        } else {
+            _parquet_writer = new ParquetWriterWrapper(
+                    _file_writer.get(), _output_expr_ctxs, _file_opts->parquet_schemas,
+                    _file_opts->parquet_commpression_type, _file_opts->parquert_disable_dictionary,
+                    _file_opts->parquet_version, _output_object_data);
+        }
         break;
+    }
     default:
         return Status::InternalError("unsupported file format: {}", _file_opts->file_format);
     }
@@ -222,6 +231,7 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
 Status FileResultWriter::_write_parquet_file(const RowBatch& batch) {
     RETURN_IF_ERROR(_parquet_writer->write(batch));
     // split file if exceed limit
+    _current_written_bytes = _parquet_writer->written_len();
     return _create_new_file_if_exceed_size();
 }
 
@@ -398,7 +408,6 @@ Status FileResultWriter::_create_new_file_if_exceed_size() {
 Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
     if (_parquet_writer != nullptr) {
         _parquet_writer->close();
-        _current_written_bytes = _parquet_writer->written_len();
         COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         delete _parquet_writer;
         _parquet_writer = nullptr;
@@ -436,7 +445,7 @@ Status FileResultWriter::_send_result() {
 
     // The final stat result include:
     // FileNumber, TotalRows, FileSize and URL
-    // The type of these field should be conssitent with types defined
+    // The type of these field should be consistent with types defined
     // in OutFileClause.java of FE.
     MysqlRowBuffer row_buffer;
     row_buffer.push_int(_file_idx);                         // file number

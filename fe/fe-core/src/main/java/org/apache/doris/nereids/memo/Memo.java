@@ -31,9 +31,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -45,7 +47,12 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private Group root;
+    private final Group root;
+
+    // FOR TEST ONLY
+    public Memo() {
+        root = null;
+    }
 
     public Memo(Plan plan) {
         root = init(plan);
@@ -82,6 +89,46 @@ public class Memo {
         }
     }
 
+    public List<Plan> copyOutAll() {
+        return copyOutAll(root);
+    }
+
+    public List<Plan> copyOutAll(Group group) {
+        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
+        List<Plan> plans = logicalExpressions.stream()
+                .flatMap(groupExpr -> copyOutAll(groupExpr).stream())
+                .collect(Collectors.toList());
+        return plans;
+    }
+
+    private List<Plan> copyOutAll(GroupExpression logicalExpression) {
+        if (logicalExpression.arity() == 0) {
+            return Lists.newArrayList(logicalExpression.getPlan().withChildren(ImmutableList.of()));
+        } else if (logicalExpression.arity() == 1) {
+            List<Plan> multiChild = copyOutAll(logicalExpression.child(0));
+            return multiChild.stream()
+                    .map(children -> logicalExpression.getPlan().withChildren(children))
+                    .collect(Collectors.toList());
+        } else if (logicalExpression.arity() == 2) {
+            int leftCount = logicalExpression.child(0).getLogicalExpressions().size();
+            int rightCount = logicalExpression.child(1).getLogicalExpressions().size();
+            int count = leftCount * rightCount;
+
+            List<Plan> leftChildren = copyOutAll(logicalExpression.child(0));
+            List<Plan> rightChildren = copyOutAll(logicalExpression.child(1));
+
+            List<Plan> result = new ArrayList<>(count);
+            for (Plan leftChild : leftChildren) {
+                for (Plan rightChild : rightChildren) {
+                    result.add(logicalExpression.getPlan().withChildren(leftChild, rightChild));
+                }
+            }
+            return result;
+        } else {
+            throw new RuntimeException("arity > 2");
+        }
+    }
+
     public Plan copyOut() {
         return copyOut(root, false);
     }
@@ -98,6 +145,16 @@ public class Memo {
      */
     public Plan copyOut(Group group, boolean includeGroupExpression) {
         GroupExpression logicalExpression = group.getLogicalExpression();
+        return copyOut(logicalExpression, includeGroupExpression);
+    }
+
+    /**
+     * copyOut the logicalExpression.
+     * @param logicalExpression the logicalExpression what want to copyOut
+     * @param includeGroupExpression whether include group expression in the plan
+     * @return plan
+     */
+    public Plan copyOut(GroupExpression logicalExpression, boolean includeGroupExpression) {
         List<Plan> children = Lists.newArrayList();
         for (Group child : logicalExpression.children()) {
             children.add(copyOut(child, includeGroupExpression));
@@ -146,7 +203,7 @@ public class Memo {
 
     /**
      * add or replace the plan into the target group.
-     *
+     * <p>
      * the result truth table:
      * <pre>
      * +---------------------------------------+-----------------------------------+--------------------------------+
@@ -158,19 +215,21 @@ public class Memo {
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 2:                               |                                   |                                |
      * | if targetGroup is null                |              true                 |      new group expression      |
-     * | and same group expression exist       |                                   |                                |
+     * | and same group expression not exist   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 3:                               |                                   |                                |
-     * | if targetGroup is null                |              true                 |      new group expression      |
+     * | if targetGroup is not null            |              true                 |      new group expression      |
      * | and same group expression not exits   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 4:                               |                                   |                                |
-     * | if targetGroup equal to the exists    |              true                 |      new group expression      |
-     * | group expression's owner group        |                                   |                                |
+     * | if targetGroup is not null and not    |              true                 |      new group expression      |
+     * | equal to the existed group            |                                   |                                |
+     * | expression's owner group              |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 5:                               |                                   |                                |
-     * | if targetGroup not equal to the       |              false                |    existed group expression    |
-     * | exists group expression's owner group |                                   |                                |
+     * | if targetGroup is null or equal to    |              false                |    existed group expression    |
+     * | the existed group expression's owner  |                                   |                                |
+     * | group                                 |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * </pre>
      *
@@ -190,15 +249,19 @@ public class Memo {
             return rewriteByExistedPlan(targetGroup, plan);
         }
 
-        // try to create a new group expression
         List<Group> childrenGroups = rewriteChildrenPlansToGroups(plan, targetGroup);
+        plan = replaceChildrenToGroupPlan(plan, childrenGroups);
+
+        // try to create a new group expression
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
 
         // slow check the groupExpression/plan whether exists in the memo
         GroupExpression existedExpression = groupExpressions.get(newGroupExpression);
         if (existedExpression == null) {
+            // case 2 or case 3
             return rewriteByNewGroupExpression(targetGroup, plan, newGroupExpression);
         } else {
+            // case 4 or case 5
             return rewriteByExistedGroupExpression(targetGroup, plan, existedExpression, newGroupExpression);
         }
     }
@@ -213,6 +276,10 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
+        // check logicalproperties, must same output in a Group.
+        if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
+            throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
+        }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
             return CopyInResult.of(false, groupExpr.get());
@@ -229,8 +296,7 @@ public class Memo {
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
-        GroupExpression newGroupExpression = new GroupExpression(plan);
-        newGroupExpression.setChildren(childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
         return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
@@ -305,20 +371,20 @@ public class Memo {
      * @param destination destination group
      * @return merged group
      */
-    private Group mergeGroup(Group source, Group destination) {
+    public Group mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
             return source;
         }
         List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        groupExpressions.values().forEach(groupExpression -> {
+        for (GroupExpression groupExpression : groupExpressions.values()) {
             if (groupExpression.children().contains(source)) {
                 if (groupExpression.getOwnerGroup().equals(destination)) {
                     // cycle, we should not merge
-                    return;
+                    return null;
                 }
                 needReplaceChild.add(groupExpression);
             }
-        });
+        }
         for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
@@ -328,6 +394,7 @@ public class Memo {
                     children.set(i, destination);
                 }
             }
+
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
@@ -341,8 +408,10 @@ public class Memo {
             }
         }
         if (!source.equals(destination)) {
+            // TODO: stats and other
             source.moveLogicalExpressionOwnership(destination);
             source.movePhysicalExpressionOwnership(destination);
+            source.moveLowestCostPlansOwnership(destination);
             groups.remove(source.getGroupId());
         }
         return destination;
@@ -418,14 +487,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     *
+     * <p>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     *
+     * <p>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */
@@ -467,9 +536,7 @@ public class Memo {
         List<Plan> groupPlanChildren = childrenGroups.stream()
                 .map(GroupPlan::new)
                 .collect(ImmutableList.toImmutableList());
-        LogicalProperties logicalProperties = plan.getLogicalProperties();
-        return plan.withChildren(groupPlanChildren)
-            .withLogicalProperties(Optional.of(logicalProperties));
+        return plan.withChildren(groupPlanChildren);
     }
 
     /*
@@ -531,5 +598,18 @@ public class Memo {
                 recycleGroup(childGroup);
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("root:").append(getRoot()).append("\n");
+        for (Group group : groups.values()) {
+            builder.append(group.toString()).append("\n");
+            for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
+                builder.append("  ").append(groupExpression.toString()).append("\n");
+            }
+        }
+        return builder.toString();
     }
 }

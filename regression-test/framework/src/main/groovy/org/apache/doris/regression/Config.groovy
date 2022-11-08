@@ -22,11 +22,13 @@ import groovy.util.logging.Slf4j
 
 import com.google.common.collect.Maps
 import org.apache.commons.cli.CommandLine
+import org.apache.commons.cli.Option
 import org.apache.doris.regression.util.FileUtils
 import org.apache.doris.regression.util.JdbcUtils
 
 import java.sql.Connection
 import java.sql.DriverManager
+import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Predicate
 
 import static org.apache.doris.regression.ConfigOptions.*
@@ -43,10 +45,13 @@ class Config {
     public String feHttpUser
     public String feHttpPassword
 
+    public String metaServiceHttpAddress
+
     public String suitePath
     public String dataPath
     public String realDataPath
     public String sf1DataPath
+    public String cacheDataPath
     public String pluginPath
 
     public String testGroups
@@ -72,6 +77,7 @@ class Config {
     public Set<String> excludeDirectorySet = new HashSet<>()
 
     public InetSocketAddress feHttpInetSocketAddress
+    public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
     public Integer suiteParallel
     public Integer actionParallel
@@ -81,8 +87,8 @@ class Config {
     Config() {}
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
-           String feHttpAddress, String feHttpUser, String feHttpPassword,
-           String suitePath, String dataPath, String realDataPath, String sf1DataPath,
+           String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
+           String suitePath, String dataPath, String realDataPath, String sf1DataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath) {
         this.defaultDb = defaultDb
@@ -92,10 +98,12 @@ class Config {
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
+        this.metaServiceHttpAddress = metaServiceHttpAddress
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
         this.sf1DataPath = sf1DataPath
+        this.cacheDataPath = cacheDataPath
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -117,13 +125,23 @@ class Config {
             ConfigObject configObj = configSlurper.parse(new File(confFilePath).toURI().toURL())
             config = Config.fromConfigObject(configObj)
         }
-
+        String customConfFilePath = confFile.getParentFile().getPath() + "/regression-conf-custom.groovy"
+        File custFile = new File(customConfFilePath)
+        if (custFile.exists() && custFile.isFile()) {
+            log.info("Load custom config file ${customConfFilePath}".toString())
+            def configSlurper = new ConfigSlurper()
+            def systemProperties = Maps.newLinkedHashMap(System.getProperties())
+            configSlurper.setBinding(systemProperties)
+            ConfigObject configObj = configSlurper.parse(new File(customConfFilePath).toURI().toURL())
+            config = Config.fromConfigObject(configObj)
+        }
         fillDefaultConfig(config)
 
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.sf1DataPath = cmd.getOptionValue(sf1DataOpt, config.sf1DataPath)
+        config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
@@ -156,6 +174,12 @@ class Config {
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
 
+        if (!config.suiteWildcard && !config.groups && !config.directories && !config.excludeSuiteWildcard
+            && !config.excludeGroupSet && !config.excludeDirectorySet) {
+            log.info("no suites/directories/groups specified, set groups to p0".toString())
+            config.groups = ["p0"].toSet()
+        }
+
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
@@ -165,6 +189,16 @@ class Config {
             throw new IllegalStateException("Can not parse stream load address: ${config.feHttpAddress}", t)
         }
 
+        config.metaServiceHttpAddress = cmd.getOptionValue(metaServiceHttpAddressOpt, config.metaServiceHttpAddress)
+        try {
+            Inet4Address host = Inet4Address.getByName(config.metaServiceHttpAddress.split(":")[0]) as Inet4Address
+            int port = Integer.valueOf(config.metaServiceHttpAddress.split(":")[1])
+            config.metaServiceHttpInetSocketAddress = new InetSocketAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse meta service address: ${config.metaServiceHttpAddress}", t)
+        }
+        log.info("msAddr : $config.metaServiceHttpAddress, socketAddr : $config.metaServiceHttpInetSocketAddress")
+
         config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
@@ -173,8 +207,8 @@ class Config {
         config.feHttpPassword = cmd.getOptionValue(feHttpPasswordOpt, config.feHttpPassword)
         config.generateOutputFile = cmd.hasOption(genOutOpt)
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
-        config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "1"))
-        config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "1"))
+        config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "10"))
+        config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "10"))
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
@@ -205,10 +239,12 @@ class Config {
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
+            configToString(obj.metaServiceHttpAddress),
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
             configToString(obj.sf1DataPath),
+            configToString(obj.cacheDataPath),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -257,6 +293,11 @@ class Config {
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
         }
 
+        if (config.metaServiceHttpAddress == null) {
+            config.metaServiceHttpAddress = "127.0.0.1:5000"
+            log.info("Set metaServiceHttpAddress to '${config.metaServiceHttpAddress}' because not specify.".toString())
+        }
+
         if (config.feHttpUser == null) {
             config.feHttpUser = "root"
             log.info("Set feHttpUser to '${config.feHttpUser}' because not specify.".toString())
@@ -285,6 +326,11 @@ class Config {
         if (config.sf1DataPath == null) {
             config.sf1DataPath = "regression-test/sf1Data"
             log.info("Set sf1DataPath to '${config.sf1DataPath}' because not specify.".toString())
+        }
+
+        if (config.cacheDataPath == null) {
+            config.cacheDataPath = "regression-test/cacheData"
+            log.info("Set cacheDataPath to '${config.cacheDataPath}' because not specify.".toString())
         }
 
         if (config.pluginPath == null) {
@@ -381,8 +427,12 @@ class Config {
         // e.g.
         // suites/tpcds_sf1/load.groovy
         // suites/tpcds_sf1/sql/q01.sql
-        if (dir.indexOf(File.separator + "sql") > 0 && dir.endsWith("sql")) {
-            dir = dir.substring(0, dir.indexOf(File.separator + "sql"))
+        // suites/tpcds_sf1/sql/dir/q01.sql
+        if (dir.indexOf(File.separator + "sql", dir.length() - 4) > 0 && dir.endsWith("sql")) {
+            dir = dir.substring(0, dir.indexOf(File.separator + "sql", dir.length() - 4))
+        }
+        if (dir.indexOf(File.separator + "sql" + File.separator) > 0) {
+            dir = dir.substring(0, dir.indexOf(File.separator + "sql" + File.separator))
         }
 
         dir = dir.replace('-', '_')

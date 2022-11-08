@@ -53,7 +53,7 @@ public class OdbcScanNode extends ScanNode {
 
     // Now some database have different function call like doris, now doris do not
     // push down the function call except MYSQL
-    private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+    public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
         if (!tableType.equals(TOdbcTableType.MYSQL)) {
             List<FunctionCallExpr> fnExprList = Lists.newArrayList();
             expr.collect(FunctionCallExpr.class, fnExprList);
@@ -223,6 +223,6 @@ public class OdbcScanNode extends ScanNode {
         numNodes = numNodes <= 0 ? 1 : numNodes;
 
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getRowCount();
+        cardinality = (long) statsDeriveResult.getRowCount();
     }
 }

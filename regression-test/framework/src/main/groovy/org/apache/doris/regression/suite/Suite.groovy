@@ -29,11 +29,13 @@ import org.apache.doris.regression.action.RestoreAction
 import org.apache.doris.regression.action.StreamLoadAction
 import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
+import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import groovy.util.logging.Slf4j
 
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
@@ -45,6 +47,7 @@ import static org.apache.doris.regression.util.DataUtils.sortByToString
 
 import java.io.File
 
+@Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
     final String name
@@ -283,7 +286,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableHdfs() {
-        String enableHdfs =  context.config.otherConfigs.get("enableHdfs");
+        String enableHdfs = context.config.otherConfigs.get("enableHdfs");
         return enableHdfs.equals("true");
     }
 
@@ -295,6 +298,11 @@ class Suite implements GroovyInterceptable {
         Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
         String remotePath = hdfs.upload(localFile)
         return remotePath;
+    }
+
+    boolean enableBrokerLoad() {
+        String enableBrokerLoad = context.config.otherConfigs.get("enableBrokerLoad");
+        return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
     }
 
     String getS3Region() {
@@ -359,6 +367,10 @@ class Suite implements GroovyInterceptable {
         runAction(new RestoreAction(context), actionSupplier)
     }
 
+    void httpTest(Closure actionSupplier) {
+        runAction(new HttpCliAction(context), actionSupplier)
+    }
+
     void runAction(SuiteAction action, Closure actionSupplier) {
         actionSupplier.setDelegate(action)
         actionSupplier.setResolveStrategy(Closure.DELEGATE_FIRST)
@@ -408,6 +420,7 @@ class Suite implements GroovyInterceptable {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
             }
             if (errorMsg != null) {
+                logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
                 throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
             }
         }

@@ -180,6 +180,7 @@ suite("test_date_function") {
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
+    qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
     qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2020-09-01")  """
@@ -242,9 +243,13 @@ suite("test_date_function") {
     // WEEKOFYEAR
     qt_sql """ select weekofyear('2008-02-20 00:00:00') """
 
+    sql """ truncate table ${tableName} """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0-08-01 13:21:03")"""
+
     // YEAR
     qt_sql """ select year('1987-01-01') """
     qt_sql """ select year('2050-01-01') """
+    qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
 
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """
@@ -311,4 +316,192 @@ suite("test_date_function") {
                       length(cast(current_timestamp(1) as string)), length(cast(current_timestamp(2) as string)),
                       length(cast(current_timestamp(3) as string)), length(cast(current_timestamp(4) as string)),
                       length(cast(current_timestamp(5) as string)), length(cast(current_timestamp(6) as string)); """
+
+
+   tableName = "test_time_add_sub_function"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                test_time datetime NULL COMMENT "",
+                test_time1 datetimev2(3) NULL COMMENT "",
+                test_time2 datetimev2(6) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(test_time)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(test_time) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+            )
+        """
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03", "2019-08-01 13:21:03.111", "2019-08-01 13:21:03.111111") """
+    //years_add
+    qt_sql """ select years_add(test_time,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time,1) result from ${tableName}; """
+
+    qt_sql """ select date_add(NULL, INTERVAL 1 month); """
+    qt_sql """ select date_add(NULL, INTERVAL 1 day); """
+
+    //years_add
+    qt_sql """ select years_add(test_time1,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time1,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time1,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time1,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time1,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time1,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time1,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time1,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time1,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time1,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time1,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time1,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time1,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time1,1) result from ${tableName}; """
+
+    //years_add
+    qt_sql """ select years_add(test_time2,1) result from ${tableName}; """
+    //months_add
+    qt_sql """ select months_add(test_time2,1) result from ${tableName}; """
+    //weeks_add
+    qt_sql """ select weeks_add(test_time2,1) result from ${tableName}; """
+    //days_add
+    qt_sql """ select days_add(test_time2,1) result from ${tableName}; """
+    //hours_add
+    qt_sql """ select hours_add(test_time2,1) result from ${tableName}; """
+    //minutes_add
+    qt_sql """ select minutes_add(test_time2,1) result from ${tableName}; """
+    //seconds_add
+    qt_sql """ select seconds_add(test_time2,1) result from ${tableName}; """
+
+    //years_sub
+    qt_sql """ select years_sub(test_time2,1) result from ${tableName}; """
+    //months_sub
+    qt_sql """ select months_sub(test_time2,1) result from ${tableName}; """
+    //weeks_sub
+    qt_sql """ select weeks_sub(test_time2,1) result from ${tableName}; """
+    //days_sub
+    qt_sql """ select days_sub(test_time2,1) result from ${tableName}; """
+    //hours_sub
+    qt_sql """ select hours_sub(test_time2,1) result from ${tableName}; """
+    //minutes_sub
+    qt_sql """ select minutes_sub(test_time2,1) result from ${tableName}; """
+    //seconds_sub
+    qt_sql """ select seconds_sub(test_time2,1) result from ${tableName}; """
+
+    // test last_day for vec
+    sql """ SET enable_vectorized_engine = TRUE; """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datev2, 
+                birth2 datetime, 
+                birth3 datetimev2)
+            UNIQUE KEY(birth, birth1, birth2, birth3)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59');"""
+    qt_sql """
+        select last_day(birth), last_day(birth1), 
+                last_day(birth2), last_day(birth3) 
+                from ${tableName};
+    """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+
+    // test last_day for not vec
+    sql """ SET enable_vectorized_engine = FALSE; """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datetime)
+            UNIQUE KEY(birth, birth1)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01 00:00:00'), 
+        ('2022-02-29', '2022-02-29 00:00:00'),
+        ('2022-02-28', '2022-02-28 23:59:59');"""
+    qt_sql """
+        select last_day(birth), last_day(birth1) from ${tableName};
+    """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+
+    // test to_monday
+    sql """ SET enable_vectorized_engine = TRUE; """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datev2, 
+                birth2 datetime, 
+                birth3 datetimev2)
+            UNIQUE KEY(birth, birth1, birth2, birth3)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59'),
+        ('1970-01-02', '1970-01-02', '1970-01-02 01:02:03', '1970-01-02 02:03:04');"""
+    qt_sql """
+        select to_monday(birth), to_monday(birth1), 
+                to_monday(birth2), to_monday(birth3) 
+                from ${tableName};
+    """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
 }

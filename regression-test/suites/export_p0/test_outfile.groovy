@@ -49,7 +49,8 @@ suite("test_outfile") {
         return
     }
     def tableName = "outfile_test"
-    def outFilePath = """${context.file.parent}/tmp"""
+    def uuid = UUID.randomUUID().toString()
+    def outFilePath = """/tmp/test_outfile_${uuid}"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -132,4 +133,57 @@ suite("test_outfile") {
         }
     }
 
+    // test hll column outfile
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+          `k1` int(11) NOT NULL,
+          `v1` hll HLL_UNION NOT NULL,
+          `v2` int(11) SUM NOT NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+
+        sql """
+            insert into ${tableName} values (7483648, hll_hash(7483648), 1), (7483648, hll_hash(7483648), 1), 
+            (706432 , hll_hash(706432 ), 1), (706432 , hll_hash(706432 ), 1)
+        """
+
+        File path = new File(outFilePath)
+        if (!path.exists()) {
+            assert path.mkdirs()
+        } else {
+            throw new IllegalStateException("""${outFilePath} already exists! """)
+        }
+
+        sql "set return_object_data_as_binary = false"
+        sql """
+            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFilePath}/" properties("success_file_name" = "SUCCESS")
+        """
+
+        File[] files = path.listFiles()
+        assert files.length == 2 // one is outfile, the other is SUCCESS file
+        File dataFile = files[0].getName().contains("SUCCESS") ? files[1] : files[0];
+        List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8);
+        assertEquals(2, outLines.size())
+        String[] outLine1 = outLines.get(0).split("\t")
+        assertEquals(3, outLine1.size())
+        assert outLine1[1] == "\\N"
+        assert outLines.get(1).split("\t")[1] == "\\N"
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${tableName}")
+        File path = new File(outFilePath)
+        if (path.exists()) {
+            for (File f: path.listFiles()) {
+                f.delete();
+            }
+            path.delete();
+        }
+    }
 }

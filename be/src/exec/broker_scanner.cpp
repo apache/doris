@@ -136,10 +136,16 @@ Status BrokerScanner::open_file_reader() {
         }
     }
 
-    RETURN_IF_ERROR(FileFactory::create_file_reader(range.file_type, _state->exec_env(), _profile,
-                                                    _broker_addresses, _params.properties, range,
-                                                    start_offset, _cur_file_reader));
-    return _cur_file_reader->open();
+    if (range.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(range.load_id, _cur_file_reader_s));
+        _real_reader = _cur_file_reader_s.get();
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(
+                range.file_type, _state->exec_env(), _profile, _broker_addresses,
+                _params.properties, range, start_offset, _cur_file_reader));
+        _real_reader = _cur_file_reader.get();
+    }
+    return _real_reader->open();
 }
 
 Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
@@ -215,12 +221,11 @@ Status BrokerScanner::open_line_reader() {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _cur_line_reader =
-                new PlainTextLineReader(_profile, _cur_file_reader.get(), _cur_decompressor, size,
-                                        _line_delimiter, _line_delimiter_length);
+        _cur_line_reader = new PlainTextLineReader(_profile, _real_reader, _cur_decompressor, size,
+                                                   _line_delimiter, _line_delimiter_length);
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _cur_line_reader = new PlainBinaryLineReader(_cur_file_reader.get());
+        _cur_line_reader = new PlainBinaryLineReader(_real_reader);
         break;
     default: {
         return Status::InternalError("Unknown format type, cannot init line reader, type={}",
@@ -389,10 +394,6 @@ bool BrokerScanner::check_decimal_input(const Slice& slice, int precision, int s
     return true;
 }
 
-bool is_null(const Slice& slice) {
-    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
-}
-
 // Convert one row to this tuple
 Status BrokerScanner::_convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool,
                                        bool* fill_tuple) {
@@ -431,7 +432,7 @@ Status BrokerScanner::_line_split_to_values(const Slice& line) {
         read_by_column_def = range.read_by_column_def;
     }
     const std::vector<std::string>& columns_from_path = range.columns_from_path;
-    // read data by column defination, resize _split_values to _src_solt_size
+    // read data by column definition, resize _split_values to _src_solt_size
     if (read_by_column_def) {
         // fill slots by NULL
         while (_split_values.size() + columns_from_path.size() < _src_slot_descs.size()) {
@@ -491,6 +492,10 @@ Status BrokerScanner::_line_split_to_values(const Slice& line) {
 Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
     RETURN_IF_ERROR(_line_split_to_values(line));
     if (!_success) {
+        return Status::OK();
+    }
+
+    if (!check_array_format(_split_values)) {
         return Status::OK();
     }
 

@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 
 /**
  * Float type in Nereids.
  */
 public class FloatType extends FractionalType {
-    public static FloatType INSTANCE = new FloatType();
+    public static final FloatType INSTANCE = new FloatType();
 
     private static final int WIDTH = 4;
 
@@ -42,7 +43,7 @@ public class FloatType extends FractionalType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof FloatType;
     }
 

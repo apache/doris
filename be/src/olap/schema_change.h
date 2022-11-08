@@ -87,7 +87,8 @@ public:
     virtual ~SchemaChange() = default;
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                           TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) {
+                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
+                           TabletSchemaSPtr base_tablet_schema) {
         if (rowset_reader->rowset()->empty() || rowset_reader->rowset()->num_rows() == 0) {
             RETURN_WITH_WARN_IF_ERROR(
                     rowset_writer->flush(),
@@ -134,6 +135,7 @@ protected:
         if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
+                         << ", writer rows=" << writer.num_rows()
                          << ", merged_rows=" << merged_rows()
                          << ", filtered_rows=" << filtered_rows()
                          << ", new_index_rows=" << writer.num_rows();
@@ -154,7 +156,8 @@ public:
     ~LinkedSchemaChange() override = default;
 
     Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                   TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
+                   TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
+                   TabletSchemaSPtr base_tablet_schema) override;
 
 private:
     const RowBlockChanger& _row_block_changer;

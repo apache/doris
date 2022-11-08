@@ -45,13 +45,13 @@ public class CreateUserStmtTest {
 
     @Test
     public void testToString(@Injectable Analyzer analyzer,
-                             @Mocked PaloAuth paloAuth) throws UserException, AnalysisException {
+            @Mocked PaloAuth auth) throws UserException, AnalysisException {
 
         new Expectations() {
             {
                 analyzer.getClusterName();
                 result = "testCluster";
-                paloAuth.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, PaloAuth.PrivLevel.GLOBAL, PaloAuth
+                auth.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, PaloAuth.PrivLevel.GLOBAL, PaloAuth
                         .PrivLevel.DATABASE);
                 result = true;
             }

@@ -18,7 +18,7 @@
 suite("test_bitmap_int") {
     sql "DROP TABLE IF EXISTS test_int_bitmap"
     sql """
-        CREATE TABLE test_int_bitmap (`id` int, `bitmap_set` bitmap bitmap_union) 
+        CREATE TABLE IF NOT EXISTS test_int_bitmap (`id` int, `bitmap_set` bitmap bitmap_union) 
         ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 properties("replication_num" = "1");
         """
     sql "insert into test_int_bitmap values(1, bitmap_hash(1)), (2, bitmap_hash(2)), (3, bitmap_hash(3))"
@@ -29,6 +29,21 @@ suite("test_bitmap_int") {
     qt_desc "desc test_int_bitmap"
 
     sql "DROP TABLE test_int_bitmap"
+
+    // bitmap_hash64
+    sql """
+        CREATE TABLE IF NOT EXISTS test_int_bitmap (`id` int, `bitmap_set` bitmap bitmap_union)
+        ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 properties("replication_num" = "1");
+        """
+    sql "insert into test_int_bitmap values(1, bitmap_hash64(1)), (2, bitmap_hash64(2)), (3, bitmap_hash64(3))"
+    sql "insert into test_int_bitmap values(1, bitmap_hash64(11)), (2, bitmap_hash64(22))"
+
+    qt_sql64_1 "select bitmap_union_count(bitmap_set) from test_int_bitmap"
+    qt_sql64_2 "select id,bitmap_union_count(bitmap_set) from test_int_bitmap group by id order by id"
+    order_qt_sql64_3 "select * from test_int_bitmap"
+
+    sql "DROP TABLE test_int_bitmap"
+
 }
 
 

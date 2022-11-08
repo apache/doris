@@ -36,6 +36,10 @@
 #include "util/metrics.h"
 #include "util/thread.h"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
 
 class QueryFragmentsCtx;
@@ -85,9 +89,11 @@ public:
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
-    Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
+    Status apply_filter(const PPublishFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status merge_filter(const PMergeFilterRequest* request, const char* attach_data);
+    Status merge_filter(const PMergeFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
     void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe);
 
@@ -95,6 +101,9 @@ public:
 
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
+
+    void _set_scan_concurrency(const TExecPlanFragmentParams& params,
+                               QueryFragmentsCtx* fragments_ctx);
 
     bool _is_scan_node(const TPlanNodeType::type& type);
 
@@ -109,6 +118,7 @@ private:
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
     // query id -> QueryFragmentsCtx
     std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
+    std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;

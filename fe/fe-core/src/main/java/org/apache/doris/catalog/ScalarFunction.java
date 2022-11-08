@@ -177,6 +177,9 @@ public class ScalarFunction extends Function {
                     beFn += "_decimalv2_val";
                     usesDecimalV2 = true;
                     break;
+                case JSONB:
+                    beFn += "_jsonb_val";
+                    break;
                 default:
                     Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
             }
@@ -241,6 +244,9 @@ public class ScalarFunction extends Function {
                 case HLL:
                 case BITMAP:
                     beFn.append("_string_val");
+                    break;
+                case JSONB:
+                    beFn.append("_jsonb_val");
                     break;
                 case DATE:
                 case DATETIME:
@@ -333,6 +339,7 @@ public class ScalarFunction extends Function {
         fn.prepareFnSymbol = prepareFnSymbol;
         fn.closeFnSymbol = closeFnSymbol;
         fn.setLocation(location);
+        fn.nullableMode = NullableMode.ALWAYS_NULLABLE;
         return fn;
     }
 

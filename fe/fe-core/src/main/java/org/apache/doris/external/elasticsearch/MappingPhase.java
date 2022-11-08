@@ -119,6 +119,9 @@ public class MappingPhase implements SearchPhase {
                 if (!docValue) {
                     return;
                 }
+            } else if (fieldType == null || "nested".equals(fieldType)) {
+                // The object field has no type, and nested not support doc value.
+                return;
             }
             docValueField = colName;
         }

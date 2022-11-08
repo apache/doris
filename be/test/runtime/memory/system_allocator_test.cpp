@@ -23,9 +23,7 @@
 
 namespace doris {
 
-template <bool use_mmap>
 void test_normal() {
-    config::use_mmap_allocate_chunk = use_mmap;
     {
         auto ptr = SystemAllocator::allocate(4096);
         EXPECT_NE(nullptr, ptr);
@@ -41,8 +39,7 @@ void test_normal() {
 }
 
 TEST(SystemAllocatorTest, TestNormal) {
-    test_normal<true>();
-    test_normal<false>();
+    test_normal();
 }
 
 } // namespace doris

@@ -21,11 +21,10 @@ suite("test_array_load", "p0") {
     def testTable01 = "tbl_test_array_load01"
     
     def create_test_table = {testTablex, enable_vectorized_flag ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-        
         if (enable_vectorized_flag) {
             sql """ set enable_vectorized_engine = true """
+        } else {
+            sql """ set enable_vectorized_engine = false """
         }
 
         def result1 = sql """
@@ -66,9 +65,6 @@ suite("test_array_load", "p0") {
     }
 
     def create_test_table01 = {testTablex ->
-        // multi-line sql
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
-
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable01} (
               `k1` INT(11) NULL COMMENT "",
@@ -122,6 +118,7 @@ suite("test_array_load", "p0") {
             set 'where', where_expr
             set 'fuzzy_parse', fuzzy_flag
             set 'column_separator', column_sep
+            set 'max_filter_ratio', '0.6'
             file file_name // import json file
             time 10000 // limit inflight 10s
 
@@ -134,7 +131,7 @@ suite("test_array_load", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
+                assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows + json.NumberFilteredRows)
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
@@ -184,6 +181,7 @@ suite("test_array_load", "p0") {
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
+                sql "sync"
                 qt_select "select * from ${testTablex} order by k1"
                 break
             } else {
@@ -196,80 +194,95 @@ suite("test_array_load", "p0") {
         }
     }
 
-    // case1: import array data in json format and enable vectorized engine
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table.call(testTable, true)
-
-        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
-        
+    def check_data_correct = {table_name ->
+        sql "sync"
         // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
+        qt_select "select * from ${table_name} order by k1" 
     }
 
-    // case2: import array data in json format and disable vectorized engine
     try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table.call(testTable, false)
+        for ( i in 0..1 ) {
+            // should be deleted after new_load_scan is ready
+            if (i == 1) {
+                sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
+            } else {
+                sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
+            }
 
-        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
-        
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
+            // case1: import array data in json format and enable vectorized engine
+            try {
+                sql "DROP TABLE IF EXISTS ${testTable}"
+                
+                create_test_table.call(testTable, true)
 
+                load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
+                
+                check_data_correct(testTable)
+
+            } finally {
+                try_sql("DROP TABLE IF EXISTS ${testTable}")
+            }
+
+            // case2: import array data in json format and disable vectorized engine
+            try {
+                sql "DROP TABLE IF EXISTS ${testTable}"
+                
+                create_test_table.call(testTable, false)
+
+                load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'simple_array.json')
+                
+                check_data_correct(testTable)
+
+            } finally {
+                try_sql("DROP TABLE IF EXISTS ${testTable}")
+            }
+            
+            // case3: import array data in csv format and enable vectorized engine
+            try {
+                sql "DROP TABLE IF EXISTS ${testTable}"
+                
+                create_test_table.call(testTable, true)
+
+                load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
+                
+                check_data_correct(testTable)
+
+            } finally {
+                try_sql("DROP TABLE IF EXISTS ${testTable}")
+            }
+
+            // case4: import array data in csv format and disable vectorized engine
+            try {
+                sql "DROP TABLE IF EXISTS ${testTable}"
+                
+                create_test_table.call(testTable, false)
+
+                load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
+                
+                check_data_correct(testTable)
+
+            } finally {
+                try_sql("DROP TABLE IF EXISTS ${testTable}")
+            }
+
+            // case5: import array data not specify the format
+            try {
+                sql "DROP TABLE IF EXISTS ${testTable01}"
+                
+                create_test_table01.call(testTable01)
+
+                load_array_data.call(testTable01, '', '', '', '', '', '', '', '', '/', 'simple_array.data')
+                
+                check_data_correct(testTable01)
+
+            } finally {
+                // try_sql("DROP TABLE IF EXISTS ${testTable01}")
+            }
+        }
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
-    
-    // case3: import array data in csv format and enable vectorized engine
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table.call(testTable, true)
-
-        load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
-        
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
+        try_sql("""ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");""")
     }
 
-    // case4: import array data in csv format and disable vectorized engine
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        
-        create_test_table.call(testTable, false)
-
-        load_array_data.call(testTable, 'true', '', 'csv', '', '', '', '', '', '/', 'simple_array.csv')
-        
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
-    }
-
-    // case5: import array data not specify the format
-    try {
-        sql "DROP TABLE IF EXISTS ${testTable01}"
-        
-        create_test_table01.call(testTable01)
-
-        load_array_data.call(testTable01, '', '', '', '', '', '', '', '', '/', 'simple_array.data')
-        
-        // select the table and check whether the data is correct
-        qt_select "select * from ${testTable01} order by k1"
-
-    } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable01}")
-    }
 
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.

@@ -17,11 +17,11 @@
 
 suite("test_outer_join_sort") {
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists test_test_outer_join_sort_outerjoin_A;
     """
 
     sql """
-        drop table if exists outerjoin_B;
+        drop table if exists test_outer_join_sort_outerjoin_B;
     """
 
     sql """
@@ -29,7 +29,7 @@ suite("test_outer_join_sort") {
     """
 
     sql """
-        create table outerjoin_A ( a int not null )
+        create table if not exists test_test_outer_join_sort_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -40,7 +40,7 @@ suite("test_outer_join_sort") {
     """
 
     sql """
-        create table outerjoin_B ( a int not null )
+        create table if not exists test_outer_join_sort_outerjoin_B ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -51,7 +51,7 @@ suite("test_outer_join_sort") {
     """
 
     sql """
-        create table outerjoin_C ( a int not null )
+        create table if not exists outerjoin_C ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -62,11 +62,11 @@ suite("test_outer_join_sort") {
     """
 
     sql """
-        insert into outerjoin_A values( 1 );
+        insert into test_test_outer_join_sort_outerjoin_A values( 1 );
     """
 
     sql """
-        insert into outerjoin_B values( 1 );
+        insert into test_outer_join_sort_outerjoin_B values( 1 );
     """
 
     sql """
@@ -76,28 +76,48 @@ suite("test_outer_join_sort") {
     qt_select """
         select  
         bitand(
-        outerjoin_A.`a` ,
-        outerjoin_A.`a` ) as c0
+        test_test_outer_join_sort_outerjoin_A.`a` ,
+        test_test_outer_join_sort_outerjoin_A.`a` ) as c0
         from 
-            outerjoin_A
+            test_test_outer_join_sort_outerjoin_A
 
             inner join (select  
-                outerjoin_B.a as c3
+                test_outer_join_sort_outerjoin_B.a as c3
                 from 
-                outerjoin_B
+                test_outer_join_sort_outerjoin_B
                     ) as subq_0
-            on (outerjoin_A.a = subq_0.c3 )
+            on (test_test_outer_join_sort_outerjoin_A.a = subq_0.c3 )
             right join outerjoin_C as ref_83
             on (subq_0.c3 = ref_83.a )
         order by subq_0.`c3`;
     """
 
-    sql """
-        drop table if exists outerjoin_A;
+    qt_select """
+        select
+        case
+            when outerjoin_C.a is  NULL then subq_0.`c1`
+            else subq_0.`c2`
+        end as c0
+        from
+        (
+            select
+            1 as c0,
+            version() as c1,
+            a as c2
+            from
+            test_test_outer_join_sort_outerjoin_A
+        ) as subq_0
+        right join outerjoin_C on (subq_0.`c0` = outerjoin_C.a)
+        order by
+        subq_0.`c1`;
     """
 
     sql """
-        drop table if exists outerjoin_B;
+        drop table if exists test_test_outer_join_sort_outerjoin_A;
+    """
+
+    sql """
+        drop table if exists test_outer_join_sort_outerjoin_B;
     """
 
     sql """

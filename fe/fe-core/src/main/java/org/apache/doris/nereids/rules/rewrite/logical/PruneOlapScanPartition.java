@@ -52,7 +52,6 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -98,9 +97,8 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
     private ColumnRange createColumnRange(String colName, List<Expression> expressionList) {
         ColumnRange result = ColumnRange.create();
         for (Expression expression : expressionList) {
-            List<SlotReference> slotReferenceList = expression.collect(SlotReference.class::isInstance);
-            int slotReferenceListSize = new HashSet<>(slotReferenceList).size();
-            if (slotReferenceListSize != 1 || !slotReferenceList.get(0).getName().equals(colName)) {
+            Set<SlotReference> slotReferences = expression.collect(SlotReference.class::isInstance);
+            if (slotReferences.size() != 1 || !slotReferences.iterator().next().getName().equals(colName)) {
                 continue;
             }
             if (expression instanceof Or) {

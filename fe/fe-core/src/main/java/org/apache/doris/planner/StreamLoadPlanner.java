@@ -18,6 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -40,13 +42,18 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
@@ -83,9 +90,8 @@ public class StreamLoadPlanner {
     private Analyzer analyzer;
     private DescriptorTable descTable;
 
-    private StreamLoadScanNode scanNode;
+    private ScanNode scanNode;
     private TupleDescriptor tupleDesc;
-    private TupleDescriptor scanTupleDesc;
 
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
@@ -125,11 +131,14 @@ public class StreamLoadPlanner {
             throw new UserException("There is no sequence column in the table " + destTable.getName());
         }
         resetAnalyzer();
-        // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
-        // construct tuple descriptor, used for scanNode
-        scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
         // construct tuple descriptor, used for dataSink
         tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
+        TupleDescriptor scanTupleDesc = tupleDesc;
+        if (Config.enable_vectorized_load) {
+            // note: we use two tuples separately for Scan and Sink here to avoid wrong nullable info.
+            // construct tuple descriptor, used for scanNode
+            scanTupleDesc = descTable.createTupleDescriptor("ScanTuple");
+        }
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -138,20 +147,22 @@ public class StreamLoadPlanner {
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
 
-            SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
-            scanSlotDesc.setIsMaterialized(true);
-            scanSlotDesc.setColumn(col);
-            scanSlotDesc.setIsNullable(col.isAllowNull());
-            for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
-                try {
-                    if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
-                            && importColumnDesc.getColumnName().equals(col.getName())) {
-                        scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
-                        break;
+            if (Config.enable_vectorized_load) {
+                SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+                scanSlotDesc.setIsMaterialized(true);
+                scanSlotDesc.setColumn(col);
+                scanSlotDesc.setIsNullable(col.isAllowNull());
+                for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
+                    try {
+                        if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
+                                && importColumnDesc.getColumnName().equals(col.getName())) {
+                            scanSlotDesc.setIsNullable(importColumnDesc.getExpr().isNullable());
+                            break;
+                        }
+                    } catch (Exception e) {
+                        // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
+                        // We just skip this case here.
                     }
-                } catch (Exception e) {
-                    // An exception may be thrown here because the `importColumnDesc.getExpr()` is not analyzed now.
-                    // We just skip this case here.
                 }
             }
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
@@ -160,13 +171,31 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
+        if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
+            ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
+            // 1. create file group
+            DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
+            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+            fileGroup.parse(db, dataDescription);
+            // 2. create dummy file status
+            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+            fileStatus.setPath("");
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(-1); // must set to -1, means stream.
+            fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
+                    fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
+            scanNode = fileScanNode;
+        } else {
+            scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
+        }
+
         scanNode.init(analyzer);
-        descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
         if (Config.enable_vectorized_load) {
             scanNode.convertToVectoriezd();
         }
+        descTable.computeStatAndMemLayout();
 
         int timeout = taskInfo.getTimeout();
         if (taskInfo instanceof RoutineLoadJob) {
@@ -195,6 +224,7 @@ public class StreamLoadPlanner {
         params.setFragment(fragment.toThrift());
 
         params.setDescTbl(analyzer.getDescTbl().toThrift());
+        params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
         // user load id (streamLoadTask.id) as query id
@@ -220,6 +250,7 @@ public class StreamLoadPlanner {
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
         queryOptions.setEnableVectorizedEngine(Config.enable_vectorized_load);
+        queryOptions.setBeExecVersion(Config.be_exec_version);
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

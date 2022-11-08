@@ -44,12 +44,16 @@ public:
     MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              RowsetWriter* rowset_writer, DeleteBitmapPtr delete_bitmap,
-             const RowsetIdUnorderedSet& rowset_ids, bool support_vec = false);
+             const RowsetIdUnorderedSet& rowset_ids, int64_t cur_max_version,
+             const std::shared_ptr<MemTracker>& insert_mem_tracker,
+             const std::shared_ptr<MemTracker>& flush_mem_tracker, bool support_vec = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet->tablet_id(); }
     KeysType keys_type() const { return _tablet->keys_type(); }
-    size_t memory_usage() const { return _mem_tracker->consumption(); }
+    size_t memory_usage() const {
+        return _insert_mem_tracker->consumption() + _flush_mem_tracker->consumption();
+    }
 
     inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
@@ -156,7 +160,16 @@ private:
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    // `_insert_manual_mem_tracker` manually records the memory value of memtable insert()
+    // `_flush_hook_mem_tracker` automatically records the memory value of memtable flush() through mem hook.
+    // Is used to flush when _insert_manual_mem_tracker larger than write_buffer_size and run flush memtable
+    // when the sum of all memtable (_insert_manual_mem_tracker + _flush_hook_mem_tracker) exceeds the limit.
+    std::shared_ptr<MemTracker> _insert_mem_tracker;
+    std::shared_ptr<MemTracker> _flush_mem_tracker;
+    // It is only used for verification when the value of `_insert_manual_mem_tracker` is suspected to be wrong.
+    // The memory value automatically tracked by the mem hook is 20% less than the manually recorded
+    // value in the memtable, because some freed memory is not allocated in the DeltaWriter.
+    std::unique_ptr<MemTracker> _insert_mem_tracker_use_hook;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
     std::unique_ptr<MemPool> _buffer_mem_pool;
@@ -186,7 +199,7 @@ private:
     int64_t _flush_size = 0;
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
-    // in unique or aggragate key model.
+    // in unique or aggregate key model.
     int64_t _rows = 0;
     void (MemTable::*_insert_fn)(const Tuple* tuple) = nullptr;
     void (MemTable::*_aggregate_two_row_fn)(const ContiguousRow& new_row,
@@ -210,6 +223,7 @@ private:
 
     DeleteBitmapPtr _delete_bitmap;
     RowsetIdUnorderedSet _rowset_ids;
+    int64_t _cur_max_version;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

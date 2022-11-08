@@ -60,6 +60,8 @@ public:
                                            const doris_udf::StringVal& suffix);
     static doris_udf::BooleanVal null_or_empty(doris_udf::FunctionContext* context,
                                                const doris_udf::StringVal& str);
+    static doris_udf::BooleanVal not_null_or_empty(doris_udf::FunctionContext* context,
+                                                   const doris_udf::StringVal& str);
     static doris_udf::StringVal space(doris_udf::FunctionContext* context,
                                       const doris_udf::IntVal& len);
     static doris_udf::StringVal repeat(doris_udf::FunctionContext* context,
@@ -81,6 +83,8 @@ public:
                                       const doris_udf::StringVal& str);
     static doris_udf::StringVal upper(doris_udf::FunctionContext* context,
                                       const doris_udf::StringVal& str);
+    static doris_udf::StringVal initcap(doris_udf::FunctionContext* context,
+                                        const doris_udf::StringVal& str);
     static doris_udf::StringVal reverse(doris_udf::FunctionContext* context,
                                         const doris_udf::StringVal& str);
     static doris_udf::StringVal trim(doris_udf::FunctionContext* context,
@@ -115,6 +119,8 @@ public:
     static StringVal concat(doris_udf::FunctionContext*, int num_children, const StringVal* strs);
     static StringVal concat_ws(doris_udf::FunctionContext*, const doris_udf::StringVal& sep,
                                int num_children, const doris_udf::StringVal* strs);
+    static StringVal elt(doris_udf::FunctionContext*, const doris_udf::IntVal& pos,
+                         int num_children, const StringVal* strs);
     static IntVal find_in_set(doris_udf::FunctionContext*, const doris_udf::StringVal& str,
                               const doris_udf::StringVal& str_set);
 

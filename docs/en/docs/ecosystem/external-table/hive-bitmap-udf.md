@@ -43,23 +43,46 @@ CREATE TABLE IF NOT EXISTS `hive_bitmap_table`(
   `k3`   String    COMMENT '',
   `uuid` binary    COMMENT 'bitmap'
 ) comment  'comment'
+
+-- Example：Create Hive Table
+CREATE TABLE IF NOT EXISTS `hive_table`(
+  `k1`   int       COMMENT '',
+  `k2`   String    COMMENT '',
+  `k3`   String    COMMENT '',
+  `uuid` int       COMMENT ''
+) comment  'comment'
 ```
 
 ### Hive Bitmap UDF Usage：
 
-   Hive Bitmap UDF used in Hive/Spark
+   Hive Bitmap UDF used in Hive/Spark,First, you need to compile fe to get hive-udf-jar-with-dependencies.jar.
+   Compilation preparation:If you have compiled the ldb source code, you can directly compile fe,If you have compiled the ldb source code, you can compile it directly. If you have not compiled the ldb source code, you need to manually install thrift，
+   Reference:[Setting Up dev env for FE](/community/developer-guide/fe-idea-dev) .
+
+```sql
+--clone doris code
+git clone https://github.com/apache/doris.git
+--install thrift
+--Enter the fe directory
+cd fe
+--Execute the maven packaging command（All sub modules of fe will be packaged）
+mvn package -Dmaven.test.skip=true
+--You can also just package the hive-udf module
+mvn package -pl hive-udf -am -Dmaven.test.skip=true
+```
+After packaging and compiling, enter the hive-udf directory and there will be a target directory,There will be hive-udf-jar-with-dependencies.jar package
 
 ```sql
 -- Load the Hive Bitmap Udf jar package (Upload the compiled hive-udf jar package to HDFS)
 add jar hdfs://node:9001/hive-udf-jar-with-dependencies.jar;
 -- Create Hive Bitmap UDAF function
-create temporary function to_bitmap as 'org.apache.doris.udf.ToBitmapUDAF';
-create temporary function bitmap_union as 'org.apache.doris.udf.BitmapUnionUDAF';
+create temporary function to_bitmap as 'org.apache.doris.udf.ToBitmapUDAF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_union as 'org.apache.doris.udf.BitmapUnionUDAF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
 -- Create Hive Bitmap UDF function
-create temporary function bitmap_count as 'org.apache.doris.udf.BitmapCountUDF';
-create temporary function bitmap_and as 'org.apache.doris.udf.BitmapAndUDF';
-create temporary function bitmap_or as 'org.apache.doris.udf.BitmapOrUDF';
-create temporary function bitmap_xor as 'org.apache.doris.udf.BitmapXorUDF';
+create temporary function bitmap_count as 'org.apache.doris.udf.BitmapCountUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_and as 'org.apache.doris.udf.BitmapAndUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_or as 'org.apache.doris.udf.BitmapOrUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
+create temporary function bitmap_xor as 'org.apache.doris.udf.BitmapXorUDF' USING JAR 'hdfs://node:9001/hive-udf-jar-with-dependencies.jar';
 -- Example: Generate bitmap by to_bitmap function and write to Hive Bitmap table
 insert into hive_bitmap_table
 select 
@@ -83,4 +106,4 @@ select k1,bitmap_union(uuid) from hive_bitmap_table group by k1
 
 ## Hive Bitmap import into Doris
 
- see details: Load Data -> Spark Load -> Basic operation -> Create load(Example 3: when the upstream data source is hive binary type table)
+ see details: [Spark Load](../../../data-operate/import/import-way/spark-load-manual) -> Basic operation -> Create load(Example 3: when the upstream data source is hive binary type table)

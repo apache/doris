@@ -48,6 +48,13 @@ header:
     - "be/src/util/coding.h"
     - "be/src/util/condition_variable.cpp"
     - "be/src/util/condition_variable.h"
+    - "be/src/util/jsonb_document.h"
+    - "be/src/util/jsonb_error.h"
+    - "be/src/util/jsonb_parser.h"
+    - "be/src/util/jsonb_stream.h"
+    - "be/src/util/jsonb_updater.h"
+    - "be/src/util/jsonb_utils.h"
+    - "be/src/util/jsonb_writer.h"
     - "be/src/util/murmur_hash3.cpp"
     - "be/src/util/murmur_hash3.h"
     - "be/src/util/mustache/mustache.cc"
@@ -62,5 +69,8 @@ header:
     - "docs/.vuepress/public/js/wow.min.js"
     - "docs/package-lock.json"
     - "regression-test/script/README"
+    - "regression-test/suites/load_p0/stream_load/data"
+    - "docker/thirdparties/docker-compose/hive/scripts/README"
+    - "docker/thirdparties/docker-compose/hive/scripts/create.hql"
 
   comment: on-failure

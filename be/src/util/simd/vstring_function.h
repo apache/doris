@@ -19,6 +19,8 @@
 
 #include <unistd.h>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 #ifdef __aarch64__
@@ -30,23 +32,16 @@
 
 namespace doris {
 
-static size_t get_utf8_byte_length(unsigned char byte) {
-    size_t char_size = 0;
-    if (byte >= 0xFC) {
-        char_size = 6;
-    } else if (byte >= 0xF8) {
-        char_size = 5;
-    } else if (byte >= 0xF0) {
-        char_size = 4;
-    } else if (byte >= 0xE0) {
-        char_size = 3;
-    } else if (byte >= 0xC0) {
-        char_size = 2;
-    } else {
-        char_size = 1;
-    }
-    return char_size;
-}
+static constexpr std::array<uint8, 256> UTF8_BYTE_LENGTH = {
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6};
 
 namespace simd {
 
@@ -149,8 +144,16 @@ public:
             }
         } else {
             for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-                char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-                std::copy(str.ptr + i, str.ptr + i + char_size, dst.ptr + str.len - i - char_size);
+                char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+                // there exists occasion where the last character is an illegal UTF-8 one which returns
+                // a char_size larger than the actual space, which would cause offset execeeding the buffer range
+                // for example, consider str.len=4, i = 3, then the last char returns char_size 2, then
+                // the str.ptr + offset would exceed the buffer range
+                size_t offset = i + char_size;
+                if (offset > str.len) {
+                    offset = str.len;
+                }
+                std::copy(str.ptr + i, str.ptr + offset, dst.ptr + str.len - offset);
             }
         }
     }
@@ -188,7 +191,7 @@ public:
         }
     }
 
-    static void to_lower(uint8_t* src, int64_t len, uint8_t* dst) {
+    static void to_lower(const uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }
@@ -196,7 +199,7 @@ public:
         lowerUpper.transfer(src, src + len, dst);
     }
 
-    static void to_upper(uint8_t* src, int64_t len, uint8_t* dst) {
+    static void to_upper(const uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }

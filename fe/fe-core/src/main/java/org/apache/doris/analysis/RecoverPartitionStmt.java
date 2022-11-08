@@ -34,10 +34,16 @@ import com.google.common.base.Strings;
 public class RecoverPartitionStmt extends DdlStmt {
     private TableName dbTblName;
     private String partitionName;
+    private long partitionId = -1;
+    private String newPartitionName = "";
 
-    public RecoverPartitionStmt(TableName dbTblName, String partitionName) {
+    public RecoverPartitionStmt(TableName dbTblName, String partitionName, long partitionId, String newPartitionName) {
         this.dbTblName = dbTblName;
         this.partitionName = partitionName;
+        this.partitionId = partitionId;
+        if (newPartitionName != null) {
+            this.newPartitionName = newPartitionName;
+        }
     }
 
     public String getDbName() {
@@ -52,6 +58,14 @@ public class RecoverPartitionStmt extends DdlStmt {
         return partitionName;
     }
 
+    public long getPartitionId() {
+        return partitionId;
+    }
+
+    public String getNewPartitionName() {
+        return newPartitionName;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         dbTblName.analyze(analyzer);
@@ -61,16 +75,25 @@ public class RecoverPartitionStmt extends DdlStmt {
                 dbTblName.getTbl(), PrivPredicate.of(PrivBitSet.of(
                         PaloPrivilege.ALTER_PRIV, PaloPrivilege.CREATE_PRIV, PaloPrivilege.ADMIN_PRIV), Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "RECOVERY",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTblName.getDb() + ": " + dbTblName.getTbl());
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbTblName.getDb() + ": " + dbTblName.getTbl());
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("RECOVER PARTITION ").append(partitionName).append(" FROM ");
+        sb.append("RECOVER PARTITION ").append(partitionName);
+        if (this.partitionId != -1) {
+            sb.append(" ");
+            sb.append(this.partitionId);
+        }
+        if (!Strings.isNullOrEmpty(newPartitionName)) {
+            sb.append(" AS ");
+            sb.append(this.newPartitionName);
+        }
+        sb.append(" FROM ");
         if (!Strings.isNullOrEmpty(getDbName())) {
             sb.append(getDbName()).append(".");
         }

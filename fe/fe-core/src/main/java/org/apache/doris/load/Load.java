@@ -87,7 +87,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.PushTask;
-import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -806,14 +805,13 @@ public class Load {
      * And it must be called in same db lock when planing.
      */
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
-                                   Map<String, Pair<String, List<String>>> columnToHadoopFunction,
-                                   Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
-                                   TFileFormatType formatType, List<String> hiddenColumns,
-                                   boolean useVectorizedLoad) throws UserException {
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
+            Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad)
+            throws UserException {
         rewriteColumns(columnDescs);
-        initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer,
-                srcTupleDesc, slotDescByName, params, formatType, hiddenColumns, useVectorizedLoad, true);
+        initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
+                srcSlotIds, formatType, hiddenColumns, useVectorizedLoad, true);
     }
 
     /*
@@ -825,11 +823,10 @@ public class Load {
      * 5. init slot descs and expr map for load plan
      */
     private static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
-                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
-                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
-                                    TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad,
-                                    boolean needInitSlotAndAnalyzeExprs) throws UserException {
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
+            Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad,
+            boolean needInitSlotAndAnalyzeExprs) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         // skip the mapping columns not exist in schema
@@ -988,7 +985,7 @@ public class Load {
                     slotDesc.setIsNullable(true);
                 }
                 slotDesc.setIsMaterialized(true);
-                params.addToSrcSlotIds(slotDesc.getId().asInt());
+                srcSlotIds.add(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
         }

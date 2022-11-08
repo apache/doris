@@ -21,7 +21,7 @@
 
 suite("create_table_use_policy") {
     def create_table_use_not_create_policy = try_sql """
-        CREATE TABLE create_table_use_not_create_policy
+        CREATE TABLE IF NOT EXISTS create_table_use_not_create_policy
         (
             k1 BIGINT,
             k2 LARGEINT,

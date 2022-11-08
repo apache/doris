@@ -46,6 +46,18 @@ private:
     ColumnArray(const ColumnArray&) = default;
 
 public:
+    // offsets of array is 64bit wise
+    using Offset64 = IColumn::Offset64;
+    using Offsets64 = IColumn::Offsets64;
+
+private:
+    // please use IColumn::Offset if we really need 32bit offset, otherwise use ColumnArray::Offset64
+    using Offset [[deprecated("ColumnArray::Offset64 for Array, IColumn::Offset for String")]] =
+            Offset64;
+    using Offsets [[deprecated("ColumnArray::Offsets64 for Array, IColumn::Offsets for String")]] =
+            Offsets64;
+
+public:
     /** Create immutable column using immutable arguments. This arguments may be shared with other columns.
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
@@ -66,11 +78,14 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    MutableColumnPtr get_shrinked_column() override;
+
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
+    bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
     TypeIndex get_data_type() const { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
@@ -104,8 +119,9 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     void protect() override;
-    ColumnPtr replicate(const Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
     ColumnPtr convert_to_full_column_if_const() const override;
     void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not implemented";
@@ -160,6 +176,8 @@ public:
         offsets->clear();
     }
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+
 private:
     WrappedPtr data;
     WrappedPtr offsets;
@@ -171,22 +189,22 @@ private:
 
     /// Multiply values if the nested column is ColumnVector<T>.
     template <typename T>
-    ColumnPtr replicate_number(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_number(const IColumn::Offsets& replicate_offsets) const;
 
     /// Multiply the values if the nested column is ColumnString. The code is too complicated.
-    ColumnPtr replicate_string(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_string(const IColumn::Offsets& replicate_offsets) const;
 
     /** Non-constant arrays of constant values are quite rare.
       * Most functions can not work with them, and does not create such columns as a result.
       * An exception is the function `replicate` (see FunctionsMiscellaneous.h), which has service meaning for the implementation of lambda functions.
       * Only for its sake is the implementation of the `replicate` method for ColumnArray(ColumnConst).
       */
-    ColumnPtr replicate_const(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_const(const IColumn::Offsets& replicate_offsets) const;
 
     /** The following is done by simply replicating of nested columns.
       */
-    ColumnPtr replicate_nullable(const Offsets& replicate_offsets) const;
-    ColumnPtr replicate_generic(const Offsets& replicate_offsets) const;
+    ColumnPtr replicate_nullable(const IColumn::Offsets& replicate_offsets) const;
+    ColumnPtr replicate_generic(const IColumn::Offsets& replicate_offsets) const;
 
     /// Specializations for the filter function.
     template <typename T>

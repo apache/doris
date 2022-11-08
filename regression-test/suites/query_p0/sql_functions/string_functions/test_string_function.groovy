@@ -19,6 +19,11 @@ suite("test_string_function") {
     sql "set enable_vectorized_engine = true;"
     sql "set batch_size = 4096;"
 
+    qt_sql "select elt(0, \"hello\", \"doris\");"
+    qt_sql "select elt(1, \"hello\", \"doris\");"
+    qt_sql "select elt(2, \"hello\", \"doris\");"
+    qt_sql "select elt(3, \"hello\", \"doris\");"
+
     qt_sql "select append_trailing_char_if_absent('a','c');"
     qt_sql "select append_trailing_char_if_absent('ac','c');"
 
@@ -72,6 +77,8 @@ suite("test_string_function") {
     qt_sql "SELECT lcase(\"AbC123\");"
     qt_sql "SELECT lower(\"AbC123\");"
 
+    qt_sql "SELECT initcap(\"AbC123abc abc.abc,?|abc\");"
+
     qt_sql "select left(\"Hello doris\",5);"
     qt_sql "select right(\"Hello doris\",5);"
 
@@ -95,6 +102,10 @@ suite("test_string_function") {
     qt_sql "select null_or_empty(\"\");"
     qt_sql "select null_or_empty(\"a\");"
 
+    qt_sql "select not_null_or_empty(null);"
+    qt_sql "select not_null_or_empty(\"\");"
+    qt_sql "select not_null_or_empty(\"a\");"
+
     qt_sql "SELECT repeat(\"a\", 3);"
     qt_sql "SELECT repeat(\"a\", -1);"
     qt_sql "SELECT repeat(\"a\", 0);"
@@ -102,6 +113,7 @@ suite("test_string_function") {
     qt_sql "SELECT repeat(null,1);"
 
     qt_sql "select replace(\"https://doris.apache.org:9090\", \":9090\", \"\");"
+    qt_sql "select replace(\"https://doris.apache.org:9090\", \"\", \"new_str\");"
 
     qt_sql "SELECT REVERSE('hello');"
 
@@ -120,4 +132,14 @@ suite("test_string_function") {
     qt_sql "select substring('abc1', 5);"
     qt_sql "select substring('abc1def', 2, 2);"
 
+    qt_sql "select substr('a',3,1);"
+    qt_sql "select substr('a',2,1);"
+    qt_sql "select substr('a',1,1);"
+    qt_sql "select substr('a',0,1);"
+    qt_sql "select substr('a',-1,1);"
+    qt_sql "select substr('a',-2,1);"
+    qt_sql "select substr('a',-3,1);"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 }

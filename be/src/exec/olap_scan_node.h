@@ -188,7 +188,7 @@ protected:
     // push down bloom filters to storage engine.
     // 1. std::pair.first :: column name
     // 2. std::pair.second :: shared_ptr of BloomFilterFuncBase
-    std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
     // push down functions to storage engine
@@ -264,7 +264,7 @@ protected:
 
     int64_t _buffered_bytes;
     // Count the memory consumption of Rowset Reader and Tablet Reader in OlapScanner.
-    std::unique_ptr<MemTracker> _scanner_mem_tracker;
+    std::shared_ptr<MemTracker> _scanner_mem_tracker;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     // the max num of scan keys of this scan request.

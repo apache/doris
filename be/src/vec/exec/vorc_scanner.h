@@ -46,9 +46,9 @@ public:
     ~VORCScanner() override = default;
 
 protected:
-    ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                       int32_t num_of_columns_from_file, int64_t range_start_offset,
-                                       int64_t range_size) override;
+    ArrowReaderWrap* _new_arrow_reader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                                       FileReader* file_reader, int32_t num_of_columns_from_file,
+                                       int64_t range_start_offset, int64_t range_size) override;
 };
 
 } // namespace doris::vectorized

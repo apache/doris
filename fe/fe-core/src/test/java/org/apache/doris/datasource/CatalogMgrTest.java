@@ -27,7 +27,13 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.EsExternalTable;
+import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -37,6 +43,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -95,6 +102,16 @@ public class CatalogMgrTest extends TestWithFeService {
                 rootCtx);
         env.getCatalogMgr().createCatalog(iceBergCatalog);
 
+        // create es catalog
+        CreateCatalogStmt esCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
+                "create catalog es properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
+                        + " 'elasticsearch.username' = 'user1');",
+                rootCtx);
+        env.getCatalogMgr().createCatalog(esCatalog);
+
+        createDbAndTableForCatalog(env.getCatalogMgr().getCatalog("hive"));
+        createDbAndTableForCatalog(env.getCatalogMgr().getCatalog("es"));
+
         // switch to hive.
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", rootCtx);
         env.changeCatalog(rootCtx, switchHive.getCatalogName());
@@ -109,6 +126,26 @@ public class CatalogMgrTest extends TestWithFeService {
         user2.analyze(SystemInfoService.DEFAULT_CLUSTER);
     }
 
+    private void createDbAndTableForCatalog(CatalogIf catalog) {
+        List<Column> schema = Lists.newArrayList();
+        schema.add(new Column("k1", PrimitiveType.INT));
+        if (catalog instanceof HMSExternalCatalog) {
+            HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+            HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hive_db1");
+            HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsCatalog);
+            tbl.setNewFullSchema(schema);
+            db.addTableForTest(tbl);
+            hmsCatalog.addDatabaseForTest(db);
+        } else if (catalog instanceof EsExternalCatalog) {
+            EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
+            EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
+            EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_tbl1", esCatalog);
+            tbl.setNewFullSchema(schema);
+            db.addTableForTest(tbl);
+            esCatalog.addDatabaseForTest(db);
+        }
+    }
+
     @Test
     public void testNormalCase() throws Exception {
         String createCatalogSql = "CREATE CATALOG hms_catalog "
@@ -119,7 +156,7 @@ public class CatalogMgrTest extends TestWithFeService {
         String showCatalogSql = "SHOW CATALOGS";
         ShowCatalogStmt showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
-        Assertions.assertEquals(4, showResultSet.getResultRows().size());
+        Assertions.assertEquals(5, showResultSet.getResultRows().size());
 
         String alterCatalogNameSql = "ALTER CATALOG hms_catalog RENAME " + MY_CATALOG + ";";
         AlterCatalogNameStmt alterNameStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameSql);
@@ -151,7 +188,7 @@ public class CatalogMgrTest extends TestWithFeService {
         DropCatalogStmt dropCatalogStmt = (DropCatalogStmt) parseAndAnalyzeStmt(dropCatalogSql);
         mgr.dropCatalog(dropCatalogStmt);
         showResultSet = mgr.showCatalogs(showStmt);
-        Assertions.assertEquals(3, showResultSet.getResultRows().size());
+        Assertions.assertEquals(4, showResultSet.getResultRows().size());
     }
 
     private void testCatalogMgrPersist() throws Exception {
@@ -173,14 +210,22 @@ public class CatalogMgrTest extends TestWithFeService {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         CatalogMgr mgr2 = CatalogMgr.read(dis);
 
-        Assert.assertEquals(4, mgr2.listCatalogs().size());
+        Assert.assertEquals(5, mgr2.listCatalogs().size());
         Assert.assertEquals(myCatalog.getId(), mgr2.getCatalog(MY_CATALOG).getId());
         Assert.assertEquals(0, mgr2.getInternalCatalog().getId());
         Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_DS_ID).getId());
         Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME).getId());
 
+        EsExternalCatalog esExternalCatalog = (EsExternalCatalog) mgr2.getCatalog("es");
+        Assert.assertNotNull(esExternalCatalog);
+        Map<String, String> properties = esExternalCatalog.getCatalogProperty().getProperties();
+        Assert.assertEquals("user1", properties.get(EsExternalCatalog.PROP_USERNAME));
+        Assert.assertEquals("http://192.168.0.1", properties.get(EsExternalCatalog.PROP_HOSTS));
+        Assert.assertEquals("user1", esExternalCatalog.getUsername());
+        Assert.assertEquals("http://192.168.0.1", esExternalCatalog.getNodes()[0]);
+
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
-        Map<String, String> properties = hms.getProperties();
+        properties = hms.getProperties();
         Assert.assertEquals(2, properties.size());
         Assert.assertEquals("hms", properties.get("type"));
         Assert.assertEquals("v", properties.get("k"));

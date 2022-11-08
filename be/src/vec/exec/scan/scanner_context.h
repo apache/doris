@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "util/telemetry/telemetry.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 
@@ -78,7 +79,7 @@ public:
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
-    void push_back_scanner_and_reschedule(ScannerScheduler* scheduler, VScanner* scanner);
+    void push_back_scanner_and_reschedule(VScanner* scanner);
 
     bool set_status_on_error(const Status& status);
 
@@ -110,7 +111,7 @@ public:
         _ctx_finish_cv.notify_one();
     }
 
-    bool get_next_batch_of_scanners(std::list<VScanner*>* current_run);
+    void get_next_batch_of_scanners(std::list<VScanner*>* current_run);
 
     void clear_and_join();
 
@@ -123,6 +124,8 @@ public:
 
     VScanNode* parent() { return _parent; }
 
+    OpentelemetrySpan scan_span() { return _scan_span; }
+
 public:
     // the unique id of this context
     std::string ctx_id;
@@ -131,6 +134,10 @@ public:
 
 private:
     Status _close_and_clear_scanners();
+
+    inline bool _has_enough_space_in_blocks_queue() {
+        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+    }
 
 private:
     RuntimeState* _state;
@@ -209,6 +216,8 @@ private:
 
     int64_t _num_ctx_scheduling = 0;
     int64_t _num_scanner_scheduling = 0;
+
+    OpentelemetrySpan _scan_span;
 };
 } // namespace vectorized
 } // namespace doris

@@ -30,6 +30,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/bitmap.h"
+#include "util/countdown_latch.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
@@ -60,8 +61,7 @@ class LoadChannel;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key,
-                   const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_high_priority,
+    TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id, bool is_high_priority,
                    bool is_vec);
 
     ~TabletsChannel();
@@ -92,9 +92,10 @@ public:
     // eg. flush the largest memtable immediately.
     // return Status::OK if mem is reduced.
     // no-op when this channel has been closed or cancelled
-    Status reduce_mem_usage(int64_t mem_limit);
+    template <typename TabletWriterAddResult>
+    Status reduce_mem_usage(TabletWriterAddResult* response);
 
-    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+    int64_t mem_consumption();
 
 private:
     template <typename Request>
@@ -102,6 +103,8 @@ private:
 
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
+
+    bool _try_to_wait_flushing();
 
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
@@ -115,12 +118,16 @@ private:
     // make execute sequence
     std::mutex _lock;
 
+    SpinLock _tablet_writers_lock;
+
     enum State {
         kInitialized,
         kOpened,
         kFinished // closed or cancelled
     };
     State _state;
+
+    UniqueId _load_id;
 
     // initialized in open function
     int64_t _txn_id = -1;
@@ -146,11 +153,15 @@ private:
     // So that following batch will not handle this tablet anymore.
     std::unordered_set<int64_t> _broken_tablets;
 
+    bool _reducing_mem_usage = false;
+    // only one thread can reduce memory for one TabletsChannel.
+    // if some other thread call `reduce_memory_usage` at the same time,
+    // it will wait on this condition variable.
+    std::condition_variable _reduce_memory_cond;
+
     std::unordered_set<int64_t> _partition_ids;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
-
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     bool _is_high_priority = false;
 

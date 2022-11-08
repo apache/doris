@@ -63,8 +63,6 @@ public class ExportStmt extends StatementBase {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_COLUMNS = "";
-
-
     private TableName tblName;
     private List<String> partitions;
     private Expr whereExpr;
@@ -207,6 +205,7 @@ public class ExportStmt extends StatementBase {
             switch (tblType) {
                 case MYSQL:
                 case ODBC:
+                case JDBC:
                 case OLAP:
                     break;
                 case BROKER:
@@ -237,14 +236,16 @@ public class ExportStmt extends StatementBase {
         URI uri = URI.create(path);
         String schema = uri.getScheme();
         if (type == StorageBackend.StorageType.BROKER) {
-            if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs") && !schema.equalsIgnoreCase("ofs"))) {
-                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' , 'BOS://', "
-                        + "or 'ofs://' path.");
+            if (schema == null || (!schema.equalsIgnoreCase("hdfs")
+                    && !schema.equalsIgnoreCase("ofs")
+                    && !schema.equalsIgnoreCase("obs")
+                    && !schema.equalsIgnoreCase("s3a"))) {
+                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'ofs://', 'obs://',"
+                    + " or 's3a://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
-                throw new AnalysisException("Invalid export path. please use valid 'S3://' path.");
+                throw new AnalysisException("Invalid export path. please use valid 's3://' path.");
             }
         } else if (type == StorageBackend.StorageType.HDFS) {
             if (schema == null || !schema.equalsIgnoreCase("hdfs")) {

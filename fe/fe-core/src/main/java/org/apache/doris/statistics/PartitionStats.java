@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-
 /**
  * There are the statistics of partition.
  * The partition stats are mainly used to provide input for the Optimizer's cost model.
@@ -36,19 +35,21 @@ import java.util.function.Predicate;
  *     - @rowCount: The row count of partition.
  *     - @dataSize: The data size of partition.
  *     - @nameToColumnStats: <@String columnName, @ColumnStats columnStats>
- *
- * <p>Each column in the Table will have corresponding @ColumnStats.
+ * <p>
+ * Each column in the Table will have corresponding @ColumnStats.
  * Those @ColumnStats are recorded in @nameToColumnStats form of MAP.
  * This facilitates the optimizer to quickly find the corresponding:
  *     - @ColumnStats: based on the column name.
  *     - @rowCount: The row count of partition.
  *     - @dataSize: The data size of partition.
- *
- * <p>The granularity of the statistics is whole partition.
+ * <p>
+ * The granularity of the statistics is whole partition.
  * For example: "@rowCount = 1000" means that the row count is 1000 in the whole partition.
+ * <p>
+ *  After the statistics task is successfully completed, update the PartitionStats,
+ *  PartitionStats should not be updated in any other way.
  */
 public class PartitionStats {
-
     public static final StatsType DATA_SIZE = StatsType.DATA_SIZE;
     public static final StatsType ROW_COUNT = StatsType.ROW_COUNT;
 
@@ -57,10 +58,21 @@ public class PartitionStats {
 
     private long rowCount = -1;
     private long dataSize = -1;
-    private final Map<String, ColumnStats> nameToColumnStats = Maps.newConcurrentMap();
+    private final Map<String, ColumnStat> nameToColumnStats = Maps.newConcurrentMap();
 
-    public Map<String, ColumnStats> getNameToColumnStats() {
-        return nameToColumnStats;
+    /**
+     * Return a default partition statistic.
+     */
+    public static PartitionStats getDefaultPartitionStats() {
+        return new PartitionStats();
+    }
+
+    public PartitionStats() {
+    }
+
+    public PartitionStats(long rowCount, long dataSize) {
+        this.rowCount = rowCount;
+        this.dataSize = dataSize;
     }
 
     public long getRowCount() {
@@ -79,11 +91,35 @@ public class PartitionStats {
         this.dataSize = dataSize;
     }
 
+    public Map<String, ColumnStat> getNameToColumnStats() {
+        return nameToColumnStats;
+    }
+
+    public ColumnStat getColumnStats(String columnName) {
+        return nameToColumnStats.get(columnName);
+    }
+
     /**
-     * Update the partition stats.
-     *
-     * @param statsTypeToValue the map of stats type to value
-     * @throws AnalysisException if the stats value is not valid
+     * If the column statistics do not exist, the default statistics will be returned.
+     */
+    public ColumnStat getColumnStatsOrDefault(String columnName) {
+        return nameToColumnStats.getOrDefault(columnName,
+                ColumnStat.getDefaultColumnStats());
+    }
+
+    /**
+     * Show the partition row count and data size.
+     */
+    public List<String> getShowInfo() {
+        List<String> result = Lists.newArrayList();
+        result.add(Long.toString(rowCount));
+        result.add(Long.toString(dataSize));
+        return result;
+    }
+
+    /**
+     * After the statistics task is successfully completed, update the statistics of the partition,
+     * statistics should not be updated in any other way.
      */
     public void updatePartitionStats(Map<StatsType, String> statsTypeToValue) throws AnalysisException {
         for (Map.Entry<StatsType, String> entry : statsTypeToValue.entrySet()) {
@@ -99,11 +135,15 @@ public class PartitionStats {
         }
     }
 
+    /**
+     * After the statistics task is successfully completed, update the statistics of the column,
+     * statistics should not be updated in any other way.
+     */
     public void updateColumnStats(String columnName,
                                   Type columnType,
                                   Map<StatsType, String> statsTypeToValue) throws AnalysisException {
-        ColumnStats columnStats = getNotNullColumnStats(columnName);
-        columnStats.updateStats(columnType, statsTypeToValue);
+        ColumnStat columnStat = getNotNullColumnStats(columnName);
+        columnStat.updateStats(columnType, statsTypeToValue);
     }
 
     /**
@@ -112,22 +152,12 @@ public class PartitionStats {
      * @param columnName column name
      * @return @ColumnStats
      */
-    public ColumnStats getNotNullColumnStats(String columnName) {
-        ColumnStats columnStats = nameToColumnStats.get(columnName);
-        if (columnStats == null) {
-            columnStats = new ColumnStats();
-            nameToColumnStats.put(columnName, columnStats);
+    public ColumnStat getNotNullColumnStats(String columnName) {
+        ColumnStat columnStat = nameToColumnStats.get(columnName);
+        if (columnStat == null) {
+            columnStat = new ColumnStat();
+            nameToColumnStats.put(columnName, columnStat);
         }
-        return columnStats;
-    }
-
-    /**
-     * show the partition row count and data size.
-     */
-    public List<String> getShowInfo() {
-        List<String> result = Lists.newArrayList();
-        result.add(Long.toString(rowCount));
-        result.add(Long.toString(dataSize));
-        return result;
+        return columnStat;
     }
 }

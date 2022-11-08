@@ -204,13 +204,13 @@ rapidjson::Value* get_json_object(const std::string_view& json_string,
 
     if (UNLIKELY((*parsed_paths).size() == 1)) {
         if (fntype == JSON_FUN_STRING) {
-            document->SetString(json_string.data(), document->GetAllocator());
+            document->SetString(json_string.data(), json_string.size(), document->GetAllocator());
         } else {
             return document;
         }
     }
 
-    document->Parse(json_string.data());
+    document->Parse(json_string.data(), json_string.size());
     if (UNLIKELY(document->HasParseError())) {
         // VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
         //         << GetParseError_En(document->GetParseError());
@@ -235,10 +235,10 @@ struct GetJsonNumberType {
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
-            int l_str_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_str_size = loffsets[i] - loffsets[i - 1];
 
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
-            int r_str_size = roffsets[i] - roffsets[i - 1] - 1;
+            int r_str_size = roffsets[i] - roffsets[i - 1];
 
             if (null_map[i]) {
                 res[i] = 0;
@@ -323,10 +323,10 @@ struct GetJsonString {
         res_offsets.resize(input_rows_count);
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            int l_size = loffsets[i] - loffsets[i - 1] - 1;
+            int l_size = loffsets[i] - loffsets[i - 1];
             const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
-            int r_size = roffsets[i] - roffsets[i - 1] - 1;
+            int r_size = roffsets[i] - roffsets[i - 1];
             const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
             if (null_map[i]) {

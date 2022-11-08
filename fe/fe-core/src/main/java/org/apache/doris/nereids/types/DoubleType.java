@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 
 /**
  * Double data type in Nereids.
  */
 public class DoubleType extends FractionalType {
-    public static DoubleType INSTANCE = new DoubleType();
+    public static final DoubleType INSTANCE = new DoubleType();
 
     private static final int WIDTH = 8;
 
@@ -47,7 +48,7 @@ public class DoubleType extends FractionalType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof DoubleType;
     }
 

@@ -33,6 +33,8 @@ The steps in this document follow after the release has been voted on and approv
 When the official release poll is successful, send the [Result] email first, then prepare the release package.
 Copy the source package, signature file and hash file from the corresponding folder of the previous release under dev to another directory 1.xx, note that the file name should not be rcxx (you can rename, but do not recalculate the signature, the hash can be recalculated, the result will not change)
 
+> Only PMC members have permission to operate this step.
+
 ```
 From:
 https://dist.apache.org/repos/dist/dev/doris/

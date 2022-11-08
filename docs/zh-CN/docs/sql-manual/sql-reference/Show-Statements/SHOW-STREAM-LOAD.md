@@ -50,7 +50,7 @@ SHOW STREAM LOAD
 
 说明：
 
-1. 默认 BE 是不记录 Stream Load 的记录，如果你要查看需要在 BE 上启用记录，配置参数是：`enable_stream_load_record=true` ，具体怎么配置请参照 [BE 配置项](https://doris.apache.org/zh-CN/docs/admin-manual/config/be-config)
+1. 默认 BE 是不记录 Stream Load 的记录，如果你要查看需要在 BE 上启用记录，配置参数是：`enable_stream_load_record=true` ，具体怎么配置请参照 [BE 配置项](../../../admin-manual/config/be-config)
 2. 如果不指定 db_name，使用当前默认db
 
 2.  如果使用 LABEL LIKE，则会匹配Stream Load任务的 label 包含 label_matcher 的任务

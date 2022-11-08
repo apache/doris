@@ -37,6 +37,7 @@
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "vec/exec/format/generic_reader.h"
 
 namespace doris {
 
@@ -77,38 +78,42 @@ private:
 };
 
 // base of arrow reader
-class ArrowReaderWrap {
+class ArrowReaderWrap : public vectorized::GenericReader {
 public:
-    ArrowReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file,
-                    bool caseSensitive);
+    ArrowReaderWrap(RuntimeState* state, const std::vector<SlotDescriptor*>& file_slot_descs,
+                    FileReader* file_reader, int32_t num_of_columns_from_file, bool caseSensitive);
     virtual ~ArrowReaderWrap();
 
     virtual Status init_reader(const TupleDescriptor* tuple_desc,
-                               const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                const std::vector<ExprContext*>& conjunct_ctxs,
                                const std::string& timezone) = 0;
     // for row
-    virtual Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                        MemPool* mem_pool, bool* eof) {
+    virtual Status read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
         return Status::NotSupported("Not Implemented read");
     }
     // for vec
+    Status get_next_block(vectorized::Block* block, size_t* read_row, bool* eof) override;
+    // This method should be deprecated once the old scanner is removed.
+    // And user should use "get_next_block" instead.
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof);
+
     std::shared_ptr<Statistics>& statistics() { return _statistics; }
     void close();
     virtual Status size(int64_t* size) { return Status::NotSupported("Not Implemented size"); }
-    int get_cloumn_index(std::string column_name);
+    int get_column_index(std::string column_name);
 
     void prefetch_batch();
     bool is_case_sensitive() { return _case_sensitive; }
 
 protected:
-    virtual Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
+    virtual Status column_indices();
     virtual void read_batches(arrow::RecordBatchVector& batches, int current_group) = 0;
     virtual bool filter_row_group(int current_group) = 0;
 
 protected:
-    const int64_t _batch_size;
+    RuntimeState* _state;
+    std::vector<SlotDescriptor*> _file_slot_descs;
+
     const int32_t _num_of_columns_from_file;
     std::shared_ptr<ArrowFile> _arrow_file;
     std::shared_ptr<::arrow::RecordBatchReader> _rb_reader;
@@ -128,6 +133,12 @@ protected:
     const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
     std::thread _thread;
     bool _case_sensitive;
+
+    // The following fields are only valid when using "get_block()" interface.
+    std::shared_ptr<arrow::RecordBatch> _batch;
+    size_t _arrow_batch_cur_idx = 0;
+    // Save col names which need to be read but does not exist in file
+    std::vector<std::string> _missing_cols;
 };
 
 } // namespace doris

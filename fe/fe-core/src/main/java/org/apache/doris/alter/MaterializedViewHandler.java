@@ -505,6 +505,12 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
+        // if the column is array type, we forbid to create materialized view
+        for (Column column : newMVColumns) {
+            if (column.getDataType() == PrimitiveType.ARRAY) {
+                throw new DdlException("The array column[" + column + "] not support to create materialized view");
+            }
+        }
 
         if (olapTable.getEnableLightSchemaChange()) {
             int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
@@ -802,7 +808,7 @@ public class MaterializedViewHandler extends AlterHandler {
             long mvIndexId = dropMaterializedView(mvName, olapTable);
             // Step3: log drop mv operation
             EditLog editLog = Env.getCurrentEnv().getEditLog();
-            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), mvIndexId, false));
+            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), mvIndexId, false, 0));
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
             if (dropMaterializedViewStmt.isIfExists()) {
@@ -1028,7 +1034,7 @@ public class MaterializedViewHandler extends AlterHandler {
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
         } else {
-            LOG.info("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
+            LOG.debug("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
                     alterJob.isDone(), alterJob.getJobId());
         }
     }

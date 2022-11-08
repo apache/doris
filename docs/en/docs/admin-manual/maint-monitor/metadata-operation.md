@@ -28,11 +28,11 @@ under the License.
 
 This document focuses on how to manage Doris metadata in a real production environment. It includes the proposed deployment of FE nodes, some commonly used operational methods, and common error resolution methods.
 
-For the time being, read the [Doris metadata design document](../../design/metadata-design.md) to understand how Doris metadata works.
+For the time being, read the [Doris metadata design document](/community/design/metadata-design) to understand how Doris metadata works.
 
 ## Important tips
 
-* Current metadata design is not backward compatible. That is, if the new version has a new metadata structure change (you can see whether there is a new VERSION in the `FeMetaVersion.java` file in the FE code), it is usually impossible to roll back to the old version after upgrading to the new version. Therefore, before upgrading FE, be sure to test metadata compatibility according to the operations in the [Upgrade Document](../upgrade.md).
+* Current metadata design is not backward compatible. That is, if the new version has a new metadata structure change (you can see whether there is a new VERSION in the `FeMetaVersion.java` file in the FE code), it is usually impossible to roll back to the old version after upgrading to the new version. Therefore, before upgrading FE, be sure to test metadata compatibility according to the operations in the [Upgrade Document](../../../admin-manual/cluster-management/upgrade).
 
 ## Metadata catalog structure
 

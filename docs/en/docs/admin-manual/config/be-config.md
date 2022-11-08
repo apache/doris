@@ -66,11 +66,11 @@ There are two ways to configure BE configuration items:
 
 ## Examples
 
-1. Modify `max_base_compaction_concurrency` statically
+1. Modify `max_base_compaction_threads` statically
 
      By adding in the `be.conf` file:
 
-     ```max_base_compaction_concurrency=5```
+     ```max_base_compaction_threads=5```
 
      Then restart the BE process to take effect the configuration.
 
@@ -351,14 +351,6 @@ Similar to `base_compaction_trace_threshold`.
 
 If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 
-### `cumulative_compaction_policy`
-
-* Type: string
-* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
-* Default value: size_based
-
-In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satisfies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
-
 ### `cumulative_size_based_promotion_size_mbytes`
 
 * Type: int64
@@ -450,7 +442,7 @@ Cgroups assigned to doris
 ### `doris_max_scan_key_num`
 
 * Type: int
-* Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../advanced/variables.md).
+* Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../../advanced/variables).
 * Default value: 1024
 
 When the concurrency cannot be improved in high concurrency scenarios, try to reduce this value and observe the impact.
@@ -706,11 +698,17 @@ Set these default values very large, because we don't want to affect load perfor
 
 ### `load_process_max_memory_limit_percent`
 
-Default: 80 (%)
+Default: 50 (%)
 
-The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 80%
+The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 50%
 
 Set these default values very large, because we don't want to affect load performance when users upgrade Doris. If necessary, the user should set these configurations correctly
+
+### `load_process_soft_mem_limit_percent`
+
+Default: 50 (%)
+
+The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consuption will be selected to be flushed to release the memory space, the default is 50%
 
 ### `log_buffer_level`
 
@@ -840,9 +838,15 @@ The number of sliced tablets, plan the layout of the tablet, and avoid too many 
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
 * Default value: 80%
 
-### `memory_limitation_per_thread_for_schema_change`
+### `memory_mode`
 
-Default: 2 （G）
+* Type: string
+* Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
+* Default value: performance
+
+### `memory_limitation_per_thread_for_schema_change_bytes`
+
+Default: 2147483648
 
 Maximum memory allowed for a single schema change task
 
@@ -1026,13 +1030,6 @@ Import the number of threads for processing HIGH priority tasks
 Default: 3
 
 Import the number of threads for processing NORMAL priority tasks
-
-### `push_write_mbytes_per_sec`
-
-+ Type: int32
-+ Description: Load data speed control, the default is 10MB per second. Applicable to all load methods.
-+ Unit: MB
-+ Default value: 10
 
 ### `query_scratch_dirs`
 
@@ -1226,9 +1223,9 @@ Shard size of StoragePageCache, the value must be power of two. It's recommended
     * 1./home/disk1/doris.HDD, indicates that the storage medium is HDD;
     * 2./home/disk2/doris.SSD, indicates that the storage medium is SSD;
     * 3./home/disk2/doris, indicates that the storage medium is HDD by default
-    
+  
     eg.2: `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
-    
+  
     * 1./home/disk1/doris,medium:hdd，indicates that the storage medium is HDD;
     * 2./home/disk2/doris,medium:ssd，indicates that the storage medium is SSD;
 
@@ -1349,6 +1346,8 @@ Default: 300
 
 Update interval of tablet state cache, unit: second
 
+The RPC timeout for sending a Batch (1024 lines) during import. The default is 60 seconds. Since this RPC may involve writing multiple batches of memory, the RPC timeout may be caused by writing batches, so this timeout can be adjusted to reduce timeout errors (such as send batch fail errors). Also, if you increase the write_buffer_size configuration, you need to increase this parameter as well.
+
 ### `tablet_writer_ignore_eovercrowded`
 
 * Type: bool
@@ -1356,26 +1355,6 @@ Update interval of tablet state cache, unit: second
 * Default value: false
 
 When meet '[E1011]The server is overcrowded' error, you can tune the configuration `brpc_socket_max_unwritten_bytes`, but it can't be modified at runtime. Set it to `true` to avoid writing failed temporarily. Notice that, it only effects `write`, other rpc requests will still check if overcrowded.
-
-### `tc_free_memory_rate`
-
-Default: 20   (%)
-
-Available memory, value range: [0-100]
-
-### `tc_max_total_thread_cache_bytes`
-
-* Type: int64
-* Description: Used to limit the total thread cache size in tcmalloc. This limit is not a hard limit, so the actual thread cache usage may exceed this limit. For details, please refer to [TCMALLOC\_MAX\_TOTAL\_THREAD\_CACHE\_BYTES](https://gperftools.github.io/gperftools/tcmalloc.html)
-* Default: 1073741824
-
-If the system is found to be in a high-stress scenario and a large number of threads are found in the tcmalloc lock competition phase through the BE thread stack, such as a large number of `SpinLock` related stacks, you can try increasing this parameter to improve system performance. [Reference](https://github.com/gperftools/gperftools/issues/1111)
-
-### `tc_use_memory_min`
-
-Default: 10737418240
-
-The minimum memory of TCmalloc, when the memory used is less than this, it is not returned to the operating system
 
 ### `thrift_client_retry_interval_ms`
 
@@ -1446,12 +1425,6 @@ Default: 1
 
 Maximum number of threads for uploading files
 
-### `use_mmap_allocate_chunk`
-
-Default: false
-
-Whether to use mmap to allocate blocks. If you enable this feature, it is best to increase the value of vm.max_map_count, its default value is 65530. You can use "sysctl -w vm.max_map_count=262144" or "echo 262144> /proc/sys/vm/" to operate max_map_count as root. When this setting is true, you must set chunk_reserved_bytes_limit to a relatively low Big number, otherwise the performance is very very bad
-
 ### `user_function_dir`
 
 ${DORIS_HOME}/lib/udf
@@ -1475,6 +1448,8 @@ Webserver default number of worker threads
 Default: 104857600
 
 The size of the buffer before flashing
+
+Imported data is first written to a memory block on the BE, and only written back to disk when this memory block reaches the threshold. The default size is 100MB. too small a threshold may result in a large number of small files on the BE. This threshold can be increased to reduce the number of files. However, too large a threshold may cause RPC timeouts
 
 ### `zone_map_row_num_threshold`
 
@@ -1579,7 +1554,7 @@ Translated with www.DeepL.com/Translator (free version)
 ### `enable_quick_compaction`
 * Type: bool
 * Description: enable quick compaction,It is mainly used in the scenario of frequent import of small amount of data. The problem of -235 can be effectively avoided by merging the imported versions in time through the mechanism of rapid compaction. The definition of small amount of data is currently defined according to the number of rows
-* Default: false
+* Default: true
 
 ### `quick_compaction_max_rows`
 * Type: int32
@@ -1615,3 +1590,21 @@ Translated with www.DeepL.com/Translator (free version)
 * Type：int64
 * Description：Save time of cache file, in seconds
 * Default：604800（1 week）
+
+### `enable_segcompaction`
+
+* Type: bool
+* Description: Enable to use segment compaction during loading
+* Default value: false
+
+### `segcompaction_threshold_segment_num`
+
+* Type: int32
+* Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
+* Default value: 10
+
+### `segcompaction_small_threshold`
+
+* Type: int32
+* Description: The segment whose row number above the threshold will be compacted during segcompaction
+* Default value: 1048576

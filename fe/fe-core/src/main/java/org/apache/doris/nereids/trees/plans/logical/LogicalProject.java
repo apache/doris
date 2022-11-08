@@ -40,7 +40,7 @@ import java.util.Optional;
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Project {
 
-    private final List<NamedExpression> projects;
+    private final ImmutableList<NamedExpression> projects;
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
         this(projects, Optional.empty(), Optional.empty(), child);
@@ -83,12 +83,12 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalProject((LogicalProject<Plan>) this, context);
+        return visitor.visitLogicalProject(this, context);
     }
 
     @Override
-    public List<Expression> getExpressions() {
-        return new ImmutableList.Builder<Expression>().addAll(projects).build();
+    public List<? extends Expression> getExpressions() {
+        return projects;
     }
 
     @Override
@@ -116,7 +116,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalProject<>(projects, groupExpression, Optional.of(logicalProperties), child());
+        return new LogicalProject<>(projects, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override

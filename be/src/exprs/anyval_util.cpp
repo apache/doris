@@ -216,6 +216,10 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         out.type = FunctionContext::TYPE_STRING;
         out.len = type.len;
         break;
+    case TYPE_JSONB:
+        out.type = FunctionContext::TYPE_JSONB;
+        out.len = type.len;
+        break;
     default:
         DCHECK(false) << "Unknown type: " << type;
     }

@@ -265,6 +265,10 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.ARRAY) {
+            if (isKey()) {
+                throw new AnalysisException("Array can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            }
             if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Array type column default value only support null");
             }
@@ -273,6 +277,12 @@ public class ColumnDef {
             throw new AnalysisException("String Type should not be used in key column[" + getName()
                     + "].");
         }
+
+        if (isKey() && type.getPrimitiveType() == PrimitiveType.JSONB) {
+            throw new AnalysisException("JSONB type should not be used in key column[" + getName()
+                    + "].");
+        }
+
         if (type.getPrimitiveType() == PrimitiveType.MAP) {
             if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Map type column default value just support null");
@@ -359,6 +369,7 @@ public class ColumnDef {
             case VARCHAR:
             case HLL:
             case STRING:
+            case JSONB:
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
                 }

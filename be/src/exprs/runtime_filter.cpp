@@ -18,6 +18,7 @@
 #include "runtime_filter.h"
 
 #include <memory>
+#include <type_traits>
 
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -31,12 +32,14 @@
 #include "exprs/literal.h"
 #include "exprs/minmax_predicate.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
+#include "vec/columns/column.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
@@ -401,16 +404,20 @@ class RuntimePredicateWrapper {
 public:
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool,
                             const RuntimeFilterParams* params)
-            : _pool(pool),
+            : _state(state),
+              _pool(pool),
               _column_return_type(params->column_return_type),
               _filter_type(params->filter_type),
               _fragment_instance_id(params->fragment_instance_id),
               _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(ObjectPool* pool, RuntimeFilterType type, UniqueId fragment_instance_id,
+    RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
+                            RuntimeFilterType type, UniqueId fragment_instance_id,
                             uint32_t filter_id)
-            : _pool(pool),
+            : _state(state),
+              _pool(pool),
+              _column_return_type(column_type),
               _filter_type(type),
               _fragment_instance_id(fragment_instance_id),
               _filter_id(filter_id) {}
@@ -430,12 +437,14 @@ public:
         case RuntimeFilterType::BLOOM_FILTER: {
             _is_bloomfilter = true;
             _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
-            return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
+            _bloomfilter_func->set_length(params->bloom_filter_size);
+            return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             _hybrid_set.reset(create_set(_column_return_type));
             _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
-            return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
+            _bloomfilter_func->set_length(params->bloom_filter_size);
+            return Status::OK();
         }
         default:
             return Status::InvalidArgument("Unknown Filter type");
@@ -448,16 +457,33 @@ public:
                 << "Can not change to bloom filter because of runtime filter type is "
                 << to_string(_filter_type);
         _is_bloomfilter = true;
+        insert_to_bloom_filter(_bloomfilter_func.get());
+        // release in filter
+        _hybrid_set.reset(create_set(_column_return_type));
+    }
+
+    void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
         if (_hybrid_set->size() > 0) {
+            bool use_batch = _state->enable_vectorized_exec() &&
+                             IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+                                                              _column_return_type);
             auto it = _hybrid_set->begin();
-            while (it->has_next()) {
-                _bloomfilter_func->insert(it->get_value());
-                it->next();
+
+            if (use_batch) {
+                while (it->has_next()) {
+                    bloom_filter->insert_fixed_len((char*)it->get_value());
+                    it->next();
+                }
+            } else {
+                while (it->has_next()) {
+                    bloom_filter->insert(it->get_value());
+                    it->next();
+                }
             }
-            // release in filter
-            _hybrid_set.reset(create_set(_column_return_type));
         }
     }
+
+    BloomFilterFuncBase* get_bloomfilter() const { return _bloomfilter_func.get(); }
 
     void insert(const void* data) {
         switch (_filter_type) {
@@ -489,8 +515,41 @@ public:
             break;
         }
     }
+
+    void insert_fixed_len(const char* data, const int* offsets, int number) {
+        switch (_filter_type) {
+        case RuntimeFilterType::IN_FILTER: {
+            if (_is_ignored_in_filter) {
+                break;
+            }
+            _hybrid_set->insert_fixed_len(data, offsets, number);
+            break;
+        }
+        case RuntimeFilterType::MINMAX_FILTER: {
+            _minmax_func->insert_fixed_len(data, offsets, number);
+            break;
+        }
+        case RuntimeFilterType::BLOOM_FILTER: {
+            _bloomfilter_func->insert_fixed_len(data, offsets, number);
+            break;
+        }
+        case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
+            if (_is_bloomfilter) {
+                _bloomfilter_func->insert_fixed_len(data, offsets, number);
+            } else {
+                _hybrid_set->insert_fixed_len(data, offsets, number);
+            }
+            break;
+        }
+        default:
+            DCHECK(false);
+            break;
+        }
+    }
+
     void insert(const StringRef& value) {
         switch (_column_return_type) {
+        // todo: rethink logic of hll/bitmap/date
         case TYPE_DATE:
         case TYPE_DATETIME: {
             // DateTime->DateTimeValue
@@ -518,6 +577,16 @@ public:
         default:
             insert(reinterpret_cast<const void*>(value.data));
             break;
+        }
+    }
+
+    void insert_batch(const vectorized::ColumnPtr column, const std::vector<int>& rows) {
+        if (IRuntimeFilter::enable_use_batch(_state->be_exec_version(), _column_return_type)) {
+            insert_fixed_len(column->get_raw_data().data, rows.data(), rows.size());
+        } else {
+            for (int index : rows) {
+                insert(column->get_data_at(index));
+            }
         }
     }
 
@@ -627,12 +696,7 @@ public:
                             << " can not ignore merge runtime filter(in filter id "
                             << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
                             << *(wrapper->get_ignored_in_filter_msg());
-                    auto it = wrapper->_hybrid_set->begin();
-                    while (it->has_next()) {
-                        auto value = it->get_value();
-                        _bloomfilter_func->insert(value);
-                        it->next();
-                    }
+                    wrapper->insert_to_bloom_filter(_bloomfilter_func.get());
                     // bloom filter merge bloom filter
                 } else {
                     _bloomfilter_func->merge(wrapper->_bloomfilter_func.get());
@@ -813,7 +877,7 @@ public:
 
     // used by shuffle runtime filter
     // assign this filter by protobuf
-    Status assign(const PBloomFilter* bloom_filter, const char* data) {
+    Status assign(const PBloomFilter* bloom_filter, butil::IOBufAsZeroCopyInputStream* data) {
         _is_bloomfilter = true;
         // we won't use this class to insert or find any data
         // so any type is ok
@@ -994,13 +1058,14 @@ public:
     }
 
 private:
+    RuntimeState* _state;
     ObjectPool* _pool;
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
     std::unique_ptr<MinMaxFuncBase> _minmax_func;
     std::unique_ptr<HybridSetBase> _hybrid_set;
-    std::shared_ptr<IBloomFilterFuncBase> _bloomfilter_func;
+    std::shared_ptr<BloomFilterFuncBase> _bloomfilter_func;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
@@ -1027,6 +1092,12 @@ void IRuntimeFilter::insert(const void* data) {
 void IRuntimeFilter::insert(const StringRef& value) {
     DCHECK(is_producer());
     _wrapper->insert(value);
+}
+
+void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column,
+                                  const std::vector<int>& rows) {
+    DCHECK(is_producer());
+    _wrapper->insert_batch(column, rows);
 }
 
 Status IRuntimeFilter::publish() {
@@ -1135,6 +1206,10 @@ void IRuntimeFilter::signal() {
     _effect_timer.reset();
 }
 
+BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
+    return _wrapper->get_bloomfilter();
+}
+
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
                                       UniqueId fragment_instance_id, int node_id) {
     // if node_id == -1 , it shouldn't be a consumer
@@ -1195,14 +1270,16 @@ Status IRuntimeFilter::serialize(PPublishFilterRequest* request, void** data, in
     return serialize_impl(request, data, len);
 }
 
-Status IRuntimeFilter::create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
+                                      ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
-    return _create_wrapper(param, pool, wrapper);
+    return _create_wrapper(state, param, pool, wrapper);
 }
 
-Status IRuntimeFilter::create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
+                                      ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
-    return _create_wrapper(param, pool, wrapper);
+    return _create_wrapper(state, param, pool, wrapper);
 }
 
 void IRuntimeFilter::change_to_bloom_filter() {
@@ -1214,10 +1291,14 @@ void IRuntimeFilter::change_to_bloom_filter() {
 }
 
 template <class T>
-Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
+Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
-    wrapper->reset(new RuntimePredicateWrapper(pool, get_type(filter_type),
+    PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
+    if (param->request->has_in_filter()) {
+        column_type = to_primitive_type(param->request->in_filter().column_type());
+    }
+    wrapper->reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
                                                UniqueId(param->request->fragment_id()),
                                                param->request->filter_id()));
 
@@ -1255,7 +1336,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
 }
 
 void IRuntimeFilter::update_runtime_filter_type_to_profile() {
-    if (_profile.get() != nullptr) {
+    if (_profile != nullptr) {
         _profile->add_info_string("RealRuntimeFilterType",
                                   ::doris::to_string(_wrapper->get_real_type()));
     }
@@ -1343,7 +1424,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
 
     switch (column_type) {
     case TYPE_BOOLEAN: {
-        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
+        batch_copy<bool>(filter, it, [](PColumnValue* column, const bool* value) {
             column->set_boolval(*value);
         });
         return;
@@ -1583,7 +1664,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
         set_ignored_msg(*msg);
     }
     std::unique_ptr<RuntimePredicateWrapper> wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, _pool, &wrapper));
+    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, param, _pool, &wrapper));
     auto origin_type = _wrapper->get_real_type();
     RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
     if (origin_type != _wrapper->get_real_type()) {

@@ -41,8 +41,8 @@ StringVal encrypt(FunctionContext* ctx, const StringVal& src, const StringVal& k
     cipher_text.reset(new char[cipher_len]);
     int cipher_text_len = 0;
     cipher_text_len = EncryptionUtil::encrypt(mode, (unsigned char*)src.ptr, src.len,
-                                              (unsigned char*)key.ptr, key.len, (char*)iv.ptr, true,
-                                              (unsigned char*)cipher_text.get());
+                                              (unsigned char*)key.ptr, key.len, (char*)iv.ptr,
+                                              iv.len, true, (unsigned char*)cipher_text.get());
     if (cipher_text_len < 0) {
         return StringVal::null();
     }
@@ -58,9 +58,9 @@ StringVal decrypt(FunctionContext* ctx, const StringVal& src, const StringVal& k
     std::unique_ptr<char[]> plain_text;
     plain_text.reset(new char[cipher_len]);
     int plain_text_len = 0;
-    plain_text_len =
-            EncryptionUtil::decrypt(mode, (unsigned char*)src.ptr, src.len, (unsigned char*)key.ptr,
-                                    key.len, (char*)iv.ptr, true, (unsigned char*)plain_text.get());
+    plain_text_len = EncryptionUtil::decrypt(mode, (unsigned char*)src.ptr, src.len,
+                                             (unsigned char*)key.ptr, key.len, (char*)iv.ptr,
+                                             iv.len, true, (unsigned char*)plain_text.get());
     if (plain_text_len < 0) {
         return StringVal::null();
     }
@@ -80,7 +80,7 @@ StringVal EncryptionFunctions::aes_decrypt(FunctionContext* ctx, const StringVal
 StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx, const StringVal& src,
                                            const StringVal& key, const StringVal& iv,
                                            const StringVal& mode) {
-    EncryptionMode encryption_mode = AES_128_ECB;
+    EncryptionMode encryption_mode = EncryptionMode::AES_128_ECB;
     if (mode.len != 0 && !mode.is_null) {
         std::string mode_str(reinterpret_cast<char*>(mode.ptr), mode.len);
         if (aes_mode_map.count(mode_str) == 0) {
@@ -94,7 +94,7 @@ StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx, const StringVal
 StringVal EncryptionFunctions::aes_decrypt(FunctionContext* ctx, const StringVal& src,
                                            const StringVal& key, const StringVal& iv,
                                            const StringVal& mode) {
-    EncryptionMode encryption_mode = AES_128_ECB;
+    EncryptionMode encryption_mode = EncryptionMode::AES_128_ECB;
     if (mode.len != 0 && !mode.is_null) {
         std::string mode_str(reinterpret_cast<char*>(mode.ptr), mode.len);
         if (aes_mode_map.count(mode_str) == 0) {
@@ -118,7 +118,7 @@ StringVal EncryptionFunctions::sm4_decrypt(FunctionContext* ctx, const StringVal
 StringVal EncryptionFunctions::sm4_encrypt(FunctionContext* ctx, const StringVal& src,
                                            const StringVal& key, const StringVal& iv,
                                            const StringVal& mode) {
-    EncryptionMode encryption_mode = SM4_128_ECB;
+    EncryptionMode encryption_mode = EncryptionMode::SM4_128_ECB;
     if (mode.len != 0 && !mode.is_null) {
         std::string mode_str(reinterpret_cast<char*>(mode.ptr), mode.len);
         if (sm4_mode_map.count(mode_str) == 0) {
@@ -132,7 +132,7 @@ StringVal EncryptionFunctions::sm4_encrypt(FunctionContext* ctx, const StringVal
 StringVal EncryptionFunctions::sm4_decrypt(FunctionContext* ctx, const StringVal& src,
                                            const StringVal& key, const StringVal& iv,
                                            const StringVal& mode) {
-    EncryptionMode encryption_mode = SM4_128_ECB;
+    EncryptionMode encryption_mode = EncryptionMode::SM4_128_ECB;
     if (mode.len != 0 && !mode.is_null) {
         std::string mode_str(reinterpret_cast<char*>(mode.ptr), mode.len);
         if (sm4_mode_map.count(mode_str) == 0) {
@@ -181,7 +181,7 @@ StringVal EncryptionFunctions::md5sum(FunctionContext* ctx, int num_args, const 
     for (int i = 0; i < num_args; ++i) {
         const StringVal& arg = args[i];
         if (arg.is_null) {
-            continue;
+            return StringVal::null();
         }
         digest.update(arg.ptr, arg.len);
     }
@@ -204,7 +204,7 @@ StringVal EncryptionFunctions::sm3sum(FunctionContext* ctx, int num_args, const 
     for (int i = 0; i < num_args; ++i) {
         const StringVal& arg = args[i];
         if (arg.is_null) {
-            continue;
+            return StringVal::null();
         }
         digest.update(arg.ptr, arg.len);
     }
