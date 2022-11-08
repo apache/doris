@@ -262,6 +262,14 @@ public:
         return _dict.find_codes(values, selected);
     }
 
+    void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
+        _rowset_segment_id = rowset_segment_id;
+    }
+
+    std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
+        return _rowset_segment_id;
+    }
+
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
@@ -451,6 +459,7 @@ private:
     Dictionary _dict;
     Container _codes;
     FieldType _type;
+    std::pair<RowsetId, uint32_t> _rowset_segment_id;
 };
 
 template class ColumnDictionary<int32_t>;
