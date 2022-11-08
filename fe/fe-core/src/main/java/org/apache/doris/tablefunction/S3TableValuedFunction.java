@@ -32,27 +32,29 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.util.Map;
-import java.util.Optional;
 
 /**
- * The Implement of table valued function——S3(path, AK, SK, format).
+ * The Implement of table valued function
+ * S3("uri" = "xxx", "access_key" = "xx", "SECRET_KEY" = "qqq", "FORMAT" = "csv").
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public static final Logger LOG = LogManager.getLogger(S3TableValuedFunction.class);
     public static final String NAME = "s3";
-    public static final String S3_URI = "S3_URI";
+    public static final String S3_URI = "URI";
     public static final String S3_AK = "AWS_ACCESS_KEY";
     public static final String S3_SK = "AWS_SECRET_KEY";
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
     public static final String S3_REGION = "AWS_REGION";
     public static final String FORMAT = "FORMAT";
+    private static final String AK = "ACCESS_KEY";
+    private static final String SK = "SECRET_KEY";
 
     public static final String USE_PATH_STYLE = "use_path_style";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
                         .add(S3_URI)
-                        .add(S3_AK)
-                        .add(S3_SK)
+                        .add(AK)
+                        .add(SK)
                         .add(FORMAT)
                         .build();
     private S3URI s3uri;
@@ -60,17 +62,19 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     private String s3SK;
 
     public S3TableValuedFunction(Map<String, String> params) throws UserException {
-        Optional<String> optional = params.keySet().stream().filter(
-                entity -> !PROPERTIES_SET.contains(entity.toUpperCase())).findFirst();
-        if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid property");
+        Map<String, String> validParams = Maps.newHashMap();
+        for (String key : params.keySet()) {
+            if (!PROPERTIES_SET.contains(key.toUpperCase())) {
+                throw new AnalysisException(key + " is invalid property");
+            }
+            validParams.put(key.toUpperCase(), params.get(key));
         }
 
         s3uri = S3URI.create(params.get(S3_URI));
-        s3AK = params.get(S3_AK);
-        s3SK = params.get(S3_SK);
-        String formatString = params.get(FORMAT).toLowerCase();
-        switch (formatString) {
+        s3AK = params.getOrDefault(AK, "");
+        s3SK = params.getOrDefault(SK, "");
+        String formatString = params.getOrDefault(FORMAT, "");
+        switch (formatString.toLowerCase()) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;

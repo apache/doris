@@ -35,18 +35,18 @@ import org.apache.doris.thrift.TTVFNumbersScanRange;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 // Table function that generate int64 numbers
 // have a single column number
 
 /**
- * The Implement of table valued function——numbers(N,M).
+ * The Implement of table valued function——numbers("number" = "N", "backend_num" = "M").
  */
 public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     public static final String NAME = "numbers";
@@ -67,25 +67,20 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
      * @throws UserException exception
      */
     public NumbersTableValuedFunction(Map<String, String> params) throws UserException {
-        Optional<String> optional = params.keySet().stream().filter(
-                entity -> !PROPERTIES_SET.contains(entity)).findFirst();
-        if (optional.isPresent()) {
-            throw new AnalysisException(optional.get() + " is invalid property");
+        Map<String, String> validParams = Maps.newHashMap();
+        for (String key : params.keySet()) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+                throw new AnalysisException(key + " is invalid property");
+            }
+            validParams.put(key.toLowerCase(), params.get(key));
         }
 
-        tabletsNum = 1; // tabletsNum default = 1
-        String numberStr = "";
-        for (String key : params.keySet()) {
-            if (key.equalsIgnoreCase(NUMBER)) {
-                numberStr = params.get(NUMBER);
-            } else if (key.equalsIgnoreCase(BACKEND_NUM)) {
-                try {
-                    tabletsNum = Integer.parseInt(params.get(BACKEND_NUM));
-                } catch (NumberFormatException e) {
-                    throw new UserException("can not parse `backend_num` param to natural number");
-                }
-            }
+        try {
+            tabletsNum = Integer.parseInt(validParams.getOrDefault(BACKEND_NUM, "1"));
+        } catch (NumberFormatException e) {
+            throw new UserException("can not parse `backend_num` param to natural number");
         }
+        String numberStr = validParams.get(NUMBER);
         if (!Strings.isNullOrEmpty(numberStr)) {
             try {
                 totalNumbers = Long.parseLong(numberStr);

@@ -3818,7 +3818,7 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, false);
     :}
-    | describe_command KW_FROM table_valued_function_ref:tvf
+    | describe_command KW_FUNCTION table_valued_function_ref:tvf
     {:
         RESULT = new DescribeStmt(tvf);
     :}
