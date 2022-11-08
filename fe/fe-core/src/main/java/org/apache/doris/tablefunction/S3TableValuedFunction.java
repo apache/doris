@@ -70,10 +70,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             validParams.put(key.toUpperCase(), params.get(key));
         }
 
-        s3uri = S3URI.create(params.get(S3_URI));
-        s3AK = params.getOrDefault(AK, "");
-        s3SK = params.getOrDefault(SK, "");
-        String formatString = params.getOrDefault(FORMAT, "");
+        s3uri = S3URI.create(validParams.get(S3_URI));
+        s3AK = validParams.getOrDefault(AK, "");
+        s3SK = validParams.getOrDefault(SK, "");
+        String formatString = validParams.getOrDefault(FORMAT, "");
         switch (formatString.toLowerCase()) {
             case "csv":
                 this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
