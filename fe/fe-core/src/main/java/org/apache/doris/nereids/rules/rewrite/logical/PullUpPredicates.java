@@ -56,7 +56,7 @@ public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
         if (plan.arity() == 1) {
             return plan.child(0).accept(this, context);
         }
-        return Sets.newHashSet();
+        return ImmutableSet.of();
     }
 
     @Override

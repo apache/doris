@@ -48,7 +48,7 @@ public class VisitorRewriteJob extends Job {
     @Override
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
-        Plan root = context.getCascadesContext().getMemo().copyOut(logicalExpression, false);
+        Plan root = context.getCascadesContext().getMemo().copyOut(logicalExpression, true);
         Plan rewrittenRoot = root.accept(planRewriter, context);
         context.getCascadesContext().getMemo().copyIn(rewrittenRoot, group, true);
     }
