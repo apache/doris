@@ -58,7 +58,7 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
                 .map(types -> types.get(0))
                 .orElse(child().getDataType());
         if (argumentType instanceof DecimalType) {
-            return argumentType;
+            return DecimalType.SYSTEM_DEFAULT;
         } else if (argumentType.isDate()) {
             return DateType.INSTANCE;
         } else if (argumentType.isDateTime()) {
