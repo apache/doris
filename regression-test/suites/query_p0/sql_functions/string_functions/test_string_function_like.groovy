@@ -29,6 +29,8 @@ suite("test_string_function_like") {
         """
     sql """
         INSERT INTO ${tbName} VALUES 
+            (""),
+            (" "),
             ("a"),
             ("b"),
             ("bb"),
@@ -37,6 +39,8 @@ suite("test_string_function_like") {
             ("ab"),
             ("accb");
         """
+    qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"\" ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \" \" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"a\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"%a\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"a%\" ORDER BY k;"
@@ -60,5 +64,5 @@ suite("test_string_function_like") {
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"%\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k NOT LIKE \"%\" ORDER BY k;"
 
-    sql "DROP TABLE ${tbName};"
+    // sql "DROP TABLE ${tbName};"
 }
