@@ -411,4 +411,3 @@ FUNC_IMPL_TO_CONVERT_DATA(double, double, D, Double)
 } // namespace doris
 
 #endif
-
