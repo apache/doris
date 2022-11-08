@@ -225,7 +225,7 @@ public class TableStats {
         for (PartitionStats partitionStats : nameToPartitionStats.values()) {
             partitionStats.getNameToColumnStats().forEach((colName, columnStats) -> {
                 if (!aggColumnStats.containsKey(colName)) {
-                    aggColumnStats.put(colName, columnStats);
+                    aggColumnStats.put(colName, columnStats.copy());
                 } else {
                     ColumnStat tblColStats = aggColumnStats.get(colName);
                     mergePartitionColumnStats(tblColStats, columnStats);
