@@ -290,6 +290,10 @@ if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
     DISABLE_JAVA_UDF='OFF'
 fi
 
+if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
+    DISABLE_JAVA_CHECK_STYLE='OFF'
+fi
+
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
@@ -468,7 +472,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         skip_check_stype="-Dcheckstyle.skip=true"
     fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests ${skip_check_stype}
+    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests "${skip_check_stype}"
     cd "${DORIS_HOME}"
 fi
 
