@@ -34,7 +34,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.HashSet;
+import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,13 +46,13 @@ import java.util.stream.Collectors;
 /**
  * poll up effective predicates from operator's children.
  */
-public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
+public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void> {
 
     PredicatePropagation propagation = new PredicatePropagation();
-    Map<Plan, Set<Expression>> cache = new IdentityHashMap<>();
+    Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
 
     @Override
-    public Set<Expression> visit(Plan plan, Void context) {
+    public ImmutableSet<Expression> visit(Plan plan, Void context) {
         if (plan.arity() == 1) {
             return plan.child(0).accept(this, context);
         }
@@ -60,20 +60,20 @@ public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
     }
 
     @Override
-    public Set<Expression> visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
+    public ImmutableSet<Expression> visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         return cacheOrElse(filter, () -> {
             List<Expression> predicates = Lists.newArrayList(filter.getConjuncts());
             predicates.addAll(filter.child().accept(this, context));
-            return getAvailableExpressions(Sets.newHashSet(predicates), filter);
+            return getAvailableExpressions(predicates, filter);
         });
     }
 
     @Override
-    public Set<Expression> visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
+    public ImmutableSet<Expression> visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         return cacheOrElse(join, () -> {
             Set<Expression> predicates = Sets.newHashSet();
-            Set<Expression> leftPredicates = join.left().accept(this, context);
-            Set<Expression> rightPredicates = join.right().accept(this, context);
+            ImmutableSet<Expression> leftPredicates = join.left().accept(this, context);
+            ImmutableSet<Expression> rightPredicates = join.right().accept(this, context);
             switch (join.getJoinType()) {
                 case INNER_JOIN:
                 case CROSS_JOIN:
@@ -104,24 +104,24 @@ public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
     }
 
     @Override
-    public Set<Expression> visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
+    public ImmutableSet<Expression> visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return cacheOrElse(project, () -> {
-            Set<Expression> childPredicates = project.child().accept(this, context);
+            ImmutableSet<Expression> childPredicates = project.child().accept(this, context);
             Map<Expression, Slot> expressionSlotMap = project.getAliasToProducer()
                     .entrySet()
                     .stream()
                     .collect(Collectors.toMap(Entry::getValue, Entry::getKey));
             Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
                     expressionSlotMap);
-            Set<Expression> predicates = Sets.newHashSet(ExpressionUtils.extractConjunction(expression));
+            List<Expression> predicates = ExpressionUtils.extractConjunction(expression);
             return getAvailableExpressions(predicates, project);
         });
     }
 
     @Override
-    public Set<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
+    public ImmutableSet<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
         return cacheOrElse(aggregate, () -> {
-            Set<Expression> childPredicates = aggregate.child().accept(this, context);
+            ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
             Map<Expression, Slot> expressionSlotMap = aggregate.getOutputExpressions()
                     .stream()
                     .filter(this::hasAgg)
@@ -136,13 +136,13 @@ public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
                     );
             Expression expression = ExpressionUtils.replace(ExpressionUtils.and(Lists.newArrayList(childPredicates)),
                     expressionSlotMap);
-            Set<Expression> predicates = Sets.newHashSet(ExpressionUtils.extractConjunction(expression));
+            List<Expression> predicates = ExpressionUtils.extractConjunction(expression);
             return getAvailableExpressions(predicates, aggregate);
         });
     }
 
-    private Set<Expression> cacheOrElse(Plan plan, Supplier<Set<Expression>> predicatesSupplier) {
-        Set<Expression> predicates = cache.get(plan);
+    private ImmutableSet<Expression> cacheOrElse(Plan plan, Supplier<ImmutableSet<Expression>> predicatesSupplier) {
+        ImmutableSet<Expression> predicates = cache.get(plan);
         if (predicates != null) {
             return predicates;
         }
@@ -151,12 +151,12 @@ public class PullUpPredicates extends PlanVisitor<Set<Expression>, Void> {
         return predicates;
     }
 
-    private Set<Expression> getAvailableExpressions(Set<Expression> predicates, Plan plan) {
-        HashSet<Expression> expressions = Sets.newHashSet(predicates);
+    private ImmutableSet<Expression> getAvailableExpressions(Collection<Expression> predicates, Plan plan) {
+        Set<Expression> expressions = Sets.newHashSet(predicates);
         expressions.addAll(propagation.infer(expressions));
-        return ImmutableSet.copyOf(expressions.stream()
+        return expressions.stream()
                 .filter(p -> plan.getOutputSet().containsAll(p.getInputSlots()))
-                .collect(Collectors.toSet()));
+                .collect(ImmutableSet.toImmutableSet());
     }
 
     private boolean hasAgg(Expression expression) {
