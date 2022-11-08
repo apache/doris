@@ -47,6 +47,10 @@ Status BRpcService::start(int port, int num_threads) {
     brpc::ServerOptions options;
     if (num_threads != -1) {
         options.num_threads = num_threads;
+    } else {
+        // Currently, we may block bthread in doris, so we set concurrency of bthread to be
+        // NR_CPUS * 2.
+        options.num_threads = sysconf(_SC_NPROCESSORS_ONLN) * 2;
     }
 
     if (_server->Start(port, &options) != 0) {

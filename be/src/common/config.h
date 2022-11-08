@@ -296,7 +296,7 @@ CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
-CONF_mInt32(compaction_task_num_per_disk, "2");
+CONF_mInt32(compaction_task_num_per_disk, "10");
 // compaction thread num for fast disk(typically .SSD), must be greater than 2.
 CONF_mInt32(compaction_task_num_per_fast_disk, "4");
 CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool { return config >= 2; });
@@ -352,7 +352,7 @@ CONF_Int32(single_replica_load_download_num_workers, "64");
 CONF_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 CONF_mInt64(load_error_log_reserve_hours, "48");
-CONF_Int32(number_tablet_writer_threads, "16");
+CONF_Int32(number_tablet_writer_threads, "32");
 CONF_Int32(number_slave_replica_download_threads, "64");
 
 // The maximum amount of data that can be processed by a stream load
@@ -511,7 +511,7 @@ CONF_mInt32(max_consumer_num_per_group, "3");
 
 // the size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
-CONF_Int32(routine_load_thread_pool_size, "10");
+CONF_Int32(routine_load_thread_pool_size, "50");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -609,7 +609,7 @@ CONF_Int32(query_cache_max_partition_count, "1024");
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
 // the load process will reject new incoming load job of this tablet.
 // This is to avoid too many version num.
-CONF_mInt32(max_tablet_version_num, "500");
+CONF_mInt32(max_tablet_version_num, "1000");
 
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
@@ -680,7 +680,7 @@ CONF_Int64(download_cache_buffer_size, "10485760");
 // so if there are too many segment in a rowset, the compaction process
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
-CONF_mInt32(max_segment_num_per_rowset, "200");
+CONF_mInt32(max_segment_num_per_rowset, "1500");
 
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "30");
