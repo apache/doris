@@ -220,7 +220,7 @@ set_tcmalloc_heap_limit() {
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
 }
 
-set_tcmalloc_heap_limit || exit 1
+# set_tcmalloc_heap_limit || exit 1
 
 ## set hdfs conf
 export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
