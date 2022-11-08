@@ -214,6 +214,9 @@ ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t lim
 template <typename T>
 MutableColumnPtr ColumnDecimal<T>::clone_resized(size_t size) const {
     auto res = this->create(0, scale);
+    if (this->is_decimalv2_type()) {
+        res->set_decimalv2_type();
+    }
 
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
