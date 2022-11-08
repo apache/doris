@@ -26,6 +26,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
 import org.apache.commons.text.StringSubstitutor;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,6 +41,8 @@ import java.util.stream.Collectors;
  *  Delete rows that corresponding DB/Table/Column not exists anymore.
  */
 public class StatisticsTableCleaner extends MasterDaemon {
+
+    private static final Logger LOG = LogManager.getLogger(StatisticsTableCleaner.class);
 
     public StatisticsTableCleaner() {
         super("Statistics Table Cleaner", (long) Config.statistic_clean_interval_in_hours * 3600 * 1000);
@@ -92,6 +96,7 @@ public class StatisticsTableCleaner extends MasterDaemon {
     }
 
     private void deleteExpired(String colName, List<String> constants) {
+        // TODO: must promise count of children of predicate is less than the FE limits.
         String deleteTemplate = "DELETE FROM " + StatisticConstants.STATISTIC_DB_NAME
                 + "." + StatisticConstants.STATISTIC_TBL_NAME + "WHERE ${colName} NOT IN ${predicate}";
         StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
@@ -103,7 +108,11 @@ public class StatisticsTableCleaner extends MasterDaemon {
             }
         };
         StringSubstitutor stringSubstitutor = new StringSubstitutor(map);
-        StatisticsUtil.execStatisticQuery(stringSubstitutor.replace(deleteTemplate));
+        try {
+            StatisticsUtil.execUpdate(stringSubstitutor.replace(deleteTemplate));
+        } catch (Exception e) {
+            LOG.warn("Remove expired statistics failed", e);
+        }
     }
 
 }
