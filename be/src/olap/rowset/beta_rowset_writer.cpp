@@ -272,8 +272,7 @@ Status BetaRowsetWriter::_check_correctness(std::unique_ptr<OlapReaderStatistics
 }
 
 Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_ATTACH_TASK(StorageEngine::instance()->segcompaction_mem_tracker(),
-                       ThreadContext::TaskType::COMPACTION);
+    SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
     // throttle segcompaction task if memory depleted.
     if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
         LOG(WARNING) << "skip segcompaction due to memory shortage";

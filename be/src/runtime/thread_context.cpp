@@ -39,22 +39,14 @@ ScopeMemCount::~ScopeMemCount() {
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                       const ThreadContext::TaskType& type, const std::string& task_id,
-                       const TUniqueId& fragment_instance_id) {
-    DCHECK(mem_tracker);
-    thread_context()->attach_task(type, task_id, fragment_instance_id, mem_tracker);
+                       const std::string& task_id, const TUniqueId& fragment_instance_id) {
+    thread_context()->attach_task(task_id, fragment_instance_id, mem_tracker);
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
-#ifndef BE_TEST
-    DCHECK(print_id(runtime_state->query_id()) != "");
-    DCHECK(runtime_state->fragment_instance_id() != TUniqueId());
-#endif // BE_TEST
-    DCHECK(runtime_state->instance_mem_tracker());
-    thread_context()->attach_task(ThreadContext::query_to_task_type(runtime_state->query_type()),
-                                  print_id(runtime_state->query_id()),
+    thread_context()->attach_task(print_id(runtime_state->query_id()),
                                   runtime_state->fragment_instance_id(),
-                                  runtime_state->instance_mem_tracker());
+                                  runtime_state->query_mem_tracker());
 }
 
 AttachTask::~AttachTask() {
@@ -65,14 +57,13 @@ AttachTask::~AttachTask() {
 }
 
 SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
-        const std::shared_ptr<MemTrackerLimiter>& mem_tracker_limiter) {
-    DCHECK(mem_tracker_limiter);
-    thread_context()->_thread_mem_tracker_mgr->attach_limiter_tracker("", TUniqueId(),
-                                                                      mem_tracker_limiter);
+        const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+    _old_mem_tracker = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
+    thread_context()->_thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
 }
 
 SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
-    thread_context()->_thread_mem_tracker_mgr->detach_limiter_tracker();
+    thread_context()->_thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {

@@ -339,6 +339,7 @@ public class ScalarFunction extends Function {
         fn.prepareFnSymbol = prepareFnSymbol;
         fn.closeFnSymbol = closeFnSymbol;
         fn.setLocation(location);
+        fn.nullableMode = NullableMode.ALWAYS_NULLABLE;
         return fn;
     }
 

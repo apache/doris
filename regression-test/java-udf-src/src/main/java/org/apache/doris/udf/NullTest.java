@@ -15,41 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.udf;
 
-#include <google/protobuf/stubs/common.h>
+import org.apache.hadoop.hive.ql.exec.UDF;
 
-#include <atomic>
-
-#include "service/brpc.h"
-
-namespace doris {
-
-template <typename T>
-class RefCountClosure : public google::protobuf::Closure {
-public:
-    RefCountClosure() : _refs(0) {}
-    ~RefCountClosure() {}
-
-    void ref() { _refs.fetch_add(1); }
-
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
-
-    void Run() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-        if (unref()) {
-            delete this;
-        }
+public class NullTest extends UDF {
+    public Integer evaluate(Integer i) {
+        return null;
     }
-
-    void join() { brpc::Join(cntl.call_id()); }
-
-    brpc::Controller cntl;
-    T result;
-
-private:
-    std::atomic<int> _refs;
-};
-
-} // namespace doris
+}

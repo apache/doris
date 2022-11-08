@@ -45,7 +45,7 @@ uint8_t* SystemAllocator::allocate_via_malloc(size_t length) {
         char buf[64];
         auto err = fmt::format("fail to allocate mem via posix_memalign, res={}, errmsg={}.", res,
                                strerror_r(res, buf, 64));
-        ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+        MemTrackerLimiter::print_log_process_usage(err);
         LOG(ERROR) << err;
         return nullptr;
     }

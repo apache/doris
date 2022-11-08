@@ -138,7 +138,7 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
         _closure->ref();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         _closure->cntl.Reset();
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
@@ -160,7 +160,6 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     if (_parent->_transfer_large_data_by_brpc && _brpc_request.has_row_batch() &&
         _brpc_request.row_batch().has_tuple_data() &&
         _brpc_request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
         Status st = request_embed_attachment_contain_tuple<PTransmitDataParams,
                                                            RefCountClosure<PTransmitDataResult>>(
                 &_brpc_request, _closure);
@@ -174,11 +173,17 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
                 brpc_url + "/PInternalServiceImpl/transmit_data_by_http";
         _closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _closure->cntl.http_request().set_content_type("application/json");
-        _brpc_http_stub->transmit_data_by_http(&_closure->cntl, NULL, &_closure->result, _closure);
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _brpc_http_stub->transmit_data_by_http(&_closure->cntl, NULL, &_closure->result,
+                                                   _closure);
+        }
     } else {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
         _closure->cntl.http_request().Clear();
-        _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
+        {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
+        }
     }
 
     if (batch != nullptr) {
