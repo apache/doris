@@ -128,7 +128,9 @@ public class GraphSimplifier {
                     edgeIndex1)) {
                 continue;
             }
-            processNeighbors(edgeIndex2, 0, edgeSize);
+            if (bestSimplification.bestNeighbor == edgeIndex1) {
+                processNeighbors(edgeIndex2, 0, edgeSize);
+            }
         }
 
         // Go through the neighbors with higher index, we only need to recalculate all related steps
@@ -289,17 +291,14 @@ public class GraphSimplifier {
 
     private LogicalJoin simulateJoin(Plan plan1, LogicalJoin join, Plan plan2) {
         // In Graph Simplifier, we use the simple cost model, that is
-        //      Plan.cost = Plan.rowCount + Plan.children1.cost + ...
+        //      Plan.cost = Plan.rowCount + Plan.children1.cost + Plan.children2.cost
         // The reason is that this cost model has ASI (adjacent sequence interchange) property.
         // TODO: consider network, data distribution cost
-        double cost = 0;
         LogicalJoin newJoin = new LogicalJoin(join.getJoinType(), plan1, plan2);
         List<Group> children = new ArrayList<>();
-        cost += getGroup(plan1).getStatistics().getRowCount();
         children.add(getGroup(plan1));
-        cost += getGroup(plan2).getStatistics().getRowCount();
         children.add(getGroup(plan2));
-
+        double cost = getSimpleCost(plan1) + getSimpleCost(plan2);
         GroupExpression groupExpression = new GroupExpression(newJoin, children);
         Group group = new Group();
         group.addGroupExpression(groupExpression);
