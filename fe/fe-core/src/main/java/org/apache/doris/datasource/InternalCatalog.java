@@ -98,6 +98,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -1206,7 +1207,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
                 if (resultType.isStringType() && resultType.getLength() < 0) {
-                    // alway set text length MAX_STRING_LENGTH
                     typeDef = new TypeDef(ScalarType.createStringType());
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
@@ -1220,9 +1220,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // If this is the first column, because olap table does not support the first column to be
                     // string, float, double or array, we should check and modify its type
                     // For string type, change it to varchar.
-                    // For other unsupport types, just remain unchanged, the analysis phash of create table stmt
+                    // For other unsupported types, just remain unchanged, the analysis phash of create table stmt
                     // will handle it.
-                    if (typeDef.getType() == Type.STRING) {
+                    if (typeDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
                         typeDef = TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH);
                     }
                 }
