@@ -137,8 +137,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext context) {
         // add all the slots in map.
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        scan.getOutput().forEach(slot ->
-                ctx.setKVInMap(ctx.getAliasTransferMap(), slot, Pair.of(scan.getId(), slot)));
+        scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan.getId(), slot)));
         return scan;
     }
 

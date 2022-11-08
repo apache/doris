@@ -35,7 +35,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
 import java.util.List;
@@ -94,10 +93,6 @@ public class RuntimeFilterContext {
 
     public void setTargetsOnScanNode(RelationId id, Slot slot) {
         this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList()).add(slot);
-    }
-
-    public <K, V> void setKVInMap(@NotNull Map<K, V> map, K key, V value) {
-        map.put(key, value);
     }
 
     public Map<ExprId, SlotRef> getExprIdToOlapScanNodeSlotRef() {
