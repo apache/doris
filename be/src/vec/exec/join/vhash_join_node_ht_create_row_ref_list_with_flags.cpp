@@ -136,4 +136,4 @@ void HashJoinNode::_hash_table_create_row_ref_list_with_flags() {
     }
 }
 
-}
+} // namespace doris::vectorized

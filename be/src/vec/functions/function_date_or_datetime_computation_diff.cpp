@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/functions/function_date_or_datetime_computation.h"
-
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -51,4 +50,4 @@ void register_function_date_time_computation_diff(SimpleFunctionFactory& factory
     factory.register_function<FunctionSecondsDiff>();
 }
 
-}
+} // namespace doris::vectorized

@@ -15,20 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/join/vhash_join_node.h"
-
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exec/join/vhash_join_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
-namespace doris::vectorized {
-
-
-}
+namespace doris::vectorized {}

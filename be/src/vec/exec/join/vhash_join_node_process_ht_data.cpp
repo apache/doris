@@ -27,6 +27,4 @@
 #include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
-namespace doris::vectorized {
-
-} // namespace doris::vectorized
+namespace doris::vectorized {} // namespace doris::vectorized

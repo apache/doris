@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/join/vhash_join_node.h"
-
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exec/join/vhash_join_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
@@ -689,7 +688,8 @@ void HashJoinNode::_process_hashtable_ctx_variants_init(RuntimeState* state) {
             _join_op_variants, make_bool_variant(_probe_ignore_null));
 }
 
-Status HashJoinNode::_process_data_in_hashtable_variants(MutableBlock& mutable_join_block,Block* output_block,bool* eos) {
+Status HashJoinNode::_process_data_in_hashtable_variants(MutableBlock& mutable_join_block,
+                                                         Block* output_block, bool* eos) {
     Status st;
     std::visit(
             [&](auto&& arg, auto&& process_hashtable_ctx) {
@@ -848,11 +848,13 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                             }
                         } else {
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                st = process_hashtable_ctx.template do_process<need_null_map_for_probe>(
-                                        arg,
-                                        need_null_map_for_probe ? &_null_map_column->get_data()
-                                                                : nullptr,
-                                        mutable_join_block, &temp_block, probe_rows);
+                                st = process_hashtable_ctx
+                                             .template do_process<need_null_map_for_probe>(
+                                                     arg,
+                                                     need_null_map_for_probe
+                                                             ? &_null_map_column->get_data()
+                                                             : nullptr,
+                                                     mutable_join_block, &temp_block, probe_rows);
                             } else {
                                 LOG(FATAL) << "FATAL: uninited hash table";
                             }
@@ -888,4 +890,4 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     return st;
 }
 
-}
+} // namespace doris::vectorized

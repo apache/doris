@@ -44,7 +44,6 @@ template Status HashJoinNode::_extract_join_column<false>(
         std::vector<IColumn const*, std::allocator<IColumn const*>>&,
         std::vector<int, std::allocator<int>> const&);
 
-
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _join_op(tnode.hash_join_node.join_op),
@@ -277,7 +276,6 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     return Status::NotSupported("Not Implemented HashJoin Node::get_next scalar");
 }
 
-
 void HashJoinNode::_prepare_probe_block() {
     // clear_column_data of _probe_block
     if (!_probe_column_disguise_null.empty()) {
@@ -409,7 +407,6 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
     }
     return _runtime_filter_build_process_variants(state);
-
 }
 
 template <bool BuildSide>
@@ -465,8 +462,6 @@ Status HashJoinNode::_do_evaluate(Block& block, std::vector<VExprContext*>& expr
     }
     return Status::OK();
 }
-
-
 
 void HashJoinNode::_hash_table_init() {
     std::visit(

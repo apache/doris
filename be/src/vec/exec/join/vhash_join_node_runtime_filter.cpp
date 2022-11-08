@@ -75,4 +75,4 @@ Status HashJoinNode::_runtime_filter_build_process_variants(RuntimeState* state)
             _hash_table_variants);
 }
 
-}
+} // namespace doris::vectorized

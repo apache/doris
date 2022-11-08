@@ -542,14 +542,16 @@ private:
     MutableColumnPtr _tuple_is_null_right_flag_column;
 
 private:
-    void _hash_table_build(RuntimeState* state, Block& block, ColumnRawPtrs& raw_ptrs, uint8_t offset, ColumnUInt8::MutablePtr& null_map_val);
+    void _hash_table_build(RuntimeState* state, Block& block, ColumnRawPtrs& raw_ptrs,
+                           uint8_t offset, ColumnUInt8::MutablePtr& null_map_val);
     Status _extract_join_column_variants(const std::vector<int>& res_col_ids);
-    Status _extract_join_column_variants2(Block& block,ColumnUInt8::MutablePtr& null_map,
+    Status _extract_join_column_variants2(Block& block, ColumnUInt8::MutablePtr& null_map,
                                           ColumnRawPtrs& raw_ptrs,
                                           const std::vector<int>& res_col_ids);
 
     Status _probe_variants();
-    Status _process_data_in_hashtable_variants(MutableBlock& mutable_block,Block* output_block,bool* eos);
+    Status _process_data_in_hashtable_variants(MutableBlock& mutable_block, Block* output_block,
+                                               bool* eos);
     Status _runtime_filter_build_process_variants(RuntimeState* state);
     void hash_table_build_process_variants();
 

@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/functions/function_date_or_datetime_computation.h"
-
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -72,8 +71,6 @@ void register_function_date_time_computation_sub(SimpleFunctionFactory& factory)
     factory.register_function<FunctionSubYearsV2>();
     factory.register_function<FunctionSubQuartersV2>();
     factory.register_function<FunctionSubWeeksV2>();
-
 }
 
-
-}
+} // namespace doris::vectorized

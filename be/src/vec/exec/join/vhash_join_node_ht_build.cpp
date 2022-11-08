@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/join/vhash_join_node.h"
-
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exec/join/vhash_join_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/template_helpers.hpp"
@@ -151,7 +150,8 @@ private:
     std::vector<size_t> _build_side_hash_values;
 };
 
-void HashJoinNode::_hash_table_build(RuntimeState* state, Block& block, ColumnRawPtrs& raw_ptrs, uint8_t offset, ColumnUInt8::MutablePtr& null_map_val) {
+void HashJoinNode::_hash_table_build(RuntimeState* state, Block& block, ColumnRawPtrs& raw_ptrs,
+                                     uint8_t offset, ColumnUInt8::MutablePtr& null_map_val) {
     size_t rows = block.rows();
     bool has_runtime_filter = !_runtime_filter_descs.empty();
 
@@ -175,7 +175,6 @@ void HashJoinNode::_hash_table_build(RuntimeState* state, Block& block, ColumnRa
             make_bool_variant(_build_unique), make_bool_variant(has_runtime_filter),
             make_bool_variant(_need_null_map_for_build),
             make_bool_variant(_short_circuit_for_null_in_build_side));
-
 }
 
-}
+} // namespace doris::vectorized

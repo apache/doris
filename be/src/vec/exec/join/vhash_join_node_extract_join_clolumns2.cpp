@@ -28,9 +28,9 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-Status HashJoinNode::_extract_join_column_variants2(Block& block,ColumnUInt8::MutablePtr& null_map,
-                                          ColumnRawPtrs& raw_ptrs,
-                                          const std::vector<int>& res_col_ids) {
+Status HashJoinNode::_extract_join_column_variants2(Block& block, ColumnUInt8::MutablePtr& null_map,
+                                                    ColumnRawPtrs& raw_ptrs,
+                                                    const std::vector<int>& res_col_ids) {
     return std::visit(
             [&](auto&& arg) -> Status {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
@@ -44,4 +44,4 @@ Status HashJoinNode::_extract_join_column_variants2(Block& block,ColumnUInt8::Mu
             _hash_table_variants);
 }
 
-}
+} // namespace doris::vectorized
