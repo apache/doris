@@ -37,7 +37,8 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
     // TODO: the data page builder type can be created by Factory according to user config
     _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
     PageBuilderOptions dict_builder_options;
-    dict_builder_options.data_page_size = _options.data_page_size;
+    dict_builder_options.data_page_size =
+            std::min(_options.data_page_size, _options.dict_page_size);
     dict_builder_options.is_dict_page = true;
     _dict_builder.reset(new BinaryPlainPageBuilder<OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
     reset();
