@@ -30,7 +30,7 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     status.to_protobuf(result->mutable_status());
     {
         // call by result sink
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         done->Run();
     }
     delete this;
@@ -45,7 +45,7 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         done->Run();
     }
     delete this;
@@ -73,7 +73,7 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
     }
     st.to_protobuf(result->mutable_status());
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         done->Run();
     }
     delete this;

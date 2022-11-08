@@ -186,10 +186,7 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
-        {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
-            closure_pair.first->Run();
-        }
+        closure_pair.first->Run();
         _pending_closures.pop_front();
 
         closure_pair.second.stop();
@@ -339,11 +336,8 @@ void DataStreamRecvr::SenderQueue::cancel() {
 
     {
         std::lock_guard<std::mutex> l(_lock);
-        {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
-            for (auto closure_pair : _pending_closures) {
-                closure_pair.first->Run();
-            }
+        for (auto closure_pair : _pending_closures) {
+            closure_pair.first->Run();
         }
         _pending_closures.clear();
     }
@@ -357,11 +351,8 @@ void DataStreamRecvr::SenderQueue::close() {
         std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
 
-        {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
-            for (auto closure_pair : _pending_closures) {
-                closure_pair.first->Run();
-            }
+        for (auto closure_pair : _pending_closures) {
+            closure_pair.first->Run();
         }
         _pending_closures.clear();
     }

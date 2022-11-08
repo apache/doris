@@ -15,34 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.datasets.clickbench;
 
-// This file is used to fixed macro conflict between butil and gutil
-// and this file must put the first include in source file
+import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 
-#include "gutil/macros.h"
-// Macros in the guti/macros.h, use butil's define
-#ifdef DISALLOW_IMPLICIT_CONSTRUCTORS
-#undef DISALLOW_IMPLICIT_CONSTRUCTORS
-#endif
-
-#ifdef arraysize
-#undef arraysize
-#endif
-
-#ifdef ARRAY_SIZE
-#undef ARRAY_SIZE
-#endif
-
-#undef OVERRIDE
-#undef FINAL
-
-// use be/src/gutil/integral_types.h override butil/basictypes.h
-#include "gutil/integral_types.h"
-#ifdef BASE_INTEGRAL_TYPES_H_
-#define BUTIL_BASICTYPES_H_
-#endif
-
-#ifdef DEBUG_MODE
-#undef DEBUG_MODE
-#endif
+public class ClickBenchTestBase extends AnalyzeCheckTestBase {
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+        connectContext.setDatabase("default_cluster:test");
+        ClickBenchUtils.createTables(this);
+    }
+}

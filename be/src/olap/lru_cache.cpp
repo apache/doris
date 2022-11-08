@@ -436,7 +436,7 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
           _num_shards(num_shards),
           _shards(nullptr),
           _last_id(1) {
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, name);
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
             << "num_shards should be power of two, but got " << num_shards;

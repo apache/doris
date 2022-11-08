@@ -55,4 +55,8 @@ ColumnArrayMutableData create_mutable_data(const IColumn* nested_col, bool is_nu
 
 MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data);
 
+// array[offset:length]
+void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
+                 const IColumn& offset_column, const IColumn* length_column);
+
 } // namespace doris::vectorized
