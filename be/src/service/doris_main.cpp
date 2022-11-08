@@ -375,14 +375,14 @@ int main(int argc, char** argv) {
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
     Status status = Status::OK();
-#ifdef LIBJVM
-    // Init jni
-    status = doris::JniUtil::Init();
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
-        exit(1);
+    if (doris::config::enable_java_support) {
+        // Init jni
+        status = doris::JniUtil::Init();
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+            exit(1);
+        }
     }
-#endif
 
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);

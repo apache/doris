@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-#ifdef LIBJVM
 
 #include "exec/table_connector.h"
 #include "jni.h"
@@ -104,5 +103,3 @@ private:
 
 } // namespace vectorized
 } // namespace doris
-
-#endif

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#ifdef LIBJVM
-
 #include <jni.h>
 #include <unistd.h>
 
@@ -395,4 +393,3 @@ private:
 };
 
 } // namespace doris::vectorized
-#endif

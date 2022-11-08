@@ -450,11 +450,13 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::JDBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-#ifdef LIBJVM
-            *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
-#else
-            return Status::InternalError("Jdbc scan node is disabled since no libjvm is found!");
-#endif
+            if (config::enable_java_support) {
+                *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
+            } else {
+                return Status::InternalError(
+                        "Jdbc scan node is disabled, you can change be config enable_java_support "
+                        "to true and restart be.");
+            }
         } else {
             return Status::InternalError("Jdbc scan node only support vectorized engine.");
         }
@@ -722,11 +724,8 @@ void ExecNode::try_do_aggregate_serde_improve() {
     if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
         typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewEsScanNode)
-#ifdef LIBJVM
-        || typeid(*child0) == typeid(vectorized::NewJdbcScanNode)
-#endif
-    ) {
+        typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
+        typeid(*child0) == typeid(vectorized::NewJdbcScanNode)) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();

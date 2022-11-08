@@ -609,7 +609,6 @@ if (BUILD_JAVA_UDF)
     else()
         include_directories($ENV{JAVA_HOME}/include/darwin)
     endif()
-    add_definitions("-DLIBJVM")
 endif()
 
 if (NOT OS_MACOSX)
