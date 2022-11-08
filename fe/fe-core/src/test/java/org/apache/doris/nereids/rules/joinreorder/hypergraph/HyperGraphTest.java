@@ -17,46 +17,39 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.util.LogicalPlanBuilder;
-import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.nereids.util.HyperGraphBuilder;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class HyperGraphTest {
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
-    private final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
-    private final LogicalOlapScan scan5 = PlanConstructor.newLogicalOlapScan(4, "t5", 0);
-
     @Test
-    @Disabled
-    void testDottyHyperGraph() {
-        LogicalPlan joinCluster = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 0))
+    void testHyperGraph() {
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init("t1", 10)
+                .join(JoinType.INNER_JOIN, "t2", 20)
+                .join(JoinType.INNER_JOIN, "t3", 30)
+                .join(JoinType.INNER_JOIN, "t4", 40)
+                .join(JoinType.INNER_JOIN, "t5", 50)
                 .build();
-
-        HyperGraph hyperGraph = HyperGraph.fromPlan(joinCluster);
         String dottyGraph = hyperGraph.toDottyHyperGraph();
-        // This is a star join, which can be transformed to a image by graphviz.
-        assert dottyGraph.equals("digraph G {  # 4 edges\n"
-                + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0\"];\n"
-                + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1\"];\n"
-                + "  LOGICAL_OLAP_SCAN2 [label=\"LOGICAL_OLAP_SCAN2\"];\n"
-                + "  LOGICAL_OLAP_SCAN3 [label=\"LOGICAL_OLAP_SCAN3\"];\n"
-                + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4\"];\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"1.0\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"1.0\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"1.0\",arrowhead=none]\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"1.0\",arrowhead=none]\n"
-                + "}\n") : dottyGraph;
+        String target = "digraph G {  # 4 edges\n"
+                + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
+                + " rowCount=10.00\"];\n"
+                + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1 \n"
+                + " rowCount=20.00\"];\n"
+                + "  LOGICAL_OLAP_SCAN2 [label=\"LOGICAL_OLAP_SCAN2 \n"
+                + " rowCount=30.00\"];\n"
+                + "  LOGICAL_OLAP_SCAN3 [label=\"LOGICAL_OLAP_SCAN3 \n"
+                + " rowCount=40.00\"];\n"
+                + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4 \n"
+                + " rowCount=50.00\"];\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"0.10\",arrowhead=none]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN2 [label=\"0.05\",arrowhead=none]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"0.03\",arrowhead=none]\n"
+                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"0.03\",arrowhead=none]\n"
+                + "}\n";
+        assert dottyGraph.equals(target) : dottyGraph;
+
     }
 }

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -31,10 +32,11 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
@@ -47,17 +49,60 @@ import java.util.stream.Collectors;
 /**
  * Resolve having clause to the aggregation.
  */
-public class ResolveHaving extends OneAnalysisRuleFactory {
+public class ResolveAggregateFunctions implements AnalysisRuleFactory {
     @Override
-    public Rule build() {
-        return RuleType.RESOLVE_HAVING.build(
-            logicalHaving(logicalAggregate()).thenApply(ctx -> {
-                LogicalHaving<LogicalAggregate<GroupPlan>> having = ctx.root;
-                LogicalAggregate<GroupPlan> aggregate = having.child();
-                Resolver resolver = new Resolver(aggregate);
-                resolver.resolve(having.getPredicates());
-                return createPlan(having, resolver);
-            })
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                RuleType.RESOLVE_SORT_AGGREGATE_FUNCTIONS.build(
+                        logicalSort(logicalAggregate())
+                                .when(sort -> sort.getExpressions().stream()
+                                        .anyMatch(e -> e.containsType(AggregateFunction.class)))
+                                .then(sort -> {
+                                    LogicalAggregate<GroupPlan> aggregate = sort.child();
+                                    Resolver resolver = new Resolver(aggregate);
+                                    sort.getExpressions().forEach(resolver::resolve);
+                                    return createPlan(resolver, sort.child(), (r, a) -> {
+                                        List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                                                .map(ok -> new OrderKey(
+                                                        ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
+                                                        ok.isAsc(),
+                                                        ok.isNullFirst()))
+                                                .collect(ImmutableList.toImmutableList());
+                                        return new LogicalSort<>(newOrderKeys, a);
+                                    });
+                                })
+                ),
+                RuleType.RESOLVE_SORT_HAVING_AGGREGATE_FUNCTIONS.build(
+                        logicalSort(logicalHaving(logicalAggregate()))
+                                .when(sort -> sort.getExpressions().stream()
+                                        .anyMatch(e -> e.containsType(AggregateFunction.class)))
+                                .then(sort -> {
+                                    LogicalAggregate<GroupPlan> aggregate = sort.child().child();
+                                    Resolver resolver = new Resolver(aggregate);
+                                    sort.getExpressions().forEach(resolver::resolve);
+                                    return createPlan(resolver, sort.child().child(), (r, a) -> {
+                                        List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                                                .map(ok -> new OrderKey(
+                                                        ExpressionUtils.replace(ok.getExpr(), r.getSubstitution()),
+                                                        ok.isAsc(),
+                                                        ok.isNullFirst()))
+                                                .collect(ImmutableList.toImmutableList());
+                                        return new LogicalSort<>(newOrderKeys, sort.child().withChildren(a));
+                                    });
+                                })
+                ),
+                RuleType.RESOLVE_HAVING_AGGREGATE_FUNCTIONS.build(
+                        logicalHaving(logicalAggregate()).then(having -> {
+                            LogicalAggregate<GroupPlan> aggregate = having.child();
+                            Resolver resolver = new Resolver(aggregate);
+                            resolver.resolve(having.getPredicates());
+                            return createPlan(resolver, having.child(), (r, a) -> {
+                                Expression newPredicates = ExpressionUtils.replace(
+                                        having.getPredicates(), r.getSubstitution());
+                                return new LogicalFilter<>(newPredicates, a);
+                            });
+                        })
+                )
         );
     }
 
@@ -169,16 +214,20 @@ public class ResolveHaving extends OneAnalysisRuleFactory {
         }
     }
 
-    private Plan createPlan(LogicalHaving<LogicalAggregate<GroupPlan>> having, Resolver resolver) {
-        LogicalAggregate<GroupPlan> aggregate = having.child();
-        Expression newPredicates = ExpressionUtils.replace(having.getPredicates(), resolver.getSubstitution());
+    interface PlanGenerator {
+        Plan apply(Resolver resolver, LogicalAggregate<Plan> aggregate);
+    }
+
+    private Plan createPlan(Resolver resolver, LogicalAggregate<? extends Plan> aggregate,
+            PlanGenerator planGenerator) {
+        List<NamedExpression> projections = aggregate.getOutputExpressions().stream()
+                .map(NamedExpression::toSlot).collect(Collectors.toList());
         List<NamedExpression> newOutputExpressions = Streams.concat(
                 aggregate.getOutputExpressions().stream(), resolver.getNewOutputSlots().stream()
         ).collect(Collectors.toList());
-        LogicalFilter<LogicalAggregate<Plan>> filter = new LogicalFilter<>(newPredicates,
-                aggregate.withGroupByAndOutput(aggregate.getGroupByExpressions(), newOutputExpressions));
-        List<NamedExpression> projections = aggregate.getOutputExpressions().stream()
-                .map(NamedExpression::toSlot).collect(Collectors.toList());
-        return new LogicalProject<>(projections, filter);
+        LogicalAggregate<Plan> newAggregate = aggregate.withGroupByAndOutput(
+                aggregate.getGroupByExpressions(), newOutputExpressions);
+        Plan plan = planGenerator.apply(resolver, newAggregate);
+        return new LogicalProject<>(projections, plan);
     }
 }

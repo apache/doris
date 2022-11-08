@@ -394,10 +394,8 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
-    SCOPED_ATTACH_TASK(_runtime_state->scanner_mem_tracker(),
-                       ThreadContext::query_to_task_type(_runtime_state->query_type()),
-                       print_id(_runtime_state->query_id()),
-                       _runtime_state->fragment_instance_id());
+    SCOPED_ATTACH_TASK(_runtime_state);
+    SCOPED_CONSUME_MEM_TRACKER(_runtime_state->scanner_mem_tracker().get());
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter

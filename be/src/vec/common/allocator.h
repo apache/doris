@@ -132,7 +132,7 @@ public:
             if (MAP_FAILED == buf) {
                 RELEASE_THREAD_MEM_TRACKER(size);
                 auto err = fmt::format("Allocator: Cannot mmap {}.", size);
-                doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
                 doris::vectorized::throwFromErrno(err,
                                                   doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
             }
@@ -142,7 +142,7 @@ public:
             doris::Chunk chunk;
             if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
                 auto err = fmt::format("Allocator: Cannot allocate chunk {}.", size);
-                doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
                 doris::vectorized::throwFromErrno(err,
                                                   doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
             }
@@ -157,7 +157,7 @@ public:
 
                 if (nullptr == buf) {
                     auto err = fmt::format("Allocator: Cannot malloc {}.", size);
-                    doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+                    doris::MemTrackerLimiter::print_log_process_usage(err);
                     doris::vectorized::throwFromErrno(
                             err, doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
                 }
@@ -167,7 +167,7 @@ public:
 
                 if (0 != res) {
                     auto err = fmt::format("Cannot allocate memory (posix_memalign) {}.", size);
-                    doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+                    doris::MemTrackerLimiter::print_log_process_usage(err);
                     doris::vectorized::throwFromErrno(
                             err, doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY, res);
                 }
@@ -183,7 +183,7 @@ public:
         if (size >= MMAP_THRESHOLD) {
             if (0 != munmap(buf, size)) {
                 auto err = fmt::format("Allocator: Cannot munmap {}.", size);
-                doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
                 doris::vectorized::throwFromErrno(err, doris::TStatusCode::VEC_CANNOT_MUNMAP);
             } else {
                 RELEASE_THREAD_MEM_TRACKER(size);
@@ -212,7 +212,7 @@ public:
             if (nullptr == new_buf) {
                 auto err =
                         fmt::format("Allocator: Cannot realloc from {} to {}.", old_size, new_size);
-                doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
                 doris::vectorized::throwFromErrno(err,
                                                   doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
             }
@@ -232,7 +232,7 @@ public:
                 RELEASE_THREAD_MEM_TRACKER(new_size - old_size);
                 auto err = fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
                                        old_size, new_size);
-                doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage(err);
+                doris::MemTrackerLimiter::print_log_process_usage(err);
                 doris::vectorized::throwFromErrno(err, doris::TStatusCode::VEC_CANNOT_MREMAP);
             }
 

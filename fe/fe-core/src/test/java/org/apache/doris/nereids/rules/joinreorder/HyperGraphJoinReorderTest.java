@@ -49,6 +49,7 @@ class HyperGraphJoinReorderTest {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .deriveStats()
                 .applyTopDown(new HyperGraphJoinReorder())
                 .printlnTree();
     }
