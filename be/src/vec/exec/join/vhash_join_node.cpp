@@ -178,7 +178,7 @@ private:
 
     ProfileCounter* _build_side_compute_hash_timer;
     std::vector<size_t> _build_side_hash_values;
-}; // namespace doris::vectorized
+};
 
 template <class HashTableContext>
 struct ProcessRuntimeFilterBuild {
