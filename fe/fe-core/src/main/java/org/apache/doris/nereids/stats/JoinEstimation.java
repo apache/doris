@@ -147,16 +147,33 @@ public class JoinEstimation {
         return result;
     }
 
+    private static double estimateLeftSemiJoin(double leftCount, double rightCount) {
+        return leftCount - leftCount / Math.max(2, rightCount);
+    }
+
     /**
      * estimate join
      */
     public static StatsDeriveResult estimateV2(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
         JoinType joinType = join.getJoinType();
         double rowCount = Double.MAX_VALUE;
+        //TODO the estimation of semi and anti join is not proper, just for tpch q21
         if (joinType == JoinType.LEFT_SEMI_JOIN || joinType == JoinType.LEFT_ANTI_JOIN) {
-            rowCount = leftStats.getRowCount();
+            double rightCount = rightStats.getRowCount();
+            double leftCount = leftStats.getRowCount();
+            if (join.getHashJoinConjuncts().isEmpty()) {
+                rowCount = joinType == JoinType.LEFT_SEMI_JOIN ? leftCount : 0;
+            } else {
+                rowCount = estimateLeftSemiJoin(leftCount, rightCount);
+            }
         } else if (joinType == JoinType.RIGHT_SEMI_JOIN || joinType == JoinType.RIGHT_ANTI_JOIN) {
-            rowCount = rightStats.getRowCount();
+            double rightCount = rightStats.getRowCount();
+            double leftCount = leftStats.getRowCount();
+            if (join.getHashJoinConjuncts().isEmpty()) {
+                rowCount = joinType == JoinType.RIGHT_SEMI_JOIN ? rightCount : 0;
+            } else {
+                rowCount = estimateLeftSemiJoin(rightCount, leftCount);
+            }
         } else if (joinType == JoinType.INNER_JOIN) {
             if (join.getHashJoinConjuncts().isEmpty()) {
                 //TODO: consider other join conjuncts
