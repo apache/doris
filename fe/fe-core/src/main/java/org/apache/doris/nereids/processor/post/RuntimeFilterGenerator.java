@@ -38,7 +38,6 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Arrays;
@@ -95,10 +94,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // TODO: we will support it in later version.
                     .forEach(expr -> legalTypes.forEach(type -> {
                         Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
-                        Preconditions.checkArgument(normalizedChildren != null);
                         // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
                         // contains join with denied join type. for example: a left join b on a.id = b.id
-                        if (!aliasTransferMap.containsKey((Slot) normalizedChildren.first)) {
+                        if (normalizedChildren == null
+                                || !aliasTransferMap.containsKey((Slot) normalizedChildren.first)) {
                             return;
                         }
                         Pair<Slot, Slot> slots = Pair.of(
@@ -144,14 +143,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
-            PhysicalHashJoin join) {
+            PhysicalHashJoin<Plan, Plan> join) {
         if (expr.child(0).equals(expr.child(1))
                 || !expr.children().stream().allMatch(SlotReference.class::isInstance)) {
             return null;
         }
         // current we assume that there are certainly different slot reference in equal to.
         // they are not from the same relation.
-        List<Expression> children = JoinUtils.swapEqualToForChildrenOrder(expr, join.getOutputSet()).children();
+        List<Expression> children = JoinUtils.swapEqualToForChildrenOrder(expr, join.left().getOutputSet()).children();
         return Pair.of(children.get(0), children.get(1));
     }
 }
