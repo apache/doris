@@ -539,14 +539,11 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         return true;
     } else {
         CppType current = get_range_min_value();
-        if (!is_begin_include()) {
+        CppType max_value = get_range_max_value();
+        if (!is_begin_include() && !is_begin_include() && current < TYPE_MAX &&
+            current + 1 < max_value) {
             begin_include = true;
             ++current;
-        }
-        CppType max_value = get_range_max_value();
-        if (!is_end_include()) {
-            end_include = true;
-            --max_value;
         }
 
         size_t range_size = is_fixed_value_convertible() ? max_value - current : 0;
