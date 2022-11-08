@@ -285,16 +285,6 @@ inline void* memrchr(const void* bytes, int find_char, size_t len) {
 #define STATIC_ANALYSIS
 #endif // __KLOCWORK__
 
-// Annotate a function indicating the caller must examine the return value.
-// Use like:
-//   int foo() WARN_UNUSED_RESULT;
-// To explicitly ignore a result, see |ignore_result()| in <base/basictypes.h>.
-#if defined(__GNUC__)
-#define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
-#else
-#define WARN_UNUSED_RESULT
-#endif
-
 // GCC-specific features
 
 #if (defined(__GNUC__) || defined(__APPLE__)) && !defined(SWIG)
@@ -464,40 +454,6 @@ inline void* memrchr(const void* bytes, int find_char, size_t len) {
 #define MUST_USE_RESULT
 #endif
 
-// Annotate a virtual method indicating it must be overriding a virtual
-// method in the parent class.
-// Use like:
-//   virtual void foo() OVERRIDE;
-#if defined(COMPILER_MSVC)
-#define OVERRIDE override
-#elif defined(__clang__)
-#define OVERRIDE override
-#elif defined(COMPILER_GCC) && __cplusplus >= 201103 && \
-        (__GNUC__ * 10000 + __GNUC_MINOR__ * 100) >= 40700
-// GCC 4.7 supports explicit virtual overrides when C++11 support is enabled.
-#define OVERRIDE override
-#else
-#define OVERRIDE
-#endif
-
-// Annotate a virtual method indicating that subclasses must not override it,
-// or annotate a class to indicate that it cannot be subclassed.
-// Use like:
-//   virtual void foo() FINAL;
-//   class B FINAL : public A {};
-#if defined(COMPILER_MSVC)
-// TODO(jered): Change this to "final" when chromium no longer uses MSVC 2010.
-#define FINAL sealed
-#elif defined(__clang__)
-#define FINAL final
-#elif defined(COMPILER_GCC) && __cplusplus >= 201103 && \
-        (__GNUC__ * 10000 + __GNUC_MINOR__ * 100) >= 40700
-// GCC 4.7 supports explicit virtual overrides when C++11 support is enabled.
-#define FINAL final
-#else
-#define FINAL
-#endif
-
 #if defined(__GNUC__)
 // Defined behavior on some of the uarchs:
 // PREFETCH_HINT_T0:
@@ -623,12 +579,12 @@ inline void* aligned_malloc(size_t size, int minimum_alignment) {
     // http://stackoverflow.com/questions/196329/osx-lacks-memalign
     // mac allocs are already 16-byte aligned.
     if (minimum_alignment <= 16) return malloc(size);
-    // next, try to return page-aligned memory. perhaps overkill
-    #ifndef _POSIX_C_SOURCE
+// next, try to return page-aligned memory. perhaps overkill
+#ifndef _POSIX_C_SOURCE
     int page_size = getpagesize();
-    #else
+#else
     int page_size = vm_page_size;
-    #endif
+#endif
     if (minimum_alignment <= page_size) return valloc(size);
     // give up
     return NULL;
@@ -745,7 +701,7 @@ struct AlignType {
 #define ALIGNED_CHAR_ARRAY(T, Size) AlignType<Size * sizeof(T)>::result
 
 #endif // !SWIG
-#else // __cpluscplus
+#else  // __cpluscplus
 #define ALIGNED_CHAR_ARRAY ALIGNED_CHAR_ARRAY_is_not_available_without_Cplusplus
 #endif // __cplusplus
 
@@ -784,7 +740,7 @@ struct AlignType {
 #undef ERROR
 
 #include <float.h> // for nextafter functionality on windows
-#include <math.h> // for HUGE_VAL
+#include <math.h>  // for HUGE_VAL
 
 #ifndef HUGE_VALF
 #define HUGE_VALF (static_cast<float>(HUGE_VAL))
@@ -1179,7 +1135,7 @@ inline void UnalignedCopy64(const void* src, void* dst) {
 
 #ifdef PTHREADS_REDHAT_WIN32
 #include <iosfwd>
-using std::ostream; // NOLINT(build/include)
+using std::ostream;  // NOLINT(build/include)
 #include <pthread.h> // NOLINT(build/include)
 // pthread_t is not a simple integer or pointer on Win32
 std::ostream& operator<<(std::ostream& out, const pthread_t& thread_id);

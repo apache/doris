@@ -364,7 +364,7 @@ public:
         writer.finalize(&file_size, &index_size);
         file_writer->close();
 
-        Segment::open(fs, path, "", seg_id, &_tablet_schema, res);
+        Segment::open(fs, path, "", seg_id, {}, &_tablet_schema, res);
     }
 
     std::vector<std::vector<std::string>> generate_dataset(int rows_number) {

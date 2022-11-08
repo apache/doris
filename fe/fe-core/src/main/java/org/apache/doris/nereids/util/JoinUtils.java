@@ -117,6 +117,7 @@ public class JoinUtils {
 
     /**
      * extract expression
+     *
      * @param leftSlots left child output slots
      * @param rightSlots right child output slots
      * @param onConditions conditions to be split
@@ -139,7 +140,7 @@ public class JoinUtils {
      * Return pair of left used slots and right used slots.
      */
     public static Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
+            AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
 
         List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
         List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
@@ -285,35 +286,20 @@ public class JoinUtils {
     }
 
     /**
-     * replace hashJoinConjuncts by using slots map.
-     * TODO: just support `col1=col2`
+     * replace JoinConjuncts by using slots map.
      */
-    public static List<Expression> replaceHashConjuncts(List<Expression> hashJoinConjuncts,
+    public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
             Map<Slot, Slot> replaceMaps) {
-        List<Expression> newHashJoinConjuncts = Lists.newArrayList();
-        for (Expression hashJoinConjunct : hashJoinConjuncts) {
-            if (!(hashJoinConjunct instanceof EqualTo)) {
-                return null;
-            }
-            EqualTo equalTo = (EqualTo) hashJoinConjunct;
-            if (!(equalTo.left() instanceof Slot) || !(equalTo.right() instanceof Slot)) {
-                return null;
-            }
-
-            Slot leftSlot = (Slot) equalTo.left();
-            leftSlot = replaceMaps.getOrDefault(leftSlot, leftSlot);
-
-            Slot rightSlot = (Slot) equalTo.right();
-            rightSlot = replaceMaps.getOrDefault(rightSlot, rightSlot);
-
-            if (leftSlot != equalTo.left() || rightSlot != equalTo.right()) {
-                newHashJoinConjuncts.add(new EqualTo(leftSlot, rightSlot));
-            } else {
-                newHashJoinConjuncts.add(hashJoinConjunct);
-            }
-        }
-
-        return newHashJoinConjuncts;
+        return joinConjuncts.stream()
+                .map(expr ->
+                        expr.rewriteUp(e -> {
+                            if (e instanceof Slot && replaceMaps.containsKey(e)) {
+                                return replaceMaps.get(e);
+                            } else {
+                                return e;
+                            }
+                        })
+                ).collect(Collectors.toList());
     }
 
     /**
@@ -324,7 +310,7 @@ public class JoinUtils {
             return;
         }
         Set<ExprId> projectExprIdSet = projects.stream()
-                .map(project -> project.getExprId())
+                .map(NamedExpression::getExprId)
                 .collect(Collectors.toSet());
         usedSlots.forEach(slot -> {
             if (!projectExprIdSet.contains(slot.getExprId())) {

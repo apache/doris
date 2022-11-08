@@ -337,7 +337,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
                                               skipped_page_range);
         if (skipped_page_range.empty()) {
-            return Status::OK();
+            break;
         }
         tparquet::OffsetIndex offset_index;
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, buff, buffer_size, &offset_index));

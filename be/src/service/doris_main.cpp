@@ -53,7 +53,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/memory/mem_tracker_task_pool.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -500,29 +499,16 @@ int main(int argc, char** argv) {
         __lsan_do_leak_check();
 #endif
         doris::PerfCounters::refresh_proc_status();
+        doris::MemTrackerLimiter::refresh_global_counter();
+        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
         doris::MemInfo::refresh_allocator_mem();
 #endif
-        int64_t allocator_cache_mem_diff =
-                doris::MemInfo::allocator_cache_mem() -
-                doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consumption();
-        doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consume(
-                allocator_cache_mem_diff);
-        CONSUME_THREAD_MEM_TRACKER(allocator_cache_mem_diff);
-        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
-
-        // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
-        // this will cause coredump for ASAN build when running regression test,
-        // disable temporarily.
-        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
-        // The process tracker print log usage interval is 1s to avoid a large number of tasks being
-        // canceled when the process exceeds the mem limit, resulting in too many duplicate logs.
-        doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
         if (doris::config::memory_debug) {
-            doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage("main routine");
-            doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
+            doris::MemTrackerLimiter::print_log_process_usage("memory_debug");
         }
+        doris::MemTrackerLimiter::enable_print_log_process_usage();
         sleep(1);
     }
 

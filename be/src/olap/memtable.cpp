@@ -157,7 +157,7 @@ MemTable::~MemTable() {
     _flush_mem_tracker->set_consumption(0);
     DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
             << std::endl
-            << MemTracker::log_usage(_insert_mem_tracker->make_snapshot(0));
+            << MemTracker::log_usage(_insert_mem_tracker->make_snapshot());
     DCHECK_EQ(_flush_mem_tracker->consumption(), 0);
 }
 
