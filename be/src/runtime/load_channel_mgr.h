@@ -67,6 +67,7 @@ public:
         }
         _mem_tracker->set_consumption(mem_usage);
     }
+    MemTrackerLimiter* mem_tracker_set() { return _mem_tracker_set.get(); }
 
 private:
     template <typename Request>
@@ -91,6 +92,8 @@ protected:
 
     // check the total load channel mem consumption of this Backend
     std::unique_ptr<MemTracker> _mem_tracker;
+    // Associate load channel tracker and memtable tracker, avoid default association to Orphan tracker.
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker_set;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
 

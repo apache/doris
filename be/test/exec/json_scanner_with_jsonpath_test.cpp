@@ -41,7 +41,7 @@ class JsonScannerWithJsonPathTest : public testing::Test {
 public:
     JsonScannerWithJsonPathTest() : _runtime_state(TQueryGlobals()) {
         init();
-        _runtime_state.init_instance_mem_tracker();
+        _runtime_state.init_mem_trackers();
         _runtime_state._exec_env = ExecEnv::GetInstance();
     }
     void init();

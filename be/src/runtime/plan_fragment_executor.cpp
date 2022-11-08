@@ -95,10 +95,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
     _runtime_state->set_query_fragments_ctx(fragments_ctx);
+    _runtime_state->set_query_mem_tracker(fragments_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
-    RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     SCOPED_ATTACH_TASK(_runtime_state.get());
+    _runtime_state->init_scanner_mem_trackers();
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
@@ -230,7 +231,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 }
 
 Status PlanFragmentExecutor::open() {
-    int64_t mem_limit = _runtime_state->instance_mem_tracker()->limit();
+    int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
     LOG_INFO("PlanFragmentExecutor::open")
             .tag("query_id", _query_id)
             .tag("instance_id", _runtime_state->fragment_instance_id())
@@ -459,7 +460,7 @@ void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
     NodeStatistics* node_statistics =
             _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->add_peak_memory(_runtime_state->instance_mem_tracker()->peak_consumption());
+    node_statistics->add_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
