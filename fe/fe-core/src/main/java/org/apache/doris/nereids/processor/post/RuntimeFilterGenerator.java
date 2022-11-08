@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -35,9 +34,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Arrays;
@@ -51,14 +52,12 @@ import java.util.stream.Collectors;
  * generate runtime filter
  */
 public class RuntimeFilterGenerator extends PlanPostProcessor {
-
-    private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
-
-    private final ImmutableSet<JoinType> deniedJoinType = ImmutableSet.of(
+    private static final ImmutableSet<JoinType> deniedJoinType = ImmutableSet.of(
             JoinType.LEFT_ANTI_JOIN,
             JoinType.FULL_OUTER_JOIN,
             JoinType.LEFT_OUTER_JOIN
     );
+    private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
 
     /**
      * the runtime filter generator run at the phase of post process and plan translation of nereids planner.
@@ -81,9 +80,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
-        if (!deniedJoinType.contains(join.getJoinType())) {
-            List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values()).filter(type ->
-                    (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
+        if (deniedJoinType.contains(join.getJoinType())) {
+            // copy to avoid bug when next call of getOutputSet()
+            Set<Slot> slots = join.getOutputSet();
+            slots.forEach(aliasTransferMap::remove);
+        } else {
+            List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
+                    .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                     .collect(Collectors.toList());
             AtomicInteger cnt = new AtomicInteger();
             join.getHashJoinConjuncts().stream()
@@ -91,23 +94,24 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
                     // TODO: we will support it in later version.
                     .forEach(expr -> legalTypes.forEach(type -> {
-                        Pair<Expression, Expression> exprs = checkAndMaybeSwapChild(expr, join);
-                        if (exprs == null || !aliasTransferMap.containsKey((Slot) exprs.first)) {
+                        Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
+                        Preconditions.checkArgument(normalizedChildren != null);
+                        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+                        // contains join with denied join type. for example: a left join b on a.id = b.id
+                        if (!aliasTransferMap.containsKey((Slot) normalizedChildren.first)) {
                             return;
                         }
                         Pair<Slot, Slot> slots = Pair.of(
-                                aliasTransferMap.get((Slot) exprs.first).second.toSlot(),
-                                ((Slot) exprs.second));
+                                aliasTransferMap.get((Slot) normalizedChildren.first).second.toSlot(),
+                                ((Slot) normalizedChildren.second));
                         RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                                 slots.second, slots.first, type,
                                 cnt.getAndIncrement(), join);
                         ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
-                        ctx.setTargetsOnScanNode(aliasTransferMap.get(((Slot) exprs.first)).first, slots.first);
+                        ctx.setTargetsOnScanNode(
+                                aliasTransferMap.get((Slot) normalizedChildren.first).first,
+                                slots.first);
                     }));
-        } else {
-            // copy to avoid bug when next call of getOutputSet()
-            Set<Slot> slots = join.getOutputSet();
-            slots.forEach(aliasTransferMap::remove);
         }
         return join;
     }
@@ -135,21 +139,19 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // add all the slots in map.
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot ->
-                ctx.setKVInNormalMap(ctx.getAliasTransferMap(), slot, Pair.of(scan.getId(), slot)));
+                ctx.setKVInMap(ctx.getAliasTransferMap(), slot, Pair.of(scan.getId(), slot)));
         return scan;
     }
 
     private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
             PhysicalHashJoin join) {
-        if (expr.children().stream().anyMatch(Literal.class::isInstance)
-                || expr.child(0).equals(expr.child(1))
+        if (expr.child(0).equals(expr.child(1))
                 || !expr.children().stream().allMatch(SlotReference.class::isInstance)) {
             return null;
         }
         // current we assume that there are certainly different slot reference in equal to.
         // they are not from the same relation.
-        int exchangeTag = join.child(0).getOutput().stream().anyMatch(slot -> slot.getExprId().equals(
-                ((SlotReference) expr.child(1)).getExprId())) ? 1 : 0;
-        return Pair.of(expr.child(exchangeTag), expr.child(1 ^ exchangeTag));
+        List<Expression> children = JoinUtils.swapEqualToForChildrenOrder(expr, join.getOutputSet()).children();
+        return Pair.of(children.get(0), children.get(1));
     }
 }

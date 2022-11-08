@@ -89,20 +89,14 @@ public class RuntimeFilterContext {
 
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
         Preconditions.checkArgument(filter.getTargetExpr().getExprId() == id);
-        this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList())
-                .add(filter);
-    }
-
-    public void removeFilters(ExprId id) {
-        targetExprIdToFilter.remove(id);
+        this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
     }
 
     public void setTargetsOnScanNode(RelationId id, Slot slot) {
-        this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList())
-                .add(slot);
+        this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList()).add(slot);
     }
 
-    public <K, V> void setKVInNormalMap(@NotNull Map<K, V> map, K key, V value) {
+    public <K, V> void setKVInMap(@NotNull Map<K, V> map, K key, V value) {
         map.put(key, value);
     }
 
