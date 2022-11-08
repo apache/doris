@@ -27,6 +27,7 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.hive.util.HiveUtil;
@@ -65,7 +66,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
     private static final Logger LOG = LogManager.getLogger(HiveScanProvider.class);
 
     private static final String PROP_FIELD_DELIMITER = "field.delim";
-    private static final String DEFAULT_FIELD_DELIMITER = "\001";
+    private static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     private static final String DEFAULT_LINE_DELIMITER = "\n";
 
     protected HMSExternalTable hmsTable;
@@ -101,13 +102,21 @@ public class HiveScanProvider extends HMSTableScanProvider {
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         String location = hmsTable.getRemoteTable().getSd().getLocation();
         if (location != null && !location.isEmpty()) {
-            if (location.startsWith("s3a") || location.startsWith("s3n")) {
+            if (location.startsWith(FeConstants.FS_PREFIX_S3)
+                    || location.startsWith(FeConstants.FS_PREFIX_S3A)
+                    || location.startsWith(FeConstants.FS_PREFIX_S3N)
+                    || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                    || location.startsWith(FeConstants.FS_PREFIX_COS)
+                    || location.startsWith(FeConstants.FS_PREFIX_OSS)
+                    || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
                 return TFileType.FILE_S3;
-            } else if (location.startsWith("hdfs:")) {
+            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
                 return TFileType.FILE_HDFS;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
+                return TFileType.FILE_LOCAL;
             }
         }
-        throw new DdlException("Unknown file location for hms table.");
+        throw new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName());
     }
 
     @Override
@@ -117,7 +126,10 @@ public class HiveScanProvider extends HMSTableScanProvider {
 
     @Override
     public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
-        String splitsPath = getRemoteHiveTable().getSd().getLocation();
+        // eg:
+        // oss://buckts/data_dir
+        // hdfs://hosts/data_dir
+        String location = getRemoteHiveTable().getSd().getLocation();
         List<String> partitionKeys = getRemoteHiveTable().getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         List<Partition> hivePartitions = new ArrayList<>();
@@ -146,7 +158,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
                 throw new IOException(e);
             }
         } else {
-            splits = getSplitsByPath(inputFormat, configuration, splitsPath);
+            splits = getSplitsByPath(inputFormat, configuration, location);
         }
         return HiveBucketUtil.getPrunedSplitsByBuckets(splits, hmsTable.getName(), exprs,
                 getRemoteHiveTable().getSd().getBucketCols(), getRemoteHiveTable().getSd().getNumBuckets(),
@@ -154,7 +166,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
     }
 
     private List<InputSplit> getSplitsByPath(InputFormat<?, ?> inputFormat, Configuration configuration,
-            String splitsPath) throws IOException {
+            String location) throws IOException {
+        String finalLocation = convertToS3IfNecessary(location);
         JobConf jobConf = new JobConf(configuration);
         // For Tez engine, it may generate subdirectoies for "union" query.
         // So there may be files and directories in the table directory at the same time. eg:
@@ -165,16 +178,32 @@ public class HiveScanProvider extends HMSTableScanProvider {
         // Otherwise, getSplits() may throw exception: "Not a file xxx"
         // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
         jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
-        FileInputFormat.setInputPaths(jobConf, splitsPath);
+        FileInputFormat.setInputPaths(jobConf, finalLocation);
         InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
         return Lists.newArrayList(splits);
     }
 
+    // convert oss:// to s3://
+    private String convertToS3IfNecessary(String location) throws IOException {
+        LOG.debug("try convert location to s3 prefix: " + location);
+        if (location.startsWith(FeConstants.FS_PREFIX_COS)
+                || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                || location.startsWith(FeConstants.FS_PREFIX_OSS)
+                || location.startsWith(FeConstants.FS_PREFIX_S3A)
+                || location.startsWith(FeConstants.FS_PREFIX_S3N)) {
+            int pos = location.indexOf("://");
+            if (pos == -1) {
+                throw new IOException("No '://' found in location: " + location);
+            }
+            return "s3" + location.substring(pos);
+        }
+        return location;
+    }
 
     protected Configuration setConfiguration() {
         Configuration conf = new HdfsConfiguration();
-        Map<String, String> dfsProperties = hmsTable.getDfsProperties();
-        for (Map.Entry<String, String> entry : dfsProperties.entrySet()) {
+        for (Map.Entry<String, String> entry : hmsTable.getCatalog().getCatalogProperty().getProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
         Map<String, String> s3Properties = hmsTable.getS3Properties();
