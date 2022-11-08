@@ -23,7 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
-import org.apache.doris.mtmv.metadata.AlterMTMVTask;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
@@ -227,7 +227,7 @@ public class MTMVTaskManager {
     }
 
     private void changeAndLogTaskStatus(long jobId, MTMVTask task, TaskState fromStatus, TaskState toStatus) {
-        AlterMTMVTask changeTask = new AlterMTMVTask(jobId, task, fromStatus, toStatus);
+        ChangeMTMVTask changeTask = new ChangeMTMVTask(jobId, task, fromStatus, toStatus);
         Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
     }
 
@@ -338,7 +338,7 @@ public class MTMVTaskManager {
         }
     }
 
-    public void replayUpdateTask(AlterMTMVTask changeTask) {
+    public void replayUpdateTask(ChangeMTMVTask changeTask) {
         TaskState fromStatus = changeTask.getFromStatus();
         TaskState toStatus = changeTask.getToStatus();
         Long jobId = changeTask.getJobId();

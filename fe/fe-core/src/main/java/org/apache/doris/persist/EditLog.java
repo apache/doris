@@ -63,7 +63,7 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.metadata.AlterMTMVTask;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVTask;
@@ -912,7 +912,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_ALTER_MTMV_TASK: {
-                    final AlterMTMVTask changeTask = (AlterMTMVTask) journal.getData();
+                    final ChangeMTMVTask changeTask = (ChangeMTMVTask) journal.getData();
                     env.getMTMVJobManager().replayUpdateTask(changeTask);
                     break;
                 }
@@ -1573,7 +1573,7 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_MTMV_TASK, task);
     }
 
-    public void logAlterScheduleTask(AlterMTMVTask changeTaskRecord) {
+    public void logAlterScheduleTask(ChangeMTMVTask changeTaskRecord) {
         logEdit(OperationType.OP_ALTER_MTMV_TASK, changeTaskRecord);
     }
 

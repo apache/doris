@@ -24,7 +24,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
-import org.apache.doris.mtmv.metadata.AlterMTMVTask;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVCheckpointData;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -338,7 +338,7 @@ public class MTMVJobManager {
         taskManager.replayCreateJobTask(task);
     }
 
-    public void replayUpdateTask(AlterMTMVTask changeTask) {
+    public void replayUpdateTask(ChangeMTMVTask changeTask) {
         taskManager.replayUpdateTask(changeTask);
     }
 

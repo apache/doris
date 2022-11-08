@@ -48,7 +48,7 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.mtmv.metadata.AlterMTMVTask;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVTask;
@@ -725,7 +725,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_ALTER_MTMV_TASK: {
-                data = AlterMTMVTask.read(in);
+                data = ChangeMTMVTask.read(in);
                 isRead = true;
                 break;
             }
