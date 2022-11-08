@@ -87,7 +87,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     SchemaScanner schema_scanner(column_descs, 1);
     ObjectPool object_pool;
     SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool, TSchemaTableType::SCH_INVALID);
+    schema_scanner.init(&param, &object_pool);
     auto tuple_desc = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc());
     RowDescriptor row_desc(tuple_desc, false);
     RowBatch row_batch(row_desc, 1024);

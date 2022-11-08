@@ -132,8 +132,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    RETURN_IF_ERROR(
-            _schema_scanner->init(&_scanner_param, _pool, schema_table->schema_table_type()));
+    RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, _pool));
     // get column info from scanner
     _src_tuple_desc = _schema_scanner->tuple_desc();
 

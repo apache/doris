@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gen_cpp/Descriptors_types.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <stdio.h>
@@ -243,7 +242,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
                                  sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
     ObjectPool object_pool;
     SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool, TSchemaTableType::SCH_INVALID);
+    schema_scanner.init(&param, &object_pool);
     auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
     block.reset(new vectorized::Block());
     for (const auto& slot_desc : tuple_slots) {
@@ -357,7 +356,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     SchemaScanner schema_scanner(column_descs, num_cols);
     ObjectPool object_pool;
     SchemaScannerParam param;
-    schema_scanner.init(&param, &object_pool, TSchemaTableType::SCH_INVALID);
+    schema_scanner.init(&param, &object_pool);
     auto tuple_slots = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc())->slots();
 
     TSlotDescriptor tslot_desc;

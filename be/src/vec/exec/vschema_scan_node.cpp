@@ -50,10 +50,10 @@ VSchemaScanNode::~VSchemaScanNode() {
     _src_tuple = nullptr;
 
     delete[] reinterpret_cast<char*>(_src_single_tuple);
-    _src_single_tuple = NULL;
+    _src_single_tuple = nullptr;
 
     delete[] reinterpret_cast<char*>(_dest_single_tuple);
-    _dest_single_tuple = NULL;
+    _dest_single_tuple = nullptr;
 }
 
 Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -143,7 +143,7 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());
 
-    if (nullptr == _tuple_pool.get()) {
+    if (nullptr == _tuple_pool) {
         return Status::InternalError("Allocate MemPool failed.");
     }
 
@@ -166,12 +166,11 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     // new one scanner
     _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
 
-    if (nullptr == _schema_scanner.get()) {
+    if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    RETURN_IF_ERROR(
-            _schema_scanner->init(&_scanner_param, _pool, schema_table->schema_table_type()));
+    RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, _pool));
     // get column info from scanner
     _src_tuple_desc = _schema_scanner->tuple_desc();
 
@@ -227,13 +226,13 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
 
     _src_single_tuple =
             reinterpret_cast<doris::Tuple*>(new (std::nothrow) char[_src_tuple_desc->byte_size()]);
-    if (NULL == _src_single_tuple) {
+    if (nullptr == _src_single_tuple) {
         return Status::InternalError("new src single tuple failed.");
     }
 
     _dest_single_tuple =
             reinterpret_cast<doris::Tuple*>(new (std::nothrow) char[_dest_tuple_desc->byte_size()]);
-    if (NULL == _dest_single_tuple) {
+    if (nullptr == _dest_single_tuple) {
         return Status::InternalError("new desc single tuple failed.");
     }
 
@@ -245,9 +244,12 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
-    if (state == NULL || block == NULL || eos == NULL)
+    if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
-    if (!_is_init) return Status::InternalError("used before initialize.");
+    }
+    if (!_is_init) {
+        return Status::InternalError("used before initialize.");
+    }
     RETURN_IF_CANCELLED(state);
     std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
     bool schema_eos = false;

@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner/schema_backends_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
 
@@ -31,7 +32,8 @@
 
 namespace doris {
 
-SchemaBackendsScanner::SchemaBackendsScanner() : SchemaScanner(nullptr, 0), _row_idx(0) {}
+SchemaBackendsScanner::SchemaBackendsScanner()
+        : SchemaScanner(nullptr, 0, TSchemaTableType::SCH_BACKENDS), _row_idx(0) {}
 
 Status SchemaBackendsScanner::start(RuntimeState* state) {
     if (!_is_init) {

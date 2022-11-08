@@ -69,10 +69,11 @@ public:
         int scale = -1;
     };
     SchemaScanner(ColumnDesc* columns, int column_num);
+    SchemaScanner(ColumnDesc* columns, int column_num, TSchemaTableType::type type);
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
-    virtual Status init(SchemaScannerParam* param, ObjectPool* pool, TSchemaTableType::type type);
+    virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
     // Start to work
     virtual Status start(RuntimeState* state);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
@@ -102,6 +103,8 @@ protected:
     bool _is_create_columns = false;
 
     static DorisServer* _s_doris_server;
+
+    TSchemaTableType::type _schema_table_type;
 };
 
 } // namespace doris

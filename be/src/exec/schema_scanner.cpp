@@ -44,7 +44,16 @@ SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
           _param(nullptr),
           _columns(columns),
           _column_num(column_num),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr),
+          _schema_table_type(TSchemaTableType::SCH_INVALID) {}
+
+SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num, TSchemaTableType::type type)
+        : _is_init(false),
+          _param(nullptr),
+          _columns(columns),
+          _column_num(column_num),
+          _tuple_desc(nullptr),
+          _schema_table_type(type) {}
 
 SchemaScanner::~SchemaScanner() {
     if (_is_create_columns == true && _columns != nullptr) {
@@ -74,8 +83,7 @@ Status SchemaScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     return Status::OK();
 }
 
-Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool,
-                           TSchemaTableType::type type) {
+Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     if (_is_init) {
         return Status::OK();
     }
@@ -83,7 +91,7 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool,
         return Status::InternalError("invalid parameter");
     }
 
-    if (type == TSchemaTableType::SCH_BACKENDS) {
+    if (_schema_table_type == TSchemaTableType::SCH_BACKENDS) {
         RETURN_IF_ERROR(create_columns(param->table_structure, pool));
     }
 
