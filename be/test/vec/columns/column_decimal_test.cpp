@@ -17,12 +17,13 @@
 // under the License.
 
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/columns_number.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
+
+#include "vec/columns/columns_number.h"
 
 namespace doris::vectorized {
 
