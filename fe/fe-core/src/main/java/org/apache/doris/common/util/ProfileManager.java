@@ -67,6 +67,11 @@ public class ProfileManager {
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
+
+    public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
+
+    public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
+
     public static final String TRACE_ID = "Trace ID";
 
     public enum ProfileType {
