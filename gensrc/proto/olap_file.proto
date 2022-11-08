@@ -201,6 +201,20 @@ message ColumnPB {
     repeated string children_column_names = 18;
 }
 
+enum IndexType {
+    BITMAP = 0;
+    INVERTED = 1;
+    BLOOMFILTER = 2;
+}
+
+message TabletIndexPB {
+    optional int64 index_id = 1;
+    optional string index_name = 2;
+    optional IndexType index_type = 3;
+    repeated int32 col_unique_id = 4;
+    map<string, string> properties = 5;
+}
+
 enum SortType {
     LEXICAL = 0;
     ZORDER  = 1;
@@ -222,6 +236,7 @@ message TabletSchemaPB {
     optional segment_v2.CompressionTypePB compression_type = 13 [default=LZ4F];
     optional int32 schema_version = 14;
     optional bool disable_auto_compaction = 15 [default=false];
+    repeated TabletIndexPB index = 16;
 }
 
 enum TabletStatePB {
