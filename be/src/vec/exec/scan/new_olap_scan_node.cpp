@@ -205,7 +205,9 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         _runtime_profile->add_info_string("PushDownPredicates",
                                           olap_filters_to_string(_olap_filters));
         _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
-        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+        if (!_scan_ranges.empty()) {
+            _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+        }
     }
     VLOG_CRITICAL << _scan_keys.debug_string();
 
@@ -279,6 +281,12 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         _eos = true;
         return Status::OK();
     }
+
+    if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
+        _runtime_profile->add_info_string("RemainedDownPredicates",
+                                          (*_vconjunct_ctx_ptr)->root()->debug_string());
+    }
+
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     // ranges constructed from scan keys
