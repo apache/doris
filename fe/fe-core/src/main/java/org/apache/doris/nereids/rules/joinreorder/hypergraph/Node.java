@@ -97,7 +97,6 @@ class Node {
         } else {
             complexEdges.remove(edge);
         }
-        assert false : String.format("removed edge %d at %d that does not exists", edge.getIndex(), index);
     }
 
     public String getName() {
