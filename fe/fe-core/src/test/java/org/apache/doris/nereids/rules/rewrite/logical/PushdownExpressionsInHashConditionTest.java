@@ -17,12 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -81,15 +80,10 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                 "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE < 10"
         );
         testSql.forEach(sql -> {
-            try {
-                PhysicalPlan plan = new NereidsPlanner(createStatementCtx(sql)).plan(
-                        new NereidsParser().parseSingle(sql),
-                        PhysicalProperties.ANY
-                );
-                System.out.println(plan.treeString());
-            } catch (AnalysisException e) {
-                throw new RuntimeException(e);
-            }
+            StatementContext context = createStatementCtx(sql);
+            System.out.printf("run sql: %s\n", sql);
+            new NereidsPlanner(createStatementCtx(sql))
+                    .plan(new LogicalPlanAdapter(new NereidsParser().parseSingle(sql), context));
         });
     }
 

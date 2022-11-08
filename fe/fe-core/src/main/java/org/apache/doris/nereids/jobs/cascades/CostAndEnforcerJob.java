@@ -30,10 +30,14 @@ import org.apache.doris.nereids.properties.EnforceMissingPropertiesHelper;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
 import org.apache.doris.nereids.stats.StatsCalculator;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -41,6 +45,7 @@ import java.util.Optional;
  * Inspired by NoisePage and ORCA-Paper.
  */
 public class CostAndEnforcerJob extends Job implements Cloneable {
+    private static final Map<GroupExpression, List<List<PhysicalProperties>>> cache = Maps.newHashMap();
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
 
@@ -68,6 +73,10 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     public CostAndEnforcerJob(GroupExpression groupExpression, JobContext context) {
         super(JobType.OPTIMIZE_CHILDREN, context);
         this.groupExpression = groupExpression;
+    }
+
+    public static void clearCache() {
+        cache.clear();
     }
 
     /*-
@@ -102,6 +111,28 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     public void execute() {
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
+            // use cache.
+            if (cache.containsKey(groupExpression)) {
+                if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
+                    System.out.printf("cache get %s\n -> %s\n", groupExpression, cache.get(groupExpression));
+                }
+                for (List<PhysicalProperties> list : cache.get(groupExpression)) {
+                    Preconditions.checkArgument(list.size() == groupExpression.arity());
+                    clear();
+                    for (; curChildIndex < groupExpression.arity(); curChildIndex++) {
+                        Optional<Pair<Double, GroupExpression>> opt = groupExpression.child(curChildIndex)
+                                .getLowestCostPlan(list.get(curChildIndex));
+                        // the list in cache is certain that there's a 'lowest cost plan' corresponding to the physical
+                        // properties in it.
+                        Preconditions.checkArgument(opt.isPresent());
+                        lowestCostChildren.add(opt.get().second);
+                    }
+                    if (!calculateEnforce(list)) {
+                        return;
+                    }
+                }
+                return;
+            }
             curNodeCost = 0;
             curTotalCost = 0;
             curChildIndex = 0;
@@ -170,10 +201,12 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 // the request child properties will be covered by the output properties
                 // that corresponding to the request properties. so if we run a costAndEnforceJob of the same
                 // group expression, that request child properties will be different of this.
+                // so we can store the request children list that can run enforce.
             }
 
             // This mean that we successfully optimize all child groups.
-            // if break when running the loop above, the condition must be false.
+            // if run into break when running the loop above, the condition must be false.
+            // if the list can be enforced, we will store it.
             if (curChildIndex == groupExpression.arity()) {
                 if (!calculateEnforce(requestChildrenProperties)) {
                     return;
@@ -181,6 +214,12 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 if (curTotalCost < context.getCostUpperBound()) {
                     context.setCostUpperBound(curTotalCost);
                 }
+                if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
+                    System.out.printf("set cache: %s\n -> %s\n", groupExpression, requestChildrenProperties);
+                }
+                cache.computeIfAbsent(groupExpression, k ->
+                                Lists.newArrayListWithCapacity(requestChildrenPropertiesList.size()))
+                        .add(requestChildrenProperties);
             }
             clear();
         }

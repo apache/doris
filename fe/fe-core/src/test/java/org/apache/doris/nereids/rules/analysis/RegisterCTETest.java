@@ -23,10 +23,8 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
@@ -42,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -128,13 +125,10 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
         for (String sql : testSql) {
             NamedExpressionUtil.clear();
-            StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-            PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
-                    parser.parseSingle(sql),
-                    PhysicalProperties.ANY
-            );
-            // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+            StatementContext context = createStatementCtx(sql);
+            System.out.printf("run sql: %s\n", sql);
+            new NereidsPlanner(createStatementCtx(sql))
+                    .plan(new LogicalPlanAdapter(new NereidsParser().parseSingle(sql), context));
         }
     }
 

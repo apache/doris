@@ -19,14 +19,10 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -98,14 +94,10 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
         for (String sql : testSql) {
             NamedExpressionUtil.clear();
             System.out.println("\n\n***** " + sql + " *****\n\n");
-            StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-            NereidsPlanner planner = new NereidsPlanner(statementContext);
-            PhysicalPlan plan = planner.plan(
-                    new NereidsParser().parseSingle(sql),
-                    PhysicalProperties.ANY
-            );
-            // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(planner.getCascadesContext()));
+            StatementContext context = createStatementCtx(sql);
+            System.out.printf("run sql: %s\n", sql);
+            new NereidsPlanner(createStatementCtx(sql))
+                    .plan(new LogicalPlanAdapter(new NereidsParser().parseSingle(sql), context));
         }
     }
 
