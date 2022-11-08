@@ -86,12 +86,11 @@ class Edge {
         this.right = right;
     }
 
-    public boolean isBefore(Edge edge) {
+    public boolean isSub(Edge edge) {
         // When this join reference nodes is a subset of other join, then this join must appear before that join
-        BitSet thisBitSet = getReferenceNodes();
-        BitSet otherBitSet = edge.getReferenceNodes();
-        thisBitSet.or(otherBitSet);
-        return thisBitSet.equals(otherBitSet);
+        BitSet bitSet = getReferenceNodes();
+        BitSet otherBitset = edge.getReferenceNodes();
+        return isSubset(bitSet, otherBitset);
     }
 
     public BitSet getReferenceNodes() {
@@ -127,6 +126,13 @@ class Edge {
     @Override
     public String toString() {
         return String.format("<%s - %s>", left, right);
+    }
+
+    private boolean isSubset(BitSet bitSet1, BitSet bitSet2) {
+        BitSet bitSet = new BitSet();
+        bitSet.or(bitSet1);
+        bitSet.or(bitSet2);
+        return bitSet.equals(bitSet2);
     }
 }
 
