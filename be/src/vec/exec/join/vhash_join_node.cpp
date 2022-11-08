@@ -116,49 +116,52 @@ struct ProcessHashTableBuild {
             }
         }
 
-        for (size_t k = 0; k < _rows; ++k) {
-            if constexpr (ignore_null) {
-                if ((*null_map)[k]) {
-                    continue;
-                }
-            }
-
-            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table,
-                                                         _build_side_hash_values[k], k, arena);
-            if (k + PREFETCH_STEP < _rows) {
-                key_getter.template prefetch_by_hash<false>(
-                        hash_table_ctx.hash_table, _build_side_hash_values[k + PREFETCH_STEP]);
-            }
-
-#define EMPLACE_IMPL(HasRuntimeFilter, BuildUnique)                               \
-    if (emplace_result.is_inserted()) {                                           \
-        new (&emplace_result.get_mapped()) Mapped({k, _offset});                  \
-        if (HasRuntimeFilter) {                                                   \
-            inserted_rows.push_back(k);                                           \
-        }                                                                         \
-    } else {                                                                      \
-        if (!BuildUnique) {                                                       \
-            emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena); \
-            if (HasRuntimeFilter) {                                               \
-                inserted_rows.push_back(k);                                       \
-            }                                                                     \
-        } else {                                                                  \
-            _skip_rows++;                                                         \
-        }                                                                         \
+        bool build_unique = _join_node->_build_unique;
+#define EMPLACE_IMPL(stmt)                                                                  \
+    for (size_t k = 0; k < _rows; ++k) {                                                    \
+        if constexpr (ignore_null) {                                                        \
+            if ((*null_map)[k]) {                                                           \
+                continue;                                                                   \
+            }                                                                               \
+        }                                                                                   \
+        auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table,             \
+                                                     _build_side_hash_values[k], k, arena); \
+        if (k + PREFETCH_STEP < _rows) {                                                    \
+            key_getter.template prefetch_by_hash<false>(                                    \
+                    hash_table_ctx.hash_table, _build_side_hash_values[k + PREFETCH_STEP]); \
+        }                                                                                   \
+        stmt;                                                                               \
     }
 
-            bool build_unique = _join_node->_build_unique;
-            if (has_runtime_filter && build_unique) {
-                EMPLACE_IMPL(true, true);
-            } else if (has_runtime_filter > build_unique) {
-                EMPLACE_IMPL(true, false);
-            } else if (has_runtime_filter < build_unique) {
-                EMPLACE_IMPL(false, true);
-            } else {
-                EMPLACE_IMPL(false, false);
-            }
-#undef EMPLACE_IMPL
+        if (has_runtime_filter && build_unique) {
+            EMPLACE_IMPL(
+                    if (emplace_result.is_inserted()) {
+                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
+                        inserted_rows.push_back(k);
+                    } else { _skip_rows++; });
+        } else if (has_runtime_filter && !build_unique) {
+            EMPLACE_IMPL(
+                    if (emplace_result.is_inserted()) {
+                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
+                        inserted_rows.push_back(k);
+                    } else {
+                        emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
+                        inserted_rows.push_back(k);
+                    });
+        } else if (!has_runtime_filter && build_unique) {
+            EMPLACE_IMPL(
+                    if (emplace_result.is_inserted()) {
+                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
+                    } else { _skip_rows++; });
+        } else {
+            EMPLACE_IMPL(
+                    if (emplace_result.is_inserted()) {
+                        new (&emplace_result.get_mapped()) Mapped({k, _offset});
+                    } else {
+                        emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
+                    });
         }
+#undef EMPLACE_IMPL
 
         COUNTER_UPDATE(_join_node->_build_table_expanse_timer,
                        hash_table_ctx.hash_table.get_resize_timer_value());
@@ -175,7 +178,7 @@ private:
 
     ProfileCounter* _build_side_compute_hash_timer;
     std::vector<size_t> _build_side_hash_values;
-};
+}; // namespace doris::vectorized
 
 template <class HashTableContext>
 struct ProcessRuntimeFilterBuild {
