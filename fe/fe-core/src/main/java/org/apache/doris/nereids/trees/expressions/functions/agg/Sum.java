@@ -56,12 +56,10 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
         if (dataType instanceof LargeIntType) {
             return dataType;
         } else if (dataType instanceof DecimalType) {
-            // TODO: precision + 10
-            return dataType;
+            return DecimalType.SYSTEM_DEFAULT;
         } else if (dataType instanceof IntegralType) {
             return BigIntType.INSTANCE;
         } else if (dataType instanceof FractionalType) {
-            // TODO: precision + 10
             return DoubleType.INSTANCE;
         } else {
             throw new IllegalStateException("Unsupported sum type: " + dataType);
