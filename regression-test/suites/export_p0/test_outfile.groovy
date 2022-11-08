@@ -49,7 +49,8 @@ suite("test_outfile") {
         return
     }
     def tableName = "outfile_test"
-    def outFilePath = """${context.file.parent}/test_outfile"""
+    def uuid = UUID.randomUUID().toString()
+    def outFilePath = """/tmp/test_outfile_${uuid}"""
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """

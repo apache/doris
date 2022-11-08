@@ -36,8 +36,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          _thread_pool(config::routine_load_thread_pool_size,
-                       config::routine_load_thread_pool_size),
+          _thread_pool(config::routine_load_thread_pool_size, config::routine_load_thread_pool_size,
+                       "routine_load"),
           _data_consumer_pool(config::routine_load_consumer_pool_size) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);

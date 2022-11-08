@@ -27,6 +27,8 @@ echo "hadoop fs -mkdir /user/doris/"
 hadoop fs -mkdir -p /user/doris/
 echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
+echo "hadoop fs -put /mnt/scripts/json_format_test.db /user/doris/"
+hadoop fs -put /mnt/scripts/json_format_test /user/doris/
 echo "hive -f /mnt/scripts/create.hql"
 hive -f /mnt/scripts/create.hql
 

@@ -21,11 +21,7 @@
 
 #include "common/status.h"
 #include "olap/bloom_filter_predicate.h"
-#include "olap/collect_iterator.h"
-#include "olap/comparison_predicate.h"
-#include "olap/in_list_predicate.h"
 #include "olap/like_column_predicate.h"
-#include "olap/null_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
 #include "olap/row.h"
@@ -33,9 +29,6 @@
 #include "olap/schema.h"
 #include "olap/tablet.h"
 #include "runtime/mem_pool.h"
-#include "util/mem_util.hpp"
-#include "util/string_util.h"
-#include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
 
@@ -212,7 +205,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.is_upper_keys_included = &_is_upper_keys_included;
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
-    _reader_context.runtime_state = read_params.runtime_state;
     _reader_context.use_page_cache = read_params.use_page_cache;
     _reader_context.sequence_id_idx = _sequence_col_idx;
     _reader_context.batch_size = _batch_size;
@@ -236,6 +228,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
+    _reader_context.runtime_state = read_params.runtime_state;
 
     _init_conditions_param(read_params);
 
@@ -470,8 +463,9 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = _tablet_schema->column(index);
-    return BloomFilterColumnPredicateFactory::create_column_predicate(index, bloom_filter.second,
-                                                                      column.type());
+    return BloomFilterColumnPredicateFactory::create_column_predicate(
+            index, bloom_filter.second, column.type(),
+            _reader_context.runtime_state->be_exec_version());
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {

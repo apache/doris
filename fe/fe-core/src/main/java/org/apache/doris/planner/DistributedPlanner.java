@@ -275,7 +275,7 @@ public class DistributedPlanner {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
-        } else if (node instanceof TableValuedFunctionScanNode) {
+        } else if (node instanceof DataGenScanNode) {
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);
         } else if (node instanceof OlapScanNode) {
             // olap scan node
@@ -353,7 +353,10 @@ public class DistributedPlanner {
         // - and the expected size of the hash tbl doesn't exceed autoBroadcastThreshold
         // we set partition join as default when broadcast join cost equals partition join cost
 
-        if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
+        if (node.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            doBroadcast = true;
+        } else if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN
+                && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
             if (node.getInnerRef().isBroadcastJoin()) {
                 // respect user join hint
                 doBroadcast = true;
@@ -425,26 +428,33 @@ public class DistributedPlanner {
 
     /**
      * Colocate Join can be performed when the following 4 conditions are met at the same time.
-     * 1. Session variables disable_colocate_plan = false
-     * 2. There is no join hints in HashJoinNode
-     * 3. There are no exchange node between source scan node and HashJoinNode.
-     * 4. The scan nodes which are related by EqConjuncts in HashJoinNode are colocate and group can be matched.
+     * 1. Join operator is not NULL_AWARE_LEFT_ANTI_JOIN
+     * 2. Session variables disable_colocate_plan = false
+     * 3. There is no join hints in HashJoinNode
+     * 4. There are no exchange node between source scan node and HashJoinNode.
+     * 5. The scan nodes which are related by EqConjuncts in HashJoinNode are colocate and group can be matched.
      */
     private boolean canColocateJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment,
                                     List<String> cannotReason) {
         // Condition1
+        if (node.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            cannotReason.add(DistributedPlanColocateRule.NULL_AWARE_LEFT_ANTI_JOIN_MUST_BROADCAST);
+            return false;
+        }
+
+        // Condition2
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             cannotReason.add(DistributedPlanColocateRule.SESSION_DISABLED);
             return false;
         }
 
-        // Condition2: If user have a join hint to use proper way of join, can not be colocate join
+        // Condition3: If user have a join hint to use proper way of join, can not be colocate join
         if (node.getInnerRef().hasJoinHints()) {
             cannotReason.add(DistributedPlanColocateRule.HAS_JOIN_HINT);
             return false;
         }
 
-        // Condition3:
+        // Condition4:
         // If there is an exchange node between the HashJoinNode and their real associated ScanNode,
         //   it means that the data has been rehashed.
         // The rehashed data can no longer be guaranteed to correspond to the left and right buckets,
@@ -468,7 +478,7 @@ public class DistributedPlanner {
             predicateList.add(eqJoinPredicate);
         }
 
-        // Condition4
+        // Condition5
         return dataDistributionMatchEqPredicate(scanNodeWithJoinConjuncts, cannotReason);
     }
 
@@ -581,6 +591,10 @@ public class DistributedPlanner {
 
     private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment,
                                          List<Expr> rhsHashExprs) {
+        if (node.getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            return false;
+        }
+
         if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
         }

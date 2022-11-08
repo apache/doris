@@ -31,6 +31,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/exec/format/csv/csv_reader.h"
+#include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -257,7 +258,6 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
                 return Status::InternalError(ss.str());
             }
             const std::string& column_from_path = range.columns_from_path[it->second];
-
             auto doris_column = _src_block_ptr->get_by_name(slot_desc->col_name()).column;
             IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
 
@@ -489,10 +489,17 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_BZ2:
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
         case TFileFormatType::FORMAT_CSV_LZOP:
-        case TFileFormatType::FORMAT_CSV_DEFLATE: {
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_PROTO: {
             _cur_reader.reset(
                     new CsvReader(_state, _profile, &_counter, _params, range, _file_slot_descs));
             init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
+            break;
+        }
+        case TFileFormatType::FORMAT_JSON: {
+            _cur_reader.reset(new NewJsonReader(_state, _profile, &_counter, _params, range,
+                                                _file_slot_descs, &_scanner_eof));
+            init_status = ((NewJsonReader*)(_cur_reader.get()))->init_reader();
             break;
         }
         default:
@@ -528,10 +535,26 @@ Status VFileScanner::_init_expr_ctxes() {
 
     std::map<SlotId, int> full_src_index_map;
     std::map<SlotId, SlotDescriptor*> full_src_slot_map;
+    std::map<std::string, int> partition_name_to_key_index_map;
     int index = 0;
     for (const auto& slot_desc : _real_tuple_desc->slots()) {
         full_src_slot_map.emplace(slot_desc->id(), slot_desc);
         full_src_index_map.emplace(slot_desc->id(), index++);
+    }
+
+    // For external table query, find the index of column in path.
+    // Because query doesn't always search for all columns in a table
+    // and the order of selected columns is random.
+    // All ranges in _ranges vector should have identical columns_from_path_keys
+    // because they are all file splits for the same external table.
+    // So here use the first element of _ranges to fill the partition_name_to_key_index_map
+    if (_ranges[0].__isset.columns_from_path_keys) {
+        std::vector<std::string> key_map = _ranges[0].columns_from_path_keys;
+        if (!key_map.empty()) {
+            for (size_t i = 0; i < key_map.size(); i++) {
+                partition_name_to_key_index_map.emplace(key_map[i], i);
+            }
+        }
     }
 
     _num_of_columns_from_file = _params.num_of_columns_from_file;
@@ -551,8 +574,13 @@ Status VFileScanner::_init_expr_ctxes() {
             _file_col_names.push_back(it->second->col_name());
         } else {
             _partition_slot_descs.emplace_back(it->second);
-            auto iti = full_src_index_map.find(slot_id);
-            _partition_slot_index_map.emplace(slot_id, iti->second - _num_of_columns_from_file);
+            if (_is_load) {
+                auto iti = full_src_index_map.find(slot_id);
+                _partition_slot_index_map.emplace(slot_id, iti->second - _num_of_columns_from_file);
+            } else {
+                auto kit = partition_name_to_key_index_map.find(it->second->col_name());
+                _partition_slot_index_map.emplace(slot_id, kit->second);
+            }
         }
     }
 

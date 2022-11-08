@@ -132,6 +132,17 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     return filters_string;
 }
 
+static std::string tablets_id_to_string(
+        const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
+    std::stringstream ss;
+    ss << "[" << scan_ranges[0]->tablet_id;
+    for (int i = 1; i < scan_ranges.size(); ++i) {
+        ss << ", " << scan_ranges[i]->tablet_id;
+    }
+    ss << "]";
+    return ss.str();
+}
+
 Status NewOlapScanNode::_process_conjuncts() {
     RETURN_IF_ERROR(VScanNode::_process_conjuncts());
     if (_eos) {
@@ -190,8 +201,12 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                    range);
     }
 
-    _runtime_profile->add_info_string("PushDownPredicates", olap_filters_to_string(_olap_filters));
-    _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
+    if (_state->enable_profile()) {
+        _runtime_profile->add_info_string("PushDownPredicates",
+                                          olap_filters_to_string(_olap_filters));
+        _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
+        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+    }
     VLOG_CRITICAL << _scan_keys.debug_string();
 
     return Status::OK();
@@ -310,9 +325,9 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
 
-            NewOlapScanner* scanner = new NewOlapScanner(_state, this, _limit_per_scanner,
-                                                         _olap_scan_node.is_preaggregation,
-                                                         _need_agg_finalize, *scan_range);
+            NewOlapScanner* scanner = new NewOlapScanner(
+                    _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
+                    _need_agg_finalize, *scan_range, _scanner_profile.get());
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);

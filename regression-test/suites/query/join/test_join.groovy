@@ -836,6 +836,10 @@ suite("test_join", "query,p0") {
         check2_doris(res21, res22)
     }
 
+    qt_cross_join2 """
+        select t1.k1 from ${tbName1} t1 cross join ${tbName1} t2 where t1.k1 = t2.k1 + 1 group by t1.k1 order by t1.k1;
+    """
+
     // right semi join
     List right_selected = ["b.k1, b.k2, b.k3, b.k4, b.k5", "count(b.k1), count(b.k2), count(b.k4), count(b.k3), count(*)"]
     for (s in right_selected){
@@ -1049,6 +1053,8 @@ suite("test_join", "query,p0") {
         check2_doris(res41, res42)
     }
 
+    qt_left_anti_join_with_other_pred "select b.k1 from ${tbName2} b left anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by b.k1"
+
     // right anti join
     for (s in right_selected){
         def res43 = sql"""select ${s} from ${tbName2} a right anti join ${tbName1} b 
@@ -1160,6 +1166,7 @@ suite("test_join", "query,p0") {
                 order by 1, 2, 3, 4, 5 limit 65535"""
     }
 
+    qt_right_anti_join_with_other_pred "select t.k1 from ${tbName2} b right anti join ${tbName1} t on b.k1 = t.k1 and 1 = 2 order by t.k1"
 
     // join with no join keyword
     for (s in selected){

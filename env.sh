@@ -48,6 +48,7 @@ CELLARS=(
     autoconf
     libtool
     pkg-config
+    texinfo
     coreutils
     gnu-getopt
     python

@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -40,8 +42,8 @@ public class PhysicalOlapScan extends PhysicalRelation {
     private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
-    private final List<Long> selectedTabletIds;
-    private final List<Long> selectedPartitionIds;
+    private final ImmutableList<Long> selectedTabletIds;
+    private final ImmutableList<Long> selectedPartitionIds;
     private final PreAggStatus preAggStatus;
 
     /**
@@ -53,8 +55,8 @@ public class PhysicalOlapScan extends PhysicalRelation {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
-        this.selectedTabletIds = selectedTabletIds;
-        this.selectedPartitionIds = selectedPartitionIds;
+        this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
+        this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
         this.distributionSpec = distributionSpec;
         this.preAggStatus = preAggStatus;
     }
@@ -63,15 +65,15 @@ public class PhysicalOlapScan extends PhysicalRelation {
      * Constructor for PhysicalOlapScan.
      */
     public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
-            List<Long> selectedTabletId, List<Long> selectedPartitionId, DistributionSpec distributionSpec,
+            List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,
                 statsDeriveResult);
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
-        this.selectedTabletIds = selectedTabletId;
-        this.selectedPartitionIds = selectedPartitionId;
+        this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
+        this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
         this.distributionSpec = distributionSpec;
         this.preAggStatus = preAggStatus;
     }
@@ -105,7 +107,8 @@ public class PhysicalOlapScan extends PhysicalRelation {
     public String toString() {
         return Utils.toSqlString("PhysicalOlapScan",
                 "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
-                "output", getOutput()
+                "output", getOutput(),
+                "stats", statsDeriveResult
         );
     }
 

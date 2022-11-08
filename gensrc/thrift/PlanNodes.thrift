@@ -53,7 +53,7 @@ enum TPlanNodeType {
   EXCEPT_NODE,
   ODBC_SCAN_NODE,
   TABLE_FUNCTION_NODE,
-  TABLE_VALUED_FUNCTION_SCAN_NODE,
+  DATA_GEN_SCAN_NODE,
   FILE_SCAN_NODE,
   JDBC_SCAN_NODE,
 }
@@ -306,6 +306,8 @@ struct TFileRangeDesc {
     5: optional i64 file_size;
     // columns parsed from file path should be after the columns read from file
     6: optional list<string> columns_from_path;
+    // column names from file path, in the same order with columns_from_path
+    7: optional list<string> columns_from_path_keys;
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
@@ -322,7 +324,7 @@ struct TExternalScanRange {
     // TODO: add more scan range type?
 }
 
-enum TTVFunctionName {
+enum TDataGenFunctionName {
     NUMBERS = 0,
 }
 
@@ -332,7 +334,7 @@ struct TTVFNumbersScanRange {
 	1: optional i64 totalNumbers
 }
 
-struct TTVFScanRange {
+struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
 }
 
@@ -345,7 +347,7 @@ struct TScanRange {
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
   8: optional TExternalScanRange ext_scan_range
-  9: optional TTVFScanRange tvf_scan_range
+  9: optional TDataGenScanRange data_gen_scan_range
 }
 
 struct TMySQLScanNode {
@@ -901,9 +903,9 @@ struct TRuntimeFilterDesc {
   9: optional i64 bloom_filter_size_bytes
 }
 
-struct TTableValuedFunctionScanNode {
+struct TDataGenScanNode {
 	1: optional Types.TTupleId tuple_id
-  	2: optional TTVFunctionName func_name
+  2: optional TDataGenFunctionName func_name
 }
 
 // This is essentially a union of all messages corresponding to subclasses
@@ -957,7 +959,7 @@ struct TPlanNode {
 
   // output column
   42: optional list<Types.TSlotId> output_slot_ids
-  43: optional TTableValuedFunctionScanNode table_valued_func_scan_node
+  43: optional TDataGenScanNode data_gen_scan_node
 
   // file scan node
   44: optional TFileScanNode file_scan_node

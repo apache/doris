@@ -138,7 +138,7 @@ public:
             }
         } else {
             for (uint16_t i = 0; i < size; ++i) {
-                if (flags[i]) {
+                if (!flags[i]) {
                     continue;
                 }
                 uint16_t idx = sel[i];
@@ -253,6 +253,46 @@ public:
             COMPARE_TO_MIN_OR_MAX(second)
         }
     }
+
+    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+        if (statistic.first->is_null() || statistic.second->is_null()) {
+            return false;
+        }
+        if constexpr (PT == PredicateType::EQ) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
+                                 true);
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) == _value &&
+                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) == _value;
+            }
+        } else if constexpr (PT == PredicateType::NE) {
+            if constexpr (Type == TYPE_DATE) {
+                T tmp_min_uint32_value = 0;
+                memcpy((char*)(&tmp_min_uint32_value), statistic.first->cell_ptr(),
+                       sizeof(uint24_t));
+                T tmp_max_uint32_value = 0;
+                memcpy((char*)(&tmp_max_uint32_value), statistic.second->cell_ptr(),
+                       sizeof(uint24_t));
+                return tmp_min_uint32_value > _value || tmp_max_uint32_value < _value;
+            } else {
+                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) > _value ||
+                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) < _value;
+            }
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            COMPARE_TO_MIN_OR_MAX(second)
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            COMPARE_TO_MIN_OR_MAX(first)
+        }
+    }
+#undef COMPARE_TO_MIN_OR_MAX
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::EQ) {
@@ -559,6 +599,12 @@ private:
 
             return _base_loop<is_nullable>(sel, size, null_map, data_array, _value);
         }
+    }
+
+    std::string _debug_string() override {
+        std::string info =
+                "ComparisonPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
+        return info;
     }
 
     T _value;

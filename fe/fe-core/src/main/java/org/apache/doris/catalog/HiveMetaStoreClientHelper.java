@@ -37,6 +37,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
 import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
@@ -47,7 +48,9 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -88,6 +91,7 @@ import java.util.stream.Collectors;
  */
 public class HiveMetaStoreClientHelper {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClientHelper.class);
+    public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
 
@@ -135,28 +139,41 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-    public static HiveMetaStoreClient getClient(String metaStoreUris) throws DdlException {
+    public static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
-        HiveMetaStoreClient hivemetastoreclient = null;
+        return getClient(hiveConf);
+    }
+
+    public static IMetaStoreClient getClient(HiveConf hiveConf) throws DdlException {
+        hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                String.valueOf(Config.hive_metastore_client_timeout_second));
+        IMetaStoreClient metaStoreClient = null;
+        String type = hiveConf.get(HIVE_METASTORE_TYPE);
         try {
-            hivemetastoreclient = new HiveMetaStoreClient(hiveConf);
+            if (type.equalsIgnoreCase("dlf")) {
+                // For aliyun DLF
+                metaStoreClient = new ProxyMetaStoreClient(hiveConf);
+            } else {
+                metaStoreClient = new HiveMetaStoreClient(hiveConf);
+            }
         } catch (MetaException e) {
             LOG.warn("Create HiveMetaStoreClient failed: {}", e.getMessage());
             throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
         }
-        return hivemetastoreclient;
+        return metaStoreClient;
     }
 
     /**
      * Check to see if the specified table exists in the specified database.
+     *
      * @param client HiveMetaStoreClient
      * @param dbName the specified database name
      * @param tblName the specified table name
      * @return TRUE if specified.tableName exists, FALSE otherwise.
      * @throws DdlException
      */
-    public static boolean tableExists(HiveMetaStoreClient client, String dbName, String tblName) throws DdlException {
+    public static boolean tableExists(IMetaStoreClient client, String dbName, String tblName) throws DdlException {
         try {
             return client.tableExists(dbName, tblName);
         } catch (TException e) {
@@ -170,7 +187,7 @@ public class HiveMetaStoreClientHelper {
     /**
      * close connection to meta store
      */
-    public static void dropClient(HiveMetaStoreClient client) {
+    public static void dropClient(IMetaStoreClient client) {
         client.close();
     }
 
@@ -341,7 +358,7 @@ public class HiveMetaStoreClientHelper {
     public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
                        ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
         List<Partition> hivePartitions = new ArrayList<>();
-        HiveMetaStoreClient client = getClient(metaStoreUris);
+        IMetaStoreClient client = getClient(metaStoreUris);
         try {
             client.listPartitionsByExpr(remoteHiveTbl.getDbName(), remoteHiveTbl.getTableName(),
                     SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),
@@ -370,21 +387,8 @@ public class HiveMetaStoreClientHelper {
         configuration.set("fs.s3a.attempts.maximum", "2");
     }
 
-    public static List<String> getPartitionNames(HiveTable hiveTable) throws DdlException {
-        HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
-        List<String> partitionNames = new ArrayList<>();
-        try {
-            partitionNames = client.listPartitionNames(hiveTable.getHiveDb(), hiveTable.getHiveTable(), (short) -1);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-        }
-
-        return partitionNames;
-    }
-
     public static Table getTable(HiveTable hiveTable) throws DdlException {
-        HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
+        IMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
         Table table;
         try {
             table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
@@ -405,7 +409,7 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException when get table from hive metastore failed.
      */
     public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
-        HiveMetaStoreClient client = getClient(metaStoreUris);
+        IMetaStoreClient client = getClient(metaStoreUris);
         Table table;
         try {
             table = client.getTable(dbName, tableName);
@@ -427,7 +431,7 @@ public class HiveMetaStoreClientHelper {
      */
     public static List<FieldSchema> getSchema(String dbName, String tableName, String metaStoreUris)
             throws DdlException {
-        HiveMetaStoreClient client = getClient(metaStoreUris);
+        IMetaStoreClient client = getClient(metaStoreUris);
         try {
             return client.getSchema(dbName, tableName);
         } catch (TException e) {
@@ -811,6 +815,7 @@ public class HiveMetaStoreClientHelper {
             case "double":
                 return Type.DOUBLE;
             case "string":
+            case "binary":
                 return Type.STRING;
             default:
                 break;
@@ -849,9 +854,7 @@ public class HiveMetaStoreClientHelper {
             }
             return ScalarType.createDecimalType(precision, scale);
         }
-        // TODO: Handle unsupported types.
-        LOG.warn("Hive type {} may not supported yet, will use STRING instead.", hiveType);
-        return Type.STRING;
+        return Type.INVALID;
     }
 
     public static String showCreateTable(org.apache.hadoop.hive.metastore.api.Table remoteTable) {
@@ -925,4 +928,5 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 }
+
 

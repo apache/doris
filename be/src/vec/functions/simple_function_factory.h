@@ -77,10 +77,14 @@ void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
+void register_function_multi_string_position(SimpleFunctionFactory& factory);
+void register_function_multi_string_search(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
+
+void register_function_url(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -146,7 +150,7 @@ public:
             return iter->second()->build(arguments, return_type);
         }
 
-        LOG(WARNING) << fmt::format("Function signature {} is not founded", key_str);
+        LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
         return nullptr;
     }
 
@@ -215,6 +219,9 @@ public:
             register_function_hex_variadic(instance);
             register_function_array(instance);
             register_function_geo(instance);
+            register_function_url(instance);
+            register_function_multi_string_position(instance);
+            register_function_multi_string_search(instance);
         });
         return instance;
     }
