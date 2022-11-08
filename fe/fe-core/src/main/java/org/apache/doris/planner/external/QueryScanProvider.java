@@ -70,6 +70,9 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
 
             String fullPath = ((FileSplit) inputSplits.get(0)).getPath().toUri().toString();
             String filePath = ((FileSplit) inputSplits.get(0)).getPath().toUri().getPath();
+            // eg:
+            // hdfs://namenode
+            // s3://buckets
             String fsName = fullPath.replace(filePath, "");
             TFileType locationType = getLocationType();
             context.params.setFileType(locationType);
