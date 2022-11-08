@@ -115,6 +115,17 @@ set(VEC_FILES
   exec/vjdbc_scan_node.cpp
   exec/vparquet_scanner.cpp
   exec/vorc_scanner.cpp
+  exec/join/vhash_join_node_extract_join_clolumns.cpp
+  exec/join/vhash_join_node_extract_join_clolumns2.cpp
+  exec/join/vhash_join_node_ht_build.cpp
+  exec/join/vhash_join_node_ht_create_row_ref_list_with_flag.cpp
+  exec/join/vhash_join_node_ht_create_row_ref_list_with_flags.cpp
+  exec/join/vhash_join_node_ht_create_row_ref_list.cpp
+  exec/join/vhash_join_node_ht_probe_other_cond.cpp
+  exec/join/vhash_join_node_ht_probe_process_ht_data.cpp
+  exec/join/vhash_join_node_ht_probe.cpp
+  exec/join/vhash_join_node_process_ht_data.cpp
+  exec/join/vhash_join_node_runtime_filter.cpp
   exec/join/vhash_join_node.cpp
   exec/data_gen_functions/vnumbers_tvf.cpp
   exec/vdata_gen_scan_node.cpp
@@ -201,6 +212,12 @@ set(VEC_FILES
   functions/nullif.cpp
   functions/random.cpp
   functions/function_coalesce.cpp
+  functions/function_date_or_datetime_computation_diff.cpp
+  functions/function_date_or_datetime_computation_sub.cpp
+  functions/function_date_or_datetime_computation_two_args.cpp
+  functions/function_date_or_datetime_computation_v2_add.cpp
+  functions/function_date_or_datetime_computation_v2_diff.cpp
+  functions/function_date_or_datetime_computation_v2_sub.cpp
   functions/function_date_or_datetime_computation.cpp
   functions/function_date_or_datetime_to_string.cpp
   functions/function_datetime_string_to_string.cpp

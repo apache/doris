@@ -60,6 +60,8 @@ void register_function_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
 void register_function_nullif(SimpleFunctionFactory& factory);
 void register_function_date_time_computation(SimpleFunctionFactory& factory);
+void register_function_date_time_computation_sub(SimpleFunctionFactory& factory);
+void register_function_date_time_computation_diff(SimpleFunctionFactory& factory);
 void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
@@ -196,6 +198,8 @@ public:
             register_function_if(instance);
             register_function_nullif(instance);
             register_function_date_time_computation(instance);
+            register_function_date_time_computation_sub(instance);
+            register_function_date_time_computation_diff(instance);
             register_function_timestamp(instance);
             register_function_utility(instance);
             register_function_date_time_to_string(instance);
