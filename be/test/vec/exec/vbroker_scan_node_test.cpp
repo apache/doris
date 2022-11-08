@@ -45,7 +45,7 @@ class VBrokerScanNodeTest : public testing::Test {
 public:
     VBrokerScanNodeTest() : _runtime_state(TQueryGlobals()) {
         init();
-        _runtime_state.init_instance_mem_tracker();
+        _runtime_state.init_mem_trackers();
         _runtime_state._query_options.enable_vectorized_engine = true;
     }
     void init();

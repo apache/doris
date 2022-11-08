@@ -20,11 +20,13 @@
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <roaring/roaring.hh>
 #include <type_traits>
 
 #include "decimal12.h"
 #include "olap/column_predicate.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
@@ -400,7 +402,11 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+                auto& value_in_dict_flags =
+                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
+                if (value_in_dict_flags.empty()) {
+                    nested_col_ptr->find_codes(_values, value_in_dict_flags);
+                }
 
                 for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
@@ -414,11 +420,11 @@ private:
                     }
 
                     if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
-                        if (_value_in_dict_flags[data_array[idx]]) {
+                        if (value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     } else {
-                        if (!_value_in_dict_flags[data_array[idx]]) {
+                        if (!value_in_dict_flags[data_array[idx]]) {
                             sel[new_size++] = idx;
                         }
                     }
@@ -469,7 +475,11 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                nested_col_ptr->find_codes(_values, _value_in_dict_flags);
+                auto& value_in_dict_flags =
+                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
+                if (value_in_dict_flags.empty()) {
+                    nested_col_ptr->find_codes(_values, value_in_dict_flags);
+                }
 
                 for (uint16_t i = 0; i < size; i++) {
                     if (is_and ^ flags[i]) {
@@ -487,11 +497,11 @@ private:
                     }
 
                     if constexpr (is_opposite != (PT == PredicateType::IN_LIST)) {
-                        if (is_and ^ _value_in_dict_flags[data_array[idx]]) {
+                        if (is_and ^ value_in_dict_flags[data_array[idx]]) {
                             flags[i] = !is_and;
                         }
                     } else {
-                        if (is_and ^ !_value_in_dict_flags[data_array[idx]]) {
+                        if (is_and ^ !value_in_dict_flags[data_array[idx]]) {
                             flags[i] = !is_and;
                         }
                     }
@@ -543,7 +553,8 @@ private:
     }
 
     phmap::flat_hash_set<T> _values;
-    mutable std::vector<vectorized::UInt8> _value_in_dict_flags;
+    mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
+            _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;
     static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);

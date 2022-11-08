@@ -347,7 +347,8 @@ DiskIoMgr::~DiskIoMgr() {
 }
 
 Status DiskIoMgr::init(const int64_t mem_limit) {
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(mem_limit, "DiskIO");
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "DiskIO",
+                                                       mem_limit);
 
     for (int i = 0; i < _disk_queues.size(); ++i) {
         _disk_queues[i] = new DiskQueue(i);

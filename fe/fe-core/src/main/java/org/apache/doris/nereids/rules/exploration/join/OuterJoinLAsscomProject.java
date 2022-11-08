@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Rule for change inner join LAsscom (associative and commutive).
@@ -63,9 +64,6 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                 .when(join -> OuterJoinLAsscom.VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
-                // TODO: handle otherJoinCondition
-                .when(topJoin -> topJoin.getOtherJoinConjuncts().isEmpty())
-                .when(topJoin -> topJoin.left().child().getOtherJoinConjuncts().isEmpty())
                 .then(topJoin -> {
 
                     /* ********** init ********** */
@@ -89,20 +87,40 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     Set<ExprId> bExprIdSet = InnerJoinLAsscomProject.getExprIdSetForB(bottomJoin.right(),
                             newRightProjects);
 
-                    /* ********** split HashConjuncts ********** */
-                    Map<Boolean, List<Expression>> splitOn = InnerJoinLAsscomProject.splitHashConjunctsWithAlias(
-                            topJoin.getHashJoinConjuncts(), bottomJoin, bExprIdSet);
-                    List<Expression> newTopHashJoinConjuncts = splitOn.get(true);
+                    /* ********** split Conjuncts ********** */
+                    Map<Boolean, List<Expression>> splitHashJoinConjuncts
+                            = InnerJoinLAsscomProject.splitConjunctsWithAlias(
+                            topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), bExprIdSet);
+                    List<Expression> newTopHashJoinConjuncts = splitHashJoinConjuncts.get(true);
+                    Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
+                            "LAsscom newTopHashJoinConjuncts join can't empty");
+                    // When newTopHashJoinConjuncts.size() != bottomJoin.getHashJoinConjuncts().size()
+                    // It means that topHashJoinConjuncts contain A, B, C, we shouldn't do LAsscom.
                     if (topJoin.getJoinType() != bottomJoin.getJoinType()
                             && newTopHashJoinConjuncts.size() != bottomJoin.getHashJoinConjuncts().size()) {
                         return null;
                     }
-                    List<Expression> newBottomHashJoinConjuncts = splitOn.get(false);
+                    List<Expression> newBottomHashJoinConjuncts = splitHashJoinConjuncts.get(false);
                     if (newBottomHashJoinConjuncts.size() == 0) {
                         return null;
                     }
 
-                    /* ********** replace HashConjuncts by projects ********** */
+                    Map<Boolean, List<Expression>> splitOtherJoinConjuncts
+                            = InnerJoinLAsscomProject.splitConjunctsWithAlias(
+                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                            bExprIdSet);
+                    List<Expression> newTopOtherJoinConjuncts = splitOtherJoinConjuncts.get(true);
+                    // When topJoin type differ from bottomJoin type (LOJ-inner or inner LOJ),
+                    // we just can exchange topJoin and bottomJoin. like:
+                    // Failed in: (A LOJ B on A.id = B.id) join C on c.id = A.id & c.id = B.id (top contain c.id = B.id)
+                    // If type is same like LOJ(LOJ()), we can LAsscom.
+                    if (topJoin.getJoinType() != bottomJoin.getJoinType()
+                            && newTopOtherJoinConjuncts.size() != bottomJoin.getOtherJoinConjuncts().size()) {
+                        return null;
+                    }
+                    List<Expression> newBottomOtherJoinConjuncts = splitOtherJoinConjuncts.get(false);
+
+                    /* ********** replace Conjuncts by projects ********** */
                     Map<Slot, Slot> inputToOutput = new HashMap<>();
                     Map<Slot, Slot> outputToInput = new HashMap<>();
                     for (NamedExpression expr : projects) {
@@ -117,14 +135,20 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         }
                     }
                     // replace hashJoinConjuncts
-                    newBottomHashJoinConjuncts = JoinUtils.replaceHashConjuncts(
+                    newBottomHashJoinConjuncts = JoinUtils.replaceJoinConjuncts(
                             newBottomHashJoinConjuncts, outputToInput);
-                    newTopHashJoinConjuncts = JoinUtils.replaceHashConjuncts(
+                    newTopHashJoinConjuncts = JoinUtils.replaceJoinConjuncts(
                             newTopHashJoinConjuncts, inputToOutput);
+                    // replace otherJoinConjuncts
+                    newBottomOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
+                            newBottomOtherJoinConjuncts, outputToInput);
+                    newTopOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
+                            newTopOtherJoinConjuncts, inputToOutput);
 
-                    // Add all slots used by hashOnCondition when projects not empty.
-                    // TODO: Does nonHashOnCondition also need to be considered.
-                    Map<Boolean, Set<Slot>> abOnUsedSlots = newTopHashJoinConjuncts.stream()
+                    // Add all slots used by OnCondition when projects not empty.
+                    Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
+                                    newTopHashJoinConjuncts.stream(),
+                                    newTopOtherJoinConjuncts.stream())
                             .flatMap(onExpr -> {
                                 Set<Slot> usedSlotRefs = onExpr.collect(SlotReference.class::isInstance);
                                 return usedSlotRefs.stream();
@@ -144,7 +168,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     /* ********** new Plan ********** */
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            newBottomHashJoinConjuncts, a, c, bottomJoin.getJoinReorderContext());
+                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
+                            a, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
@@ -160,7 +185,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                            newTopHashJoinConjuncts, left, right, topJoin.getJoinReorderContext());
+                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts,
+                            left, right, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     if (topJoin.getLogicalProperties().equals(newTopJoin.getLogicalProperties())) {

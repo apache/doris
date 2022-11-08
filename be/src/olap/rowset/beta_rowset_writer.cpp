@@ -272,8 +272,7 @@ Status BetaRowsetWriter::_check_correctness(std::unique_ptr<OlapReaderStatistics
 }
 
 Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_ATTACH_TASK(StorageEngine::instance()->segcompaction_mem_tracker(),
-                       ThreadContext::TaskType::COMPACTION);
+    SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
     // throttle segcompaction task if memory depleted.
     if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
         LOG(WARNING) << "skip segcompaction due to memory shortage";
@@ -390,8 +389,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         auto cache_path =
                 BetaRowset::segment_cache_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _context.tablet_schema,
-                                           &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(),
+                                           _context.tablet_schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
