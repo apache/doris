@@ -63,8 +63,8 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.DropMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -491,8 +491,8 @@ public class EditLog {
                     int version = Integer.parseInt(versionString);
                     if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                + "please update FeConstants.meta_version and restart.",
-                                version, FeConstants.meta_version);
+                                        + "please update FeConstants.meta_version and restart.", version,
+                                FeConstants.meta_version);
                         System.exit(-1);
                     }
                     MetaContext.get().setMetaVersion(version);
@@ -571,8 +571,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
-                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal
-                            .getData();
+                    final BatchRemoveTransactionsOperation operation =
+                            (BatchRemoveTransactionsOperation) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
@@ -672,8 +672,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_LOAD_JOB: {
-                    org.apache.doris.load.loadv2.LoadJob loadJob = (org.apache.doris.load.loadv2.LoadJob) journal
-                            .getData();
+                    org.apache.doris.load.loadv2.LoadJob loadJob =
+                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
                     env.getLoadManager().replayCreateLoadJob(loadJob);
                     break;
                 }
@@ -761,14 +761,14 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
-                    ModifyTableDefaultDistributionBucketNumOperationLog log
-                            = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
+                    ModifyTableDefaultDistributionBucketNumOperationLog log =
+                            (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
                     env.replayModifyTableDefaultDistributionBucketNum(log);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
-                    ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal
-                            .getData();
+                    ReplacePartitionOperationLog replaceTempPartitionLog =
+                            (ReplacePartitionOperationLog) journal.getData();
                     env.replayReplaceTempPartition(replaceTempPartitionLog);
                     break;
                 }
