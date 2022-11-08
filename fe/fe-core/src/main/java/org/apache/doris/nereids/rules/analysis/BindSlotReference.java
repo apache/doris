@@ -27,6 +27,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -58,6 +59,7 @@ import org.apache.commons.lang.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -67,13 +69,10 @@ import java.util.stream.Stream;
 /**
  * BindSlotReference.
  */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class BindSlotReference implements AnalysisRuleFactory {
 
     private final Optional<Scope> outerScope;
-
-    public BindSlotReference() {
-        this(Optional.empty());
-    }
 
     public BindSlotReference(Optional<Scope> outerScope) {
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
@@ -122,10 +121,27 @@ public class BindSlotReference implements AnalysisRuleFactory {
             RuleType.BINDING_AGGREGATE_SLOT.build(
                 logicalAggregate().when(Plan::canBind).thenApply(ctx -> {
                     LogicalAggregate<GroupPlan> agg = ctx.root;
-                    List<Expression> groupBy =
-                            bind(agg.getGroupByExpressions(), agg.children(), agg, ctx.cascadesContext);
                     List<NamedExpression> output =
                             bind(agg.getOutputExpressions(), agg.children(), agg, ctx.cascadesContext);
+                    final Map<String, Expression> substitutions = output.stream()
+                            .filter(ne -> ne instanceof Alias)
+                            .map(Alias.class::cast)
+                            .collect(Collectors.toMap(Alias::getName, UnaryNode::child));
+                    List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
+                            .map(g -> {
+                                if (g instanceof UnboundSlot) {
+                                    UnboundSlot unboundSlot = (UnboundSlot) g;
+                                    if (unboundSlot.getNameParts().size() == 1) {
+                                        String name = unboundSlot.getNameParts().get(0);
+                                        if (substitutions.containsKey(name)) {
+                                            return substitutions.get(name);
+                                        }
+                                    }
+                                }
+                                return g;
+                            }).collect(Collectors.toList());
+
+                    List<Expression> groupBy = bind(replacedGroupBy, agg.children(), agg, ctx.cascadesContext);
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
@@ -301,14 +317,14 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return new BoundStar(getScope().getSlots());
                 case 1: // select table.*
                 case 2: // select db.table.*
-                    return bindQualifiedStar(qualifier, context);
+                    return bindQualifiedStar(qualifier);
                 default:
                     throw new AnalysisException("Not supported qualifier: "
                         + StringUtils.join(qualifier, "."));
             }
         }
 
-        private BoundStar bindQualifiedStar(List<String> qualifierStar, PlannerContext context) {
+        private BoundStar bindQualifiedStar(List<String> qualifierStar) {
             // FIXME: compatible with previous behavior:
             // https://github.com/apache/doris/pull/10415/files/3fe9cb0c3f805ab3a9678033b281b16ad93ec60a#r910239452
             List<Slot> slots = getScope().getSlots().stream().filter(boundSlot -> {
@@ -544,7 +560,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         public boolean hasGroupBy() {
             if (rootIsAgg()) {
-                return !((LogicalAggregate) logicalPlan).getGroupByExpressions().isEmpty();
+                return !((LogicalAggregate<? extends Plan>) logicalPlan).getGroupByExpressions().isEmpty();
             }
             return false;
         }

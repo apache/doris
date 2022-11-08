@@ -75,7 +75,7 @@ Parameter Description：
 | **password**     | Password information corresponding to the user。|
 | **jdbc_url**     | The URL protocol of JDBC, including database type, IP address, port number and database name, has different formats for different database protocols. for example mysql: "jdbc:mysql://127.0.0.1:3306/test"。|
 | **driver_class** | The class name of the driver package for accessing the external database，for example mysql:com.mysql.jdbc.Driver. |
-| **driver_url**   | The package driver URL used to download and access external databases。http://IP:port/mysql-connector-java-5.1.47.jar .|
+| **driver_url**   | The package driver URL used to download and access external databases。http://IP:port/mysql-connector-java-5.1.47.jar . During the local test of one BE, the jar package can be placed in the local path, "driver_url"=“ file:///home/disk1/pathTo/mysql-connector-java-5.1.47.jar ", In case of multiple BE test,  Must ensure that they have the same path information|
 | **resource**     | The resource name that depends on when creating the external table in Doris corresponds to the name when creating the resource in the previous step.|
 | **table**        | The table name mapped to the external database when creating the external table in Doris.|
 | **table_type**   | When creating an appearance in Doris, the table comes from that database. for example mysql,postgresql,sqlserver,oracle.|

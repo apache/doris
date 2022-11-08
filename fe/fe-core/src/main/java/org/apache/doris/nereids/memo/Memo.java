@@ -375,11 +375,17 @@ public class Memo {
         if (source.equals(destination)) {
             return source;
         }
-        if (source.getParentGroupExpressions().stream()
-                .anyMatch(e -> e.getOwnerGroup().equals(destination))) {
-            return null;
+        List<GroupExpression> needReplaceChild = Lists.newArrayList();
+        for (GroupExpression groupExpression : groupExpressions.values()) {
+            if (groupExpression.children().contains(source)) {
+                if (groupExpression.getOwnerGroup().equals(destination)) {
+                    // cycle, we should not merge
+                    return null;
+                }
+                needReplaceChild.add(groupExpression);
+            }
         }
-        for (GroupExpression groupExpression : source.getParentGroupExpressions()) {
+        for (GroupExpression groupExpression : needReplaceChild) {
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
             // TODO: use a better way to replace child, avoid traversing all groupExpression

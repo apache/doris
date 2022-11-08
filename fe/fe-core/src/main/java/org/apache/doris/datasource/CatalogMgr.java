@@ -104,7 +104,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             String catalogName = catalog.getName();
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                ((ExternalCatalog) catalog).setInitialized(false);
+                ((ExternalCatalog) catalog).setUninitialized();
             }
         }
     }
