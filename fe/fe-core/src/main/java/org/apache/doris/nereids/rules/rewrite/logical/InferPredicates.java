@@ -49,8 +49,8 @@ import java.util.stream.Collectors;
  *   round of predicate push-down
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> {
-    PredicatePropagation propagation = new PredicatePropagation();
-    PullUpPredicates pollUpPredicates = new PullUpPredicates();
+    private final PredicatePropagation propagation = new PredicatePropagation();
+    private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
