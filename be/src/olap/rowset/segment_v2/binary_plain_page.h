@@ -53,7 +53,7 @@ public:
     }
 
     bool is_page_full() override {
-        bool ret;
+        bool ret = false;
         if (_options.is_dict_page) {
             // dict_page_size is 0, do not limit the page size
             ret = _options.dict_page_size != 0 && _size_estimate > _options.dict_page_size;
