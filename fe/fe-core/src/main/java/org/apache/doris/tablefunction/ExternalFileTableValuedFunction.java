@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.planner.PlanNodeId;
@@ -65,8 +66,15 @@ import java.util.concurrent.Future;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
-    public static final String DEFAULT_COLUMN_SEPARATOR = ",";
-    public static final String DEFAULT_LINE_DELIMITER = "\n";
+    protected static final String DEFAULT_COLUMN_SEPARATOR = ",";
+    protected static final String DEFAULT_LINE_DELIMITER = "\n";
+    protected static final String FORMAT = "format";
+    protected static final String COLUMN_SEPARATOR = "column_separator";
+    protected static final String LINE_DELIMITER = "line_delimiter";
+    protected static final String JSON_ROOT = "json_root";
+    protected static final String JSON_PATHS = "jsonpaths";
+    protected static final String STRIP_OUTER_ARRAY = "strip_outer_array";
+    protected static final String READ_JSON_BY_LINE = "read_json_by_line";
 
     protected List<Column> columns = null;
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
@@ -77,6 +85,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     protected String lineDelimiter = DEFAULT_LINE_DELIMITER;
+    protected String jsonRoot = "";
+    protected String jsonPaths = "";
+    protected String stripOuterArray = "";
+    protected String readJsonByLine = "";
+
 
     public abstract TFileType getTFileType();
 
@@ -92,26 +105,75 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return locationProperties;
     }
 
-    public String getColumnSeparator() {
-        return columnSeparator;
-    }
-
-    public String getLineSeparator() {
-        return lineDelimiter;
-    }
-
-    public String getHeaderType() {
-        return headerType;
-    }
-
-    public void parseFile() throws UserException {
+    protected void parseFile() throws UserException {
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
     }
 
+    protected void parseProperties(Map<String, String> validParams) throws UserException {
+        String formatString = validParams.getOrDefault(FORMAT, "").toLowerCase();
+        switch (formatString) {
+            case "csv":
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "csv_with_names":
+                this.headerType = FeConstants.csv_with_names;
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "csv_with_names_and_types":
+                this.headerType = FeConstants.csv_with_names_and_types;
+                this.fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "parquet":
+                this.fileFormatType = TFileFormatType.FORMAT_PARQUET;
+                break;
+            case "orc":
+                this.fileFormatType = TFileFormatType.FORMAT_ORC;
+                break;
+            case "json":
+                this.fileFormatType = TFileFormatType.FORMAT_JSON;
+                break;
+            default:
+                throw new AnalysisException("format:" + formatString + " is not supported.");
+        }
+
+        columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
+        lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
+        jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
+        jsonPaths = validParams.getOrDefault(JSON_PATHS, "");
+        stripOuterArray = validParams.getOrDefault(STRIP_OUTER_ARRAY, "false").toLowerCase();
+        readJsonByLine = validParams.getOrDefault(READ_JSON_BY_LINE, "true").toLowerCase();
+    }
+
     public List<TBrokerFileStatus> getFileStatuses() {
         return fileStatuses;
+    }
+
+    public TFileAttributes getFileAttributes() {
+        TFileAttributes fileAttributes = new TFileAttributes();
+        TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
+        fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
+        fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
+        fileAttributes.setTextParams(fileTextScanRangeParams);
+        if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
+            fileAttributes.setHeaderType(this.headerType);
+        } else if (this.fileFormatType == TFileFormatType.FORMAT_JSON) {
+            fileAttributes.setJsonRoot(jsonRoot);
+            fileAttributes.setJsonpaths(jsonPaths);
+            if (readJsonByLine.equalsIgnoreCase("true")) {
+                fileAttributes.setReadJsonByLine(true);
+            } else {
+                fileAttributes.setReadJsonByLine(false);
+            }
+            if (stripOuterArray.equalsIgnoreCase("true")) {
+                fileAttributes.setStripOuterArray(true);
+            } else {
+                fileAttributes.setStripOuterArray(false);
+            }
+            // TODO(ftw): num_as_string/fuzzy_parser?
+        }
+        return fileAttributes;
     }
 
     @Override
@@ -217,17 +279,5 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRange.setParams(fileScanRangeParams);
         return InternalService.PFetchTableSchemaRequest.newBuilder()
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
-    }
-
-    private TFileAttributes getFileAttributes() {
-        TFileAttributes fileAttributes = new TFileAttributes();
-        if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
-            TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
-            fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
-            fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-            fileAttributes.setTextParams(fileTextScanRangeParams);
-            fileAttributes.setHeaderType(this.headerType);
-        }
-        return fileAttributes;
     }
 }
