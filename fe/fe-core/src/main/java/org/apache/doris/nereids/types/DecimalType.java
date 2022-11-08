@@ -37,7 +37,7 @@ public class DecimalType extends FractionalType {
 
     public static int MAX_PRECISION = 38;
     public static int MAX_SCALE = 38;
-    public static final DecimalType SYSTEM_DEFAULT = new DecimalType(MAX_PRECISION, 18);
+    public static final DecimalType SYSTEM_DEFAULT = new DecimalType(27, 9);
 
     private static final DecimalType BOOLEAN_DECIMAL = new DecimalType(1, 0);
     private static final DecimalType TINYINT_DECIMAL = new DecimalType(3, 0);
@@ -100,7 +100,7 @@ public class DecimalType extends FractionalType {
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createDecimalType(precision, scale);
+        return ScalarType.createDecimalType(27, 9);
     }
 
     public int getPrecision() {

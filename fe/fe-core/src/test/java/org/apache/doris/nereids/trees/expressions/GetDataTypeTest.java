@@ -73,7 +73,7 @@ public class GetDataTypeTest {
         Assertions.assertEquals(LargeIntType.INSTANCE, new Sum(largeIntLiteral).getDataType());
         Assertions.assertEquals(DoubleType.INSTANCE, new Sum(floatLiteral).getDataType());
         Assertions.assertEquals(DoubleType.INSTANCE, new Sum(doubleLiteral).getDataType());
-        Assertions.assertEquals(DecimalType.createDecimalType(BigDecimal.ONE), new Sum(decimalLiteral).getDataType());
+        Assertions.assertEquals(DecimalType.createDecimalType(27, 9), new Sum(decimalLiteral).getDataType());
         Assertions.assertEquals(BigIntType.INSTANCE, new Sum(bigIntLiteral).getDataType());
         Assertions.assertThrows(RuntimeException.class, () -> new Sum(charLiteral).getDataType());
         Assertions.assertThrows(RuntimeException.class, () -> new Sum(varcharLiteral).getDataType());
