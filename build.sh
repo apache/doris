@@ -468,11 +468,11 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    skip_check_stype=""
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        skip_check_stype="-Dcheckstyle.skip=true"
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests -Dcheckstyle.skip=true
+    else
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
     fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests "${skip_check_stype}"
     cd "${DORIS_HOME}"
 fi
 
