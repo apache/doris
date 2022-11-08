@@ -540,7 +540,7 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
     } else {
         CppType current = get_range_min_value();
         CppType max_value = get_range_max_value();
-        if (!is_begin_include() && !is_begin_include() && current < TYPE_MAX &&
+        if (!is_begin_include() && !is_end_include() && current < TYPE_MAX &&
             current + 1 < max_value) {
             begin_include = true;
             ++current;
