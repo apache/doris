@@ -1194,13 +1194,13 @@ public class Config extends ConfigBase {
      * the max routine load job num, including NEED_SCHEDULED, RUNNING, PAUSE
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_job_num = 100;
+    public static int max_routine_load_job_num = 400;
 
     /**
      * the max concurrent routine load task num of a single routine load job
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_concurrent_num = 5;
+    public static int max_routine_load_task_concurrent_num = 20;
 
     /**
      * the max concurrent routine load task num per BE.
@@ -1209,7 +1209,7 @@ public class Config extends ConfigBase {
      * which is the routine load task thread pool size on BE.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_routine_load_task_num_per_be = 5;
+    public static int max_routine_load_task_num_per_be = 40;
 
     /**
      * The max number of files store in SmallFileMgr
@@ -1739,7 +1739,7 @@ public class Config extends ConfigBase {
      * condition，try to set this timeout longer.
      */
     @ConfField(mutable = true)
-    public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
+    public static long remote_fragment_exec_timeout_ms = 30000; // 5 sec
 
     /**
      * Temp config, should be removed when new file scan node is ready.
