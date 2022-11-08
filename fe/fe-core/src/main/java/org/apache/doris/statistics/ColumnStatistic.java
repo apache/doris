@@ -39,11 +39,11 @@ public class ColumnStatistic {
 
     public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setCount(Double.NaN).setNdv(Double.NaN)
             .setAvgSizeByte(Double.NaN).setNumNulls(Double.NaN).setDataSize(Double.NaN)
-            .setMinValue(Double.NaN).setMaxValue(Double.NaN).setMinExpr(null).setMaxExpr(null).createColumnStatistic();
+            .setMinValue(Double.NaN).setMaxValue(Double.NaN).setMinExpr(null).setMaxExpr(null).build();
 
     public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE)
-            .createColumnStatistic();
+            .build();
 
     public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
 
@@ -108,7 +108,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
             columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
-            return columnStatisticBuilder.createColumnStatistic();
+            return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
             return ColumnStatistic.UNKNOWN;
@@ -118,7 +118,7 @@ public class ColumnStatistic {
     public ColumnStatistic copy() {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).createColumnStatistic();
+                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).build();
     }
 
     public ColumnStatistic multiply(double d) {
@@ -132,7 +132,7 @@ public class ColumnStatistic {
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
-                .createColumnStatistic();
+                .build();
     }
 
     public boolean hasIntersect(ColumnStatistic other) {
@@ -168,7 +168,7 @@ public class ColumnStatistic {
         if (numNulls > rowCount) {
             builder.setNumNulls(rowCount);
         }
-        return builder.createColumnStatistic();
+        return builder.build();
     }
 
     public double ndvIntersection(ColumnStatistic other) {

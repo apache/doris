@@ -35,6 +35,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,7 +49,12 @@ public class StatisticStorageInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(StatisticStorageInitializer.class);
 
+    public static boolean forTest = false;
+
     public void run() {
+        if (forTest) {
+            return;
+        }
         while (true) {
             try {
                 Thread.currentThread().join(Config.statistics_table_creation_retry_interval_in_seconds * 1000L);
@@ -66,7 +72,8 @@ public class StatisticStorageInitializer extends Thread {
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAnalysisJobTblStmt());
     }
 
-    private static void createDB() {
+    @VisibleForTesting
+    public static void createDB() {
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
                 ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, StatisticConstants.STATISTIC_DB_NAME),
                 null);
@@ -79,7 +86,8 @@ public class StatisticStorageInitializer extends Thread {
         }
     }
 
-    private CreateTableStmt buildStatisticsTblStmt() throws UserException {
+    @VisibleForTesting
+    public CreateTableStmt buildStatisticsTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 StatisticConstants.STATISTIC_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
         List<ColumnDef> columnDefs = new ArrayList<>();
@@ -117,7 +125,8 @@ public class StatisticStorageInitializer extends Thread {
         return createTableStmt;
     }
 
-    private CreateTableStmt buildAnalysisJobTblStmt() throws UserException {
+    @VisibleForTesting
+    public CreateTableStmt buildAnalysisJobTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 StatisticConstants.STATISTIC_DB_NAME, StatisticConstants.ANALYSIS_JOB_TABLE);
         List<ColumnDef> columnDefs = new ArrayList<>();

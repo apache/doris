@@ -115,8 +115,8 @@ public class StatsCalculatorTest {
         columnStat2.setNumNulls(10);
         columnStat1.setNumNulls(10);
         Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.createColumnStatistic());
-        slotColumnStatsMap.put(slot2.getExprId(), columnStat2.createColumnStatistic());
+        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
+        slotColumnStatsMap.put(slot2.getExprId(), columnStat2.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
 
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
@@ -226,7 +226,7 @@ public class StatsCalculatorTest {
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
         Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.createColumnStatistic());
+        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();
@@ -256,7 +256,7 @@ public class StatsCalculatorTest {
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
         Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.createColumnStatistic());
+        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();

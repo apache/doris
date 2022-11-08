@@ -373,7 +373,7 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
         Map<Id, ColumnStatistic> columnStatsMap = oneRowRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).createColumnStatistic();
+                    ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).build();
                     // TODO: compute the literal size
                     return Pair.of(project.toSlot().getExprId(), statistic);
                 })
@@ -390,7 +390,7 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
                             .setNdv(0)
                             .setNumNulls(0)
                             .setAvgSizeByte(0);
-                    return Pair.of(project.toSlot().getExprId(), columnStat.createColumnStatistic());
+                    return Pair.of(project.toSlot().getExprId(), columnStat.build());
                 })
                 .collect(Collectors.toMap(Pair::key, Pair::value));
         int rowCount = 0;

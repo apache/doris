@@ -5259,6 +5259,7 @@ public class Env {
                             new StringSubstitutor(params).replace(persistAnalysisJobSQLTemplate));
                 } catch (Exception e) {
                     LOG.warn("Failed to persite job for column: {}", colName, e);
+                    return;
                 }
                 Env.getCurrentEnv().getAnalysisJobScheduler().schedule(analysisJobInfo);
             }

@@ -72,7 +72,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         columnStat.setMaxValue(Double.MAX_VALUE);
         columnStat.setAvgSizeByte(8);
         columnStat.setNumNulls(0);
-        return columnStat.createColumnStatistic();
+        return columnStat.build();
     }
 
     public ColumnStatistic visitCast(Cast cast, StatsDeriveResult context) {
@@ -91,7 +91,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         columnStatBuilder.setNdv(1);
         columnStatBuilder.setNumNulls(1);
         columnStatBuilder.setAvgSizeByte(1);
-        return columnStatBuilder.createColumnStatistic();
+        return columnStatBuilder.build();
 
     }
 
@@ -123,13 +123,13 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(leftMin + rightMin)
                     .setMaxValue(leftMax + rightMax).setSelectivity(1.0)
-                    .setMinExpr(null).setMaxExpr(null).createColumnStatistic();
+                    .setMinExpr(null).setMaxExpr(null).build();
         }
         if (binaryArithmetic instanceof Subtract) {
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(leftMin - rightMax)
                     .setMaxValue(leftMax - rightMin).setSelectivity(1.0).setMinExpr(null)
-                    .setMaxExpr(null).createColumnStatistic();
+                    .setMaxExpr(null).build();
         }
         // TODO: stat for multiply and divide produced by below algorithm may have huge deviation with reality.
         if (binaryArithmetic instanceof Multiply) {
@@ -145,7 +145,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     leftMax * rightMax);
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(min).setMaxValue(max).setSelectivity(1.0)
-                    .setMaxExpr(null).setMinExpr(null).createColumnStatistic();
+                    .setMaxExpr(null).setMinExpr(null).build();
         }
         if (binaryArithmetic instanceof Divide) {
             double min = Math.min(
@@ -160,7 +160,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     leftMax / noneZeroDivisor(rightMax));
             return new ColumnStatisticBuilder().setCount(rowCount).setNdv(ndv).setAvgSizeByte(leftColStats.avgSizeByte)
                     .setNumNulls(numNulls).setDataSize(binaryArithmetic.getDataType().width()).setMinValue(min)
-                    .setMaxValue(max).setSelectivity(1.0).setMaxExpr(null).setMinExpr(null).createColumnStatistic();
+                    .setMaxValue(max).setSelectivity(1.0).setMaxExpr(null).setMinExpr(null).build();
         }
         return ColumnStatistic.UNKNOWN;
     }
@@ -180,7 +180,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return new ColumnStatisticBuilder().setCount(1).setNdv(1).setAvgSizeByte(width).setNumNulls(width)
                 .setDataSize(child.getDataType().width()).setMinValue(columnStat.minValue)
                 .setMaxValue(columnStat.minValue).setSelectivity(1.0)
-                .setMinExpr(null).createColumnStatistic();
+                .setMinExpr(null).build();
     }
 
     @Override
@@ -193,7 +193,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         int width = max.child().getDataType().width();
         return new ColumnStatisticBuilder().setCount(1D).setNdv(1D).setAvgSizeByte(width).setNumNulls(0)
                 .setDataSize(width).setMinValue(columnStat.maxValue).setMaxValue(columnStat.maxValue)
-                .setSelectivity(1.0).setMaxExpr(null).setMinExpr(null).createColumnStatistic();
+                .setSelectivity(1.0).setMaxExpr(null).setMinExpr(null).build();
     }
 
     @Override
@@ -207,7 +207,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         double width = (double) count.getDataType().width();
         return new ColumnStatisticBuilder().setCount(1D).setNdv(1D).setAvgSizeByte(width).setNumNulls(0)
                 .setDataSize(width).setMinValue(expectedValue).setMaxValue(expectedValue).setSelectivity(1.0)
-                .setMaxExpr(null).setMinExpr(null).createColumnStatistic();
+                .setMaxExpr(null).setMinExpr(null).build();
     }
 
     // TODO: return a proper estimated stat after supports histogram
@@ -231,7 +231,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         long maxYear = Utils.getLocalDatetimeFromLong((long) maxVal).getYear();
         return new ColumnStatisticBuilder().setCount(childStat.count).setNdv(childStat.ndv).setAvgSizeByte(4)
                 .setNumNulls(childStat.numNulls).setDataSize(maxYear - minYear + 1).setMinValue(minYear)
-                .setMaxValue(maxYear).setSelectivity(1.0).setMinExpr(null).createColumnStatistic();
+                .setMaxValue(maxYear).setSelectivity(1.0).setMinExpr(null).build();
     }
 
     @Override
@@ -240,7 +240,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         double width = weekOfYear.getDataType().width();
         return new ColumnStatisticBuilder().setCount(52).setNdv(2).setAvgSizeByte(width).setNumNulls(childStat.numNulls)
                 .setDataSize(1).setMinValue(1).setMaxValue(52).setSelectivity(1.0).setMinExpr(null)
-                .createColumnStatistic();
+                .build();
     }
 
     // TODO: find a proper way to predicate stat of substring

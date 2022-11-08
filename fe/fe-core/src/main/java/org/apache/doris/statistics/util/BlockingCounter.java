@@ -15,37 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.util;
 
-import java.util.Objects;
+public class BlockingCounter {
 
-public class StatisticsCacheKey {
+    private int count = 0;
 
-    /**
-     * May be index id either, since they are natively same in the code.
-     */
-    public final long tableId;
-    public final String colName;
+    private final int upperBound;
 
-    public StatisticsCacheKey(long tableId, String colName) {
-        this.tableId = tableId;
-        this.colName = colName;
+    public BlockingCounter(int upperBound) {
+        this.upperBound = upperBound;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(tableId, colName);
+    public synchronized void incr() {
+        while (count >= upperBound) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                // ignore
+            }
+        }
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
+    public synchronized void decr() {
+        if (count == 0) {
+            return;
         }
-        if (obj == null || getClass() != obj.getClass()) {
-            return false;
-        }
-        StatisticsCacheKey k = (StatisticsCacheKey) obj;
-        return this.tableId == k.tableId && this.colName.equals(k.colName);
+        count--;
+        notify();
+    }
+
+    public long getVal() {
+        return count;
     }
 }

@@ -102,7 +102,7 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
         }
         ColumnStatistic newStats = new ColumnStatisticBuilder(columnStats)
                 .setMinValue(literal.getDouble()).setMaxValue(literal.getDouble())
-                    .setSelectivity(1.0 / columnStats.ndv).createColumnStatistic();
+                    .setSelectivity(1.0 / columnStats.ndv).build();
 
         slotRefToStats.put(left.getExprId(), newStats);
         double ndv = columnStats.ndv;

@@ -89,7 +89,8 @@ public class HyperGraphBuilder {
             StatsCalculator.estimate(olapGroupPlan.getGroup().getLogicalExpression());
             LogicalOlapScan scanPlan = (LogicalOlapScan) olapGroupPlan.getGroup().getLogicalExpression().getPlan();
             StatsDeriveResult stats = olapGroupPlan.getGroup().getStatistics();
-            stats.setRowCount(tableRowCount.get(scanPlan.getTable().getName()));
+            olapGroupPlan.getGroup()
+                    .setStatistics(stats.updateRowCount(tableRowCount.get(scanPlan.getTable().getName())));
             return;
         }
         LogicalJoin join = (LogicalJoin) plan;

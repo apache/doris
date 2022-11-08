@@ -109,7 +109,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
                     estimatedColStatsBuilder.setMaxValue(rightColStats.maxValue);
                     estimatedColStatsBuilder.setMaxExpr(rightColStats.maxExpr);
                 }
-                orStats.addColumnStats(entry.getKey(), estimatedColStatsBuilder.createColumnStatistic());
+                orStats.addColumnStats(entry.getKey(), estimatedColStatsBuilder.build());
             }
             return orStats;
         }
@@ -139,7 +139,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
         if (left.getInputSlots().size() == 1) {
             Slot leftSlot = left.getInputSlots().iterator().next();
-            outputStats.addColumnStats(leftSlot.getExprId(), leftBuilder.createColumnStatistic());
+            outputStats.addColumnStats(leftSlot.getExprId(), leftBuilder.build());
         }
         return outputStats.updateBySelectivity(selectivity,
                 cp.getInputSlots().stream().map(Slot::getExprId).collect(Collectors.toSet()));
@@ -477,7 +477,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         estimated = estimated.updateRowCountOnCopy(selectivity);
         if (compareExpr instanceof SlotReference) {
             estimated.addColumnStats(((SlotReference) compareExpr).getExprId(),
-                    compareExprStatsBuilder.createColumnStatistic());
+                    compareExprStatsBuilder.build());
         }
         return estimated;
     }

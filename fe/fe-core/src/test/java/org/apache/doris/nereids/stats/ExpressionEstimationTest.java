@@ -53,7 +53,7 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(500);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
         Assertions.assertEquals(500, estimated.minValue);
@@ -73,7 +73,7 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(1000);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         Min max = new Min(a);
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
@@ -101,10 +101,10 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(300)
                 .setMaxValue(1000);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b.getExprId(), builder1.createColumnStatistic());
+        slotToColumnStat.put(b.getExprId(), builder1.build());
         Add add = new Add(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(add, stat);
         Assertions.assertEquals(300, estimated.minValue);
@@ -124,12 +124,12 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(500);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         builder.setMinValue(300);
         builder.setMaxValue(1000);
-        slotToColumnStat.put(b.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(b.getExprId(), builder.build());
         Subtract subtract = new Subtract(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(subtract, stat);
         Assertions.assertEquals(-1000, estimated.minValue);
@@ -149,12 +149,12 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(-200)
                 .setMaxValue(-100);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         builder.setMinValue(-300);
         builder.setMaxValue(1000);
-        slotToColumnStat.put(b.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(b.getExprId(), builder.build());
         Multiply multiply = new Multiply(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(multiply, stat);
         Assertions.assertEquals(-200 * 1000, estimated.minValue);
@@ -174,12 +174,12 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(-200)
                 .setMaxValue(-100);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         builder.setMinValue(-1000);
         builder.setMaxValue(-300);
-        slotToColumnStat.put(b.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(b.getExprId(), builder.build());
         Multiply multiply = new Multiply(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(multiply, stat);
         Assertions.assertEquals(-100 * -300, estimated.minValue);
@@ -206,10 +206,10 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(-300)
                 .setMaxValue(1000);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b.getExprId(), builder1.createColumnStatistic());
+        slotToColumnStat.put(b.getExprId(), builder1.build());
         Divide divide = new Divide(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(divide, stat);
         Assertions.assertTrue(Precision.equals(-0.2, estimated.minValue, 0.001));
@@ -236,10 +236,10 @@ class ExpressionEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(-1000)
                 .setMaxValue(-100);
-        slotToColumnStat.put(a.getExprId(), builder.createColumnStatistic());
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b.getExprId(), builder1.createColumnStatistic());
+        slotToColumnStat.put(b.getExprId(), builder1.build());
         Divide divide = new Divide(a, b);
         ColumnStatistic estimated = ExpressionEstimation.estimate(divide, stat);
         Assertions.assertTrue(Precision.equals(0.1, estimated.minValue, 0.001));

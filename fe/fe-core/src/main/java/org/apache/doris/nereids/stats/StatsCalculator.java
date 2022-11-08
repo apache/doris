@@ -287,7 +287,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 if (card == -1) {
                     card = roughlyEstimatedCard(scan);
                 }
-                statistic = new ColumnStatisticBuilder(ColumnStatistic.DEFAULT).setCount(card).createColumnStatistic();
+                statistic = new ColumnStatisticBuilder(ColumnStatistic.DEFAULT).setCount(card).build();
             }
             rowCount = statistic.count;
             columnStatisticMap.put(slotReference.getExprId(), statistic);
@@ -378,7 +378,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Id, ColumnStatistic> columnStatsMap = oneRowRelation.getProjects()
                 .stream()
                 .map(project -> {
-                    ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).createColumnStatistic();
+                    ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).build();
                     // TODO: compute the literal size
                     return Pair.of(project.toSlot().getExprId(), statistic);
                 })
@@ -395,7 +395,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                             .setNdv(0)
                             .setNumNulls(0)
                             .setAvgSizeByte(0);
-                    return Pair.of(project.toSlot().getExprId(), builder.createColumnStatistic());
+                    return Pair.of(project.toSlot().getExprId(), builder.build());
                 })
                 .collect(Collectors.toMap(Pair::key, Pair::value));
         int rowCount = 0;

@@ -67,9 +67,8 @@ public class StatisticsCache {
 
     // TODO: finish this method.
     public void eraseExpiredCache(long tblId, String colName) {
-
+        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, colName));
     }
-
 
     private static class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKey, ColumnStatistic> {
 

@@ -140,7 +140,7 @@ public class ColumnStatisticBuilder {
         return maxExpr;
     }
 
-    public ColumnStatistic createColumnStatistic() {
+    public ColumnStatistic build() {
         return new ColumnStatistic(count, ndv, avgSizeByte, numNulls, dataSize, minValue, maxValue, selectivity,
                 minExpr, maxExpr);
     }
