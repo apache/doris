@@ -1053,6 +1053,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                             if (!s.ok()) {
                                 index_channel->mark_as_failed(ch->node_id(), ch->host(),
                                                               s.get_error_msg(), -1);
+                                // cancel the node channel in best effort
+                                ch->cancel(s.get_error_msg());
                                 LOG(WARNING)
                                         << ch->channel_info()
                                         << ", close channel failed, err: " << s.get_error_msg();
