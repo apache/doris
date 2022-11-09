@@ -84,7 +84,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
         Assertions.assertEquals(tabletNum + Config.statistic_table_bucket_count * 2,
-            Env.getCurrentInvertedIndex().getTabletMetaMap().size());
+                Env.getCurrentInvertedIndex().getTabletMetaMap().size());
 
     }
 

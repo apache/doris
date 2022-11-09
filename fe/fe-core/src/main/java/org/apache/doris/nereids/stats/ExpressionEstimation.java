@@ -92,7 +92,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         columnStatBuilder.setNumNulls(1);
         columnStatBuilder.setAvgSizeByte(1);
         return columnStatBuilder.build();
-
     }
 
     @Override

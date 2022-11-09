@@ -91,7 +91,6 @@ public class AnalysisJobTest extends TestWithFeService {
 
             @Mock
             public void execUpdate(String sql) throws Exception {
-
             }
         };
         new Expectations() {
