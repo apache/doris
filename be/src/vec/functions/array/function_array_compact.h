@@ -24,7 +24,7 @@
 
 namespace doris::vectorized {
 
-class FunctionArraySort : public IFunction {
+class FunctionArrayCompact: public IFunction {
 public:
     static constexpr auto name = "array_compact";
     static FunctionPtr create() { return std::make_shared<FunctionArrayCompact>(); }
@@ -134,7 +134,7 @@ private:
             
                 // For the rest of elements, insert if the element is different from the previous.   
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&dest_null_map[src_pos-1]) {
+                    if (src_null_map && (*src_null_map)[src_pos]&&(*dest_null_map)[src_pos-1]) {
                         DCHECK(dest_null_map != nullptr);
                         (*dest_null_map).push_back(true);
                         dest_datas.push_back(NestType());
@@ -199,29 +199,29 @@ private:
             
                 // For the rest of elements, insert if the element is different from the previous.   
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&dest_null_map[src_pos-1]) {
+                    if (src_null_map && (*src_null_map)[src_pos]&&(*dest_null_map)[src_pos-1]) {
                         DCHECK(dest_null_map != nullptr);
                         column_string_offsets.push_back(column_string_offsets.back());
                         (*dest_null_map).push_back(true);
                         ++dest_pos;
                     }else if(0 != (src_data_concrete->compare_at(src_pos, src_pos+1,src_column, 1))){
-                        StringRef src_str_ref = src_data_concrete->get_data_at(permutation[j]);
-                    // copy the src data to column_string_chars
-                    const size_t old_size = column_string_chars.size();
-                    const size_t new_size = old_size + src_str_ref.size;
-                    column_string_chars.resize(new_size);
-                    if (src_str_ref.size > 0) {
-                        memcpy(column_string_chars.data() + old_size, src_str_ref.data,
-                               src_str_ref.size);
-                    }
-                    column_string_offsets.push_back(new_size);
-
-                    if (dest_null_map) {
-                        (*dest_null_map).push_back(false);
-                    }
-                            ++dest_pos;
+                        StringRef src_str_ref = src_data_concrete->get_data_at(src_pos);
+                        // copy the src data to column_string_chars
+                        const size_t old_size = column_string_chars.size();
+                        const size_t new_size = old_size + src_str_ref.size;
+                        column_string_chars.resize(new_size);
+                        if (src_str_ref.size > 0) {
+                            memcpy(column_string_chars.data() + old_size, src_str_ref.data,
+                                   src_str_ref.size);
                         }
+                        column_string_offsets.push_back(new_size);
+
+                        if (dest_null_map) {
+                            (*dest_null_map).push_back(false);
+                        }
+                        ++dest_pos;
                     }
+                }
                     dest_offsets.push_back(dest_pos);
             }
         }

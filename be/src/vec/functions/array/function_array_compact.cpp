@@ -21,7 +21,7 @@
 
 namespace doris::vectorized {
 
-void register_function_array_difference(SimpleFunctionFactory& factory) {
+void register_function_array_compact(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayCompact>();
 }
 
