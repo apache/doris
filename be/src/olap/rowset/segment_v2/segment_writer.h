@@ -26,6 +26,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "olap/tablet_schema.h"
+#include "util/faststring.h"
 #include "vec/core/block.h"
 #include "vec/olap/olap_data_convertor.h"
 
@@ -112,6 +113,11 @@ private:
     Status _write_raw_data(const std::vector<Slice>& slices);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
+    // for unique-key merge on write and segment min_max key
+    std::string _full_encode_keys(
+            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+            bool null_first = true);
+    void set_min_max_key(const Slice& key);
 
     void _reset_column_writers();
 
@@ -127,6 +133,7 @@ private:
 
     SegmentFooterPB _footer;
     size_t _num_key_columns;
+    size_t _num_short_key_columns;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
@@ -146,6 +153,10 @@ private:
     // In vertical compaction row count is recorded when key columns group finish
     //  and _num_rows_written will be updated in value column group
     uint32_t _row_count = 0;
+
+    bool _is_first_row = true;
+    faststring _min_key;
+    faststring _max_key;
 };
 
 } // namespace segment_v2
