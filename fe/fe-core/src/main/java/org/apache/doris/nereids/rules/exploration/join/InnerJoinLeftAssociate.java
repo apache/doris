@@ -60,7 +60,7 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
                     GroupPlan c = bottomJoin.right();
 
                     // Split condition
-                    Set<Slot> abOutputSet = JoinUtils.getJoinOutput(a, b);
+                    Set<Slot> abOutputSet = JoinUtils.getJoinOutputSet(a, b);
                     Map<Boolean, List<Expression>> hashConjunctsSplit = Stream.concat(
                                     topJoin.getHashJoinConjuncts().stream(),
                                     bottomJoin.getHashJoinConjuncts().stream())

@@ -320,7 +320,7 @@ public class JoinUtils {
         });
     }
 
-    public static Set<Slot> getJoinOutput(Plan left, Plan right) {
+    public static Set<Slot> getJoinOutputSet(Plan left, Plan right) {
         HashSet<Slot> joinOutput = new HashSet<>();
         joinOutput.addAll(left.getOutput());
         joinOutput.addAll(right.getOutput());

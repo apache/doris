@@ -61,8 +61,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
                     GroupPlan c = rightJoin.left();
                     GroupPlan d = rightJoin.right();
 
-                    Set<Slot> acOutputSet = JoinUtils.getJoinOutput(a, c);
-                    Set<Slot> bdOutputSet = JoinUtils.getJoinOutput(b, d);
+                    Set<Slot> acOutputSet = JoinUtils.getJoinOutputSet(a, c);
+                    Set<Slot> bdOutputSet = JoinUtils.getJoinOutputSet(b, d);
 
                     List<Expression> newLeftJoinHashJoinConjuncts = Lists.newArrayList();
                     List<Expression> newRightJoinHashJoinConjuncts = Lists.newArrayList();
@@ -79,6 +79,9 @@ public class JoinExchange extends OneExplorationRuleFactory {
                             newLeftJoinOtherJoinConjuncts, newRightJoinOtherJoinConjuncts,
                             newTopJoinOtherJoinConjuncts);
 
+                    if (newLeftJoinHashJoinConjuncts.size() == 0 || newRightJoinHashJoinConjuncts.size() == 0) {
+                        return null;
+                    }
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
                             a, c, leftJoin.getJoinReorderContext());

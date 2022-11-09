@@ -321,7 +321,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             Plan candidate = candidates.get(i);
             Set<Slot> rightOutputSet = candidate.getOutputSet();
 
-            Set<Slot> joinOutput = JoinUtils.getJoinOutput(left, candidate);
+            Set<Slot> joinOutput = JoinUtils.getJoinOutputSet(left, candidate);
 
             List<Expression> currentJoinFilter = joinFilter.stream()
                     .filter(expr -> {
