@@ -69,13 +69,10 @@ public:
             }
         }
 
-        if (_data_type->is_nullable()) {
-            auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
-            block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
-                           _data_type, _expr_name});
-        } else {
-            block->insert({std::move(res_data_column), _data_type, _expr_name});
-        }
+        DCHECK(!_data_type->is_nullable());
+
+        block->insert({std::move(res_data_column), _data_type, _expr_name});
+
         *result_column_id = num_columns_without_result;
         return Status::OK();
     }
