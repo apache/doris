@@ -183,7 +183,7 @@ using JoinOpVariants =
 class VExprContext;
 class HashJoinNode;
 
-template <class JoinOpType, bool ignore_null>
+template <class JoinOpType>
 struct ProcessHashTableProbe {
     ProcessHashTableProbe(HashJoinNode* join_node, int batch_size);
 
@@ -192,22 +192,21 @@ struct ProcessHashTableProbe {
     void build_side_output_column(MutableColumns& mcol, int column_offset, int column_length,
                                   const std::vector<bool>& output_slot_flags, int size);
 
-    template <bool have_other_join_conjunct = false>
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
                                   int size, int last_probe_index, size_t probe_size,
-                                  bool all_match_one);
+                                  bool all_match_one, bool have_other_join_conjunct);
     // Only process the join with no other join conjunt, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_null_map_for_probe, typename HashTableType>
+    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                       MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
     // In the presence of other join conjunt, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunt. so the sturct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunt result and same_to_prev struct
-    template <bool need_null_map_for_probe, typename HashTableType>
+    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status do_process_with_other_join_conjuncts(HashTableType& hash_table_ctx,
                                                 ConstNullMapPtr null_map,
                                                 MutableBlock& mutable_block, Block* output_block,
@@ -242,40 +241,17 @@ struct ProcessHashTableProbe {
 
 using HashTableCtxVariants = std::variant<
         std::monostate,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>, true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>, true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>, true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
-                              true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
-                              true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
-                              true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>, true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
-                              true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
-                              true>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>>,
+        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>>,
         ProcessHashTableProbe<
-                std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>, true>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>, false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
-                              false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
-                              false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
-                              false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
-                              false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
-                              false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>, false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
-                              false>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
-                              false>,
-        ProcessHashTableProbe<
-                std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>, false>>;
+                std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>>;
 
 class HashJoinNode : public ::doris::ExecNode {
 public:
@@ -353,7 +329,6 @@ private:
     ColumnUInt8::MutablePtr _null_map_column;
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
-    bool _need_null_map_for_build = false;
     bool _has_set_need_null_map_for_build = false;
     bool _probe_ignore_null = false;
     int _probe_index = -1;
@@ -405,8 +380,9 @@ private:
     Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,
                                 ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids);
 
-    template <bool BuildSide>
-    bool _need_null_map(Block& block, const std::vector<int>& res_col_ids);
+    bool _need_probe_null_map(Block& block, const std::vector<int>& res_col_ids);
+
+    void _set_build_ignore_flag(Block& block, const std::vector<int>& res_col_ids);
 
     void _hash_table_init();
     void _process_hashtable_ctx_variants_init(RuntimeState* state);
@@ -430,7 +406,7 @@ private:
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
-    template <class JoinOpType, bool ignore_null>
+    template <class JoinOpType>
     friend struct ProcessHashTableProbe;
 
     template <class HashTableContext>

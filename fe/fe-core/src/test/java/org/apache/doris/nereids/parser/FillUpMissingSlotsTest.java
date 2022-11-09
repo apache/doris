@@ -48,7 +48,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.stream.Collectors;
 
-public class ResolveAggregateFunctionsTest extends AnalyzeCheckTestBase implements PatternMatchSupported {
+public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements PatternMatchSupported {
 
     @Override
     public void runBeforeAll() throws Exception {
