@@ -109,7 +109,6 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
             _max_version_schema = rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
         }
     }
-    DCHECK(_max_version_schema);
 
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
