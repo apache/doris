@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf/udf.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/functions/simple_function_factory.h"
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+
+#include "udf/udf.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 class Uuid : public IFunction {
