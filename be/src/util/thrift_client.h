@@ -26,6 +26,7 @@
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TSocket.h>
 
+#include <memory>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -93,6 +94,7 @@ public:
 
 private:
     std::shared_ptr<InterfaceType> _iface;
+    std::unique_ptr<ThriftClientImpl> _impl;
 };
 
 template <class InterfaceType>

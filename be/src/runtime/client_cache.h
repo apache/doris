@@ -118,6 +118,7 @@ private:
     // if cache not found, set client_key as nullptr
     void _get_client_from_cache(const TNetworkAddress& hostport, void** client_key);
 
+    // TODO(为什么)这里非要设计一层void* 到 Impl的强转 上面的list也是存的void* 为什么不干脆放在一个结构体IClient里然后上面也只存IClient*
     // Map from client key back to its associated ThriftClientImpl transport
     using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
     ClientMap _client_map;
