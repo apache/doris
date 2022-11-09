@@ -109,6 +109,19 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
     return Status::OK();
 }
 
+Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = segment_file_path(seg_id);
+        size_t file_size;
+        RETURN_IF_ERROR(fs->file_size(seg_path, &file_size));
+        segments_size->push_back(file_size);
+    }
+    return Status::OK();
+}
 Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
@@ -197,14 +210,15 @@ void BetaRowset::do_close() {
     // do nothing.
 }
 
-Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {
+Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
+                                 size_t new_rowset_start_seg_id) {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
     for (int i = 0; i < num_segments(); ++i) {
-        auto dst_path = segment_file_path(dir, new_rowset_id, i);
+        auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
         // TODO(lingbin): use Env API? or EnvUtil?
         bool dst_path_exist = false;
         if (!fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
