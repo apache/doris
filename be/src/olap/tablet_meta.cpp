@@ -46,7 +46,9 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.compression_type, request.storage_policy,
             request.__isset.enable_unique_key_merge_on_write
                     ? request.enable_unique_key_merge_on_write
-                    : false));
+                    : false,
+            request.__isset.enable_light_schema_change ? request.enable_light_schema_change
+                                                       : false));
     return Status::OK();
 }
 
@@ -61,7 +63,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TCompressionType::type compression_type, const std::string& storage_policy,
-                       bool enable_unique_key_merge_on_write)
+                       bool enable_unique_key_merge_on_write, bool enable_light_schema_change)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -80,6 +82,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_DISK
                                            ? TabletTypePB::TABLET_TYPE_DISK
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
+    tablet_meta_pb.set_enable_light_schema_change(enable_light_schema_change);
     tablet_meta_pb.set_enable_unique_key_merge_on_write(enable_unique_key_merge_on_write);
     tablet_meta_pb.set_storage_policy(storage_policy);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
@@ -242,7 +245,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _preferred_rowset_type(b._preferred_rowset_type),
           _storage_policy(b._storage_policy),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
-          _delete_bitmap(b._delete_bitmap) {};
+          _delete_bitmap(b._delete_bitmap),
+          _enable_light_schema_change(b._enable_light_schema_change) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -507,6 +511,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _preferred_rowset_type = tablet_meta_pb.preferred_rowset_type();
     }
 
+    if (tablet_meta_pb.has_enable_light_schema_change()) {
+        _enable_light_schema_change = tablet_meta_pb.enable_light_schema_change();
+    }
+
     _storage_policy = tablet_meta_pb.storage_policy();
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
@@ -573,6 +581,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     if (_preferred_rowset_type == BETA_ROWSET) {
         tablet_meta_pb->set_preferred_rowset_type(_preferred_rowset_type);
     }
+    tablet_meta_pb->set_enable_light_schema_change(_enable_light_schema_change);
 
     tablet_meta_pb->set_storage_policy(_storage_policy);
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);

@@ -94,6 +94,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean disableAutoCompaction;
 
+    private boolean enableLightSchemaChange;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -105,7 +107,8 @@ public class CreateReplicaTask extends AgentTask {
                              DataSortInfo dataSortInfo,
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
-                             String storagePolicy, boolean disableAutoCompaction) {
+                             String storagePolicy, boolean disableAutoCompaction,
+                             boolean enableLightSchemaChange) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -133,6 +136,7 @@ public class CreateReplicaTask extends AgentTask {
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
         this.storagePolicy = storagePolicy;
         this.disableAutoCompaction = disableAutoCompaction;
+        this.enableLightSchemaChange = enableLightSchemaChange;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -257,6 +261,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+        createTabletReq.setEnableLightSchemaChange(enableLightSchemaChange);
         return createTabletReq;
     }
 }

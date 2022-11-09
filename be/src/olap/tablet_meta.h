@@ -91,7 +91,8 @@ public:
                TabletUid tablet_uid, TTabletType::type tabletType,
                TCompressionType::type compression_type,
                const std::string& storage_policy = std::string(),
-               bool enable_unique_key_merge_on_write = false);
+               bool enable_unique_key_merge_on_write = false,
+               bool enable_light_schema_change = false);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -210,6 +211,8 @@ public:
     void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
                               const Version& version, const RowIdConversion& rowid_conversion);
 
+    bool enable_light_schema_change() const { return _enable_light_schema_change; }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -250,6 +253,8 @@ private:
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
+
+    bool _enable_light_schema_change = false;
 
     mutable std::shared_mutex _meta_lock;
 };

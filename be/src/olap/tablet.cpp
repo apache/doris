@@ -100,16 +100,14 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
                                                              _tablet_meta->all_stale_rs_metas());
-    // if !_tablet_meta->all_rs_metas()[0]->tablet_schema(),
-    // that mean the tablet_meta is still no upgrade to doris 1.2 versions.
-    // Before doris 1.2 version, rowset metas don't have tablet schema.
-    // And when upgrade to doris 1.2 version,
-    // all rowset metas will be set the tablet schmea from tablet meta.
-    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
-        _max_version_schema = BaseTablet::tablet_schema();
-    } else {
-        _max_version_schema =
-                rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas())->tablet_schema();
+
+    // _max_version_schema only used for some tables which support light schema change
+    if (_tablet_meta->enable_light_schema_change()) {
+        if (_tablet_meta->all_rs_metas().empty()) {
+            _max_version_schema = BaseTablet::tablet_schema();
+        } else {
+            _max_version_schema = rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas());
+        }
     }
     DCHECK(_max_version_schema);
 
@@ -425,13 +423,17 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     return iter->second;
 }
 
-RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
+TabletSchemaSPtr Tablet::rowset_meta_with_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
-    return *std::max_element(rowset_metas.begin(), rowset_metas.end(),
-                             [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
-                                 return a->tablet_schema()->schema_version() <
-                                        b->tablet_schema()->schema_version();
-                             });
+    if (_tablet_meta->enable_light_schema_change()) {
+        return (*std::max_element(rowset_metas.begin(), rowset_metas.end(),
+                                  [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+                                      return a->tablet_schema()->schema_version() <
+                                             b->tablet_schema()->schema_version();
+                                  }))
+                ->tablet_schema();
+    }
+    return BaseTablet::tablet_schema();
 }
 
 RowsetSharedPtr Tablet::_rowset_with_largest_size() {
@@ -1900,7 +1902,8 @@ Status Tablet::remove_all_remote_rowsets() {
 
 TabletSchemaSPtr Tablet::tablet_schema() const {
     std::shared_lock wrlock(_meta_lock);
-    return _max_version_schema;
+    return _tablet_meta->enable_light_schema_change() ? _max_version_schema
+                                                      : BaseTablet::tablet_schema();
 }
 
 void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {

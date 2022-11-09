@@ -117,6 +117,7 @@ struct TCreateTabletReq {
     17: optional Types.TReplicaId replica_id = 0
     18: optional string storage_policy
     19: optional bool enable_unique_key_merge_on_write = false
+    20: optional bool enable_light_schema_change = false
 }
 
 struct TDropTabletReq {

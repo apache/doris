@@ -40,6 +40,7 @@
 #include "olap/rowset/rowset_tree.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "olap/tuple.h"
 #include "olap/utils.h"
 #include "olap/version_graph.h"
@@ -128,7 +129,7 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
-    static RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
+    TabletSchemaSPtr rowset_meta_with_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
