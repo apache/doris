@@ -70,4 +70,32 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_popback(k5) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k6) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k7) from ${tableName} ORDER BY k1"
+
+    def tableName2 = "tbl_test_array_range"
+    sql """DROP TABLE IF EXISTS ${tableName2}"""
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
+              `k1` int(11) NULL COMMENT "",
+              `k2` int(11) NULL COMMENT "",
+              `k3` int(11) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+    sql """ INSERT INTO ${tableName2} VALUES(1,3,5) """
+    sql """ INSERT INTO ${tableName2} VALUES(2,10,2) """
+    sql """ INSERT INTO ${tableName2} VALUES(3,NULL,NULL) """
+    sql """ INSERT INTO ${tableName2} VALUES(4,6,1) """
+    sql """ INSERT INTO ${tableName2} VALUES(5,10,1) """
+    sql """ INSERT INTO ${tableName2} VALUES(6,NULL,1) """
+    sql """ INSERT INTO ${tableName2} VALUES(7,10,NULL) """
+    sql """ INSERT INTO ${tableName2} VALUES(NULL,10,2) """
+
+    qt_select "SELECT k1, array_range(k1) from ${tableName2} ORDER BY k1"
+    qt_select "SELECT k1, array_range(k1,k2) from ${tableName2} ORDER BY k1"
+    qt_select "SELECT k1, array_range(k1,k2,k3) from ${tableName2} ORDER BY k1"
 }
