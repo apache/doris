@@ -30,7 +30,6 @@
 #include "exec/es_http_scanner.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
-#include "vec/exec/ves_http_scanner.h"
 
 namespace doris {
 
@@ -85,7 +84,6 @@ protected:
 
     std::condition_variable _queue_reader_cond;
     std::condition_variable _queue_writer_cond;
-    bool _vectorized = false;
 
 private:
     // Create scanners to do scan job
@@ -97,10 +95,6 @@ private:
     // Scan one range
     Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
                         const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
-
-    virtual Status scanner_scan(std::unique_ptr<vectorized::VEsHttpScanner> scanner) {
-        return Status::NotSupported("vectorized scan in EsHttpScanNode is not supported!");
-    };
 
     Status build_conjuncts_list();
 

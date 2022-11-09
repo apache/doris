@@ -258,4 +258,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin withJoinType(JoinType joinType) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, left(), right(), joinReorderContext);
     }
+
+    public LogicalJoin withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, left(), right(),
+                joinReorderContext);
+    }
 }
+

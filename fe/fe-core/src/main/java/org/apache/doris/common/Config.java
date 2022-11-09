@@ -1774,10 +1774,10 @@ public class Config extends ConfigBase {
     public static int be_exec_version = max_be_exec_version;
 
     @ConfField(mutable = false)
-    public static int statistic_job_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_job_scheduler_execution_interval_ms = 1000;
 
     @ConfField(mutable = false)
-    public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
     /*
      * mtmv scheduler framework is still under dev, remove this config when it is graduate.
