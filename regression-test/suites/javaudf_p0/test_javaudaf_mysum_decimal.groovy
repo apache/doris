@@ -53,7 +53,7 @@ suite("test_javaudaf_mysum_decimal") {
         sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_decimal(decimal(27,9)) RETURNS decimal(27,9) PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.MySumDecimal",
-            "is_return_null"="false",
+            "always_nullable"="false",
             "type"="JAVA_UDF"
         ); """
 

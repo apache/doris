@@ -60,7 +60,6 @@ suite("test_javaudf_string") {
         sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS string PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.StringTest",
-            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 

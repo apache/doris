@@ -53,7 +53,6 @@ suite("test_javaudf_case") {
         sql """ CREATE FUNCTION java_udf_dateWindowRollup_test(date,int,int) RETURNS String PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateWindowRollup",
-            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 

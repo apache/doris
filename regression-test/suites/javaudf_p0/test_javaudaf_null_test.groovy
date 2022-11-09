@@ -60,7 +60,7 @@ suite("test_javaudaf_null_test") {
         sql """ CREATE AGGREGATE FUNCTION udaf_null_test_int(int) RETURNS BigInt PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.UdafNullTest",
-            "is_return_null"="true",
+            "always_nullable"="true",
             "type"="JAVA_UDF"
         ); """
 

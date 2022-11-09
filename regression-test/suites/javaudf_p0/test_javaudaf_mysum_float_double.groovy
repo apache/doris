@@ -60,7 +60,7 @@ suite("test_javaudaf_mysum_float_double") {
         sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_double(double,double) RETURNS double PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.MySumDouble",
-            "is_return_null"="false",
+            "always_nullable"="false",
             "type"="JAVA_UDF"
         ); """
 
@@ -73,7 +73,7 @@ suite("test_javaudaf_mysum_float_double") {
         sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_float(float) RETURNS float PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.MySumFloat",
-            "is_return_null"="false",
+            "always_nullable"="false",
             "type"="JAVA_UDF"
         ); """
 

@@ -55,7 +55,6 @@ suite("test_javaudf_float") {
         sql """ CREATE FUNCTION java_udf_float_test(FLOAT,FLOAT) RETURNS FLOAT PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.FloatTest",
-            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -71,7 +70,6 @@ suite("test_javaudf_float") {
         sql """ CREATE FUNCTION java_udf_double_test(DOUBLE,DOUBLE) RETURNS DOUBLE PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DoubleTest",
-            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 

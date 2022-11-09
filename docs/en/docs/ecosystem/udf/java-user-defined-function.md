@@ -75,7 +75,7 @@ Instructions:
 1. `symbol` in properties represents the class name containing UDF classes. This parameter must be set.
 2. The jar package containing UDF represented by `file` in properties must be set.
 3. The UDF call type represented by `type` in properties is native by default. When using java UDF, it is transferred to `Java_UDF`.
-4. In PROPERTIES `is_return_null` indicates whether there may be a NULL value in the UDF return result. It can be set to true or false.
+4. In PROPERTIES `always_nullable` indicates whether there may be a NULL value in the UDF return result. It is an optional parameter. The default value is true.
 5. `name`: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`.
 
 Sample：
@@ -83,13 +83,13 @@ Sample：
 CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
     "file"="file:///path/to/java-udf-demo-jar-with-dependencies.jar",
     "symbol"="org.apache.doris.udf.AddOne",
-    "is_return_null"="true",
+    "always_nullable"="true",
     "type"="JAVA_UDF"
 );
 ```
 * "file"=" http://IP:port/udf -code. Jar ", you can also use http to download jar packages in a multi machine environment.
 
-* For the "is_return_null" attribute, if there is special treatment for the NULL value in the calculation, it is determined that the result will not return NULL, and it can be set to false, so that the performance may be better in the whole calculation process.
+* The "always_nullable" is optional attribute, if there is special treatment for the NULL value in the calculation, it is determined that the result will not return NULL, and it can be set to false, so that the performance may be better in the whole calculation process.
 ## Create UDAF
 <br/>
 When using Java code to write UDAF, there are some functions that must be implemented (mark required) and an inner class State, which will be explained with a specific example below.
@@ -159,7 +159,7 @@ public class SimpleDemo {
 CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
     "file"="file:///pathTo/java-udaf.jar",
     "symbol"="org.apache.doris.udf.SimpleDemo",
-    "is_return_null"="true",
+    "always_nullable"="true",
     "type"="JAVA_UDF"
 );
 ```

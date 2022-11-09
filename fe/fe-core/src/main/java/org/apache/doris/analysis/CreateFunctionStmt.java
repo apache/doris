@@ -98,7 +98,7 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String GETVALUE_METHOD_NAME = "getValue";
     public static final String STATE_CLASS_NAME = "State";
     // add for java udf check return type nullable mode, always_nullable or always_not_nullable
-    public static final String IS_RETURN_NULL = "is_return_null";
+    public static final String IS_RETURN_NULL = "always_nullable";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
 
     private final FunctionName functionName;
@@ -231,12 +231,12 @@ public class CreateFunctionStmt extends DdlStmt {
         if (binaryType == TFunctionBinaryType.JAVA_UDF) {
             String returnNullModeStr = properties.get(IS_RETURN_NULL);
             if (returnNullModeStr == null) {
-                throw new AnalysisException(
-                        "No 'is_return_null' in properties, you should add it, and set false or true");
+                return;
             }
             if (!returnNullModeStr.equalsIgnoreCase("false") && !returnNullModeStr.equalsIgnoreCase("true")) {
-                throw new AnalysisException("'is_return_null' in properties, you should set it false or true");
+                throw new AnalysisException("'always_nullable' in properties, you should set it false or true");
             }
+
             if (!Boolean.parseBoolean(returnNullModeStr)) {
                 returnNullMode = NullableMode.ALWAYS_NOT_NULLABLE;
             }
