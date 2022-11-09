@@ -450,8 +450,9 @@ Status VOrcWriterWrapper::write(const Block& block) {
                     }
                 } else if (const auto& not_null_column =
                                    check_and_get_column<const ColumnDecimal128>(col)) {
+                    auto ptr = not_null_column->get_data().data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        auto v = not_null_column->get_data()[row_id];
+                        auto v = ptr[row_id];
                         orc::Int128 value(v >> 64, (uint64_t)v);
                         cur_batch->values[row_id] = value;
                     }
