@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
