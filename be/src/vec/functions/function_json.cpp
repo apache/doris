@@ -187,13 +187,17 @@ rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths, rapidjs
 }
 
 template <JsonFunctionType fntype>
-rapidjson::Value* get_json_object(const std::string_view& json_string,
-                                  const std::string_view& path_string,
+rapidjson::Value* get_json_object(std::string_view json_string, std::string_view path_string,
                                   rapidjson::Document* document) {
     std::vector<JsonPath>* parsed_paths;
     std::vector<JsonPath> tmp_parsed_paths;
 
+#ifdef USE_LIBCPP
+    std::string s(path_string);
+    auto tok = get_json_token(s);
+#else
     auto tok = get_json_token(path_string);
+#endif
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
     parsed_paths = &tmp_parsed_paths;
