@@ -822,10 +822,6 @@ CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
-// If set to true, the new scan node framework will be used.
-// This config should be removed when the new scan node is ready.
-CONF_Bool(enable_new_scan_node, "true");
-
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
