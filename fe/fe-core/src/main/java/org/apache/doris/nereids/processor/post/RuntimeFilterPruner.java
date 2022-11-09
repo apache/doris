@@ -122,7 +122,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan olapScan, CascadesContext context) {
         List<Slot> slots = context.getRuntimeFilterContext().getTargetOnOlapScanNodeMap().get(olapScan.getId());
-        if (slots != null && slots.isEmpty()) {
+        if (slots != null && !slots.isEmpty()) {
             context.getRuntimeFilterContext().addEffectiveSrcNode(olapScan);
         }
         return olapScan;
