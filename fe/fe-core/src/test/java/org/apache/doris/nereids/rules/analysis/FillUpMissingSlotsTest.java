@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
@@ -408,12 +408,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
         sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalSort(
-                                        logicalAggregate(
-                                                logicalOlapScan()
-                                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
-                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))));
+                        logicalSort(
+                                logicalAggregate(
+                                        logicalOlapScan()
+                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
+                        ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true)))));
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 ORDER BY SUM(a2)";
         a1 = new SlotReference(
@@ -427,12 +426,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
         Alias value = new Alias(new ExprId(3), new Sum(a2), "value");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalSort(
-                                        logicalAggregate(
-                                                logicalOlapScan()
-                                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true))))));
+                        logicalSort(
+                                logicalAggregate(
+                                        logicalOlapScan()
+                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
+                        ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA2.toSlot(), true, true)))));
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 ORDER BY MIN(pk)";
         a1 = new SlotReference(
@@ -463,12 +461,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
         Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
         PlanChecker.from(connectContext).analyze(sql)
                 .matchesFromRoot(
-                        logicalProject(
-                                logicalSort(
-                                        logicalAggregate(
-                                                logicalOlapScan()
-                                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
-                                ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA1A2.toSlot(), true, true))))));
+                        logicalSort(
+                                logicalAggregate(
+                                        logicalOlapScan()
+                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
+                        ).when(FieldChecker.check("orderKeys", ImmutableList.of(new OrderKey(sumA1A2.toSlot(), true, true)))));
 
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 ORDER BY SUM(a1 + a2 + 3)";
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new SmallIntLiteral((short) 3))),
