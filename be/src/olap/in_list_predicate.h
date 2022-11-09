@@ -146,6 +146,7 @@ public:
                     _values->insert(value.to_olap_datetime());
                 }
             } else {
+                CHECK(Type == TYPE_DATETIMEV2 || Type == TYPE_DATEV2);
                 for (auto& value : *values) {
                     _values->insert(T(value));
                 }
