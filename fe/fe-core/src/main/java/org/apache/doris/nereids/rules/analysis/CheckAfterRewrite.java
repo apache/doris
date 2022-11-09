@@ -17,54 +17,46 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import org.apache.commons.lang.StringUtils;
 
-import java.util.Optional;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Check analysis rule to check semantic correct after analysis by Nereids.
+ * some check need to do after analyze whole plan.
  */
-public class CheckAnalysis extends OneAnalysisRuleFactory {
-
+public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return any().then(plan -> {
-            checkBound(plan);
-            checkExpressionInputTypes(plan);
+            checkAllSlotReferenceFromChildren(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }
 
-    private void checkExpressionInputTypes(Plan plan) {
-        final Optional<TypeCheckResult> firstFailed = plan.getExpressions().stream()
-                .map(Expression::checkInputDataTypes)
-                .filter(TypeCheckResult::failed)
-                .findFirst();
-
-        if (firstFailed.isPresent()) {
-            throw new AnalysisException(firstFailed.get().getMessage());
-        }
-    }
-
-    private void checkBound(Plan plan) {
-        Set<UnboundSlot> unboundSlots = plan.getExpressions().stream()
-                .<Set<UnboundSlot>>map(e -> e.collect(UnboundSlot.class::isInstance))
+    private void checkAllSlotReferenceFromChildren(Plan plan) {
+        Set<Slot> notFromChildren = plan.getExpressions().stream()
+                .map(Expression::getInputSlots)
                 .flatMap(Set::stream)
                 .collect(Collectors.toSet());
-        if (!unboundSlots.isEmpty()) {
-            throw new AnalysisException(String.format("Cannot find column %s.",
-                    StringUtils.join(unboundSlots.stream()
-                            .map(UnboundSlot::toSql)
+        Set<Slot> childrenOutput = plan.children().stream()
+                .map(Plan::getOutput)
+                .flatMap(List::stream)
+                .collect(Collectors.toSet());
+        notFromChildren.removeAll(childrenOutput);
+        if (!notFromChildren.isEmpty()) {
+            throw new AnalysisException(String.format("Input slot(s) not in child's output: %s",
+                    StringUtils.join(notFromChildren.stream()
+                            .map(ExpressionTrait::toSql)
                             .collect(Collectors.toSet()), ", ")));
         }
     }
