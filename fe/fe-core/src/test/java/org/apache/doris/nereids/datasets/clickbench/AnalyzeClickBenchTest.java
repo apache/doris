@@ -140,20 +140,20 @@ public class AnalyzeClickBenchTest extends ClickBenchTestBase {
         checkAnalyze(ClickBenchUtils.Q23);
     }
 
-    // @Test
-    // public void q24() {
-    //     checkAnalyze(ClickBenchUtils.Q24);
-    // }
+    @Test
+    public void q24() {
+        checkAnalyze(ClickBenchUtils.Q24);
+    }
 
     @Test
     public void q25() {
         checkAnalyze(ClickBenchUtils.Q25);
     }
 
-    // @Test
-    // public void q26() {
-    //     checkAnalyze(ClickBenchUtils.Q26);
-    // }
+    @Test
+    public void q26() {
+        checkAnalyze(ClickBenchUtils.Q26);
+    }
 
     @Test
     public void q27() {

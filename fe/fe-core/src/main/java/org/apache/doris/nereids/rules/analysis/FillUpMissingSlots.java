@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Streams;
@@ -44,16 +45,17 @@ import com.google.common.collect.Streams;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Resolve having clause to the aggregation.
  */
-public class ResolveAggregateFunctions implements AnalysisRuleFactory {
+public class FillUpMissingSlots implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.RESOLVE_SORT_AGGREGATE_FUNCTIONS.build(
+                RuleType.FILL_UP_SORT_AGGREGATE_FUNCTIONS.build(
                         logicalSort(logicalAggregate())
                                 .when(sort -> sort.getExpressions().stream()
                                         .anyMatch(e -> e.containsType(AggregateFunction.class)))
@@ -72,7 +74,7 @@ public class ResolveAggregateFunctions implements AnalysisRuleFactory {
                                     });
                                 })
                 ),
-                RuleType.RESOLVE_SORT_HAVING_AGGREGATE_FUNCTIONS.build(
+                RuleType.FILL_UP_SORT_HAVING_AGGREGATE_FUNCTIONS.build(
                         logicalSort(logicalHaving(logicalAggregate()))
                                 .when(sort -> sort.getExpressions().stream()
                                         .anyMatch(e -> e.containsType(AggregateFunction.class)))
@@ -91,7 +93,7 @@ public class ResolveAggregateFunctions implements AnalysisRuleFactory {
                                     });
                                 })
                 ),
-                RuleType.RESOLVE_HAVING_AGGREGATE_FUNCTIONS.build(
+                RuleType.FILL_UP_HAVING_AGGREGATE_FUNCTIONS.build(
                         logicalHaving(logicalAggregate()).then(having -> {
                             LogicalAggregate<GroupPlan> aggregate = having.child();
                             Resolver resolver = new Resolver(aggregate);
@@ -102,6 +104,27 @@ public class ResolveAggregateFunctions implements AnalysisRuleFactory {
                                 return new LogicalFilter<>(newPredicates, a);
                             });
                         })
+                ),
+                RuleType.FILL_UP_SORT_PROJECT.build(
+                        logicalSort(logicalProject())
+                                .when(sort -> sort.getExpressions().stream()
+                                        .map(Expression::getInputSlots)
+                                        .flatMap(Set::stream)
+                                        .anyMatch(s -> !sort.child().getOutputSet().contains(s)))
+                                .then(sort -> {
+                                    final Builder<NamedExpression> projectionsBuilder = ImmutableList.builder();
+                                    projectionsBuilder.addAll(sort.child().getProjects());
+                                    Set<Slot> notExistedInProject = sort.getExpressions().stream()
+                                            .map(Expression::getInputSlots)
+                                            .flatMap(Set::stream)
+                                            .filter(s -> !sort.child().getOutputSet().contains(s))
+                                            .collect(Collectors.toSet());
+                                    projectionsBuilder.addAll(notExistedInProject);
+                                    return new LogicalProject(sort.child().getOutput(),
+                                            new LogicalSort<>(sort.getOrderKeys(),
+                                                    new LogicalProject<>(projectionsBuilder.build(),
+                                                            sort.child().child())));
+                                })
                 )
         );
     }
