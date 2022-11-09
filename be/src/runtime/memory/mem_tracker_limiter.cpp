@@ -201,14 +201,14 @@ void MemTrackerLimiter::print_log_process_usage(const std::string& msg) {
 }
 
 std::string MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
-                                                  const std::string& limit_exceeded_errmsg_prefix) {
+                                                  const std::string& limit_exceeded_errmsg) {
     DCHECK(_limit != -1);
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     std::string detail = fmt::format(
             "Memory limit exceeded:<consuming tracker:<{}>, {}>, executing msg:<{}>. backend {} "
             "process memory used {}, limit {}. If query tracker exceed, `set "
             "exec_mem_limit=8G` to change limit, details mem usage see be.INFO.",
-            _label, limit_exceeded_errmsg_prefix, msg, BackendOptions::get_localhost(),
+            _label, limit_exceeded_errmsg, msg, BackendOptions::get_localhost(),
             PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str());
     print_log_usage(detail);
     return detail;

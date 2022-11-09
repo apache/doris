@@ -183,6 +183,7 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the TCMalloc hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> _thread_mem_tracker_mgr;
+    bool enable_thread_cache_bad_alloc = false;
 
 private:
     std::string _task_id = "";
@@ -299,12 +300,40 @@ private:
     tracker->transfer_to(                               \
             size, doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw())
 
+// Consider catching other memory errors, such as memset failure, etc.
+#define RETURN_IF_CATCH_BAD_ALLOC(stmt)                                                          \
+    do {                                                                                         \
+        doris::thread_context()->_thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();          \
+        if (doris::thread_context()->enable_thread_cache_bad_alloc) {                            \
+            try {                                                                                \
+                { stmt; }                                                                        \
+            } catch (std::bad_alloc const&) {                                                    \
+                return Status::MemoryLimitExceeded(                                              \
+                        fmt::format("PreCatch Bad Alloc: {}",                                    \
+                                    doris::thread_context()                                      \
+                                            ->_thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
+            }                                                                                    \
+        } else {                                                                                 \
+            try {                                                                                \
+                doris::thread_context()->enable_thread_cache_bad_alloc = true;                   \
+                { stmt; }                                                                        \
+                doris::thread_context()->enable_thread_cache_bad_alloc = false;                  \
+            } catch (std::bad_alloc const&) {                                                    \
+                doris::thread_context()->enable_thread_cache_bad_alloc = false;                  \
+                return Status::MemoryLimitExceeded(                                              \
+                        fmt::format("PreCatch Bad Alloc: {}",                                    \
+                                    doris::thread_context()                                      \
+                                            ->_thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
+            }                                                                                    \
+        }                                                                                        \
+    } while (0)
+
 // Mem Hook to consume thread mem tracker
 // TODO: In the original design, the MemTracker consume method is called before the memory is allocated.
 // If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
 // But the statistics of memory through TCMalloc new/delete Hook are after the memory is actually allocated,
 // which is different from the previous behavior.
-#define MEM_MALLOC_HOOK(size)                                                \
+#define CONSUME_MEM_TRACKER(size)                                            \
     do {                                                                     \
         if (doris::thread_context_ptr.init) {                                \
             doris::thread_context()->_thread_mem_tracker_mgr->consume(size); \
@@ -312,7 +341,21 @@ private:
             doris::ThreadMemTrackerMgr::consume_no_attach(size);             \
         }                                                                    \
     } while (0)
-#define MEM_FREE_HOOK(size)                                                   \
+#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                             \
+    do {                                                                                    \
+        if (doris::thread_context_ptr.init) {                                               \
+            if (doris::thread_context()->enable_thread_cache_bad_alloc) {                   \
+                if (!doris::thread_context()->_thread_mem_tracker_mgr->try_consume(size)) { \
+                    return fail_ret;                                                        \
+                }                                                                           \
+            } else {                                                                        \
+                doris::thread_context()->_thread_mem_tracker_mgr->consume(size);            \
+            }                                                                               \
+        } else {                                                                            \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);                            \
+        }                                                                                   \
+    } while (0)
+#define RELEASE_MEM_TRACKER(size)                                             \
     do {                                                                      \
         if (doris::thread_context_ptr.init) {                                 \
             doris::thread_context()->_thread_mem_tracker_mgr->consume(-size); \
@@ -320,12 +363,24 @@ private:
             doris::ThreadMemTrackerMgr::consume_no_attach(-size);             \
         }                                                                     \
     } while (0)
+#define TRY_RELEASE_MEM_TRACKER(size)                                             \
+    do {                                                                          \
+        if (doris::thread_context_ptr.init) {                                     \
+            if (!doris::thread_context()->enable_thread_cache_bad_alloc) {        \
+                doris::thread_context()->_thread_mem_tracker_mgr->consume(-size); \
+            }                                                                     \
+        } else {                                                                  \
+            doris::ThreadMemTrackerMgr::consume_no_attach(-size);                 \
+        }                                                                         \
+    } while (0)
 #else
 #define CONSUME_THREAD_MEM_TRACKER(size) (void)0
 #define RELEASE_THREAD_MEM_TRACKER(size) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
-#define MEM_MALLOC_HOOK(size) (void)0
-#define MEM_FREE_HOOK(size) (void)0
+#define CONSUME_MEM_TRACKER(size) (void)0
+#define TRY_CONSUME_MEM_TRACKER(size) (void)0
+#define RELEASE_MEM_TRACKER(size) (void)0
+#define TRY_RELEASE_MEM_TRACKER(size) (void)0
 #endif
 } // namespace doris

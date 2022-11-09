@@ -135,7 +135,7 @@ public:
 
     // Log the memory usage when memory limit is exceeded.
     std::string mem_limit_exceeded(const std::string& msg,
-                                   const std::string& limit_exceeded_errmsg_prefix);
+                                   const std::string& limit_exceeded_errmsg);
     Status fragment_mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                                        int64_t failed_allocation_size = 0);
 
@@ -237,8 +237,6 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
         _consumption->add(bytes); // No limit at this tracker.
     } else {
         if (!_consumption->try_add(bytes, _limit)) {
-            // Failed for this mem tracker. Roll back the ones that succeeded.
-            _consumption->add(-bytes);
             failed_msg = tracker_limit_exceeded_errmsg_str(bytes, this);
             return false;
         }

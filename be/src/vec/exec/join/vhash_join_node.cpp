@@ -81,7 +81,7 @@ struct ProcessHashTableBuild {
               _build_side_compute_hash_timer(join_node->_build_side_compute_hash_timer) {}
 
     template <bool ignore_null, bool short_circuit_for_null>
-    void run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
+    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
         int64_t old_bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
@@ -99,7 +99,7 @@ struct ProcessHashTableBuild {
         // only not build_unique, we need expanse hash table before insert data
         if (!_join_node->_build_unique) {
             // _rows contains null row, which will cause hash table resize to be large.
-            hash_table_ctx.hash_table.expanse_for_add_elem(_rows);
+            RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(_rows));
         }
         hash_table_ctx.hash_table.reset_resize_timer();
 
@@ -125,7 +125,7 @@ struct ProcessHashTableBuild {
                     if ((*null_map)[k]) {
                         DCHECK(has_null_key);
                         *has_null_key = true;
-                        return;
+                        return Status::OK();
                     }
                 }
                 if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
@@ -187,6 +187,7 @@ struct ProcessHashTableBuild {
 
         COUNTER_UPDATE(_join_node->_build_table_expanse_timer,
                        hash_table_ctx.hash_table.get_resize_timer_value());
+        return Status::OK();
     }
 
 private:
@@ -1464,19 +1465,20 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     // Get the key column that needs to be built
     Status st = _extract_join_column<true>(block, null_map_val, raw_ptrs, res_col_ids);
 
-    std::visit(
+    st = std::visit(
             Overload {
                     [&](std::monostate& arg, auto has_null_value,
-                        auto short_circuit_for_null_in_build_side) {
+                        auto short_circuit_for_null_in_build_side) -> Status {
                         LOG(FATAL) << "FATAL: uninited hash table";
                         __builtin_unreachable();
+                        return Status::OK();
                     },
                     [&](auto&& arg, auto has_null_value,
-                        auto short_circuit_for_null_in_build_side) {
+                        auto short_circuit_for_null_in_build_side) -> Status {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
                                 rows, block, raw_ptrs, this, state->batch_size(), offset);
-                        hash_table_build_process
+                        return hash_table_build_process
                                 .template run<has_null_value, short_circuit_for_null_in_build_side>(
                                         arg,
                                         has_null_value || short_circuit_for_null_in_build_side

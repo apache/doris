@@ -180,7 +180,6 @@ Status ExecEnv::_init_mem_env() {
             std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "Orphan");
     _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
     thread_context()->_thread_mem_tracker_mgr->init();
-    thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     if (doris::config::enable_tcmalloc_hook) {

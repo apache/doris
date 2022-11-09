@@ -35,7 +35,7 @@ ScopeMemCount::ScopeMemCount(int64_t* scope_mem) {
 }
 
 ScopeMemCount::~ScopeMemCount() {
-    *_scope_mem = thread_context()->_thread_mem_tracker_mgr->stop_count_scope_mem();
+    *_scope_mem += thread_context()->_thread_mem_tracker_mgr->stop_count_scope_mem();
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
