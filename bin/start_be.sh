@@ -53,6 +53,14 @@ export DORIS_HOME=$(
     pwd
 )
 
+if [[ "$(uname -s)" != 'Darwin' ]]; then
+    MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
+    if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+        echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+        exit 1
+    fi
+fi
+
 # export env variables from be.conf
 #
 # UDF_RUNTIME_DIR
