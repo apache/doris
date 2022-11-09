@@ -32,20 +32,30 @@ import org.apache.doris.thrift.TDataGenScanRange;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TTVFNumbersScanRange;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 // Table function that generate int64 numbers
 // have a single column number
 
 /**
- * The Implement of table valued function——numbers(N,M).
+ * The Implement of table valued function——numbers("number" = "N", "backend_num" = "M").
  */
 public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     public static final String NAME = "numbers";
+    public static final String NUMBER = "number";
+    public static final String BACKEND_NUM = "backend_num";
+    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
+            .add(NUMBER)
+            .add(BACKEND_NUM)
+            .build();
     // The total numbers will be generated.
     private long totalNumbers;
     // The total backends will server it.
@@ -56,17 +66,30 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
      * @param params params from user
      * @throws UserException exception
      */
-    public NumbersTableValuedFunction(List<String> params) throws UserException {
-        if (params.size() < 1 || params.size() > 2) {
-            throw new UserException(
-                    "numbers table function only support numbers(10000 /*total numbers*/)"
-                        + "or numbers(10000, 2 /*number of tablets to run*/)");
+    public NumbersTableValuedFunction(Map<String, String> params) throws UserException {
+        Map<String, String> validParams = Maps.newHashMap();
+        for (String key : params.keySet()) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+                throw new AnalysisException(key + " is invalid property");
+            }
+            validParams.put(key.toLowerCase(), params.get(key));
         }
-        totalNumbers = Long.parseLong(params.get(0));
-        // default tabletsNum is 1.
-        tabletsNum = 1;
-        if (params.size() == 2) {
-            tabletsNum = Integer.parseInt(params.get(1));
+
+        try {
+            tabletsNum = Integer.parseInt(validParams.getOrDefault(BACKEND_NUM, "1"));
+        } catch (NumberFormatException e) {
+            throw new UserException("can not parse `backend_num` param to natural number");
+        }
+        String numberStr = validParams.get(NUMBER);
+        if (!Strings.isNullOrEmpty(numberStr)) {
+            try {
+                totalNumbers = Long.parseLong(numberStr);
+            } catch (NumberFormatException e) {
+                throw new UserException("can not parse `number` param to natural number");
+            }
+        } else {
+            throw new UserException(
+                    "can not find `number` param, please specify `number`, like: numbers(\"number\" = \"10\")");
         }
     }
 

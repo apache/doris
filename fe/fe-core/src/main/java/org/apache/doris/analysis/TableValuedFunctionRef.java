@@ -23,14 +23,14 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
-import java.util.List;
+import java.util.Map;
 
 public class TableValuedFunctionRef extends TableRef {
 
     private Table table;
     private TableValuedFunctionIf tableFunction;
 
-    public TableValuedFunctionRef(String funcName, String alias, List<String> params) throws UserException {
+    public TableValuedFunctionRef(String funcName, String alias, Map<String, String> params) throws UserException {
         super(new TableName(null, null, "_table_valued_function_" + funcName), alias);
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
         if (hasExplicitAlias()) {
