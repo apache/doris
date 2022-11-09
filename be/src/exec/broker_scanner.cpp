@@ -495,10 +495,6 @@ Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
         return Status::OK();
     }
 
-    if (!check_array_format(_split_values)) {
-        return Status::OK();
-    }
-
     for (int i = 0; i < _split_values.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
         const Slice& value = _split_values[i];
