@@ -139,7 +139,7 @@ private:
                         (*dest_null_map).push_back(true);
                         dest_datas.push_back(NestType());
                         ++dest_pos;
-                    }else if(0 != (src_data_concrete->compare_at(src_pos, src_pos+1,src_column, 1))){
+                    }else if(0 != (src_data_concrete->compare_at(src_pos-1, src_pos,src_column, 1))){
                         dest_datas.push_back(src_pos);
                         if (dest_null_map) {
                             (*dest_null_map).push_back(false);
@@ -204,7 +204,7 @@ private:
                         column_string_offsets.push_back(column_string_offsets.back());
                         (*dest_null_map).push_back(true);
                         ++dest_pos;
-                    }else if(0 != (src_data_concrete->compare_at(src_pos, src_pos+1,src_column, 1))){
+                    }else if(0 != (src_data_concrete->compare_at(src_pos-1, src_pos,src_column, 1))){
                         StringRef src_str_ref = src_data_concrete->get_data_at(src_pos);
                         // copy the src data to column_string_chars
                         const size_t old_size = column_string_chars.size();
