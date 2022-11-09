@@ -179,9 +179,6 @@ Status OrcReader::_init_read_columns() {
             _read_cols.emplace_back(col_name);
         }
     }
-    if (_read_cols.empty()) {
-        return Status::InternalError("No columns found in orc file");
-    }
     return Status::OK();
 }
 
