@@ -21,8 +21,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_string") {
-    def tableName = "test_javaudf_string"
+suite("test_javaudaf_mysum_float_double") {
+    def tableName = "test_javaudaf_mysum_float_double"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
@@ -30,10 +30,10 @@ suite("test_javaudf_string") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
-            `user_id`     INT         NOT NULL COMMENT "用户id",
-            `char_col`    CHAR        NOT NULL COMMENT "",
-            `varchar_col` VARCHAR(10) NOT NULL COMMENT "",
-            `string_col`  STRING      NOT NULL COMMENT ""
+            `user_id`     INT        NOT NULL COMMENT "用户id",
+            `float_col`   float      NOT NULL COMMENT "",
+            `double_col`  double     NOT NULL COMMENT "",
+            `string_col`  STRING     NOT NULL COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -41,34 +41,48 @@ suite("test_javaudf_string") {
         int i = 1
         for (; i < 9; i ++) {
             sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),
+                (${i % 3}, '${i*111/10}','${i*111/100+i/1000}','poiuytre${i}abcdefg'),
             """)
         }
         sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg')
+                (${i}, '${i*111/10}','${i*111/100+i/10}','poiuytre${i}abcdefg')
             """)
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}
             """
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY float_col; """
 
         File path = new File(jarPath)
         if (!path.exists()) {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
-        sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS string PROPERTIES (
+        sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_double(double,double) RETURNS double PROPERTIES (
             "file"="file://${jarPath}",
-            "symbol"="org.apache.doris.udf.StringTest",
-            "is_return_null"="true",
+            "symbol"="org.apache.doris.udf.MySumDouble",
+            "is_return_null"="false",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_string_test(varchar_col, 2, 3) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
+        qt_select1 """ SELECT udaf_my_sum_double(double_col,double_col) result FROM ${tableName}; """
 
-        sql """ DROP FUNCTION java_udf_string_test(string, int, int); """
+        qt_select2 """ select user_id, udaf_my_sum_double(double_col,double_col) from ${tableName} group by user_id order by user_id; """
+        
+        sql """ DROP FUNCTION udaf_my_sum_double(double,double); """
+
+        sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_float(float) RETURNS float PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.MySumFloat",
+            "is_return_null"="false",
+            "type"="JAVA_UDF"
+        ); """
+
+        qt_select3 """ SELECT udaf_my_sum_float(float_col) result FROM ${tableName}; """
+
+        qt_select4 """ select user_id, udaf_my_sum_float(float_col) from ${tableName} group by user_id order by user_id; """
+        
+        sql """ DROP FUNCTION udaf_my_sum_float(float); """
+
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

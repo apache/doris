@@ -53,6 +53,7 @@ suite("test_javaudf_decimal") {
         sql """ CREATE FUNCTION java_udf_decimal_test(decimal(27,9),decimal(27,9)) RETURNS decimal(27,9) PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DecimalTest",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 

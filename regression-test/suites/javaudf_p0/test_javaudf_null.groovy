@@ -57,6 +57,7 @@ suite("test_javaudf_null") {
         sql """ CREATE FUNCTION java_udf_null_test(int) RETURNS int PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.NullTest",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 

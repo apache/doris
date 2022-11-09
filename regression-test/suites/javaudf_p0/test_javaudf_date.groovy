@@ -60,6 +60,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_date_test1(date, date) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest1",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -72,6 +73,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_date_test2(date, date) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest2",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -84,6 +86,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_date_test3(date, date) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest3",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -96,6 +99,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datetime_test1(datetime, datetime) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTimeTest1",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -108,6 +112,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datetime_test2(datetime, datetime) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTimeTest2",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -120,6 +125,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datetime_test3(datetime, datetime) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTimeTest3",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -133,6 +139,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datev2_test1(datev2, datev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest1",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -143,6 +150,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datev2_test2(datev2, datev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest2",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -153,6 +161,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datev2_test3(datev2, datev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTest3",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -163,6 +172,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datetimev2_test1(datetimev2, datetimev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTimeTest1",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -173,6 +183,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datetimev2_test2(datetimev2, datetimev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTimeTest2",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -183,6 +194,7 @@ suite("test_javaudf_date") {
         sql """ CREATE FUNCTION java_udf_datetimev2_test3(datetimev2, datetimev2) RETURNS boolean PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.DateTimeTest3",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 

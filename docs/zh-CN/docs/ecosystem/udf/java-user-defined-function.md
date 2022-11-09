@@ -74,16 +74,20 @@ PROPERTIES (["key"="value"][,...])
 1. PROPERTIES中`symbol`表示的是包含UDF类的类名，这个参数是必须设定的。
 2. PROPERTIES中`file`表示的包含用户UDF的jar包，这个参数是必须设定的。
 3. PROPERTIES中`type`表示的 UDF 调用类型，默认为 Native，使用 Java UDF时传 JAVA_UDF。
-4. name: 一个function是要归属于某个DB的，name的形式为`dbName`.`funcName`。当`dbName`没有明确指定的时候，就是使用当前session所在的db作为`dbName`。
+4. PROPERTIES中`is_return_null`表示的 UDF 返回结果中是否有可能出现NULL值，可以设定为true或false。
+5. name: 一个function是要归属于某个DB的，name的形式为`dbName`.`funcName`。当`dbName`没有明确指定的时候，就是使用当前session所在的db作为`dbName`。
 
 示例：
 ```sql
 CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
     "file"="file:///path/to/java-udf-demo-jar-with-dependencies.jar",
     "symbol"="org.apache.doris.udf.AddOne",
+    "is_return_null"="true",
     "type"="JAVA_UDF"
 );
 ```
+* "file"="http://IP:port/udf-code.jar", 当在多机环境时，也可以使用http的方式下载jar包
+* "is_return_null"属性, 如果在计算中对出现的NULL值有特殊处理，确定结果中不会返回NULL，可以设为false，这样在整个计算过程中可能性能更好些。
 
 ## 编写 UDAF 函数
 <br/>
@@ -154,6 +158,7 @@ public class SimpleDemo {
 CREATE AGGREGATE FUNCTION simple_sum(int) RETURNS int PROPERTIES (
     "file"="file:///pathTo/java-udaf.jar",
     "symbol"="org.apache.doris.udf.SimpleDemo",
+    "is_return_null"="true",
     "type"="JAVA_UDF"
 );
 ```

@@ -61,6 +61,7 @@ suite("test_javaudf_int") {
         sql """ CREATE FUNCTION java_udf_int_test(int) RETURNS int PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.IntTest",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -72,6 +73,7 @@ suite("test_javaudf_int") {
         sql """ CREATE FUNCTION java_udf_tinyint_test(tinyint) RETURNS tinyint PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.TinyintTest",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -83,6 +85,7 @@ suite("test_javaudf_int") {
         sql """ CREATE FUNCTION java_udf_smallint_test(smallint) RETURNS smallint PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.SmallintTest",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -94,6 +97,7 @@ suite("test_javaudf_int") {
         sql """ CREATE FUNCTION java_udf_bigint_test(bigint) RETURNS bigint PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.BigintTest",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
@@ -105,6 +109,7 @@ suite("test_javaudf_int") {
         sql """ CREATE FUNCTION java_udf_largeint_test(largeint) RETURNS largeint PROPERTIES (
             "file"="file://${jarPath}",
             "symbol"="org.apache.doris.udf.LargeintTest",
+            "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 

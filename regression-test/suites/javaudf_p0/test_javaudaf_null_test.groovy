@@ -21,8 +21,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_string") {
-    def tableName = "test_javaudf_string"
+suite("test_javaudaf_null_test") {
+    def tableName = "test_javaudaf_null_test"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
@@ -41,7 +41,7 @@ suite("test_javaudf_string") {
         int i = 1
         for (; i < 9; i ++) {
             sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),
+                (${i % 3}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),
             """)
         }
         sb.append("""
@@ -50,25 +50,26 @@ suite("test_javaudf_string") {
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}
             """
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY char_col; """
 
         File path = new File(jarPath)
         if (!path.exists()) {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
-        sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS string PROPERTIES (
+        sql """ CREATE AGGREGATE FUNCTION udaf_null_test_int(int) RETURNS BigInt PROPERTIES (
             "file"="file://${jarPath}",
-            "symbol"="org.apache.doris.udf.StringTest",
+            "symbol"="org.apache.doris.udf.UdafNullTest",
             "is_return_null"="true",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_string_test(varchar_col, 2, 3) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
+        qt_select1 """ SELECT udaf_null_test_int(user_id) result FROM ${tableName}; """
 
-        sql """ DROP FUNCTION java_udf_string_test(string, int, int); """
+        qt_select2 """ select user_id, udaf_null_test_int(user_id) from ${tableName} group by user_id order by user_id; """
+
+        qt_select3 """ SELECT udaf_null_test_int(1) result FROM ${tableName}; """
+        sql """ DROP FUNCTION udaf_null_test_int(int); """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

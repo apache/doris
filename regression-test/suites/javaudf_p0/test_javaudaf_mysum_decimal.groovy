@@ -21,8 +21,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_string") {
-    def tableName = "test_javaudf_string"
+suite("test_javaudaf_mysum_decimal") {
+    def tableName = "test_javaudaf_mysum_decimal"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
@@ -30,25 +30,18 @@ suite("test_javaudf_string") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
-            `user_id`     INT         NOT NULL COMMENT "用户id",
-            `char_col`    CHAR        NOT NULL COMMENT "",
-            `varchar_col` VARCHAR(10) NOT NULL COMMENT "",
-            `string_col`  STRING      NOT NULL COMMENT ""
+            `user_id` INT NOT NULL COMMENT "",
+            `cost_1` decimal(27,9) NOT NULL COMMENT "",
+            `cost_2` decimal(27,9) COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
-        StringBuilder sb = new StringBuilder()
-        int i = 1
-        for (; i < 9; i ++) {
-            sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg'),
-            """)
-        }
-        sb.append("""
-                (${i}, '${i}','abcdefg${i}','poiuytre${i}abcdefg')
-            """)
-        sql """ INSERT INTO ${tableName} VALUES
-             ${sb.toString()}
+        
+        
+        sql """ INSERT INTO ${tableName} (`user_id`,`cost_1`,`cost_2`) VALUES
+                (111,11111.11111,222222.3333333),
+                (112,1234556.11111,222222.3333333),
+                (113,87654321.11111,null)
             """
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
@@ -57,18 +50,19 @@ suite("test_javaudf_string") {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
-        sql """ CREATE FUNCTION java_udf_string_test(string, int, int) RETURNS string PROPERTIES (
+        sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_decimal(decimal(27,9)) RETURNS decimal(27,9) PROPERTIES (
             "file"="file://${jarPath}",
-            "symbol"="org.apache.doris.udf.StringTest",
-            "is_return_null"="true",
+            "symbol"="org.apache.doris.udf.MySumDecimal",
+            "is_return_null"="false",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_string_test(varchar_col, 2, 3) result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
-        qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
+        qt_select1 """ SELECT udaf_my_sum_decimal(cost_1) result FROM ${tableName}; """
 
-        sql """ DROP FUNCTION java_udf_string_test(string, int, int); """
+        qt_select2 """ select user_id, udaf_my_sum_decimal(cost_1) from ${tableName} group by user_id order by user_id; """
+        
+
+        sql """ DROP FUNCTION udaf_my_sum_decimal(decimal(27,9)); """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
