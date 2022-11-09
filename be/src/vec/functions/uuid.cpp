@@ -56,8 +56,7 @@ public:
             col_res->insert_data(uuid.c_str(), uuid.length());
         }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
+        block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 };

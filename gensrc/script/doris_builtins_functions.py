@@ -2817,7 +2817,7 @@ visible_functions = [
     [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
-    [['uuid'], 'STRING', [], '_ZN5doris15StringFunctions4uuidEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['uuid'], 'VARCHAR', [], '_ZN5doris15StringFunctions4uuidEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 ]
 
 # Except the following functions, other function will directly return
