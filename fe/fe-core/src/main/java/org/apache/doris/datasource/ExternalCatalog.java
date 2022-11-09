@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -62,13 +63,13 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected CatalogProperty catalogProperty = new CatalogProperty();
     @SerializedName(value = "initialized")
     private boolean initialized = false;
-
-    // Cache of db name to db id
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase> idToDb = Maps.newConcurrentMap();
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
+
+    private ExternalSchemaCache schemaCache;
 
     /**
      * @return names of database in this catalog.
@@ -134,6 +135,8 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public ExternalDatabase getDbForReplay(long dbId) {
         throw new NotImplementedException();
     }
+
+    public abstract List<Column> getSchema(String dbName, String tblName);
 
     @Override
     public long getId() {
