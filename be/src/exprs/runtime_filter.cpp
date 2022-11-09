@@ -1821,8 +1821,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
     case RuntimeFilterType::IN_FILTER: {
         if (!_is_ignored_in_filter) {
             TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-            type_desc.__set_is_nullable(
-                    _hybrid_set->size() > 0 ? true : vprob_expr->root()->is_nullable());
+            type_desc.__set_is_nullable(false);
             TExprNode node;
             node.__set_type(type_desc);
             node.__set_node_type(TExprNodeType::IN_PRED);
@@ -1830,8 +1829,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
             node.__set_opcode(TExprOpcode::FILTER_IN);
             node.__isset.vector_opcode = true;
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
-            node.__set_is_nullable(_hybrid_set->size() > 0 ? true
-                                                           : vprob_expr->root()->is_nullable());
+            node.__set_is_nullable(false);
 
             auto in_pred = _pool->add(new vectorized::VDirectInPredicate(node));
             in_pred->set_filter(_hybrid_set);
@@ -1875,14 +1873,14 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
     case RuntimeFilterType::BLOOM_FILTER: {
         // create a bloom filter
         TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-        type_desc.__set_is_nullable(vprob_expr->root()->is_nullable());
+        type_desc.__set_is_nullable(false);
         TExprNode node;
         node.__set_type(type_desc);
         node.__set_node_type(TExprNodeType::BLOOM_PRED);
         node.__set_opcode(TExprOpcode::RT_FILTER);
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
-        node.__set_is_nullable(vprob_expr->root()->is_nullable());
+        node.__set_is_nullable(false);
         auto bloom_pred = _pool->add(new vectorized::VBloomPredicate(node));
         bloom_pred->set_filter(_bloomfilter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
