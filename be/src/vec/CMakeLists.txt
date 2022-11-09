@@ -150,6 +150,7 @@ set(VEC_FILES
   functions/array/function_array_enumerate.cpp
   functions/array/function_array_range.cpp
   functions/array/function_array_popback.cpp
+  functions/array/function_array_with_constant.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
