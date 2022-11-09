@@ -23,7 +23,7 @@ package org.apache.doris.nereids.metrics;
 public class EventFilter {
     private final Class<? extends Event> targetClass;
 
-    protected EventFilter(Class<? extends Event> targetClass) {
+    public EventFilter(Class<? extends Event> targetClass) {
         this.targetClass = targetClass;
     }
 

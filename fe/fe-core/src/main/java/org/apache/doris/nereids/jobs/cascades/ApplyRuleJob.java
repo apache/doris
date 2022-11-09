@@ -17,23 +17,32 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Job to apply rule on {@link GroupExpression}.
  */
 public class ApplyRuleJob extends Job {
+    private static final EventProducer APPLY_RULE_TRACER = new EventProducer(
+            TransformEvent.class,
+            Collections.emptyList(),
+            NereidsPlanner.CHANNEL);
     private final GroupExpression groupExpression;
     private final Rule rule;
 
@@ -59,10 +68,6 @@ public class ApplyRuleJob extends Job {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
-            String traceBefore = enableTrace ? getTraceLog(rule) : null;
-            context.onInvokeRule(rule.getRuleType());
-
-            boolean changed = false;
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
                 CopyInResult result = context.getCascadesContext()
@@ -72,7 +77,6 @@ public class ApplyRuleJob extends Job {
                     continue;
                 }
 
-                changed = true;
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
@@ -80,10 +84,12 @@ public class ApplyRuleJob extends Job {
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
-            }
-            if (changed && enableTrace) {
-                String traceAfter = getTraceLog(rule);
-                printTraceLog(rule, traceBefore, traceAfter);
+                if (ConnectContext.get().getSessionVariable().isEnableNereidsEvent()) {
+                    APPLY_RULE_TRACER.log(
+                            new TransformEvent(groupExpression, plan, newPlans, rule.getRuleType()),
+                            rule::isRewrite
+                    );
+                }
             }
         }
         groupExpression.setApplied(rule);

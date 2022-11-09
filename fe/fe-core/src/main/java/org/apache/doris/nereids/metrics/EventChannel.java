@@ -38,14 +38,9 @@ public class EventChannel {
 
     private class EventProperties {
         private final List<EventConsumer> consumers = Lists.newArrayList();
-        private final List<EventFilter> filters = Lists.newArrayList();
 
         public List<EventConsumer> getConsumers() {
             return consumers;
-        }
-
-        public List<EventFilter> getFilters() {
-            return filters;
         }
     }
 
@@ -58,17 +53,17 @@ public class EventChannel {
     /**
      * constructor
      * @param consumers consumer list
-     * @param filters filter list
      */
-    public EventChannel(List<EventConsumer> consumers, List<EventFilter> filters) {
+    public EventChannel(List<EventConsumer> consumers) {
         eventSwitch = EventSwitchParser.parse(ConnectContext.get().getSessionVariable().nereidsEventMode);
         for (EventConsumer consumer : consumers) {
             properties.computeIfAbsent(consumer.getTargetClass(), k -> new EventProperties())
                     .getConsumers().add(consumer);
         }
-        for (EventFilter filter : filters) {
-            properties.get(filter.getTargetClass()).getFilters().add(filter);
-        }
+    }
+
+    public EventChannel() {
+        this(Lists.newArrayList());
     }
 
     public void add(Event e) {
@@ -78,16 +73,10 @@ public class EventChannel {
     }
 
     private Event filter(Event e) {
-        if (!eventSwitch.contains(e.getClass())) {
-            return null;
+        if (eventSwitch.contains(e.getClass())) {
+            return e;
         }
-        for (EventFilter filter : properties.get(e.getClass()).getFilters()) {
-            e = filter.checkEvent(e);
-            if (e == null) {
-                return null;
-            }
-        }
-        return e;
+        return null;
     }
 
     private class Worker implements Runnable {

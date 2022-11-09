@@ -64,21 +64,21 @@ public class EventTest extends TestWithFeService {
                         new PrintConsumer(TransformEvent.class, printStream),
                         new PrintConsumer(EnforcerEvent.class, printStream),
                         new PrintConsumer(GroupMergeEvent.class, printStream),
-                        new PrintConsumer(MemoTransformEvent.class, printStream)),
-                ImmutableList.of(
+                        new PrintConsumer(MemoTransformEvent.class, printStream))
+        );
+        channel.start();
+        producers = ImmutableList.of(
+                new EventProducer(TransformEvent.class, ImmutableList.of(
                         new EventFilter(CounterEvent.class),
-                        new EventFilter(CounterEvent.class),
+                        new EventFilter(CounterEvent.class)),
+                        channel),
+                new EventProducer(CounterEvent.class, ImmutableList.of(
                         new EventFilter(TransformEvent.class) {
                             @Override
                             public Event checkEvent(Event event) {
                                 return ((TransformEvent) event).getGroupExpression() == null ? null : event;
                             }
-                        })
-        );
-        channel.start();
-        producers = ImmutableList.of(
-                new EventProducer(TransformEvent.class, channel),
-                new EventProducer(CounterEvent.class, channel)
+                        }), channel)
         );
     }
 

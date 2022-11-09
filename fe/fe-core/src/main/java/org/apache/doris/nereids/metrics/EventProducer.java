@@ -19,24 +19,46 @@ package org.apache.doris.nereids.metrics;
 
 import com.google.common.base.Preconditions;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.function.Supplier;
+
 /**
  * event producer
  */
 public class EventProducer {
     private final EventChannel channel;
+    private final List<EventFilter> filters;
     private final Class<? extends Event> eventClass;
 
-    public EventProducer(Class<? extends Event> eventClass, EventChannel channel) {
+    public EventProducer(Class<? extends Event> eventClass, List<EventFilter> filters, EventChannel channel) {
         this.channel = channel;
+        this.filters = filters;
         this.eventClass = eventClass;
     }
 
-    public void log(Object... objects) throws Exception {
-        channel.add(((Event) eventClass.getConstructors()[0].newInstance(objects)));
+    public EventProducer(Class<? extends Event> eventClass, EventChannel channel) {
+        this(eventClass, Collections.emptyList(), channel);
+    }
+
+    private void checkAndLog(Event event) {
+        for (EventFilter filter : filters) {
+            event = filter.checkEvent(event);
+            if (event == null) {
+                return;
+            }
+        }
+        channel.add(event);
     }
 
     public void log(Event event) {
         Preconditions.checkArgument(event.getClass().equals(eventClass));
-        channel.add(event);
+        checkAndLog(event);
+    }
+
+    public void log(Event event, Supplier<Boolean> f) {
+        if (f.get()) {
+            log(event);
+        }
     }
 }

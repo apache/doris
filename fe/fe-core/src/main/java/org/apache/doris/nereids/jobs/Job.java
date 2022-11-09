@@ -21,6 +21,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -89,47 +91,27 @@ public abstract class Job {
 
     public abstract void execute() throws AnalysisException;
 
-    protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup) {
+    protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup,
+            EventProducer tracer) {
         context.onInvokeRule(rule.getRuleType());
-
-        String traceBefore = enableTrace ? getTraceLog(rule) : null;
 
         List<Plan> afters = rule.transform(before, context.getCascadesContext());
         Preconditions.checkArgument(afters.size() == 1);
         Plan after = afters.get(0);
-
-        if (after != before) {
-            CopyInResult result = context.getCascadesContext()
-                    .getMemo()
-                    .copyIn(after, targetGroup, true);
-
-            if (result.generateNewExpression && enableTrace) {
-                String traceAfter = getTraceLog(rule);
-                printTraceLog(rule, traceBefore, traceAfter);
-            }
-
-            return Optional.of(result);
+        if (after == before) {
+            return Optional.empty();
         }
 
-        return Optional.empty();
-    }
+        CopyInResult result = context.getCascadesContext()
+                .getMemo()
+                .copyIn(after, targetGroup, true);
 
-    protected String getTraceLog(Rule rule) {
-        if (rule.isRewrite()) {
-            return context.getCascadesContext()
-                    .getMemo()
-                    .copyOut(false)
-                    .treeString();
-        } else {
-            return context.getCascadesContext()
-                    .getMemo()
-                    .getRoot()
-                    .treeString();
+        if (result.generateNewExpression
+                && ConnectContext.get().getSessionVariable().isEnableNereidsEvent()) {
+            tracer.log(new TransformEvent(targetGroup.getLogicalExpression(), before, afters, rule.getRuleType()),
+                    rule::isRewrite);
         }
-    }
 
-    protected void printTraceLog(Rule rule, String traceBefore, String traceAfter) {
-        logger.info("========== {} {} ==========\nbefore:\n{}\n\nafter:\n{}\n",
-                getClass().getSimpleName(), rule.getRuleType(), traceBefore, traceAfter);
+        return Optional.of(result);
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -24,11 +25,14 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,6 +42,10 @@ import java.util.stream.Collectors;
  * Bottom up job for rewrite, use pattern match.
  */
 public class RewriteBottomUpJob extends Job {
+    private static final EventProducer REWRITE_BOTTOM_UP_JOB_TRACER = new EventProducer(
+            TransformEvent.class,
+            Collections.emptyList(),
+            NereidsPlanner.CHANNEL);
     private final Group group;
     private final List<Rule> rules;
     private final boolean childrenOptimized;
@@ -76,7 +84,8 @@ public class RewriteBottomUpJob extends Job {
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
-                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
+                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group,
+                        REWRITE_BOTTOM_UP_JOB_TRACER);
                 if (copyInResult.isPresent() && copyInResult.get().generateNewExpression) {
                     pushJob(new RewriteBottomUpJob(group, rules, context, false));
                     return;
