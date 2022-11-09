@@ -22,11 +22,13 @@
 #include "udf/udf.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/function_string.h"
 
 namespace doris::vectorized {
 class Uuid : public IFunction {
 public:
     static constexpr auto name = "uuid";
+    static constexpr size_t uuid_length = 36; //uuid fixed length
 
     static FunctionPtr create() { return std::make_shared<Uuid>(); }
 
@@ -36,7 +38,7 @@ public:
 
     size_t get_number_of_arguments() const override { return 0; }
 
-    bool is_variadic() const override { return true; }
+    bool is_variadic() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
@@ -45,15 +47,14 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto col_res = ColumnString::create();
-        ColumnUInt8::MutablePtr col_null_map_to;
-        col_null_map_to = ColumnUInt8::create();
-        auto& vec_null_map_to = col_null_map_to->get_data();
-        vec_null_map_to.resize_fill(input_rows_count, 0);
+        col_res->get_offsets().reserve(input_rows_count);
+        col_res->get_chars().reserve(input_rows_count * uuid_length);
 
         boost::uuids::random_generator generator;
         for (int i = 0; i < input_rows_count; i++) {
             std::string uuid = boost::uuids::to_string(generator());
-            col_res->insert_data(uuid.c_str(), uuid.length());
+            DCHECK(uuid.length() == uuid_length);
+            col_res->insert_data_without_reserve(uuid.c_str(), uuid.length());
         }
 
         block.replace_by_position(result, std::move(col_res));
