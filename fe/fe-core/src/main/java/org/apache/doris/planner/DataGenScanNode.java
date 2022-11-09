@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
@@ -104,5 +105,17 @@ public class DataGenScanNode extends ScanNode {
             result.add(locations);
         }
         return result;
+    }
+
+    @Override
+    public void finalizeForNereids() {
+        if (shardScanRanges != null) {
+            return;
+        }
+        try {
+            shardScanRanges = getShardLocations();
+        } catch (AnalysisException e) {
+            throw new NereidsException("Can not compute shard locations for DataGenScanNode: " + e.getMessage(), e);
+        }
     }
 }

@@ -174,9 +174,15 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias                #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias       #aliasedQuery
-    | LEFT_PAREN relation RIGHT_PAREN tableAlias    #aliasedRelation
+    : multipartIdentifier tableAlias                                            #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
+    | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
+    | tvfName=identifier LEFT_PAREN
+      (arguments+=keyValue (COMMA arguments+=keyValue)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
+    ;
+
+keyValue
+    : key=constant EQ value=constant
     ;
 
 tableAlias

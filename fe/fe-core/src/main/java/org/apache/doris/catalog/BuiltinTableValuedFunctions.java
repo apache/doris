@@ -15,13 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.catalog;
+
+import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+
+import com.google.common.collect.ImmutableList;
 
 /**
- * FunctionTrait.
+ * Builtin table valued functions.
+ *
+ * Note: Please ensure that this class only has some lists and no procedural code.
+ *       It helps to be clear and concise.
  */
-public interface FunctionTrait extends ExpressionTrait {
-    String getName();
+public class BuiltinTableValuedFunctions implements FunctionHelper {
+    public final ImmutableList<TableValuedFunc> tableValuedFunctions = ImmutableList.of(
+            tableValued(Numbers.class, "numbers")
+    );
 
-    boolean hasVarArguments();
+    public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
+
+    // Note: Do not add any code here!
+    private BuiltinTableValuedFunctions() {}
 }
