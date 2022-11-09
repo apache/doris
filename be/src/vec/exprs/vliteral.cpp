@@ -205,7 +205,9 @@ std::string VLiteral::debug_string() const {
             switch (_type.type) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
+                out << *(reinterpret_cast<const int8_t*>(ref.data));
             case TYPE_SMALLINT:
+                out << *(reinterpret_cast<const int16_t*>(ref.data));
             case TYPE_INT: {
                 out << *(reinterpret_cast<const int32_t*>(ref.data));
                 break;
