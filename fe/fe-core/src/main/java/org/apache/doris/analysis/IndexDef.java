@@ -24,7 +24,9 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
 
 public class IndexDef {
@@ -33,8 +35,10 @@ public class IndexDef {
     private List<String> columns;
     private IndexType indexType;
     private String comment;
+    private Map<String, String> properties;
 
-    public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType, String comment) {
+    public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType,
+                    Map<String, String> properties, String comment) {
         this.indexName = indexName;
         this.ifNotExists = ifNotExists;
         this.columns = columns;
@@ -48,12 +52,18 @@ public class IndexDef {
         } else {
             this.comment = comment;
         }
+        if (properties == null) {
+            this.properties = new HashMap<>();
+        } else {
+            this.properties = properties;
+        }
     }
 
     public void analyze() throws AnalysisException {
-        if (indexType == IndexDef.IndexType.BITMAP) {
+        if (indexType == IndexDef.IndexType.BITMAP
+                || indexType == IndexDef.IndexType.INVERTED) {
             if (columns == null || columns.size() != 1) {
-                throw new AnalysisException("bitmap index can only apply to a single column.");
+                throw new AnalysisException(indexType.toString() + " index can only apply to a single column.");
             }
             if (Strings.isNullOrEmpty(indexName)) {
                 throw new AnalysisException("index name cannot be blank.");
@@ -93,6 +103,19 @@ public class IndexDef {
         if (indexType != null) {
             sb.append(" USING ").append(indexType.toString());
         }
+        if (properties != null && properties.size() > 0) {
+            sb.append(" PROPERTIES(");
+            first = true;
+            for (Map.Entry<String, String> e : properties.entrySet()) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(", ");
+                }
+                sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
+            }
+            sb.append(")");
+        }
         if (comment != null) {
             sb.append(" COMMENT '" + comment + "'");
         }
@@ -116,6 +139,10 @@ public class IndexDef {
         return indexType;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     public String getComment() {
         return comment;
     }
@@ -126,21 +153,30 @@ public class IndexDef {
 
     public enum IndexType {
         BITMAP,
+        INVERTED,
+        BLOOMFILTER,
+    }
 
+    public boolean isInvertedIndex() {
+        return (this.indexType == IndexType.INVERTED);
     }
 
     public void checkColumn(Column column, KeysType keysType) throws AnalysisException {
-        if (indexType == IndexType.BITMAP) {
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER) {
             String indexColName = column.getName();
             PrimitiveType colType = column.getDataType();
             if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isDecimalV3Type()
                     || colType.isFixedPointType() || colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
-                throw new AnalysisException(colType + " is not supported in bitmap index. "
+                throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid column: " + indexColName);
             } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {
-                throw new AnalysisException(
-                        "BITMAP index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
+                throw new AnalysisException(indexType.toString()
+                        + " index only used in columns of DUP_KEYS/UNIQUE_KEYS table or key columns of"
                                 + " AGG_KEYS table. invalid column: " + indexColName);
+            }
+
+            if (indexType == IndexType.INVERTED) {
+                InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties);
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
@@ -148,7 +184,7 @@ public class IndexDef {
     }
 
     public void checkColumns(List<Column> columns, KeysType keysType) throws AnalysisException {
-        if (indexType == IndexType.BITMAP) {
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER) {
             for (Column col : columns) {
                 checkColumn(col, keysType);
             }

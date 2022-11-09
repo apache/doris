@@ -71,15 +71,11 @@
 #include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
-#include "vec/exec/ves_http_scan_node.h"
 #include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vintersect_node.h"
-#include "vec/exec/vjdbc_scan_node.h"
 #include "vec/exec/vmysql_scan_node.h"
 #include "vec/exec/vnested_loop_join_node.h"
-#include "vec/exec/vodbc_scan_node.h"
-#include "vec/exec/volap_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -231,8 +227,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
     // And _conjunct_ctxs is useless.
     // TODO: Should be removed when non-vec engine is removed.
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, _row_descriptor));
@@ -250,8 +245,7 @@ Status ExecNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         return Expr::open(_conjunct_ctxs, state);
     } else {
         return Status::OK();
@@ -295,8 +289,7 @@ Status ExecNode::close(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->close(state);
     }
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         Expr::close(_conjunct_ctxs, state);
     }
     vectorized::VExpr::close(_projections, state);
@@ -449,11 +442,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 #endif
     case TPlanNodeType::ODBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
         }
@@ -462,11 +451,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::JDBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
 #ifdef LIBJVM
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VJdbcScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
 #else
             return Status::InternalError("Jdbc scan node is disabled since no libjvm is found!");
 #endif
@@ -477,11 +462,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VEsHttpScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
         }
@@ -497,11 +478,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::OLAP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OlapScanNode(pool, tnode, descs));
         }

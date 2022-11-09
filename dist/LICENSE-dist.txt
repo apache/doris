@@ -1574,3 +1574,4 @@ Other dependencies:
     * breakpad@38ee0be -- license/LICENSE-breakpod.txt
     * xsimd: xmid@e9234cd6  -- license/LICENSE-xsimd.txt
     * xxhash: 0.8.1  -- license/LICENSE-xxhash.txt
+    * concurrentqueue: 1.0.3  -- license/LICENSE-concurrentqueue.txt

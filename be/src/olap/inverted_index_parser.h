@@ -17,26 +17,30 @@
 
 #pragma once
 
-#include <cstddef>
+#include <map>
+#include <string>
 
 namespace doris {
-namespace segment_v2 {
 
-static constexpr size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
-
-struct PageBuilderOptions {
-    size_t data_page_size = DEFAULT_PAGE_SIZE;
-
-    size_t dict_page_size = DEFAULT_PAGE_SIZE;
-
-    bool need_check_bitmap = true;
-
-    bool is_dict_page = false; // page used for saving dictionary
+enum class InvertedIndexParserType {
+    PARSER_UNKNOWN = 0,
+    PARSER_NONE = 1,
+    PARSER_STANDARD = 2,
+    PARSER_ENGLISH = 3,
+    PARSER_CHINESE = 4,
 };
 
-struct PageDecoderOptions {
-    bool need_check_bitmap = true;
-};
+const std::string INVERTED_INDEX_PARSER_KEY = "parser";
+const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
+const std::string INVERTED_INDEX_PARSER_NONE = "none";
+const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";
+const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";
+const std::string INVERTED_INDEX_PARSER_CHINESE = "chinese";
 
-} // namespace segment_v2
+std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
+
+InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str);
+
+std::string get_parser_string_from_properties(const std::map<std::string, std::string>& properties);
+
 } // namespace doris

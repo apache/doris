@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,21 +17,28 @@
 
 #pragma once
 
-#include <exec/es_http_scanner.h>
+#include "exec/schema_scanner.h"
+namespace doris {
 
-namespace doris::vectorized {
-
-class VEsHttpScanner : public EsHttpScanner {
+class SchemaBackendsScanner : public SchemaScanner {
 public:
-    VEsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
-                   const std::map<std::string, std::string>& properties,
-                   const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
-                   bool doc_value_mode)
-            : EsHttpScanner(state, profile, tuple_id, properties, conjunct_ctxs, counter,
-                            doc_value_mode) {};
+    SchemaBackendsScanner();
+    ~SchemaBackendsScanner() override = default;
 
-    Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, MemPool* tuple_pool,
-                    bool* eof, const std::map<std::string, std::string>& docvalue_context);
+    Status start(RuntimeState* state) override;
+    Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos) override;
+
+private:
+    Status _fill_one_row(Tuple* tuple, MemPool* pool);
+    Status _fetch_backends_info();
+    Status _fill_one_col(Tuple* tuple, MemPool* pool, size_t idx);
+    Status _set_col_name_to_type();
+
+private:
+    // column_name -> type, set by _set_col_name_to_type()
+    std::unordered_map<std::string, PrimitiveType> _col_name_to_type;
+
+    std::vector<TRow> _batch_data;
+    size_t _row_idx;
 };
-
-} // namespace doris::vectorized
+} // namespace doris
