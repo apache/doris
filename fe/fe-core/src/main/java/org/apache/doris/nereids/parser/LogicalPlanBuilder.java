@@ -129,6 +129,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -160,7 +161,6 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -171,10 +171,10 @@ import java.util.stream.Collectors;
 /**
  * Build a logical plan tree with unbounded nodes.
  */
+@SuppressWarnings({"OptionalUsedAsFieldOrParameterType", "OptionalGetWithoutIsPresent"})
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
-    private StatementContext statementContext = new StatementContext();
-
+    @SuppressWarnings("unchecked")
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
     }
@@ -211,7 +211,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public List<Pair<LogicalPlan, StatementContext>> visitMultiStatements(MultiStatementsContext ctx) {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = Lists.newArrayList();
         for (org.apache.doris.nereids.DorisParser.StatementContext statement : ctx.statement()) {
-            statementContext = new StatementContext();
+            StatementContext statementContext = new StatementContext();
             if (ConnectContext.get() != null) {
                 ConnectContext.get().setStatementContext(statementContext);
             }
@@ -233,19 +233,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /**
-     * processs CTE's alias queries and column aliases
+     * process CTE's alias queries and column aliases
      */
     @Override
-    public LogicalSubQueryAlias visitAliasQuery(AliasQueryContext ctx) {
+    public LogicalSubQueryAlias<Plan> visitAliasQuery(AliasQueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             LogicalPlan queryPlan = plan(ctx.query());
             List<String> columnNames = null;
             if (ctx.columnAliases() != null) {
                 columnNames = ctx.columnAliases().identifier().stream()
-                    .map(id -> id.getText())
+                    .map(RuleContext::getText)
                     .collect(ImmutableList.toImmutableList());
             }
-            return new LogicalSubQueryAlias(ctx.identifier().getText(), Optional.ofNullable(columnNames), queryPlan);
+            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), Optional.ofNullable(columnNames), queryPlan);
         });
     }
 
@@ -556,7 +556,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public UnboundFunction visitExtract(DorisParser.ExtractContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.field.getText();
-            return new UnboundFunction(functionName, false, false, Arrays.asList(getExpression(ctx.source)));
+            return new UnboundFunction(functionName, false, false,
+                    Collections.singletonList(getExpression(ctx.source)));
         });
     }
 

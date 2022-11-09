@@ -31,7 +31,7 @@ public interface NullOrIdenticalSignature extends ComputeSignature {
     static boolean isNullOrIdentical(AbstractDataType signatureType, AbstractDataType realType) {
         // TODO: copy matchesType to DataType
         return realType instanceof NullType
-                || signatureType.toCatalogDataType().matchesType(realType.toCatalogDataType());
+                || realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
     }
 
     @Override

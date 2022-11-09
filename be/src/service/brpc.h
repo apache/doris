@@ -20,10 +20,6 @@
 // all header need by brpc is contain in this file.
 // include this file instead of include <brpc/xxx.h>.
 
-// clang-format off
-#include "service/brpc_conflict.h"
-// clang-format on
-
 #include <brpc/channel.h>
 #include <brpc/server.h>
 #include <butil/endpoint.h>

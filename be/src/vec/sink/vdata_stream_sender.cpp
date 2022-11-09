@@ -139,7 +139,7 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
         _closure->ref();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         _closure->cntl.Reset();
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
@@ -162,7 +162,7 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     if (_parent->_transfer_large_data_by_brpc && _brpc_request.has_block() &&
         _brpc_request.block().has_column_values() &&
         _brpc_request.ByteSizeLong() > MIN_HTTP_BRPC_SIZE) {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         Status st = request_embed_attachment_contain_block<PTransmitDataParams,
                                                            RefCountClosure<PTransmitDataResult>>(
                 &_brpc_request, _closure);
@@ -179,7 +179,7 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
         _brpc_http_stub->transmit_block_by_http(&_closure->cntl, nullptr, &_closure->result,
                                                 _closure);
     } else {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         _closure->cntl.http_request().Clear();
         _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     }

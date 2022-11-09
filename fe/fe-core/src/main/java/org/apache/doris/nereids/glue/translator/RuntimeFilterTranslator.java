@@ -60,9 +60,8 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void translateRuntimeFilterTarget(Slot slot, OlapScanNode node, PlanTranslatorContext ctx) {
-        context.setKVInNormalMap(context.getExprIdToOlapScanNodeSlotRef(),
-                slot.getExprId(), ctx.findSlotRef(slot.getExprId()));
-        context.setKVInNormalMap(context.getScanNodeOfLegacyRuntimeFilterTarget(), slot, node);
+        context.getExprIdToOlapScanNodeSlotRef().put(slot.getExprId(), ctx.findSlotRef(slot.getExprId()));
+        context.getScanNodeOfLegacyRuntimeFilterTarget().put(slot, node);
     }
 
     /**

@@ -471,6 +471,11 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
                                         std::string* re_pattern) {
     re_pattern->clear();
 
+    if (pattern.empty()) {
+        re_pattern->append("^$");
+        return;
+    }
+
     // add ^ to pattern head to match line head
     if (pattern.size() > 0 && pattern[0] != '%') {
         re_pattern->append("^");
@@ -539,7 +544,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
         std::string pattern_str = pattern.to_string();
         state->search_state.pattern_str = pattern_str;
         std::string search_string;
-        if (RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
+        if (pattern_str.empty() || RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
             remove_escape_character(&search_string);
             state->search_state.set_search_string(search_string);
             state->function = constant_equals_fn;

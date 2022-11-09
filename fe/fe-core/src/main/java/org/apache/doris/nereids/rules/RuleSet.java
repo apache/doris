@@ -44,6 +44,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
@@ -73,12 +74,13 @@ public class RuleSet {
             .add(new MergeProjects())
             .build();
 
-    public static final List<RuleFactory> PUSH_DOWN_JOIN_CONDITION_RULES = ImmutableList.of(
+    public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
+            new PushdownFilterThroughProject(),
             new PushdownJoinOtherCondition(),
             new PushdownFilterThroughJoin(),
             new PushdownExpressionsInHashCondition(),
+            new PushdownFilterThroughAggregation(),
             new PushdownProjectThroughLimit(),
-            new PushdownFilterThroughProject(),
             new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),

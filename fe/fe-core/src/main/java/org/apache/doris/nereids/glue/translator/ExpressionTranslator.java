@@ -297,18 +297,21 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             catalogParams.add(catalogExpr);
         }
 
+        boolean distinct = function.isDistinct();
+        FunctionParams aggFnParams = new FunctionParams(distinct, catalogParams);
+
         if (function instanceof Count) {
             Count count = (Count) function;
             if (count.isStar()) {
                 return new FunctionCallExpr(function.getName(), FunctionParams.createStarParam(),
-                        inputTypesBeforeDissemble);
+                        aggFnParams, inputTypesBeforeDissemble);
             } else if (count.isDistinct()) {
-                return new FunctionCallExpr(function.getName(), new FunctionParams(true, catalogParams),
-                        inputTypesBeforeDissemble);
+                return new FunctionCallExpr(function.getName(), new FunctionParams(distinct, catalogParams),
+                        aggFnParams, inputTypesBeforeDissemble);
             }
         }
-        return new FunctionCallExpr(function.getName(), new FunctionParams(false, catalogParams),
-                inputTypesBeforeDissemble);
+        return new FunctionCallExpr(function.getName(), new FunctionParams(distinct, catalogParams),
+                aggFnParams, inputTypesBeforeDissemble);
     }
 
     @Override

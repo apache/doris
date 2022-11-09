@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 /**
  * JoinReorderContext for Duplicate free.
  * Paper:
+ * - The Complexity of Transformation-Based Join Enumeration
  * - Optimizing Join Enumeration in Transformation-based Query Optimizers
  * - Improving Join Reorderability with Compensation Operators
  */

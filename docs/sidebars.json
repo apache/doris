@@ -459,6 +459,7 @@
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_hash",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_from_string",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_to_string",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_to_array",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_empty",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_or",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_and",
@@ -512,6 +513,9 @@
                             "type": "category",
                             "label": "JSON Functions",
                             "items": [
+                                "sql-manual/sql-functions/json-functions/jsonb_tutorial",
+                                "sql-manual/sql-functions/json-functions/jsonb_parse",
+                                "sql-manual/sql-functions/json-functions/jsonb_extract",
                                 "sql-manual/sql-functions/json-functions/get_json_double",
                                 "sql-manual/sql-functions/json-functions/get_json_int",
                                 "sql-manual/sql-functions/json-functions/get_json_string",
@@ -889,7 +893,8 @@
                                 "sql-manual/sql-reference/Data-Types/BIGINT",
                                 "sql-manual/sql-reference/Data-Types/BOOLEAN",
                                 "sql-manual/sql-reference/Data-Types/FLOAT",
-                                "sql-manual/sql-reference/Data-Types/CHAR"
+                                "sql-manual/sql-reference/Data-Types/CHAR",
+                                "sql-manual/sql-reference/Data-Types/JSONB"
                             ]
                         },
                         {

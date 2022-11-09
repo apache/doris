@@ -48,7 +48,7 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
         : _parent(parent), _index_channel(index_channel), _node_id(node_id) {
     _node_channel_tracker = std::make_unique<MemTracker>(fmt::format(
             "NodeChannel:indexID={}:threadId={}", std::to_string(_index_channel->_index_id),
-            thread_context()->thread_id_str()));
+            thread_context()->get_thread_id()));
 }
 
 NodeChannel::~NodeChannel() noexcept {
@@ -338,6 +338,49 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     return Status::OK();
 }
 
+// Used for vectorized engine.
+// TODO(cmy): deprecated, need refactor
+Status NodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
+    auto st = none_of({_cancelled, _eos_is_produced});
+    if (!st.ok()) {
+        if (_cancelled) {
+            std::lock_guard<SpinLock> l(_cancel_msg_lock);
+            return Status::InternalError("add row failed. " + _cancel_msg);
+        } else {
+            return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
+        }
+    }
+
+    constexpr size_t BATCH_SIZE_FOR_SEND = 2 * 1024 * 1024; //2M
+    auto row_no = _cur_batch->add_row();
+    if (row_no == RowBatch::INVALID_ROW_INDEX ||
+        _cur_batch->tuple_data_pool()->total_allocated_bytes() > BATCH_SIZE_FOR_SEND) {
+        {
+            SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
+            std::lock_guard<std::mutex> l(_pending_batches_lock);
+            _pending_batches_bytes += _cur_batch->tuple_data_pool()->total_reserved_bytes();
+            //To simplify the add_row logic, postpone adding batch into req until the time of sending req
+            _pending_batches.emplace(std::move(_cur_batch), _cur_add_batch_request);
+            _pending_batches_num++;
+        }
+
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
+        _cur_add_batch_request.clear_tablet_ids();
+
+        row_no = _cur_batch->add_row();
+    }
+    DCHECK_NE(row_no, RowBatch::INVALID_ROW_INDEX);
+
+    _cur_batch->get_row(row_no)->set_tuple(
+            0, block_row.first->deep_copy_tuple(*_tuple_desc, _cur_batch->tuple_data_pool(),
+                                                block_row.second, 0, true));
+    _cur_batch->commit_last_row();
+    _cur_add_batch_request.add_tablet_ids(tablet_id);
+    return Status::OK();
+}
+
 void NodeChannel::mark_close() {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     auto st = none_of({_cancelled, _eos_is_produced});
@@ -581,7 +624,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         _add_batch_closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
         _add_batch_closure->cntl.http_request().set_content_type("application/json");
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_batch_by_http(&_add_batch_closure->cntl, NULL,
                                                              &_add_batch_closure->result,
                                                              _add_batch_closure);
@@ -589,7 +632,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
     } else {
         _add_batch_closure->cntl.http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
                                            &_add_batch_closure->result, _add_batch_closure);
         }
@@ -883,6 +926,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _load_mem_limit = state->get_load_mem_limit();
 
     // open all channels
+    bool use_vec = _is_vectorized && state->be_exec_version() > 0;
     const auto& partitions = _partition->get_partitions();
     for (int i = 0; i < _schema->indexes().size(); ++i) {
         // collect all tablets belong to this rollup
@@ -896,7 +940,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                 tablets.emplace_back(std::move(tablet_with_partition));
             }
         }
-        _channels.emplace_back(new IndexChannel(this, index->index_id, _is_vectorized));
+        _channels.emplace_back(new IndexChannel(this, index->index_id, use_vec));
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
 

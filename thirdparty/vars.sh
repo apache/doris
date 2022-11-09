@@ -297,10 +297,10 @@ CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 # The origin download url is always changing: https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.25
 # So we put it in our own http server.
 # If someone can offer an official url for DataTables, please update this.
-DATATABLES_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/DataTables.zip"
+DATATABLES_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/datatables-1.12.1/DataTables.zip"
 DATATABLES_NAME="DataTables.zip"
-DATATABLES_SOURCE="DataTables-1.10.25"
-DATATABLES_MD5SUM="c8fd73997c9871e213ee4211847deed5"
+DATATABLES_SOURCE="DataTables-1.12.1"
+DATATABLES_MD5SUM="a3dd92a2a8b7254443e102a43036d743"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
@@ -429,6 +429,12 @@ XXHASH_NAME=xxHash-0.8.1.tar.gz
 XXHASH_SOURCE=xxHash-0.8.1
 XXHASH_MD5SUM="b67c587f5ff4894253da0095ba7ea393"
 
+# concurrentqueue
+CONCURRENTQUEUE_DOWNLOAD="https://github.com/cameron314/concurrentqueue/archive/refs/tags/v1.0.3.tar.gz"
+CONCURRENTQUEUE_NAME=concurrentqueue-1.0.3.tar.gz
+CONCURRENTQUEUE_SOURCE=concurrentqueue-1.0.3
+CONCURRENTQUEUE_MD5SUM="118e5bb661b567634647312991e10222"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -491,6 +497,7 @@ export TP_ARCHIVES=(
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
+    'CONCURRENTQUEUE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

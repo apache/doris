@@ -116,13 +116,16 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
         _state->exec_env()->scanner_scheduler()->submit(this);
     }
     // Wait for block from queue
-    while (_process_status.ok() && !_is_finished && blocks_queue.empty()) {
-        if (_state->is_cancelled()) {
-            _process_status = Status::Cancelled("cancelled");
-            break;
-        }
+    {
         SCOPED_TIMER(_parent->_scanner_wait_batch_timer);
-        _blocks_queue_added_cv.wait_for(l, std::chrono::seconds(1));
+        _blocks_queue_added_cv.wait(l, [this]() {
+            return !blocks_queue.empty() || _is_finished || !_process_status.ok() ||
+                   _state->is_cancelled();
+        });
+    }
+
+    if (_state->is_cancelled()) {
+        _process_status = Status::Cancelled("cancelled");
     }
 
     if (!_process_status.ok()) {

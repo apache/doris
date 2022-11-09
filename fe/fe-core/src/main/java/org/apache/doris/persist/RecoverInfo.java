@@ -43,7 +43,7 @@ public class RecoverInfo implements Writable {
     @SerializedName(value = "newPartitionName")
     private String newPartitionName;
 
-    public RecoverInfo() {
+    private RecoverInfo() {
         // for persist
     }
 
@@ -83,13 +83,7 @@ public class RecoverInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-
-        Text.writeString(out, newDbName);
-        Text.writeString(out, newTableName);
-        Text.writeString(out, newPartitionName);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static RecoverInfo read(DataInput in) throws IOException {

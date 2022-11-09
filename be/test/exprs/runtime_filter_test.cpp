@@ -42,7 +42,7 @@ public:
         exec_env = nullptr;
         _runtime_stat.reset(
                 new RuntimeState(_fragment_id, _query_options, _query_globals, exec_env));
-        _runtime_stat->init_instance_mem_tracker();
+        _runtime_stat->init_mem_trackers();
     }
     virtual void TearDown() { _obj_pool.clear(); }
 

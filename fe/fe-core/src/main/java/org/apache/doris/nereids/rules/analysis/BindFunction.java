@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.collect.ImmutableList;
 
@@ -91,11 +93,24 @@ public class BindFunction implements AnalysisRuleFactory {
                })
             ),
             RuleType.BINDING_HAVING_FUNCTION.build(
-                logicalHaving(logicalAggregate()).thenApply(ctx -> {
-                    LogicalHaving<LogicalAggregate<GroupPlan>> having = ctx.root;
+                logicalHaving().thenApply(ctx -> {
+                    LogicalHaving<GroupPlan> having = ctx.root;
                     List<Expression> predicates = bind(having.getExpressions(), ctx.connectContext.getEnv());
                     return new LogicalHaving<>(predicates.get(0), having.child());
                 })
+            ),
+            RuleType.BINDING_SORT_FUNCTION.build(
+                    logicalSort().thenApply(ctx -> {
+                        LogicalSort<GroupPlan> sort = ctx.root;
+                        List<OrderKey> orderKeys = sort.getOrderKeys().stream()
+                                .map(orderKey -> new OrderKey(
+                                        FunctionBinder.INSTANCE.bind(orderKey.getExpr(), ctx.connectContext.getEnv()),
+                                        orderKey.isAsc(),
+                                        orderKey.isNullFirst()
+                                ))
+                                .collect(ImmutableList.toImmutableList());
+                        return new LogicalSort<>(orderKeys, sort.child());
+                    })
             )
         );
     }
@@ -115,6 +130,8 @@ public class BindFunction implements AnalysisRuleFactory {
 
         @Override
         public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
+            unboundFunction = (UnboundFunction) super.visitUnboundFunction(unboundFunction, env);
+
             // FunctionRegistry can't support boolean arg now, tricky here.
             if (unboundFunction.getName().equalsIgnoreCase("count")) {
                 List<Expression> arguments = unboundFunction.getArguments();
@@ -141,6 +158,8 @@ public class BindFunction implements AnalysisRuleFactory {
          */
         @Override
         public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, Env context) {
+            arithmetic = (TimestampArithmetic) super.visitTimestampArithmetic(arithmetic, context);
+
             String funcOpName;
             if (arithmetic.getFuncName() == null) {
                 // e.g. YEARS_ADD, MONTHS_SUB

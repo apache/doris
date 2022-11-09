@@ -844,9 +844,9 @@ The number of sliced tablets, plan the layout of the tablet, and avoid too many 
 * Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
 * Default value: performance
 
-### `memory_limitation_per_thread_for_schema_change`
+### `memory_limitation_per_thread_for_schema_change_bytes`
 
-Default: 2 （G）
+Default: 2147483648
 
 Maximum memory allowed for a single schema change task
 
@@ -1590,3 +1590,21 @@ Translated with www.DeepL.com/Translator (free version)
 * Type：int64
 * Description：Save time of cache file, in seconds
 * Default：604800（1 week）
+
+### `enable_segcompaction`
+
+* Type: bool
+* Description: Enable to use segment compaction during loading
+* Default value: false
+
+### `segcompaction_threshold_segment_num`
+
+* Type: int32
+* Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
+* Default value: 10
+
+### `segcompaction_small_threshold`
+
+* Type: int32
+* Description: The segment whose row number above the threshold will be compacted during segcompaction
+* Default value: 1048576

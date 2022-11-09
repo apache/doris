@@ -114,7 +114,7 @@ TEST_F(VDataStreamTest, BasicTest) {
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
-    runtime_stat.init_instance_mem_tracker();
+    runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
     runtime_stat.set_be_number(1);
     runtime_stat._exec_env = _object_pool.add(new ExecEnv);

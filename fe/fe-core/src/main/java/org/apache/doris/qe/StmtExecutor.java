@@ -307,6 +307,12 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.DEFAULT_DB, context.getDatabase());
         infos.put(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         infos.put(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
+
+        Map<String, Integer> beToInstancesNum =
+                coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();
+        infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
+                String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
+        infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
         return infos;
     }
 
@@ -724,7 +730,7 @@ public class StmtExecutor implements ProfileWriter {
                 } catch (UserException e) {
                     throw e;
                 } catch (Exception e) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                    LOG.error("Analyze failed. {}", context.getQueryIdentifier(), e);
                     if (parsedStmt instanceof LogicalPlanAdapter) {
                         throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
                     }

@@ -57,7 +57,7 @@ This section introduces Doris's approach to building tables with an example.
 ```sql
 -- Range Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_range_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_range_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "User id",
     `date` DATE NOT NULL COMMENT "Data fill in date time",
@@ -89,7 +89,7 @@ PROPERTIES
 
 -- List Partition
 
-CREATE TABLE IF NOT EXISTS example_db.expamle_list_tbl
+CREATE TABLE IF NOT EXISTS example_db.example_list_tbl
 (
     `user_id` LARGEINT NOT NULL COMMENT "User id",
     `date` DATE NOT NULL COMMENT "Data fill in date time",

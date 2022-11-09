@@ -104,11 +104,23 @@ void MemInfo::init() {
 
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
+    if (_s_mem_limit <= 0) {
+        LOG(WARNING) << "Failed to parse mem limit from '" + config::mem_limit + "'.";
+    }
+    if (_s_mem_limit > _s_physical_mem) {
+        LOG(WARNING) << "Memory limit " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES)
+                     << " exceeds physical memory of "
+                     << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+                     << ". Using physical memory instead";
+        _s_mem_limit = _s_physical_mem;
+    }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_hard_mem_limit =
             _s_physical_mem - std::max<int64_t>(209715200L, _s_physical_mem / 10); // 200M
 
-    LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
+    LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
+              << ", Mem Limit: " << _s_mem_limit_str
+              << ", origin config value: " << config::mem_limit;
     _s_initialized = true;
 }
 #else

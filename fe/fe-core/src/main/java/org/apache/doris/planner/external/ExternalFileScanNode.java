@@ -32,6 +32,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -44,6 +45,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -162,30 +164,13 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         switch (type) {
             case QUERY:
-                HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
-                Preconditions.checkNotNull(hmsTable);
-
-                if (hmsTable.isView()) {
-                    throw new AnalysisException(
-                            String.format("Querying external view '[%s].%s.%s' is not supported", hmsTable.getDlaType(),
-                                    hmsTable.getDbName(), hmsTable.getName()));
+                if (this.desc.getTable() instanceof HMSExternalTable) {
+                    HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
+                    initHMSExternalTable(hmsTable);
+                } else if (this.desc.getTable() instanceof FunctionGenTable) {
+                    FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
+                    initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
                 }
-
-                FileScanProviderIf scanProvider;
-                switch (hmsTable.getDlaType()) {
-                    case HUDI:
-                        scanProvider = new HudiScanProvider(hmsTable, desc);
-                        break;
-                    case ICEBERG:
-                        scanProvider = new IcebergScanProvider(hmsTable, desc);
-                        break;
-                    case HIVE:
-                        scanProvider = new HiveScanProvider(hmsTable, desc);
-                        break;
-                    default:
-                        throw new UserException("Unknown table type: " + hmsTable.getDlaType());
-                }
-                this.scanProviders.add(scanProvider);
                 break;
             case LOAD:
                 for (FileGroupInfo fileGroupInfo : fileGroupInfos) {
@@ -200,6 +185,38 @@ public class ExternalFileScanNode extends ExternalScanNode {
         numNodes = backendPolicy.numBackends();
 
         initParamCreateContexts(analyzer);
+    }
+
+    private void initHMSExternalTable(HMSExternalTable hmsTable) throws UserException {
+        Preconditions.checkNotNull(hmsTable);
+
+        if (hmsTable.isView()) {
+            throw new AnalysisException(
+                    String.format("Querying external view '[%s].%s.%s' is not supported", hmsTable.getDlaType(),
+                            hmsTable.getDbName(), hmsTable.getName()));
+        }
+
+        FileScanProviderIf scanProvider;
+        switch (hmsTable.getDlaType()) {
+            case HUDI:
+                scanProvider = new HudiScanProvider(hmsTable, desc);
+                break;
+            case ICEBERG:
+                scanProvider = new IcebergScanProvider(hmsTable, desc);
+                break;
+            case HIVE:
+                scanProvider = new HiveScanProvider(hmsTable, desc);
+                break;
+            default:
+                throw new UserException("Unknown table type: " + hmsTable.getDlaType());
+        }
+        this.scanProviders.add(scanProvider);
+    }
+
+    private void initFunctionGenTable(FunctionGenTable table, ExternalFileTableValuedFunction tvf) {
+        Preconditions.checkNotNull(table);
+        FileScanProviderIf scanProvider = new TVFScanProvider(table, desc, tvf);
+        this.scanProviders.add(scanProvider);
     }
 
     // For each scan provider, create a corresponding ParamCreateContext

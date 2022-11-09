@@ -135,6 +135,7 @@ protected:
         if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
+                         << ", writer rows=" << writer.num_rows()
                          << ", merged_rows=" << merged_rows()
                          << ", filtered_rows=" << filtered_rows()
                          << ", new_index_rows=" << writer.num_rows();

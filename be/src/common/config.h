@@ -285,6 +285,9 @@ CONF_mInt32(quick_compaction_max_threads, "10");
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
 
+// This config can be set to limit thread number in  segcompaction thread pool.
+CONF_mInt32(seg_compaction_max_threads, "10");
+
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
@@ -819,10 +822,6 @@ CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
-// If set to true, the new scan node framework will be used.
-// This config should be removed when the new scan node is ready.
-CONF_Bool(enable_new_scan_node, "true");
-
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
@@ -840,6 +839,14 @@ CONF_String(be_node_role, "mix");
 // Hide webserver page for safety.
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
+
+CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+
+// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
+CONF_Int32(segcompaction_threshold_segment_num, "10");
+
+// The segment whose row number above the threshold will be compacted during segcompaction
+CONF_Int32(segcompaction_small_threshold, "1048576");
 
 CONF_String(jvm_max_heap_size, "1024M");
 

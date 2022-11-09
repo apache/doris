@@ -44,7 +44,7 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state
 RuntimeFilterMgr::~RuntimeFilterMgr() {}
 
 Status RuntimeFilterMgr::init() {
-    DCHECK(_state->instance_mem_tracker() != nullptr);
+    DCHECK(_state->query_mem_tracker() != nullptr);
     _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr");
     return Status::OK();
 }

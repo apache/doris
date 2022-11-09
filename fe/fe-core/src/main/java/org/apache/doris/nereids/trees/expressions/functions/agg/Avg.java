@@ -54,18 +54,21 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
 
     @Override
     public DataType getFinalType() {
-        if (child().getDataType() instanceof DecimalType) {
-            return child().getDataType();
-        } else if (child().getDataType().isDate()) {
+        DataType argumentType = inputTypesBeforeDissemble()
+                .map(types -> types.get(0))
+                .orElse(child().getDataType());
+        if (argumentType instanceof DecimalType) {
+            return DecimalType.SYSTEM_DEFAULT;
+        } else if (argumentType.isDate()) {
             return DateType.INSTANCE;
-        } else if (child().getDataType().isDateTime()) {
+        } else if (argumentType.isDateTime()) {
             return DateTimeType.INSTANCE;
         } else {
             return DoubleType.INSTANCE;
         }
     }
 
-    // TODO: We should return a complex type: PartialAggType(bufferTypes=[Double, Int], inputType=Int)
+    // TODO: We should return a complex type: PartialAggType(bufferTypes=[Double, Int], inputTypes=[Int])
     //       to denote sum(double) and count(int)
     @Override
     public DataType getIntermediateType() {

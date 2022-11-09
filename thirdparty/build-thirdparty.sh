@@ -1175,13 +1175,13 @@ build_cctz() {
 build_js_and_css() {
     check_if_source_exist "${DATATABLES_SOURCE}"
     check_if_source_exist 'Bootstrap-3.3.7'
-    check_if_source_exist 'jQuery-3.3.1'
+    check_if_source_exist 'jQuery-3.6.0'
 
     mkdir -p "${TP_INSTALL_DIR}/webroot"
     cd "${TP_SOURCE_DIR}"
     cp -r "${DATATABLES_SOURCE}" "${TP_INSTALL_DIR}/webroot/"
     cp -r Bootstrap-3.3.7 "${TP_INSTALL_DIR}/webroot/"
-    cp -r jQuery-3.3.1 "${TP_INSTALL_DIR}/webroot/"
+    cp -r jQuery-3.6.0 "${TP_INSTALL_DIR}/webroot/"
     cp bootstrap-table.min.js "${TP_INSTALL_DIR}/webroot/Bootstrap-3.3.7/js"
     cp bootstrap-table.min.css "${TP_INSTALL_DIR}/webroot/Bootstrap-3.3.7/css"
 }
@@ -1505,6 +1505,13 @@ build_gettext() {
     remove_all_dylib
 }
 
+# concurrentqueue
+build_concurrentqueue() {
+    check_if_source_exist "${CONCURRENTQUEUE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CONCURRENTQUEUE_SOURCE}"
+    cp ./*.h "${TP_INSTALL_DIR}/include/"
+}
+
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     echo 'build for Darwin'
     build_binutils
@@ -1565,5 +1572,6 @@ build_opentelemetry
 build_libbacktrace
 build_sse2neon
 build_xxhash
+build_concurrentqueue
 
 echo "Finished to build all thirdparties"

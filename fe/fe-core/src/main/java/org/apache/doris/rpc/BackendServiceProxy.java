@@ -189,6 +189,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
+            TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchTableStructureAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch table structure catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(
             TNetworkAddress address, InternalService.PUpdateCacheRequest request) throws RpcException {
         try {

@@ -46,6 +46,12 @@ std::string BetaRowset::segment_file_path(int segment_id) {
     return segment_file_path(_rowset_dir, rowset_id(), segment_id);
 }
 
+std::string BetaRowset::segment_cache_path(const std::string& rowset_dir, const RowsetId& rowset_id,
+                                           int segment_id) {
+    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
+    return fmt::format("{}/{}_{}", rowset_dir, rowset_id.to_string(), segment_id);
+}
+
 std::string BetaRowset::segment_cache_path(int segment_id) {
     // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
     return fmt::format("{}/{}_{}", _tablet_path, rowset_id().to_string(), segment_id);
@@ -72,6 +78,13 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string
                                             int segment_id) {
     // data/{tablet_id}/{rowset_id}_{seg_num}.dat
     return fmt::format("{}/{}_{}.dat", remote_tablet_path(tablet_id), rowset_id, segment_id);
+}
+
+std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,
+                                                        const RowsetId& rowset_id, int64_t begin,
+                                                        int64_t end) {
+    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{begin_seg}-{end_seg}.dat
+    return fmt::format("{}/{}_{}-{}.dat", tablet_path, rowset_id.to_string(), begin, end);
 }
 
 BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
@@ -105,7 +118,8 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
         auto seg_path = segment_file_path(seg_id);
         auto cache_path = segment_cache_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(), _schema,
+                                           &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
                          << unique_id() << " : " << s.to_string();
@@ -124,7 +138,8 @@ Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* se
     }
     auto seg_path = segment_file_path(seg_id);
     auto cache_path = segment_cache_path(seg_id);
-    auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, segment);
+    auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(), _schema,
+                                       segment);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << unique_id()
                      << " : " << s.to_string();
@@ -291,7 +306,8 @@ bool BetaRowset::check_current_rowset_segment() {
         auto seg_path = segment_file_path(seg_id);
         auto cache_path = segment_cache_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _schema, &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(), _schema,
+                                           &segment);
         if (!s.ok()) {
             LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return false;
