@@ -17,8 +17,9 @@
 
 #pragma once
 
+#include <jni.h>
+
 #include "exec/table_connector.h"
-#include "jni.h"
 
 namespace doris {
 namespace vectorized {
