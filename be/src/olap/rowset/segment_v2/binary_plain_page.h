@@ -53,8 +53,14 @@ public:
     }
 
     bool is_page_full() override {
-        // data_page_size is 0, do not limit the page size
-        return _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        bool ret = false;
+        if (_options.is_dict_page) {
+            // dict_page_size is 0, do not limit the page size
+            ret = _options.dict_page_size != 0 && _size_estimate > _options.dict_page_size;
+        } else {
+            ret = _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
+        }
+        return ret;
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
@@ -104,7 +110,9 @@ public:
     void reset() override {
         _offsets.clear();
         _buffer.clear();
-        _buffer.reserve(_options.data_page_size == 0 ? 1024 : _options.data_page_size);
+        _buffer.reserve(_options.data_page_size == 0
+                                ? 1024
+                                : std::min(_options.data_page_size, _options.dict_page_size));
         _size_estimate = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;
