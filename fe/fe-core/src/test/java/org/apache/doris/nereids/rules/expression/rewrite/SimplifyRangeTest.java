@@ -46,7 +46,7 @@ public class SimplifyRangeTest {
     private ExpressionRuleExecutor executor;
 
     @Test
-    public void test1() {
+    public void testSimplify() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
         assertRewrite("TA", "TA");
         assertRewrite("TA = 1 and TA > 10", "TA = 1 and TA > 10");
