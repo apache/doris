@@ -48,11 +48,11 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private final Group root;
+    private Group root;
 
     // FOR TEST ONLY
-    public Memo() {
-        root = null;
+    public Memo(Group root) {
+        this.root = root;
     }
 
     public Memo(Plan plan) {
@@ -375,6 +375,11 @@ public class Memo {
             return;
         }
 
+        groups.remove(source.getGroupId());
+        if (source == root) {
+            root = destination;
+        }
+
         // if (source.getParentGroupExpressions().stream()
         //         .anyMatch(e -> e.getOwnerGroup().equals(destination))) {
         //     return;
@@ -382,7 +387,7 @@ public class Memo {
 
         // move children.
         source.getLogicalExpressions().forEach(child -> child.setOwnerGroup(destination));
-        source.getLogicalExpressions().forEach(child -> child.setOwnerGroup(destination));
+        source.getPhysicalExpressions().forEach(child -> child.setOwnerGroup(destination));
 
         // move parents
         List<GroupExpression> parents = source.getParentGroupExpressions();
