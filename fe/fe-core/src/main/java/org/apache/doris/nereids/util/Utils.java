@@ -202,11 +202,30 @@ public class Utils {
         return LocalDateTime.ofInstant(Instant.ofEpochSecond(dateTime), ZoneId.systemDefault());
     }
 
+    /**
+     * newItem replace oldItem in List.
+     */
     public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
         for (int i = 0; i < list.size(); i++) {
             if (list.get(i) == oldItem) {
                 list.set(i, newItem);
             }
         }
+    }
+
+    /**
+     * newItem replace oldItem in List.
+     * This check must just replace once.
+     */
+    public static <T> void replaceListWithCheck(List<T> list, T oldItem, T newItem) {
+        // TODO: future remove it, just for ensuring no bug.
+        int count = 0;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == oldItem) {
+                list.set(i, newItem);
+                count += 1;
+            }
+        }
+        Preconditions.checkState(count == 1);
     }
 }

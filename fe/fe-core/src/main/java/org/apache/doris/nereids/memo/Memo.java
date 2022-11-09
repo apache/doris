@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -368,53 +369,54 @@ public class Memo {
      *
      * @param source source group
      * @param destination destination group
-     * @return merged group
      */
-    public Group mergeGroup(Group source, Group destination) {
+    public void mergeGroup(Group source, Group destination) {
         if (source.equals(destination)) {
-            return source;
+            return;
         }
-        List<GroupExpression> needReplaceChild = Lists.newArrayList();
-        for (GroupExpression groupExpression : groupExpressions.values()) {
-            if (groupExpression.children().contains(source)) {
-                if (groupExpression.getOwnerGroup().equals(destination)) {
-                    // cycle, we should not merge
-                    return null;
-                }
-                needReplaceChild.add(groupExpression);
-            }
-        }
-        for (GroupExpression groupExpression : needReplaceChild) {
-            // After change GroupExpression children, the hashcode will change,
-            // so need to reinsert into map.
-            groupExpressions.remove(groupExpression);
-            List<Group> children = groupExpression.children();
-            for (int i = 0; i < children.size(); i++) {
-                if (children.get(i).equals(source)) {
-                    children.set(i, destination);
-                }
-            }
 
-            GroupExpression that = groupExpressions.get(groupExpression);
-            if (that != null && that.getOwnerGroup() != null
-                    && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
-                // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
-                // that.getOwnerGroup() already has this groupExpression.
-                Group ownerGroup = groupExpression.getOwnerGroup();
-                groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
-                mergeGroup(ownerGroup, that.getOwnerGroup());
+        // if (source.getParentGroupExpressions().stream()
+        //         .anyMatch(e -> e.getOwnerGroup().equals(destination))) {
+        //     return;
+        // }
+
+        // move children.
+        source.getLogicalExpressions().forEach(child -> child.setOwnerGroup(destination));
+        source.getLogicalExpressions().forEach(child -> child.setOwnerGroup(destination));
+
+        // move parents
+        List<GroupExpression> parents = source.getParentGroupExpressions();
+        parents.forEach(parent -> {
+            Utils.replaceListWithCheck(parent.children(), source, destination);
+            destination.addParentExpression(parent);
+        });
+
+        // After change GroupExpression children, the hashcode will change,
+        // so need to reinsert into map. we need reinsert recursively bottom-up.
+        Map<Group, Group> needMergeGroup = Maps.newHashMap();
+        for (GroupExpression reinsertExpression : parents) {
+            if (groupExpressions.containsKey(reinsertExpression)) {
+                /// TODO: need unused flag, because it may be in the JobScheduler
+                GroupExpression existGroupExpression = groupExpressions.get(reinsertExpression);
+                if (existGroupExpression.getOwnerGroup() != null
+                        && existGroupExpression.getOwnerGroup().equals(reinsertExpression.getOwnerGroup())) {
+                    // reinsertExpression & existGroupExpression are in same Group,use existGroupExpression to
+                    // replace the bestExpression in the group
+                    reinsertExpression.getOwnerGroup().replaceBestPlan(reinsertExpression, existGroupExpression);
+                    // existingGroupExpression merge the state of groupExpression
+                    reinsertExpression.moveState(existGroupExpression);
+                } else {
+                    // reinsertExpression and existGroupExpression are not in the same group, need to merge them.
+                    reinsertExpression.getOwnerGroup().deleteBestPlan(reinsertExpression);
+                    needMergeGroup.put(reinsertExpression.getOwnerGroup(), existGroupExpression.getOwnerGroup());
+                }
             } else {
-                groupExpressions.put(groupExpression, groupExpression);
+                groupExpressions.put(reinsertExpression, reinsertExpression);
             }
         }
-        if (!source.equals(destination)) {
-            // TODO: stats and other
-            source.moveLogicalExpressionOwnership(destination);
-            source.movePhysicalExpressionOwnership(destination);
-            source.moveLowestCostPlansOwnership(destination);
-            groups.remove(source.getGroupId());
-        }
-        return destination;
+        source.moveGroup(destination);
+
+        needMergeGroup.forEach(this::mergeGroup);
     }
 
     /**
