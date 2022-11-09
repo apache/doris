@@ -134,6 +134,9 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
 
 static std::string tablets_id_to_string(
         const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
+    if (scan_ranges.empty()) {
+        return "[empty]";
+    }
     std::stringstream ss;
     ss << "[" << scan_ranges[0]->tablet_id;
     for (int i = 1; i < scan_ranges.size(); ++i) {
@@ -279,6 +282,12 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         _eos = true;
         return Status::OK();
     }
+
+    if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
+        _runtime_profile->add_info_string("RemainedDownPredicates",
+                                          (*_vconjunct_ctx_ptr)->root()->debug_string());
+    }
+
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     // ranges constructed from scan keys
