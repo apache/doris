@@ -88,7 +88,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
-<<<<<<< HEAD
         if (deniedJoinType.contains(join.getJoinType())) {
             // copy to avoid bug when next call of getOutputSet()
             Set<Slot> slots = join.getOutputSet();
@@ -96,11 +95,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         } else {
             List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                     .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
-=======
-        if (!deniedJoinType.contains(join.getJoinType())) {
-            List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values()).filter(type ->
-                    (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
->>>>>>> rf pruner
                     .collect(Collectors.toList());
             AtomicInteger cnt = new AtomicInteger();
             join.getHashJoinConjuncts().stream()
@@ -108,7 +102,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
                     // TODO: we will support it in later version.
                     .forEach(expr -> legalTypes.forEach(type -> {
-<<<<<<< HEAD
                         Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
                         // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
                         // contains join with denied join type. for example: a left join b on a.id = b.id
@@ -119,34 +112,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         Pair<Slot, Slot> slots = Pair.of(
                                 aliasTransferMap.get((Slot) normalizedChildren.first).second.toSlot(),
                                 ((Slot) normalizedChildren.second));
-=======
-                        Pair<Expression, Expression> exprs = checkAndMaybeSwapChild(expr, join);
-                        if (exprs == null || !aliasTransferMap.containsKey((Slot) exprs.first)) {
-                            return;
-                        }
-                        Pair<Slot, Slot> slots = Pair.of(
-                                aliasTransferMap.get((Slot) exprs.first).second.toSlot(),
-                                ((Slot) exprs.second));
->>>>>>> rf pruner
                         RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                                 slots.second, slots.first, type,
                                 cnt.getAndIncrement(), join);
                         ctx.addJoinToTargetMap(join, slots.first.getExprId());
-<<<<<<< HEAD
                         ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
                         ctx.setTargetsOnScanNode(
                                 aliasTransferMap.get((Slot) normalizedChildren.first).first,
                                 slots.first);
                     }));
-=======
-                        ctx.setTargetExprIdToFilters(slots.first.getExprId(), filter);
-                        ctx.setTargetsOnScanNode(aliasTransferMap.get(((Slot) exprs.first)).first, slots.first);
-                    }));
-        } else {
-            // copy to avoid bug when next call of getOutputSet()
-            Set<Slot> slots = join.getOutputSet();
-            slots.forEach(aliasTransferMap::remove);
->>>>>>> rf pruner
         }
         return join;
     }

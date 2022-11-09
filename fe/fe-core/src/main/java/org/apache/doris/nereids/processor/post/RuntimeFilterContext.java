@@ -36,11 +36,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-<<<<<<< HEAD
-=======
 import com.google.common.collect.Sets;
-import org.jetbrains.annotations.NotNull;
->>>>>>> rf pruner
 
 import java.util.Collections;
 import java.util.Iterator;
