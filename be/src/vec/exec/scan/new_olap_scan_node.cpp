@@ -134,6 +134,9 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
 
 static std::string tablets_id_to_string(
         const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
+    if (scan_ranges.empty()) {
+        return "[empty]";
+    }
     std::stringstream ss;
     ss << "[" << scan_ranges[0]->tablet_id;
     for (int i = 1; i < scan_ranges.size(); ++i) {
@@ -205,9 +208,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         _runtime_profile->add_info_string("PushDownPredicates",
                                           olap_filters_to_string(_olap_filters));
         _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
-        if (!_scan_ranges.empty()) {
-            _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
-        }
+        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
     VLOG_CRITICAL << _scan_keys.debug_string();
 
