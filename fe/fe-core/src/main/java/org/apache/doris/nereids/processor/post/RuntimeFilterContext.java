@@ -54,7 +54,7 @@ public class RuntimeFilterContext {
     // exprId of target to runtime filter.
     private final Map<ExprId, List<RuntimeFilter>> targetExprIdToFilter = Maps.newHashMap();
 
-    private final Map<Plan, ExprId> joinToTargetExprId = Maps.newHashMap();
+    private final Map<Plan, List<ExprId>> joinToTargetExprId = Maps.newHashMap();
 
     // olap scan node that contains target of a runtime filter.
     private final Map<RelationId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
@@ -185,10 +185,14 @@ public class RuntimeFilterContext {
     }
 
     public void addJoinToTargetMap(PhysicalHashJoin join, ExprId exprId) {
-        joinToTargetExprId.put(join, exprId);
+        if (joinToTargetExprId.get(join) != null) {
+            joinToTargetExprId.get(join).add(exprId);
+        } else {
+            joinToTargetExprId.put(join, Lists.newArrayList(exprId));
+        }
     }
 
-    public ExprId getTargetExprIdByFilterJoin(PhysicalHashJoin join) {
+    public List<ExprId> getTargetExprIdByFilterJoin(PhysicalHashJoin join) {
         return joinToTargetExprId.get(join);
     }
 }

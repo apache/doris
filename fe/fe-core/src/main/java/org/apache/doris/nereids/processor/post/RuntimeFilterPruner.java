@@ -86,8 +86,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             context.getRuntimeFilterContext().addEffectiveSrcNode(join);
         } else {
             RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-            ExprId exprId = ctx.getTargetExprIdByFilterJoin(join);
-            if (exprId != null) {
+            List<ExprId> exprIds = ctx.getTargetExprIdByFilterJoin(join);
+            if (exprIds != null && !exprIds.isEmpty()) {
                 boolean isEffective = false;
                 for (Expression expr : join.getHashJoinConjuncts()) {
                     if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
@@ -95,7 +95,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                     }
                 }
                 if (!isEffective) {
-                    context.getRuntimeFilterContext().removeFilter(exprId, join);
+                    exprIds.stream().forEach(exprId -> context.getRuntimeFilterContext().removeFilter(exprId, join));
                 }
             }
         }
