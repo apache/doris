@@ -111,21 +111,6 @@ public:
         }
     }
 
-    InListPredicateBase(uint32_t column_id, const std::set<T>& values, bool opposite = false)
-            : ColumnPredicate(column_id, opposite),
-              _min_value(type_limit<T>::max()),
-              _max_value(type_limit<T>::min()) {
-        for (const auto& value : values) {
-            _values.insert(value);
-            if (value > _max_value) {
-                _max_value = value;
-            }
-            if (value < _min_value) {
-                _min_value = value;
-            }
-        }
-    }
-
     // Only for test
     InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>&& values,
                         T min_value = type_limit<T>::min(), T max_value = type_limit<T>::max(),

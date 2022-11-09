@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include "exec/olap_common.h"
-#include "olap/column_predicate.h"
-#include "olap/comparison_predicate.h"
-#include "olap/in_list_predicate.h"
 #include "vec/common/int_exp.h"
 #include "vec/core/types.h"
 
