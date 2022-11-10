@@ -40,6 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -317,5 +318,12 @@ public class JoinUtils {
                 projects.add(slot);
             }
         });
+    }
+
+    public static Set<Slot> getJoinOutputSet(Plan left, Plan right) {
+        HashSet<Slot> joinOutput = new HashSet<>();
+        joinOutput.addAll(left.getOutput());
+        joinOutput.addAll(right.getOutput());
+        return joinOutput;
     }
 }
