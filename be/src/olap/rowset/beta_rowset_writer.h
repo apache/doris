@@ -32,6 +32,12 @@ class FileWriter;
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 
+enum SegCompactionType {
+    NORMAL_SEGCOMPACTION_TYPE,
+    REMAIN_SEGCOMPACTION_TYPE,
+    FINAL_SEGCOMPACTION_TYPE,
+};
+
 class BetaRowsetWriter : public RowsetWriter {
 public:
     BetaRowsetWriter();
@@ -103,6 +109,7 @@ private:
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
+    Status _segcompaction_finalpass();
     vectorized::VMergeIterator* _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                                           std::shared_ptr<Schema> schema,
                                                           OlapReaderStatistics* stat,
@@ -115,7 +122,8 @@ private:
     Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
                                        size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
-    Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
+    Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments,
+                                         doris::SegCompactionType type);
     Status _wait_flying_segcompaction();
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
     void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);

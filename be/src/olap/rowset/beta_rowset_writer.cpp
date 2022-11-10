@@ -469,8 +469,9 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
 }
 
 Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments,
-                                                       bool is_last) {
-    if (is_last) {
+                                                       SegCompactionType type) {
+    switch (type) {
+    case REMAIN_SEGCOMPACTION_TYPE:
         VLOG_DEBUG << "segcompaction last few segments";
         // currently we only rename remaining segments to reduce wait time
         // so that transaction can be committed ASAP
@@ -479,8 +480,15 @@ Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSh
             RETURN_NOT_OK(_rename_compacted_segment_plain(_segcompacted_point++));
         }
         segments->clear();
-    } else {
+        break;
+    case NORMAL_SEGCOMPACTION_TYPE:
         RETURN_NOT_OK(_find_longest_consecutive_small_segment(segments));
+        break;
+    case FINAL_SEGCOMPACTION_TYPE:
+        // TODO:
+    default:
+        LOG(ERROR) << "invalid segcompaction type";
+        CHECK(false);
     }
     return Status::OK();
 }
@@ -545,6 +553,42 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
         LOG(INFO) << "submit segcompaction remaining task, tablet_id:" << _context.tablet_id
                   << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
                   << " segcompacted_point:" << _segcompacted_point;
+        status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
+        if (status.ok()) {
+            return status;
+        }
+    }
+    _is_doing_segcompaction = false;
+    return status;
+}
+
+Status BetaRowsetWriter::_segcompaction_finalpass() {
+    Status status = Status::OK();
+    DCHECK_EQ(_is_doing_segcompaction, false);
+    if (!config::enable_segcompaction || !config::enable_storage_vectorization) { //TODO: final pass indep
+        return Status::OK();
+    }
+    if (_segcompaction_status.load() != OLAP_SUCCESS) {
+        return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_FAILED);
+    }
+
+    int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
+    if (num_seg <= config::max_segment_num_per_rowset) {
+        return Status::OK();
+    }
+
+    while (/*TODO*/) {
+        // 1.find
+        // 2.submit
+        // 3.wait
+    }
+
+    _is_doing_segcompaction = true;
+    SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
+    status = _get_segcompaction_candidates(segments, true);
+    if (LIKELY(status.ok()) && (segments->size() > 0)) {
+        LOG(INFO) << "submit segcompaction remaining task, segment num:" << _num_segment
+                  << ", segcompacted_point:" << _segcompacted_point;
         status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
         if (status.ok()) {
             return status;
@@ -767,9 +811,23 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         return nullptr;
     }
 
+    if (config::enable_segcompaction_before_publish) {
+        status = _segcompaction_finalpass();
+        if (!status.ok()) {
+            LOG(WARNING) << "OOXXOO, res=" << status;
+            return nullptr;
+        }
+        status = _wait_flying_segcompaction();
+        if (!status.ok()) {
+            LOG(WARNING) << "segcompaction failed when build new rowset final wait, res=" << status;
+            return nullptr;
+        }
+    }
+
     if (_segcompaction_file_writer) {
         _segcompaction_file_writer->close();
     }
+
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
     DCHECK(_segment_writer == nullptr) << "segment must be null when build rowset";
