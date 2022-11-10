@@ -385,7 +385,7 @@ public class Memo {
         //     return;
         // }
 
-        // move children.
+        // move children Ref.
         source.getLogicalExpressions().forEach(child -> child.setOwnerGroup(destination));
         source.getPhysicalExpressions().forEach(child -> child.setOwnerGroup(destination));
 
@@ -394,6 +394,8 @@ public class Memo {
         parents.forEach(parent -> {
             Utils.replaceListWithCheck(parent.children(), source, destination);
             destination.addParentExpression(parent);
+            // remove self from his group, and reinsert later
+            parent.getOwnerGroup().removeGroupExpression(parent);
         });
 
         // After change GroupExpression children, the hashcode will change,
@@ -401,22 +403,22 @@ public class Memo {
         Map<Group, Group> needMergeGroup = Maps.newHashMap();
         for (GroupExpression reinsertExpression : parents) {
             if (groupExpressions.containsKey(reinsertExpression)) {
-                /// TODO: need unused flag, because it may be in the JobScheduler
                 GroupExpression existGroupExpression = groupExpressions.get(reinsertExpression);
                 if (existGroupExpression.getOwnerGroup() != null
-                        && existGroupExpression.getOwnerGroup().equals(reinsertExpression.getOwnerGroup())) {
-                    // reinsertExpression & existGroupExpression are in same Group,use existGroupExpression to
-                    // replace the bestExpression in the group
+                        && existGroupExpression.getOwnerGroup() == reinsertExpression.getOwnerGroup()) {
+                    // reinsertExpression & existGroupExpression are in same Group,
+                    // use existGroupExpression to replace the bestExpression in the group
                     reinsertExpression.getOwnerGroup().replaceBestPlan(reinsertExpression, existGroupExpression);
-                    // existingGroupExpression merge the state of groupExpression
+                    // move reinsertExpression LowestCostTable & propertiesMap to existGroupExpression.
                     reinsertExpression.moveState(existGroupExpression);
                 } else {
-                    // reinsertExpression and existGroupExpression are not in the same group, need to merge them.
+                    // they are in the different group, need to merge them.
                     reinsertExpression.getOwnerGroup().deleteBestPlan(reinsertExpression);
                     needMergeGroup.put(reinsertExpression.getOwnerGroup(), existGroupExpression.getOwnerGroup());
                 }
             } else {
                 groupExpressions.put(reinsertExpression, reinsertExpression);
+                reinsertExpression.getOwnerGroup().addGroupExpression(reinsertExpression);
             }
         }
         source.moveGroup(destination);
@@ -424,9 +426,6 @@ public class Memo {
         needMergeGroup.forEach(this::mergeGroup);
     }
 
-    /**
-     * Add enforcer expression into the target group.
-     */
     public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
         groupExpression.setOwnerGroup(group);
     }
