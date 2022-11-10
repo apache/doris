@@ -166,7 +166,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
                         } catch (TimeoutException | ExecutionException | InterruptedException
                                 | CancellationException e) {
                             errorMsg = e.getMessage();
-                            LOG.info("Failed to get statistics. jobId: {}, taskId: {}, e: {}", jobId, taskId, e);
+                            LOG.error("Failed to get statistics. jobId: {}, taskId: {}, e: {}", jobId, taskId, e);
                         }
 
                         try {

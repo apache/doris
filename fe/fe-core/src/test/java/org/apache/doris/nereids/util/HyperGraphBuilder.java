@@ -20,7 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupPlan;
+import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupRight;
 import org.apache.doris.nereids.rules.joinreorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -68,7 +68,7 @@ public class HyperGraphBuilder {
     }
 
     private Plan extractJoinCluster(Plan plan) {
-        Rule rule = new HyperGraphJoinReorderGroupPlan().build();
+        Rule rule = new HyperGraphJoinReorderGroupRight().build();
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         GroupExpressionMatching groupExpressionMatching

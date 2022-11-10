@@ -124,6 +124,8 @@ public class StatisticsUtil {
             case DOUBLE:
                 return new FloatLiteral(columnValue);
             case DECIMALV2:
+                //no need to check precision and scale, since V2 is fixed point
+                return new DecimalLiteral(columnValue);
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
@@ -139,7 +141,7 @@ public class StatisticsUtil {
             case VARCHAR:
                 if (columnValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Min/Max value is longer than length of column type: "
-                            + columnValue);
+                        + columnValue);
                 }
                 return new StringLiteral(columnValue);
             case HLL:

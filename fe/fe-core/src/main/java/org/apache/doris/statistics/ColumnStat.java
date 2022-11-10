@@ -298,8 +298,6 @@ public class ColumnStat {
         return new ColumnStat(leftNdv, leftAvgSize, leftMaxSize, leftNumNulls, leftMinValue, leftMaxValue);
     }
 
-
-
     public static boolean isAlmostUnique(double ndv, double rowCount) {
         return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
     }

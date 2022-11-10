@@ -1057,6 +1057,8 @@ public:
         }
     }
 
+    friend class IRuntimeFilter;
+
 private:
     RuntimeState* _state;
     ObjectPool* _pool;
@@ -1080,6 +1082,37 @@ Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRunt
     (*res)->set_role(role);
     UniqueId fragment_instance_id(state->fragment_instance_id());
     return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id);
+}
+
+Status IRuntimeFilter::apply_from_other(IRuntimeFilter* other) {
+    auto copy_hybrid_set = [](HybridSetBase* src, HybridSetBase* dst) {
+        auto it = src->begin();
+        while (it->has_next()) {
+            dst->insert(it->get_value());
+            it->next();
+        }
+    };
+    switch (other->_wrapper->_filter_type) {
+    case RuntimeFilterType::IN_FILTER:
+        copy_hybrid_set(other->_wrapper->_hybrid_set.get(), _wrapper->_hybrid_set.get());
+        break;
+    case RuntimeFilterType::BLOOM_FILTER:
+        _wrapper->_bloomfilter_func->light_copy(other->_wrapper->get_bloomfilter());
+        break;
+    case RuntimeFilterType::MINMAX_FILTER:
+        *(_wrapper->_minmax_func) = *(other->_wrapper->_minmax_func);
+        break;
+    case RuntimeFilterType::IN_OR_BLOOM_FILTER:
+        copy_hybrid_set(other->_wrapper->_hybrid_set.get(), _wrapper->_hybrid_set.get());
+        _wrapper->_bloomfilter_func->light_copy(other->_wrapper->get_bloomfilter());
+        break;
+    default:
+        return Status::InvalidArgument("unknown filter type");
+        break;
+    }
+    _wrapper->_filter_type = other->_wrapper->_filter_type;
+    _runtime_filter_type = other->_runtime_filter_type;
+    return Status::OK();
 }
 
 void IRuntimeFilter::insert(const void* data) {
@@ -1108,7 +1141,7 @@ Status IRuntimeFilter::publish() {
         RETURN_IF_ERROR(
                 _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter));
         // push down
-        std::swap(this->_wrapper, consumer_filter->_wrapper);
+        consumer_filter->_wrapper = _wrapper;
         consumer_filter->update_runtime_filter_type_to_profile();
         consumer_filter->signal();
         return Status::OK();

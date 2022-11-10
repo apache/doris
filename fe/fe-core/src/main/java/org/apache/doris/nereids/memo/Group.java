@@ -18,12 +18,9 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -46,6 +43,7 @@ import java.util.stream.Collectors;
  */
 public class Group {
     private final GroupId groupId;
+    // Save all parent GroupExpression to avoid travsing whole Memo.
     private final IdentityHashMap<GroupExpression, Void> parentExpressions = new IdentityHashMap<>();
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
@@ -57,7 +55,7 @@ public class Group {
     private final Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans = Maps.newHashMap();
     private double costLowerBound = -1;
     private boolean isExplored = false;
-    private boolean hasCost = false;
+
     private StatsDeriveResult statistics;
 
     /**
@@ -85,14 +83,6 @@ public class Group {
 
     public GroupId getGroupId() {
         return groupId;
-    }
-
-    public boolean isHasCost() {
-        return hasCost;
-    }
-
-    public void setHasCost(boolean hasCost) {
-        this.hasCost = hasCost;
     }
 
     /**
@@ -132,27 +122,6 @@ public class Group {
         logicalExpressions.add(groupExpression);
     }
 
-    public void addPhysicalExpression(GroupExpression groupExpression) {
-        groupExpression.setOwnerGroup(this);
-        physicalExpressions.add(groupExpression);
-    }
-
-    /**
-     * Rewrite the logical group expression to the new logical group expression.
-     *
-     * @param newExpression new logical group expression
-     * @return old logical group expression
-     */
-    public GroupExpression rewriteLogicalExpression(GroupExpression newExpression,
-            LogicalProperties logicalProperties) {
-        newExpression.setOwnerGroup(this);
-        this.logicalProperties = logicalProperties;
-        GroupExpression oldExpression = getLogicalExpression();
-        logicalExpressions.clear();
-        logicalExpressions.add(newExpression);
-        return oldExpression;
-    }
-
     public List<GroupExpression> clearLogicalExpressions() {
         List<GroupExpression> move = logicalExpressions.stream()
                 .peek(groupExpr -> groupExpr.setOwnerGroup(null))
@@ -171,10 +140,6 @@ public class Group {
 
     public double getCostLowerBound() {
         return costLowerBound;
-    }
-
-    public void setCostLowerBound(double costLowerBound) {
-        this.costLowerBound = costLowerBound;
     }
 
     /**
@@ -273,32 +238,6 @@ public class Group {
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
     }
 
-    public Map<PhysicalProperties, Pair<Double, GroupExpression>> getLowestCostPlans() {
-        return lowestCostPlans;
-    }
-
-    /**
-     * Get the first Plan from Memo.
-     */
-    public PhysicalPlan extractPlan() throws AnalysisException {
-        GroupExpression groupExpression = this.physicalExpressions.get(0);
-
-        List<Plan> planChildren = com.google.common.collect.Lists.newArrayList();
-        for (int i = 0; i < groupExpression.arity(); i++) {
-            planChildren.add(groupExpression.child(i).extractPlan());
-        }
-
-        Plan plan = groupExpression.getPlan()
-                .withChildren(planChildren)
-                .withGroupExpression(Optional.of(groupExpression));
-        if (!(plan instanceof PhysicalPlan)) {
-            throw new AnalysisException("generate logical plan");
-        }
-        PhysicalPlan physicalPlan = (PhysicalPlan) plan;
-
-        return physicalPlan;
-    }
-
     public List<GroupExpression> getParentGroupExpressions() {
         return ImmutableList.copyOf(parentExpressions.keySet());
     }
@@ -315,10 +254,6 @@ public class Group {
      */
     public int removeParentExpression(GroupExpression parent) {
         parentExpressions.remove(parent);
-        return parentExpressions.size();
-    }
-
-    public int parentExpressionNum() {
         return parentExpressions.size();
     }
 
