@@ -40,6 +40,13 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
     _init_profile();
 }
 
+ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                             const std::vector<std::string>& column_names)
+        : _profile(nullptr),
+          _scan_params(params),
+          _scan_range(range),
+          _column_names(column_names) {}
+
 ParquetReader::~ParquetReader() {
     close();
 }
@@ -180,6 +187,34 @@ std::unordered_map<std::string, TypeDescriptor> ParquetReader::get_name_to_type(
         map.emplace(name, field->type);
     }
     return map;
+}
+
+Status ParquetReader::get_parsered_schema(std::vector<std::string>* col_names,
+                                          std::vector<TypeDescriptor>* col_types) {
+    if (_file_reader == nullptr) {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
+                                                        _scan_range.start_offset,
+                                                        _scan_range.file_size, 0, _file_reader));
+    }
+    RETURN_IF_ERROR(_file_reader->open());
+    if (_file_reader->size() == 0) {
+        return Status::EndOfFile("Empty Parquet File");
+    }
+    RETURN_IF_ERROR(parse_thrift_footer(_file_reader.get(), _file_metadata));
+    _t_metadata = &_file_metadata->to_thrift();
+
+    _total_groups = _t_metadata->row_groups.size();
+    if (_total_groups == 0) {
+        return Status::EndOfFile("Empty Parquet File");
+    }
+
+    auto schema_desc = _file_metadata->schema();
+    for (int i = 0; i < schema_desc.size(); ++i) {
+        // Get the Column Reader for the boolean column
+        col_names->emplace_back(schema_desc.get_column(i)->name);
+        col_types->emplace_back(schema_desc.get_column(i)->type);
+    }
+    return Status::OK();
 }
 
 Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,

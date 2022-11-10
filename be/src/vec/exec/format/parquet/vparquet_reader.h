@@ -54,6 +54,9 @@ public:
                   const TFileRangeDesc& range, const std::vector<std::string>& column_names,
                   size_t batch_size, cctz::time_zone* ctz);
 
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  const std::vector<std::string>& column_names);
+
     ~ParquetReader() override;
     // for test
     void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
@@ -70,6 +73,9 @@ public:
     std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+
+    Status get_parsered_schema(std::vector<std::string>* col_names,
+                               std::vector<TypeDescriptor>* col_types) override;
 
     Statistics& statistics() { return _statistics; }
 
