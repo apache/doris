@@ -57,6 +57,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                         .add(JSON_PATHS)
                         .add(STRIP_OUTER_ARRAY)
                         .add(READ_JSON_BY_LINE)
+                        .add(NUM_AS_STRING)
+                        .add(FUZZY_PARSE)
+                        .add(COLUMN_SEPARATOR)
+                        .add(LINE_DELIMITER)
                         .build();
     private S3URI s3uri;
     private String s3AK;
