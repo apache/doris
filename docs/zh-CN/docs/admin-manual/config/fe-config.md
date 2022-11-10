@@ -2319,7 +2319,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 OlapTable在做schema change时，允许的最大副本数，副本数过大会导致FE OOM。
 
-默认值：1000000
+默认值：100000
 
 是否可以动态配置：true
 
