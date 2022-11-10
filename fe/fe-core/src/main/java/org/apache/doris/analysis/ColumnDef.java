@@ -108,10 +108,7 @@ public class ColumnDef {
     private boolean visible;
 
     public ColumnDef(String name, TypeDef typeDef) {
-        this.name = name;
-        this.typeDef = typeDef;
-        this.comment = "";
-        this.defaultValue = DefaultValue.NOT_SET;
+        this(name, typeDef, false, null, false, DefaultValue.NOT_SET, "");
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
@@ -427,5 +424,9 @@ public class ColumnDef {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public void setAllowNull(boolean allowNull) {
+        isAllowNull = allowNull;
     }
 }

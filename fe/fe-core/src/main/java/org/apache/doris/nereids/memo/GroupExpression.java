@@ -231,8 +231,8 @@ public class GroupExpression {
         return Objects.hash(children, plan);
     }
 
-    public StatsDeriveResult getCopyOfChildStats(int idx) {
-        return child(idx).getStatistics().copy();
+    public StatsDeriveResult childStatistics(int idx) {
+        return new StatsDeriveResult(child(idx).getStatistics());
     }
 
     @Override

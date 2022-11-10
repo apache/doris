@@ -15,20 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.statistics.util;
 
-import com.google.common.base.Preconditions;
+public class BlockingCounter {
 
-/**
- * Derive ExchangeNode statistics.
- */
-public class ExchangeStatsDerive extends BaseStatsDerive {
+    private int count = 0;
 
-    @Override
-    protected long deriveRowCount() {
-        Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = (long) childrenStatsResult.get(0).getRowCount();
-        capRowCountAtLimit();
-        return rowCount;
+    private final int upperBound;
+
+    public BlockingCounter(int upperBound) {
+        this.upperBound = upperBound;
+    }
+
+    public synchronized void incr() {
+        while (count >= upperBound) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                // ignore
+            }
+        }
+    }
+
+    public synchronized void decr() {
+        if (count == 0) {
+            return;
+        }
+        count--;
+        notify();
+    }
+
+    public long getVal() {
+        return count;
     }
 }
