@@ -1400,7 +1400,7 @@ public:
     static constexpr auto name = "split_by_char";
 
     static FunctionPtr create() { return std::make_shared<FunctionSplitByChar>(); }
-    using NullMapType = PaddedPODArray<String>;
+    //using NullMapType = PaddedPODArray<String>;
     String get_name() const override { return name; }
     
     bool is_variadic() const override { return false; }
@@ -1408,13 +1408,13 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
-        // const IDataType* first_type = arguments[0].get();
-        // if (first_type->is_nullable()) {
-        //     return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
-        // } else {
-        //     return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
-        // }
+        //return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        const IDataType* first_type = arguments[0].get();
+        if (first_type->is_nullable()) {
+            return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        } else {
+            return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        }
     }
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
@@ -1480,29 +1480,13 @@ public:
                 res_data_offsets.resize(res_data_offsets.size() + v_offset.size());
 
                 for (size_t j = 0; j < v_offset.size(); j++) {
-                    //res_data_chars.resize(res_data_chars.size() + v_charlen[j] + 1);
-                    LOG(WARNING) << "offsets:  " << *(&(*&str_str[0]) + v_offset[j]);
                     memcpy(&res_data_chars[res_data_offsets[j-1]], &(*&str_str[0]) + v_offset[j], v_charlen[j]);
                     res_data_offsets[j] = res_data_offsets[j-1] + v_charlen[j];
-                    // res_data_chars[res_data_offsets[j-1] + v_charlen[j]] = 0;                     
-                    // res_data_offsets[j] = res_data_offsets[j-1] + v_charlen[j] + 1;
-                    //++k;
                 }
-                //current_dst_offset += k;
-                //res_offsets[i]=  res_offsets[i-1] + current_dst_offset;
-                //res_offsets[i]=  res_offsets[i-1] + v_offset.size();
-            } 
+                res_offsets[i] = res_offsets[i-1] + v_offset.size(); 
+            }
+            
         }
-        for(int i=0; i<res_data_chars.size(); i++) {
-            LOG(WARNING) << "res_data_chars:" << res_data_chars[i];
-        }
-        for(int i=0; i<res_data_offsets.size(); i++) {
-            LOG(WARNING) << "res_data_offsets:" << res_data_offsets[i];
-        }
-        //for(int i=0; i<res_offsets.size(); i++) {
-            //LOG(WARNING) << "res_offsets:" << res_offsets[i];
-        //}
-        
 
         block.get_by_position(result).column = ColumnNullable::create(std::move(col_res), std::move(null_map));
         return Status::OK();
