@@ -771,7 +771,7 @@ public class HiveMetaStoreClientHelper {
                 return Type.DOUBLE;
             case "string":
             case "binary":
-                return Type.STRING;
+                return ScalarType.createStringType();
             default:
                 break;
         }
