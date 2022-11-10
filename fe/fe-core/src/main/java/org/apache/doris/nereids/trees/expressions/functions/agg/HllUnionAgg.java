@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.HllType;
@@ -33,7 +33,7 @@ import java.util.List;
 
 /** HllUnionAgg */
 public class HllUnionAgg extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ExpectsInputTypes {
+        implements UnaryExpression, PropagateNullable, ImplicitCastInputTypes {
     public HllUnionAgg(Expression arg0) {
         super("hll_union_agg", arg0);
     }
@@ -45,7 +45,7 @@ public class HllUnionAgg extends AggregateFunction
     @Override
     public HllUnionAgg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllUnionAgg(children.get(0));
+        return new HllUnionAgg(getAggregateParam(), children.get(0));
     }
 
     @Override

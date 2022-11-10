@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -30,21 +30,23 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/** HllRawAgg */
-public class HllRawAgg extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ExpectsInputTypes {
-    public HllRawAgg(Expression arg0) {
+/** HllUnion */
+public class HllUnion extends AggregateFunction
+        implements UnaryExpression, PropagateNullable, ImplicitCastInputTypes {
+    public HllUnion(Expression arg0) {
+        // TODO: change to hll_union in the future
         super("hll_raw_agg", arg0);
     }
 
-    public HllRawAgg(AggregateParam aggregateParam, Expression arg0) {
+    public HllUnion(AggregateParam aggregateParam, Expression arg0) {
+        // TODO: change to hll_union in the future
         super("hll_raw_agg", aggregateParam, arg0);
     }
 
     @Override
-    public HllRawAgg withChildren(List<Expression> children) {
+    public HllUnion withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllRawAgg(children.get(0));
+        return new HllUnion(getAggregateParam(), children.get(0));
     }
 
     @Override
@@ -63,7 +65,7 @@ public class HllRawAgg extends AggregateFunction
     }
 
     @Override
-    public HllRawAgg withAggregateParam(AggregateParam aggregateParam) {
-        return new HllRawAgg(aggregateParam, child());
+    public HllUnion withAggregateParam(AggregateParam aggregateParam) {
+        return new HllUnion(aggregateParam, child());
     }
 }

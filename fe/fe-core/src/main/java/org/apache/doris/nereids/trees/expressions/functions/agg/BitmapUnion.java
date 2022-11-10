@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -32,7 +32,7 @@ import java.util.List;
 
 /** BitmapUnion */
 public class BitmapUnion extends AggregateFunction
-        implements UnaryExpression, AlwaysNotNullable, ExpectsInputTypes {
+        implements UnaryExpression, PropagateNullable, ImplicitCastInputTypes {
     public BitmapUnion(Expression arg0) {
         super("bitmap_union", arg0);
     }
@@ -44,7 +44,7 @@ public class BitmapUnion extends AggregateFunction
     @Override
     public BitmapUnion withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnion(children.get(0));
+        return new BitmapUnion(getAggregateParam(), children.get(0));
     }
 
     @Override

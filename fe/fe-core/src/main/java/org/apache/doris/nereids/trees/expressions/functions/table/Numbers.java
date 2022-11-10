@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -35,8 +35,8 @@ import java.util.Map;
 
 /** Numbers */
 public class Numbers extends TableValuedFunction {
-    public Numbers(TVFProperties rowNum) {
-        super("numbers", rowNum);
+    public Numbers(TVFProperties properties) {
+        super("numbers", properties);
     }
 
     @Override
@@ -45,7 +45,8 @@ public class Numbers extends TableValuedFunction {
             Map<String, String> arguments = getKeyValuesExpression().getMap();
             return new NumbersTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build FunctionGenTable by " + this, t);
+            throw new AnalysisException("Can not build NumbersTableValuedFunction by "
+                    + this + ": " + t.getMessage(), t);
         }
     }
 

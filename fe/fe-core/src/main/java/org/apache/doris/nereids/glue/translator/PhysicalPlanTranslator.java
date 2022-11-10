@@ -91,6 +91,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -111,6 +113,8 @@ import java.util.stream.Stream;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
+    private static final Logger LOG = LoggerFactory.getLogger(PhysicalPlanTranslator.class);
+
     /**
      * Translate Nereids Physical Plan tree to Stale Planner PlanFragment tree.
      *

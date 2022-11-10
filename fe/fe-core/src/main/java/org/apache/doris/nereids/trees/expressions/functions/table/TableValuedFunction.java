@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -43,13 +43,15 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
     protected final Supplier<FunctionGenTable> tableCache = Suppliers.memoize(() -> {
         try {
             return catalogFunctionCache.get().getTable();
+        } catch (AnalysisException e) {
+            throw e;
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build FunctionGenTable by " + this, t);
+            throw new AnalysisException("Can not build FunctionGenTable by " + this + ": " + t.getMessage(), t);
         }
     });
 
-    public TableValuedFunction(String functionName, TVFProperties TVFProperties) {
-        super(functionName, TVFProperties);
+    public TableValuedFunction(String functionName, TVFProperties tvfProperties) {
+        super(functionName, tvfProperties);
     }
 
     protected abstract TableValuedFunctionIf toCatalogFunction();

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DataType;
@@ -33,7 +33,7 @@ import java.util.List;
 
 /** BitmapUnionCount */
 public class BitmapUnionCount extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ExpectsInputTypes {
+        implements UnaryExpression, PropagateNullable, ImplicitCastInputTypes {
     public BitmapUnionCount(Expression arg0) {
         super("bitmap_union_count", arg0);
     }
@@ -45,7 +45,7 @@ public class BitmapUnionCount extends AggregateFunction
     @Override
     public BitmapUnionCount withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnionCount(children.get(0));
+        return new BitmapUnionCount(getAggregateParam(), children.get(0));
     }
 
     @Override

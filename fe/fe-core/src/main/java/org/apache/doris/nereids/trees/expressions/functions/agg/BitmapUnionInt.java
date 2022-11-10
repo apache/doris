@@ -20,7 +20,8 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
+import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -36,7 +37,7 @@ import java.util.List;
 
 /** BitmapUnionInt */
 public class BitmapUnionInt extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ExpectsInputTypes {
+        implements UnaryExpression, PropagateNullable, ImplicitCastInputTypes {
     public BitmapUnionInt(Expression arg0) {
         super("bitmap_union_int", arg0);
     }
@@ -48,7 +49,7 @@ public class BitmapUnionInt extends AggregateFunction
     @Override
     public BitmapUnionInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnionInt(children.get(0));
+        return new BitmapUnionInt(getAggregateParam(), children.get(0));
     }
 
     @Override
@@ -57,16 +58,13 @@ public class BitmapUnionInt extends AggregateFunction
             return ImmutableList.of();
         } else {
             return ImmutableList.of(new TypeCollection(
-                    TinyIntType.INSTANCE, SmallIntType.INSTANCE, IntegerType.INSTANCE));
+                    TinyIntType.INSTANCE, SmallIntType.INSTANCE, IntegerType.INSTANCE, BigIntType.INSTANCE));
         }
     }
 
     @Override
     public DataType getFinalType() {
-        if (isGlobal() && inputTypesBeforeDissemble().isPresent()) {
-            return (DataType) inputTypesBeforeDissemble().get();
-        }
-        return child(0).getDataType();
+        return BigIntType.INSTANCE;
     }
 
     @Override

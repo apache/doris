@@ -178,12 +178,14 @@ relationPrimary
     | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
     | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
     | tvfName=identifier LEFT_PAREN
-      (arguments+=keyValue (COMMA arguments+=keyValue)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
+      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
     ;
 
-keyValue
-    : key=constant EQ value=constant
+tvfProperty
+    : key=tvfPropertyItem EQ value=tvfPropertyItem
     ;
+
+tvfPropertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?

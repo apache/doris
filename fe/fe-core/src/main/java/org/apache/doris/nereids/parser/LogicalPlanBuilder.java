@@ -44,7 +44,6 @@ import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
-import org.apache.doris.nereids.DorisParser.KeyValueContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
@@ -73,6 +72,8 @@ import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
+import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
+import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
@@ -86,7 +87,6 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
@@ -333,14 +333,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             String functionName = ctx.tvfName.getText();
 
             Builder<String, String> map = ImmutableMap.builder();
-            for (KeyValueContext keyValueContext : ctx.arguments) {
-                Literal key = (Literal) visit(keyValueContext.key);
-                Literal value = (Literal) visit(keyValueContext.value);
-
-                if (!(key.isStringLiteral()) || !(value.isStringLiteral())) {
-                    throw new AnalysisException("arguments of TableValuedFunction should be string");
-                }
-                map.put(key.getStringValue(), value.getStringValue());
+            for (TvfPropertyContext argument : ctx.properties) {
+                String key = parseTVFPropertyItem(argument.key);
+                String value = parseTVFPropertyItem(argument.value);
+                map.put(key, value);
             }
             LogicalPlan relation = new UnboundTVFRelation(functionName, new TVFProperties(map.build()));
             return withTableAlias(relation, ctx.tableAlias());
@@ -1068,5 +1064,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public DecimalLiteral visitDecimalLiteral(DecimalLiteralContext ctx) {
         return new DecimalLiteral(new BigDecimal(ctx.getText()));
+    }
+
+    private String parseTVFPropertyItem(TvfPropertyItemContext item) {
+        if (item.constant() != null) {
+            Object constant = visit(item.constant());
+            if (constant instanceof Literal && ((Literal) constant).isStringLiteral()) {
+                return ((Literal) constant).getStringValue();
+            }
+        }
+        return item.getText();
     }
 }
