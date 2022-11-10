@@ -150,7 +150,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     }
 
     private void assembleAudit(AuditEvent event) {
-        if (event.queryTime > Config.qe_slow_log_ms) {
+        if (conf.enableSlowLog && event.queryTime > Config.qe_slow_log_ms) {
             fillLogBuffer(event, slowLogBuffer);
         }
         fillLogBuffer(event, auditLogBuffer);
@@ -241,6 +241,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public static final String PROP_TABLE = "table";
         public static final String PROP_AUDIT_LOG_TABLE = "audit_log_table";
         public static final String PROP_SLOW_LOG_TABLE = "slow_log_table";
+        public static final String PROP_ENABLE_SLOW_LOG = "enable_slow_log";
         // the max stmt length to be loaded in audit table.
         public static final String MAX_STMT_LENGTH = "max_stmt_length";
 
@@ -253,6 +254,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public String database = "doris_audit_db__";
         public String auditLogTable = "doris_audit_log_tbl__";
         public String slowLogTable = "doris_slow_log_tbl__";
+        public boolean enableSlowLog = false;
         // the identity of FE which run this plugin
         public String feIdentity = "";
         public int max_stmt_length = 4096;
@@ -290,6 +292,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                 if (properties.containsKey(PROP_SLOW_LOG_TABLE)) {
                     slowLogTable = properties.get(PROP_SLOW_LOG_TABLE);
                 }
+                if (properties.containsKey(PROP_ENABLE_SLOW_LOG)) {
+                    enableSlowLog = Boolean.valueOf(properties.get(PROP_ENABLE_SLOW_LOG));
+                }
                 if (properties.containsKey(MAX_STMT_LENGTH)) {
                     max_stmt_length = Integer.parseInt(properties.get(MAX_STMT_LENGTH));
                 }
@@ -313,8 +318,10 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                     if (event != null) {
                         assembleAudit(event);
                         // process slow audit logs
-                        loadIfNecessary(loader, true);
-                        // // process all audit logs
+                        if (conf.enableSlowLog) {
+                            loadIfNecessary(loader, true);
+                        }
+                        // process all audit logs
                         loadIfNecessary(loader, false);
                     }
                 } catch (InterruptedException ie) {
