@@ -152,7 +152,7 @@ Status ParquetReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_init_read_columns());
     // build column predicates for column lazy read
-    _vconjunct_ctx = vconjunct_ctx;
+    _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
     _init_lazy_read();
     RETURN_IF_ERROR(_init_row_group_readers());
 
@@ -165,7 +165,7 @@ void ParquetReader::_init_lazy_read() {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
             predicate_columns.emplace(slot_ref->expr_name(), slot_ref->column_id());
             if (slot_ref->column_id() == 0) {
-                _resize_first_column = false;
+                _lazy_read_ctx.resize_first_column = false;
             }
             return;
         } else if (VRuntimeFilterWrapper* runtime_filter =
@@ -188,27 +188,28 @@ void ParquetReader::_init_lazy_read() {
             }
         }
     };
-    if (_vconjunct_ctx != nullptr) {
-        visit_slot(_vconjunct_ctx->root());
+    if (_lazy_read_ctx.vconjunct_ctx != nullptr) {
+        visit_slot(_lazy_read_ctx.vconjunct_ctx->root());
     }
     for (auto& read_col : _read_columns) {
-        _all_read_columns.emplace_back(read_col._file_slot_name);
+        _lazy_read_ctx.all_read_columns.emplace_back(read_col._file_slot_name);
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_col._file_slot_name);
             if (iter == predicate_columns.end()) {
-                _lazy_read_columns.emplace_back(read_col._file_slot_name);
+                _lazy_read_ctx.lazy_read_columns.emplace_back(read_col._file_slot_name);
             } else {
-                _predicate_columns.emplace_back(iter->first);
-                _predicate_col_ids.emplace_back(iter->second);
+                _lazy_read_ctx.predicate_columns.emplace_back(iter->first);
+                _lazy_read_ctx.predicate_col_ids.emplace_back(iter->second);
             }
         }
     }
-    if (_predicate_columns.size() > 0 && _lazy_read_columns.size() > 0) {
-        if (predicate_columns.size() == _predicate_columns.size()) {
+    if (_lazy_read_ctx.predicate_columns.size() > 0 &&
+        _lazy_read_ctx.lazy_read_columns.size() > 0) {
+        if (predicate_columns.size() == _lazy_read_ctx.predicate_columns.size()) {
             // TODO: support partition columns
             // _vconjunct_ctx has partition columns, and will push down to row group reader.
             // However, row group reader can't get partition column values now.
-            _can_lazy_read = true;
+            _lazy_read_ctx.can_lazy_read = true;
         }
     }
 }
@@ -302,10 +303,8 @@ Status ParquetReader::_init_row_group_readers() {
     for (auto row_group_id : _read_row_groups) {
         auto& row_group = _t_metadata->row_groups[row_group_id];
         std::shared_ptr<RowGroupReader> row_group_reader;
-        row_group_reader.reset(new RowGroupReader(
-                _file_reader.get(), _read_columns, _vconjunct_ctx, row_group_id, row_group, _ctz,
-                _can_lazy_read, _resize_first_column, _all_read_columns, _predicate_columns,
-                _predicate_col_ids, _lazy_read_columns));
+        row_group_reader.reset(new RowGroupReader(_file_reader.get(), _read_columns, row_group_id,
+                                                  row_group, _ctz, _lazy_read_ctx));
         std::vector<RowRange> candidate_row_ranges;
         RETURN_IF_ERROR(_process_page_index(row_group, candidate_row_ranges));
         if (candidate_row_ranges.empty()) {

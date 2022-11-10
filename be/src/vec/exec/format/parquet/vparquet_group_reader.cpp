@@ -25,26 +25,21 @@ namespace doris::vectorized {
 
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
-                               VExprContext* vconjunct_ctx, const int32_t row_group_id,
-                               const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
-                               const bool can_lazy_read, const bool resize_first_column,
-                               const std::vector<std::string>& all_read_columns,
-                               const std::vector<std::string>& predicate_columns,
-                               const std::vector<uint32_t>& predicate_col_ids,
-                               const std::vector<std::string>& lazy_read_columns)
+                               const int32_t row_group_id, const tparquet::RowGroup& row_group,
+                               cctz::time_zone* ctz, const LazyReadContext& lazy_read_ctx)
         : _file_reader(file_reader),
           _read_columns(read_columns),
-          _vconjunct_ctx(vconjunct_ctx),
           _row_group_id(row_group_id),
           _row_group_meta(row_group),
           _remaining_rows(row_group.num_rows),
           _ctz(ctz),
-          _can_lazy_read(can_lazy_read),
-          _resize_first_column(resize_first_column),
-          _all_read_columns(all_read_columns),
-          _predicate_columns(predicate_columns),
-          _predicate_col_ids(predicate_col_ids),
-          _lazy_read_columns(lazy_read_columns) {}
+          _vconjunct_ctx(lazy_read_ctx.vconjunct_ctx),
+          _can_lazy_read(lazy_read_ctx.can_lazy_read),
+          _resize_first_column(lazy_read_ctx.resize_first_column),
+          _all_read_columns(lazy_read_ctx.all_read_columns),
+          _predicate_columns(lazy_read_ctx.predicate_columns),
+          _predicate_col_ids(lazy_read_ctx.predicate_col_ids),
+          _lazy_read_columns(lazy_read_ctx.lazy_read_columns) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -80,6 +75,9 @@ Status RowGroupReader::init(const FieldDescriptor& schema, std::vector<RowRange>
             _can_lazy_read = false;
         }
     }
+    if (_vconjunct_ctx == nullptr) {
+        _can_lazy_read = false;
+    }
     return Status::OK();
 }
 
@@ -96,7 +94,9 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         ColumnSelectVector run_length_vector;
         RETURN_IF_ERROR(_read_column_data(block, _all_read_columns, batch_size, read_rows,
                                           _batch_eof, run_length_vector));
-        return VExprContext::filter_block(_vconjunct_ctx, block, block->columns());
+        Status st = VExprContext::filter_block(_vconjunct_ctx, block, block->columns());
+        *read_rows = block->rows();
+        return st;
     }
 }
 

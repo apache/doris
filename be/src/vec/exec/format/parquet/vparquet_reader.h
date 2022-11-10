@@ -135,18 +135,10 @@ private:
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    VExprContext* _vconjunct_ctx = nullptr;
     std::vector<ParquetReadColumn> _read_columns;
 
     // Used for column lazy read.
-    bool _can_lazy_read = false;
-    // block->rows() returns the number of rows of the first column,
-    // so we should check and resize the first column in lazy read
-    bool _resize_first_column = true;
-    std::vector<std::string> _all_read_columns;
-    std::vector<std::string> _predicate_columns;
-    std::vector<uint32_t> _predicate_col_ids;
-    std::vector<std::string> _lazy_read_columns;
+    RowGroupReader::LazyReadContext _lazy_read_ctx;
 
     std::list<int32_t> _read_row_groups;
     // parquet file reader object
