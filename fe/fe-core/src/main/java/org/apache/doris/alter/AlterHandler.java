@@ -262,9 +262,10 @@ public abstract class AlterHandler extends MasterDaemon {
         olapTable.readLock();
         try {
             long replicaCount = olapTable.getReplicaCount();
-            long maxReplicaCount = Config.mt_max_replica_count_when_schema_change;
+            long maxReplicaCount = Config.max_replica_count_when_schema_change;
             if (replicaCount > maxReplicaCount) {
-                String msg = String.format("%s have %d replicas reach %d limit when schema change.", olapTable.getName(), replicaCount, maxReplicaCount);
+                String msg = String.format("%s have %d replicas reach %d limit when schema change.",
+                        olapTable.getName(), replicaCount, maxReplicaCount);
                 LOG.warn(msg);
                 throw new DdlException(msg);
             }
