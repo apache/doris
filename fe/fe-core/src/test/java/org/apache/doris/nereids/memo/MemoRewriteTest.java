@@ -19,16 +19,13 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -52,14 +49,11 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-class MemoTest implements PatternMatchSupported {
+class MemoRewriteTest implements PatternMatchSupported {
 
     private final ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
@@ -69,35 +63,6 @@ class MemoTest implements PatternMatchSupported {
 
     private final LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
             JoinType.INNER_JOIN, logicalJoinAB, PlanConstructor.newLogicalOlapScan(2, "C", 0));
-
-    @Test
-    void mergeGroup() {
-        Memo memo = new Memo();
-        GroupId gid2 = new GroupId(2);
-        Group srcGroup = new Group(gid2, new GroupExpression(new FakePlan()), new LogicalProperties(ArrayList::new));
-        GroupId gid3 = new GroupId(3);
-        Group dstGroup = new Group(gid3, new GroupExpression(new FakePlan()), new LogicalProperties(ArrayList::new));
-        FakePlan d = new FakePlan();
-        GroupExpression ge1 = new GroupExpression(d, Arrays.asList(srcGroup));
-        GroupId gid0 = new GroupId(0);
-        Group g1 = new Group(gid0, ge1, new LogicalProperties(ArrayList::new));
-        g1.setBestPlan(ge1, Double.MIN_VALUE, PhysicalProperties.ANY);
-        GroupExpression ge2 = new GroupExpression(d, Arrays.asList(dstGroup));
-        GroupId gid1 = new GroupId(1);
-        Group g2 = new Group(gid1, ge2, new LogicalProperties(ArrayList::new));
-        Map<GroupId, Group> groups = Deencapsulation.getField(memo, "groups");
-        groups.put(gid2, srcGroup);
-        groups.put(gid3, dstGroup);
-        groups.put(gid0, g1);
-        groups.put(gid1, g2);
-        Map<GroupExpression, GroupExpression> groupExpressions =
-                Deencapsulation.getField(memo, "groupExpressions");
-        groupExpressions.put(ge1, ge1);
-        groupExpressions.put(ge2, ge2);
-        memo.mergeGroup(srcGroup, dstGroup);
-        Assertions.assertNull(g1.getBestPlan(PhysicalProperties.ANY));
-        Assertions.assertEquals(ge1.getOwnerGroup(), g2);
-    }
 
     /**
      * Original:
