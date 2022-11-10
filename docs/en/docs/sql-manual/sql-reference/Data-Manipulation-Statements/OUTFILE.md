@@ -58,7 +58,7 @@ illustrate:
 
     FORMAT AS CSV
 
-    Specifies the export format. Supported formats include csv, parquet, csv_with_names, csv_with_names_and_types and orc. Default is CSV.
+    Specifies the export format. Supported formats include CSV, PARQUET, CSV_WITH_NAMES, CSV_WITH_NAMES_AND_TYPES and ORC. Default is CSV.
 
 3. properties
 
