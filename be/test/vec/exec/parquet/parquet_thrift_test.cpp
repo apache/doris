@@ -395,9 +395,9 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     tuple_slots.emplace_back(&string_slot);
 
     std::vector<ParquetReadColumn> read_columns;
-    std::vector<std::string> all_read_columns;
+    RowGroupReader::LazyReadContext lazy_read_ctx;
     for (const auto& slot : tuple_slots) {
-        all_read_columns.emplace_back(slot->col_name());
+        lazy_read_ctx.all_read_columns.emplace_back(slot->col_name());
         read_columns.emplace_back(ParquetReadColumn(7, slot->col_name()));
     }
     LocalFileReader file_reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
@@ -413,11 +413,8 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto row_group = t_metadata.row_groups[0];
     std::shared_ptr<RowGroupReader> row_group_reader;
-    std::vector<std::string> empty_cols;
-    std::vector<std::uint32_t> empty_col_ids;
-    row_group_reader.reset(new RowGroupReader(&file_reader, read_columns, nullptr, 0, row_group,
-                                              &ctz, false, false, all_read_columns, empty_cols,
-                                              empty_col_ids, empty_cols));
+    row_group_reader.reset(
+            new RowGroupReader(&file_reader, read_columns, 0, row_group, &ctz, lazy_read_ctx));
     std::vector<RowRange> row_ranges = std::vector<RowRange>();
     auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
     auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets);
