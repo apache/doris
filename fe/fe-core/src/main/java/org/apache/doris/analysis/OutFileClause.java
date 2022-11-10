@@ -288,8 +288,7 @@ public class OutFileClause {
                     break;
                 case DECIMALV2:
                     if (!expr.getType().isWildcardDecimal()) {
-                        type = String.format("decimal(%d, %d)", ScalarType.MAX_DECIMAL128_PRECISION,
-                                ((ScalarType) expr.getType()).decimalScale());
+                        type = String.format("decimal(%d, 9)", ScalarType.MAX_DECIMAL128_PRECISION);
                     } else {
                         throw new AnalysisException("currently ORC writer do not support WildcardDecimal!");
                     }
