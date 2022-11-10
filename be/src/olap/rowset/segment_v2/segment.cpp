@@ -27,7 +27,6 @@
 #include "io/cache/file_cache_manager.h"
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
