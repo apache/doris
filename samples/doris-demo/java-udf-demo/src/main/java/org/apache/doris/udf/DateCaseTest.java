@@ -25,30 +25,22 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
-public class DateWindowRollup extends UDF {
+public class DateCaseTest extends UDF {
 
-    /**
-     * @param startTime yyyy-MM-dd
-     * @param start    从startTime 前-start天
-     * @param end      至startTime 前-end天
-     * @return ${yyyy-MM-dd}+end ，${yyyy-MM-dd}+(end+1),...,${yyyy-MM-dd}+(start)
-     */
-    public String evaluate(LocalDate startTime, Integer start, Integer end)  {
-        if (startTime == null || start == null || end == null){
+    public String evaluate(LocalDate startDate, Integer start, Integer end)  {
+        if (startDate == null || start == null || end == null){
             return null;
         }
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        List<String> ret = new ArrayList<>();
+        List<String> result = new ArrayList<>();
         for (int i = start; i <= end - 1; i++) {
-            LocalDate groupDate = startTime.plusDays(i);
-            if (groupDate.isAfter(yesterday)) {
-                break;
-            }
-            String dateFormat = formatter.format(groupDate);
-            ret.add(dateFormat);
+            LocalDate oneDate = startDate.plusDays(i);
+            if (oneDate.isAfter(yesterday)) break;
+            String dateString = formatter.format(oneDate);
+            result.add(dateString);
         }
-        return String.join(",", ret);
+        return String.join(",", result);
     }
 
 }
