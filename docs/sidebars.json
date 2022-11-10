@@ -1060,6 +1060,14 @@
                 "faq/data-faq",
                 "faq/sql-faq"
             ]
+        },
+        {
+            "type": "category",
+            "label": "Benchmark",
+            "items": [
+                "benchmark/ssb",
+                "benchmark/tpch"
+            ]
         }
     ]
 }
