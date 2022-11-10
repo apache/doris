@@ -56,7 +56,7 @@ INTO OUTFILE "file_path"
     
 2. format_as
     ​    FORMAT AS CSV
-    ​    指定导出格式. CSV、PARQUET、CSV_WITH_NAMES、CSV_WITH_NAMES_AND_TYPES、ORC. 默认为 CSV。
+    ​    指定导出格式. 支持 CSV、PARQUET、CSV_WITH_NAMES、CSV_WITH_NAMES_AND_TYPES、ORC. 默认为 CSV。
     
 3. properties
    
