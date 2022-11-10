@@ -24,7 +24,7 @@
 
 namespace doris::vectorized {
 
-class FunctionArrayCompact: public IFunction {
+class FunctionArrayCompact : public IFunction {
 public:
     static constexpr auto name = "array_compact";
     static FunctionPtr create() { return std::make_shared<FunctionArrayCompact>(); }
@@ -95,7 +95,6 @@ public:
     }
 
 private:
-
     template <typename ColumnType>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
@@ -114,16 +113,15 @@ private:
         ColumnArray::Offset64 src_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;
 
-        for (size_t i = 0; i<src_offsets_size; ++i) {
+        for (size_t i = 0; i < src_offsets_size; ++i) {
             auto src_offset = src_offsets[i];
-            if (src_pos<src_offset) {
-
+            if (src_pos < src_offset) {
                 // Insert first element
                 if (src_null_map && (*src_null_map)[src_pos]) {
                     DCHECK(dest_null_map != nullptr);
                     (*dest_null_map).push_back(true);
                     dest_datas.push_back(NestType());
-                }else{
+                } else {
                     dest_datas.push_back(src_datas[src_pos]);
                     if (dest_null_map) {
                         (*dest_null_map).push_back(false);
@@ -131,15 +129,17 @@ private:
                 }
                 ++src_pos;
                 ++dest_pos;
-            
-                // For the rest of elements, insert if the element is different from the previous.   
+
+                // For the rest of elements, insert if the element is different from the previous.
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&!((*src_null_map)[src_pos-1])) {
+                    if (src_null_map && (*src_null_map)[src_pos] &&
+                        !((*src_null_map)[src_pos - 1])) {
                         DCHECK(dest_null_map != nullptr);
                         (*dest_null_map).push_back(true);
                         dest_datas.push_back(NestType());
                         ++dest_pos;
-                    }else if(0 != (src_data_concrete->compare_at(src_pos-1, src_pos,src_column, 1))){
+                    } else if (0 != (src_data_concrete->compare_at(src_pos - 1, src_pos, src_column,
+                                                                   1))) {
                         dest_datas.push_back(src_datas[src_pos]);
                         if (dest_null_map) {
                             (*dest_null_map).push_back(false);
@@ -170,16 +170,15 @@ private:
         ColumnArray::Offset64 src_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;
 
-        for (size_t i = 0; i<src_offsets_size; ++i) {
+        for (size_t i = 0; i < src_offsets_size; ++i) {
             auto src_offset = src_offsets[i];
-            if (src_pos<src_offset) {
-
+            if (src_pos < src_offset) {
                 // Insert first element
                 if (src_null_map && (*src_null_map)[src_pos]) {
                     DCHECK(dest_null_map != nullptr);
                     column_string_offsets.push_back(column_string_offsets.back());
                     (*dest_null_map).push_back(true);
-                }else{
+                } else {
                     StringRef src_str_ref = src_data_concrete->get_data_at(src_pos);
                     // copy the src data to column_string_chars
                     const size_t old_size = column_string_chars.size();
@@ -187,7 +186,7 @@ private:
                     column_string_chars.resize(new_size);
                     if (src_str_ref.size > 0) {
                         memcpy(column_string_chars.data() + old_size, src_str_ref.data,
-                            src_str_ref.size);
+                               src_str_ref.size);
                     }
                     column_string_offsets.push_back(new_size);
                     if (dest_null_map) {
@@ -196,15 +195,17 @@ private:
                 }
                 ++src_pos;
                 ++dest_pos;
-            
-                // For the rest of elements, insert if the element is different from the previous.   
+
+                // For the rest of elements, insert if the element is different from the previous.
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&(!(*src_null_map)[src_pos-1])) {
+                    if (src_null_map && (*src_null_map)[src_pos] &&
+                        (!(*src_null_map)[src_pos - 1])) {
                         DCHECK(dest_null_map != nullptr);
                         column_string_offsets.push_back(column_string_offsets.back());
                         (*dest_null_map).push_back(true);
                         ++dest_pos;
-                    }else if(0 != (src_data_concrete->compare_at(src_pos-1, src_pos,src_column, 1))){
+                    } else if (0 != (src_data_concrete->compare_at(src_pos - 1, src_pos, src_column,
+                                                                   1))) {
                         StringRef src_str_ref = src_data_concrete->get_data_at(src_pos);
                         // copy the src data to column_string_chars
                         const size_t old_size = column_string_chars.size();
