@@ -150,7 +150,6 @@ private:
             }
             dest_offsets.push_back(dest_pos);
         }
-
         return true;
     }
 
