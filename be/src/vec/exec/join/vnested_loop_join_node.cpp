@@ -119,11 +119,14 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    if (_matched_rows_done) {
+    if ((_match_all_build && !_match_all_probe &&
+         _output_null_idx_build_side == _build_blocks.size()) ||
+        (_match_all_build && _match_all_probe && _matched_rows_done &&
+         _output_null_idx_build_side == _build_blocks.size()) ||
+        (_matched_rows_done)) {
         *eos = true;
         return Status::OK();
     }
-    *eos = false;
 
     _join_block.clear_column_data();
     MutableBlock mutable_join_block(&_join_block);
@@ -138,7 +141,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                         _left_block_pos = 0;
 
                         if (_left_side_eos) {
-                            *eos = _matched_rows_done = true;
+                            _matched_rows_done = true;
                         } else {
                             do {
                                 release_block_memory(_left_block);
@@ -149,7 +152,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                             } while (_left_block.rows() == 0 && !_left_side_eos);
                             COUNTER_UPDATE(_probe_rows_counter, _left_block.rows());
                             if (_left_block.rows() == 0) {
-                                *eos = _matched_rows_done = _left_side_eos;
+                                _matched_rows_done = _left_side_eos;
                             }
                         }
                     }
@@ -182,7 +185,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                         // probe row with null from build side.
                         if (_current_build_pos == _build_blocks.size()) {
                             if (!_matched_rows_done) {
-                                _output_null_data<false>(dst_columns);
+                                _output_null_data<false>(dst_columns, state->batch_size());
                                 _reset_with_next_probe_row(dst_columns);
                             }
                             break;
@@ -205,15 +208,18 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                 }
 
                 if constexpr (set_build_side_flag) {
-                    if (*eos) {
+                    if (_matched_rows_done && _output_null_idx_build_side < _build_blocks.size()) {
                         auto& cols = mutable_join_block.mutable_columns();
-                        _output_null_data<true>(cols);
+                        _output_null_data<true>(cols, state->batch_size());
                     }
                 }
                 return Status::OK();
             },
             _join_op_variants, make_bool_variant(_match_all_build),
             make_bool_variant(_match_all_probe)));
+
+    *eos = _match_all_build ? _output_null_idx_build_side == _build_blocks.size()
+                            : _matched_rows_done;
 
     Block tmp_block = mutable_join_block.to_block(0);
     RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
@@ -261,10 +267,11 @@ void VNestedLoopJoinNode::_process_left_child_block(MutableColumns& dst_columns,
 }
 
 template <bool BuildSide>
-void VNestedLoopJoinNode::_output_null_data(MutableColumns& dst_columns) {
+void VNestedLoopJoinNode::_output_null_data(MutableColumns& dst_columns, size_t batch_size) {
     if constexpr (BuildSide) {
         auto build_block_sz = _build_blocks.size();
-        for (size_t i = 0; i < build_block_sz; i++) {
+        size_t i = _output_null_idx_build_side;
+        for (; i < build_block_sz; i++) {
             const auto& cur_block = _build_blocks[i];
             const auto* __restrict cur_visited_flags =
                     assert_cast<ColumnUInt8*>(_build_side_visited_flags[i].get())
@@ -306,7 +313,12 @@ void VNestedLoopJoinNode::_output_null_data(MutableColumns& dst_columns) {
                             selector.data() + selector_idx);
                 }
             }
+            if (dst_columns[0]->size() > batch_size) {
+                i++;
+                break;
+            }
         }
+        _output_null_idx_build_side = i;
     } else {
         if (_cur_probe_row_visited_flags) {
             return;

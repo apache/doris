@@ -61,7 +61,7 @@ private:
     Status _do_filtering_and_update_visited_flags(Block* block, std::stack<uint16_t>& offset_stack);
 
     template <bool BuildSide>
-    void _output_null_data(MutableColumns& dst_columns);
+    void _output_null_data(MutableColumns& dst_columns, size_t batch_size);
 
     void _reset_with_next_probe_row(MutableColumns& dst_columns);
 
@@ -78,6 +78,7 @@ private:
 
     uint64_t _build_rows = 0;
     uint64_t _total_mem_usage = 0;
+    uint64_t _output_null_idx_build_side = 0;
 
     bool _matched_rows_done;
 

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <boost/thread.hpp>
 #include <future>
 #include <string>
 #include <variant>
