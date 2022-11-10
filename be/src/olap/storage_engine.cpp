@@ -106,7 +106,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
-          _mem_tracker(std::make_unique<MemTracker>("StorageEngine")),
+          _mem_tracker(std::make_shared<MemTracker>("StorageEngine")),
           _segcompaction_mem_tracker(std::make_unique<MemTracker>("SegCompaction")),
           _segment_meta_mem_tracker(std::make_unique<MemTracker>("SegmentMeta")),
           _stop_background_threads_latch(1),
