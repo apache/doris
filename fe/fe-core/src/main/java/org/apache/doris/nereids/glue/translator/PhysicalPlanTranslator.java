@@ -691,10 +691,87 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toList());
 
             CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextPlanNodeId(),
-                    leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds);
+                    leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, null, null, null);
             if (nestedLoopJoin.getStats() != null) {
                 crossJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
             }
+
+            Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
+            nestedLoopJoin.child(0).getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> leftChildOutputMap.put(s.getExprId(), s));
+            Map<ExprId, SlotReference> rightChildOutputMap = Maps.newHashMap();
+            nestedLoopJoin.child(1).getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
+            // make intermediate tuple
+            List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
+            List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
+            TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
+
+            // Nereids does not care about output order of join,
+            // but BE need left child's output must be before right child's output.
+            // So we need to swap the output order of left and right child if necessary.
+            // TODO: revert this after Nereids could ensure the output order is correct.
+            List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                    .map(TupleDescriptor::getSlots)
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                    .map(TupleDescriptor::getSlots)
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
+
+            nestedLoopJoin.getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+            List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                    .map(TupleDescriptor::getSlots)
+                    .flatMap(Collection::stream)
+                    .map(sd -> context.findExprId(sd.getId()))
+                    .map(outputSlotReferenceMap::get)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            JoinType joinType = nestedLoopJoin.getJoinType();
+            if (crossJoinNode.getConjuncts().isEmpty()
+                    && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
+                for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                    SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    leftIntermediateSlotDescriptor.add(sd);
+                }
+            } else if (crossJoinNode.getConjuncts().isEmpty()
+                    && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
+                for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                    SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    rightIntermediateSlotDescriptor.add(sd);
+                }
+            } else {
+                for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                    SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    leftIntermediateSlotDescriptor.add(sd);
+                }
+                for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                    SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    rightIntermediateSlotDescriptor.add(sd);
+                }
+            }
+
+            // set slots as nullable for outer join
+            if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+                rightIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
+            }
+            if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+                leftIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
+            }
+
+            crossJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
+
             rightFragment.getPlanRoot().setCompactData(false);
             crossJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
@@ -702,6 +779,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             nestedLoopJoin.getOtherJoinConjuncts().stream()
                     .map(e -> ExpressionTranslator.translate(e, context)).forEach(crossJoinNode::addConjunct);
 
+            if (nestedLoopJoin.isShouldTranslateOutput()) {
+                // translate output expr on intermediate tuple
+                List<Expr> srcToOutput = outputSlotReferences.stream()
+                        .map(e -> ExpressionTranslator.translate(e, context))
+                        .collect(Collectors.toList());
+
+                TupleDescriptor outputDescriptor = context.generateTupleDesc();
+                outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
+
+                crossJoinNode.setvOutputTupleDesc(outputDescriptor);
+                crossJoinNode.setvSrcToOutputSMap(srcToOutput);
+            }
+            if (nestedLoopJoin.getStats() != null) {
+                crossJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+            }
             return leftFragment;
         } else {
             throw new RuntimeException("Physical nested loop join could not execute with equal join condition.");
@@ -714,9 +806,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (project.child(0) instanceof PhysicalHashJoin) {
             ((PhysicalHashJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
         }
+        if (project.child(0) instanceof PhysicalNestedLoopJoin) {
+            ((PhysicalNestedLoopJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
+        }
         if (project.child(0) instanceof PhysicalFilter) {
             if (project.child(0).child(0) instanceof PhysicalHashJoin) {
                 ((PhysicalHashJoin<?, ?>) project.child(0).child(0)).setShouldTranslateOutput(false);
+            }
+            if (project.child(0).child(0) instanceof PhysicalNestedLoopJoin) {
+                ((PhysicalNestedLoopJoin<?, ?>) project.child(0).child(0)).setShouldTranslateOutput(false);
             }
         }
         PlanFragment inputFragment = project.child(0).accept(this, context);
@@ -736,6 +834,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             HashJoinNode hashJoinNode = (HashJoinNode) inputPlanNode;
             hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
             hashJoinNode.setvSrcToOutputSMap(execExprList);
+            return inputFragment;
+        }
+        if (inputPlanNode instanceof CrossJoinNode) {
+            CrossJoinNode crossJoinNode = (CrossJoinNode) inputPlanNode;
+            crossJoinNode.setvOutputTupleDesc(tupleDescriptor);
+            crossJoinNode.setvSrcToOutputSMap(execExprList);
             return inputFragment;
         }
         inputPlanNode.setProjectList(execExprList);

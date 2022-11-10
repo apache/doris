@@ -42,8 +42,6 @@ public class PhysicalHashJoin<
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    private boolean shouldTranslateOutput = true;
-
     // TODO: What's purpose? it's alway empty.
     private final List<Expression> filterConjuncts = Lists.newArrayList();
 
@@ -121,14 +119,6 @@ public class PhysicalHashJoin<
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statsDeriveResult, left(), right());
-    }
-
-    public boolean isShouldTranslateOutput() {
-        return shouldTranslateOutput;
-    }
-
-    public void setShouldTranslateOutput(boolean shouldTranslateOutput) {
-        this.shouldTranslateOutput = shouldTranslateOutput;
     }
 
     public List<Expression> getFilterConjuncts() {
