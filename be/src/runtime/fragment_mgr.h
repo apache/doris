@@ -107,12 +107,19 @@ private:
 
     bool _is_scan_node(const TPlanNodeType::type& type);
 
+    void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
+                                                    RuntimeState* state,
+                                                    QueryFragmentsCtx* fragments_ctx);
+
     // This is input params
     ExecEnv* _exec_env;
 
     std::mutex _lock;
 
     std::condition_variable _cv;
+
+    std::mutex _lock_for_shared_hash_table;
+    std::condition_variable _cv_for_sharing_hashtable;
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
