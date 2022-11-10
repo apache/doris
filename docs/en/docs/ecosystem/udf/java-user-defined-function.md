@@ -176,8 +176,9 @@ When you no longer need UDF functions, you can delete a UDF function by the foll
 ## Example
 Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` directory. See the `README.md` in each directory for details on how to use it, Check it out [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
 
-## Unsupported Use Case
-At present, Java UDF is still in the process of continuous development, so some features are **not completed**.
+## Instructions
 1. Complex data types (HLL, bitmap) are not supported.
-2. Memory management and statistics of JVM and Doris have not been unified.
+2. Currently, users are allowed to specify the maximum heap size of the JVM themselves. The configuration item is jvm_ max_ heap_ size.
+3. The udf of char type needs to use the String type when creating a function.
+4. Due to the problem that the jvm loads classes with the same name, do not use multiple classes with the same name as udf implementations at the same time. If you want to update the udf of a class with the same name, you need to restart be to reload the classpath.
 

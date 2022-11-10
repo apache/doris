@@ -175,8 +175,9 @@ UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函�
 ## 示例
 在`samples/doris-demo/java-udf-demo/` 目录中提供了具体示例。具体使用方法见每个目录下的`README.md`，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
 
-## 暂不支持的场景
-当前Java UDF仍然处在持续的开发过程中，所以部分功能**尚不完善**。包括：
-1. 不支持复杂数据类型（HLL，Bitmap）
-2. 尚未统一JVM和Doris的内存管理以及统计信息
+## 使用须知
+1. 不支持复杂数据类型（HLL，Bitmap）。
+2. 当前允许用户自己指定JVM最大堆大小，配置项是jvm_max_heap_size。
+3. char类型的udf在create function时需要使用String类型。
+4. 由于jvm加载同名类的问题，不要同时使用多个同名类作为udf实现，如果想更新某个同名类的udf，需要重启be重新加载classpath。
 
