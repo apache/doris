@@ -81,7 +81,6 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
         );
         testSql.forEach(sql -> {
             StatementContext context = createStatementCtx(sql);
-            System.out.printf("run sql: %s\n", sql);
             new NereidsPlanner(createStatementCtx(sql))
                     .plan(new LogicalPlanAdapter(new NereidsParser().parseSingle(sql), context));
         });

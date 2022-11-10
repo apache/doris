@@ -115,7 +115,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
      * ******************************************************************************************** */
 
     @Test
-    public void testTranslateCase() throws Exception {
+    public void testTranslateCase() {
         new MockUp<RuleSet>() {
             @Mock
             public List<Rule> getExplorationRules() {
@@ -124,9 +124,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         };
 
         for (String sql : testSql) {
-            NamedExpressionUtil.clear();
             StatementContext context = createStatementCtx(sql);
-            System.out.printf("run sql: %s\n", sql);
             new NereidsPlanner(createStatementCtx(sql))
                     .plan(new LogicalPlanAdapter(new NereidsParser().parseSingle(sql), context));
         }

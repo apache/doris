@@ -78,7 +78,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
     }
 
     @Test
-    public void testTranslateAllCase() throws Exception {
+    public void testTranslateAllCase() {
 
         List<String> testSql = Lists.newArrayList(
                 "SELECT * FROM V1",
@@ -92,10 +92,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
 
         // check whether they can be translated.
         for (String sql : testSql) {
-            NamedExpressionUtil.clear();
-            System.out.println("\n\n***** " + sql + " *****\n\n");
             StatementContext context = createStatementCtx(sql);
-            System.out.printf("run sql: %s\n", sql);
             new NereidsPlanner(createStatementCtx(sql))
                     .plan(new LogicalPlanAdapter(new NereidsParser().parseSingle(sql), context));
         }
