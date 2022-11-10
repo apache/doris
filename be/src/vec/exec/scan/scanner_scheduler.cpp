@@ -140,9 +140,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         while (iter != this_run.end()) {
             (*iter)->start_wait_worker_timer();
             auto s = ctx->thread_token->submit_func(
-                    [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
-                    });
+                    [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
             if (s.ok()) {
                 this_run.erase(iter++);
             } else {

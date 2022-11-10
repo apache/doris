@@ -213,7 +213,6 @@ private:
 
     int64_t _num_ctx_scheduling = 0;
     int64_t _num_scanner_scheduling = 0;
-
 };
 } // namespace vectorized
 } // namespace doris
