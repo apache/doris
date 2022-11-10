@@ -141,6 +141,8 @@ public:
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
                          int node_id, IRuntimeFilter** res);
 
+    Status apply_from_other(IRuntimeFilter* other);
+
     // insert data to build filter
     // only used for producer
     void insert(const void* data);
@@ -245,6 +247,8 @@ public:
     static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
         return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
     }
+
+    int filter_id() const { return _filter_id; }
 
 protected:
     // serialize _wrapper to protobuf

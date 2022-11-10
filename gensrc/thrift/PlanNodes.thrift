@@ -579,6 +579,8 @@ struct THashJoinNode {
   8: optional Types.TTupleId voutput_tuple_id
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
+
+  10: optional bool is_broadcast_join;
 }
 
 struct TMergeJoinNode {

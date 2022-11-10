@@ -21,8 +21,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_case") {
-    def tableName = "test_javaudf_datecasetest"
+suite("test_javaudaf_mysum_decimal") {
+    def tableName = "test_javaudaf_mysum_decimal"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
@@ -30,38 +30,39 @@ suite("test_javaudf_case") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
-            `starttime` Date NOT NULL COMMENT "",
-            `start`     int NOT NULL COMMENT "",
-            `end`       int COMMENT ""
+            `user_id` INT NOT NULL COMMENT "",
+            `cost_1` decimal(27,9) NOT NULL COMMENT "",
+            `cost_2` decimal(27,9) COMMENT ""
             )
-            DISTRIBUTED BY HASH(starttime) PROPERTIES("replication_num" = "1");
+            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
         
         
-        sql """ INSERT INTO ${tableName} (`starttime`,`start`,`end`) VALUES
-                ("2022-10-21",-3,0),
-                ("2022-10-25",-7,-3),
-                ("2022-10-26",-7,null)
+        sql """ INSERT INTO ${tableName} (`user_id`,`cost_1`,`cost_2`) VALUES
+                (111,11111.11111,222222.3333333),
+                (112,1234556.11111,222222.3333333),
+                (113,87654321.11111,null)
             """
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY starttime; """
+        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         File path = new File(jarPath)
         if (!path.exists()) {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
-        sql """ CREATE FUNCTION java_udf_dateCase_test(date,int,int) RETURNS String PROPERTIES (
+        sql """ CREATE AGGREGATE FUNCTION udaf_my_sum_decimal(decimal(27,9)) RETURNS decimal(27,9) PROPERTIES (
             "file"="file://${jarPath}",
-            "symbol"="org.apache.doris.udf.DateCaseTest",
+            "symbol"="org.apache.doris.udf.MySumDecimal",
+            "always_nullable"="false",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_dateCase_test("2022-10-24",-7,0) as result; """
-        qt_select """ SELECT java_udf_dateCase_test(null,-7,0) as result ; """
-        qt_select """ SELECT starttime,java_udf_dateCase_test(starttime,start,end) as sum FROM ${tableName} order by starttime; """
+        qt_select1 """ SELECT udaf_my_sum_decimal(cost_1) result FROM ${tableName}; """
+
+        qt_select2 """ select user_id, udaf_my_sum_decimal(cost_1) from ${tableName} group by user_id order by user_id; """
         
 
-        sql """ DROP FUNCTION java_udf_dateCase_test(date,int,int); """
+        sql """ DROP FUNCTION udaf_my_sum_decimal(decimal(27,9)); """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
