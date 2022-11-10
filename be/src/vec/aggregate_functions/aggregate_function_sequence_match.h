@@ -64,7 +64,7 @@ public:
         if (!init_flag) {
             this->pattern = pattern;
             this->arg_count = arg_count;
-            parsePattern();
+            parse_pattern();
             init_flag = true;
         }
     }
@@ -628,12 +628,8 @@ public:
             return;
         }
 
-        LOG(WARNING) << this->data(place).conditions_in_pattern.to_string();
-        LOG(WARNING) << this->data(place).conditions_met.to_string();
-
         if ((this->data(place).conditions_in_pattern & this->data(place).conditions_met) !=
             this->data(place).conditions_in_pattern) {
-            LOG(WARNING) << "FALSE";
             output.push_back(false);
             return;
         }
