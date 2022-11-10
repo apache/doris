@@ -35,7 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
-import org.apache.doris.statistics.ColumnStat;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import java.util.List;
@@ -187,18 +187,18 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         Slot leftSlot = leftSlots.iterator().next();
         Slot rightSlot = rightSlots.iterator().next();
-        ColumnStat probeColumnStat = leftStats.getColumnStatsBySlot(leftSlot);
-        ColumnStat buildColumnStat = rightStats.getColumnStatsBySlot(rightSlot);
+        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlotId(leftSlot.getExprId());
+        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlotId(rightSlot.getExprId());
         //TODO remove these code when we ensure left child if from probe side
         if (probeColumnStat == null || buildColumnStat == null) {
-            probeColumnStat = leftStats.getColumnStatsBySlot(rightSlot);
-            buildColumnStat = rightStats.getColumnStatsBySlot(leftSlot);
+            probeColumnStat = leftStats.getColumnStatsBySlotId(rightSlot.getExprId());
+            buildColumnStat = rightStats.getColumnStatsBySlotId(leftSlot.getExprId());
             if (probeColumnStat == null || buildColumnStat == null) {
                 return false;
             }
         }
-        return buildColumnStat.getSelectivity() < 1
+        return buildColumnStat.selectivity < 1
                 || probeColumnStat.coverage(buildColumnStat) < 1
-                || buildColumnStat.getNdv() < probeColumnStat.getNdv() * 0.95;
+                || buildColumnStat.ndv < probeColumnStat.ndv * 0.95;
     }
 }

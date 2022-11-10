@@ -190,4 +190,22 @@ public class ColumnStatistic {
         }
     }
 
+    /**
+     * the percentage of intersection range to this range
+     * @param other
+     * @return
+     */
+    public double coverage(ColumnStatistic other) {
+        if (minValue == maxValue) {
+            if (other.minValue <= minValue && minValue <= other.maxValue) {
+                return 1.0;
+            } else {
+                return 0.0;
+            }
+        } else {
+            double myRange = maxValue - minValue;
+            double interSection = Math.min(maxValue, other.maxValue) - Math.max(minValue, other.minValue);
+            return interSection / myRange;
+        }
+    }
 }
