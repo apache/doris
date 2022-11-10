@@ -720,7 +720,7 @@ public class Load {
                         slotDesc.setIsNullable(tblColumn.isAllowNull());
                     }
                 } else {
-                    if (useVectorizedLoad && formatType == TFileFormatType.FORMAT_JSON
+                    if (formatType == TFileFormatType.FORMAT_JSON
                                 && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
                         slotDesc.setType(tblColumn.getType());
                         slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
@@ -744,9 +744,6 @@ public class Load {
 
         // add a implict container column "__dynamic__" for dynamic columns
         if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
-            if (!useVectorizedLoad) {
-                throw new UserException("Dynamic table need vectorized load, for table " + tbl.getName());
-            }
             analyzer.getDescTbl().addReferencedTable(tbl);
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
             String name = Column.DYNAMIC_COLUMN_NAME;
