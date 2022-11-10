@@ -98,7 +98,9 @@ private:
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr;
 
+#ifdef USE_MEM_TRACKER
     RuntimeState* _state;
+#endif
 
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;
