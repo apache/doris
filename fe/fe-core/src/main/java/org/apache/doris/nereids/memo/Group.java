@@ -117,6 +117,14 @@ public class Group {
         groupExpression.setOwnerGroup(null);
     }
 
+    public void removeGroupExpressionKeepRef(GroupExpression groupExpression) {
+        if (groupExpression.getPlan() instanceof LogicalPlan) {
+            logicalExpressions.remove(groupExpression);
+        } else {
+            physicalExpressions.remove(groupExpression);
+        }
+    }
+
     public void addLogicalExpression(GroupExpression groupExpression) {
         groupExpression.setOwnerGroup(this);
         logicalExpressions.add(groupExpression);

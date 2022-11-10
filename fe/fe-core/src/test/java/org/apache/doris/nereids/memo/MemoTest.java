@@ -75,16 +75,16 @@ class MemoTest implements PatternMatchSupported {
 
     /**
      * src & dst have same one plan, we will
-     * ┌─────────────────────────┐     ┌───────────┐
-     * │  ┌─────┐       ┌─────┐  │     │  ┌─────┐  │
-     * │  │ ┌─┐ │       │ ┌─┐ │  │     │  │ ┌─┐ │  │
-     * │  │ └┼┘ │       │ └┼┘ │  │     │  │ └┼┘ │  │
-     * │  └──┼──┘       └──┼──┘  │     │  └──┼──┘  │
-     * │     │    memo     │     ├────►│memo │     │
-     * │  ┌──▼──┐       ┌──▼──┐  │     │  ┌──▼──┐  │
-     * │  │ src │       │ dst │  │     │  │ dst │  │
-     * │  └─────┘       └─────┘  │     │  └─────┘  │
-     * └─────────────────────────┘     └───────────┘
+     * ┌─────────────────────────┐     ┌───────────────┐
+     * │  ┌─────┐       ┌─────┐  │     │  ┌─────────┐  │
+     * │  │ ┌─┐ │       │ ┌─┐ │  │     │  │ ┌─┐ ┌─┐ │  │
+     * │  │ └┼┘ │       │ └┼┘ │  │     │  │ └┼┘ └┼┘ │  │
+     * │  └──┼──┘       └──┼──┘  │     │  └──┼───┼──┘  │
+     * │     │    memo     │     ├────►│memo │   │     │
+     * │  ┌──▼──┐       ┌──▼──┐  │     │   ┌─▼───▼─┐   │
+     * │  │ src │       │ dst │  │     │   │  dst  │   │
+     * │  └─────┘       └─────┘  │     │   └───────┘   │
+     * └─────────────────────────┘     └───────────────┘
      */
     @Test
     void testMergeGroup() {
@@ -112,21 +112,21 @@ class MemoTest implements PatternMatchSupported {
         memo.mergeGroup(srcGroup, dstGroup);
 
         // check
-        Assertions.assertEquals(srcGroup.getParentGroupExpressions().size(), 0);
-        Assertions.assertEquals(srcGroup.getPhysicalExpressions().size(), 0);
-        Assertions.assertEquals(srcGroup.getLogicalExpressions().size(), 0);
+        Assertions.assertEquals(0, srcGroup.getParentGroupExpressions().size());
+        Assertions.assertEquals(0, srcGroup.getPhysicalExpressions().size());
+        Assertions.assertEquals(0, srcGroup.getLogicalExpressions().size());
 
-        Assertions.assertEquals(srcParentGroup.getParentGroupExpressions().size(), 0);
-        Assertions.assertEquals(srcParentGroup.getPhysicalExpressions().size(), 0);
-        Assertions.assertEquals(srcParentGroup.getLogicalExpressions().size(), 0);
+        Assertions.assertEquals(0, srcParentGroup.getParentGroupExpressions().size());
+        Assertions.assertEquals(0, srcParentGroup.getPhysicalExpressions().size());
+        Assertions.assertEquals(0, srcParentGroup.getLogicalExpressions().size());
 
         Assertions.assertEquals(memo.getRoot(), dstParentGroup);
 
-        Assertions.assertEquals(dstGroup.getPhysicalExpressions().size(), 2);
-        Assertions.assertEquals(dstParentGroup.getPhysicalExpressions().size(), 2);
+        Assertions.assertEquals(2, dstGroup.getPhysicalExpressions().size());
+        Assertions.assertEquals(1, dstParentGroup.getPhysicalExpressions().size());
 
-        Assertions.assertEquals(srcParent.getOwnerGroup(), dstParentGroup);
-        Assertions.assertEquals(srcParent.child(0), dstGroup);
+        Assertions.assertEquals(dstParentGroup, srcParent.getOwnerGroup());
+        Assertions.assertEquals(dstGroup, srcParent.child(0));
 
         Assertions.assertNull(srcParentGroup.getBestPlan(PhysicalProperties.ANY));
     }

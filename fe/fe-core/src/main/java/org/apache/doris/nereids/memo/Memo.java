@@ -389,19 +389,20 @@ public class Memo {
         source.getLogicalExpressions().forEach(child -> child.setOwnerGroup(destination));
         source.getPhysicalExpressions().forEach(child -> child.setOwnerGroup(destination));
 
-        // move parents
-        List<GroupExpression> parents = source.getParentGroupExpressions();
-        parents.forEach(parent -> {
+        // move parentExpressions
+        List<GroupExpression> parentExpressions = source.getParentGroupExpressions();
+        parentExpressions.forEach(parent -> {
             Utils.replaceListWithCheck(parent.children(), source, destination);
             destination.addParentExpression(parent);
-            // remove self from his group, and reinsert later
-            parent.getOwnerGroup().removeGroupExpression(parent);
+            // Remove self from his group, and reinsert later.
+            // Here we need keep parent ref, it's used for following.
+            parent.getOwnerGroup().removeGroupExpressionKeepRef(parent);
         });
 
         // After change GroupExpression children, the hashcode will change,
         // so need to reinsert into map. we need reinsert recursively bottom-up.
         Map<Group, Group> needMergeGroup = Maps.newHashMap();
-        for (GroupExpression reinsertExpression : parents) {
+        for (GroupExpression reinsertExpression : parentExpressions) {
             if (groupExpressions.containsKey(reinsertExpression)) {
                 GroupExpression existGroupExpression = groupExpressions.get(reinsertExpression);
                 if (existGroupExpression.getOwnerGroup() != null
@@ -415,9 +416,13 @@ public class Memo {
                     // they are in the different group, need to merge them.
                     reinsertExpression.getOwnerGroup().deleteBestPlan(reinsertExpression);
                     needMergeGroup.put(reinsertExpression.getOwnerGroup(), existGroupExpression.getOwnerGroup());
+
+                    // notice: removeGroupExpressionKeepRef is keepRef, so need replace parent ref.
+                    reinsertExpression.setOwnerGroup(existGroupExpression.getOwnerGroup());
                 }
             } else {
                 groupExpressions.put(reinsertExpression, reinsertExpression);
+                // reinsert.
                 reinsertExpression.getOwnerGroup().addGroupExpression(reinsertExpression);
             }
         }
