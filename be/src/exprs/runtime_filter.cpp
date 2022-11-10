@@ -1175,14 +1175,10 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_
     DCHECK(is_consumer());
     if (!_is_ignored) {
         _set_push_down();
-        if (_profile != nullptr) {
-            _profile->add_info_string("Info", _format_status());
-        }
+        _profile->add_info_string("Info", _format_status());
         return _wrapper->get_push_vexprs(push_vexprs, _state, _vprobe_ctx);
     } else {
-        if (_profile != nullptr) {
-            _profile->add_info_string("Info", _format_status());
-        }
+        _profile->add_info_string("Info", _format_status());
         return Status::OK();
     }
 }
@@ -1214,9 +1210,7 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
                                            const RowDescriptor& desc) {
-    if (_profile != nullptr) {
-        _profile->add_info_string("Info", _format_status());
-    }
+    _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
     }
