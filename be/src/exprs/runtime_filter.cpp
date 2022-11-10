@@ -1225,13 +1225,13 @@ bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
     SCOPED_TIMER(_await_time_cost);
     int64_t wait_times_ms = _state->runtime_filter_wait_time_ms();
+    std::unique_lock<std::mutex> lock(_inner_mutex);
     if (!_is_ready) {
         int64_t ms_since_registration = MonotonicMillis() - registration_time_;
         int64_t ms_remaining = wait_times_ms - ms_since_registration;
         if (ms_remaining <= 0) {
             return _is_ready;
         }
-        std::unique_lock<std::mutex> lock(_inner_mutex);
         return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
                                   [this] { return this->_is_ready; });
     }
@@ -1240,6 +1240,7 @@ bool IRuntimeFilter::await() {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+    std::unique_lock<std::mutex> lock(_inner_mutex);
     _is_ready = true;
     _inner_cv.notify_all();
     _effect_timer.reset();
