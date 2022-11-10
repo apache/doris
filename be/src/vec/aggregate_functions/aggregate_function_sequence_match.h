@@ -33,13 +33,6 @@
 
 namespace doris::vectorized {
 
-namespace ErrorCodes {
-extern const int TOO_SLOW;
-extern const int SYNTAX_ERROR;
-extern const int BAD_ARGUMENTS;
-extern const int LOGICAL_ERROR;
-} // namespace ErrorCodes
-
 template <template <typename> class Comparator>
 struct ComparePairFirst final {
     template <typename T1, typename T2>
@@ -182,7 +175,7 @@ private:
 
     Derived& derived() { return static_cast<Derived&>(*this); }
 
-    void parsePattern() {
+    void parse_pattern() {
         actions.clear();
         actions.emplace_back(PatternActionType::KleeneStar);
 
@@ -194,9 +187,12 @@ private:
         const char* pos = pattern.data();
         const char* begin = pos;
         const char* end = pos + pattern.size();
+
+        // Pattern is checked in fe, so pattern should be vaild here, we check it and if pattern is invalid, we return 0.
         auto throw_exception = [&](const std::string& msg) {
-            LOG(FATAL) << msg + " '" + std::string(pos, end) + "' at position " +
+            LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
                                   std::to_string(pos - begin);
+            return 0;
         };
 
         auto match = [&pos, end](const char* str) mutable {
@@ -229,7 +225,6 @@ private:
                     NativeType duration = 0;
                     const auto* prev_pos = pos;
                     pos = try_read_first_int_text(duration, pos, end);
-                    LOG(WARNING) << std::to_string(duration);
                     if (pos == prev_pos) throw_exception("Could not parse number");
 
                     if (actions.back().type != PatternActionType::SpecificEvent &&
@@ -281,7 +276,7 @@ public:
     /// of events) with a memory consumption and memory allocations in O(m). It means that
     /// if n >>> m (which is expected to be the case), this algorithm can be considered linear.
     template <typename EventEntry>
-    bool dfaMatch(EventEntry& events_it, const EventEntry events_end) const {
+    bool dfa_match(EventEntry& events_it, const EventEntry events_end) const {
         using ActiveStates = std::vector<bool>;
         /// Those two vectors keep track of which states should be considered for the current
         /// event as well as the states which should be considered for the next event.
@@ -330,7 +325,7 @@ public:
     }
 
     template <typename EventEntry>
-    bool backtrackingMatch(EventEntry& events_it, const EventEntry events_end) const {
+    bool backtracking_match(EventEntry& events_it, const EventEntry events_end) const {
         const auto action_begin = std::begin(actions);
         const auto action_end = std::end(actions);
         auto action_it = action_begin;
@@ -412,13 +407,17 @@ public:
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
-            } else
-                LOG(FATAL) << "Unknown PatternActionType";
+            } else{
+                LOG(WARNING) << "Unknown PatternActionType";
+                return false;
+            }
 
-            if (++i > sequence_match_max_iterations)
-                LOG(FATAL)
+            if (++i > sequence_match_max_iterations){
+                LOG(WARNING)
                         << "Pattern application proves too difficult, exceeding max iterations (" +
                                    std::to_string(sequence_match_max_iterations) + ")";
+                return false;
+            }
         }
 
         /// if there are some actions remaining
@@ -442,7 +441,7 @@ public:
     /// ignoring the non-deterministic fragments.
     /// This function can quickly check that a full match is not possible if some deterministic fragment is missing.
     template <typename EventEntry>
-    bool couldMatchDeterministicParts(const EventEntry events_begin, const EventEntry events_end,
+    bool could_match_deterministic_parts(const EventEntry events_begin, const EventEntry events_end,
                                       bool limit_iterations = true) const {
         size_t events_processed = 0;
         auto events_it = events_begin;
@@ -471,10 +470,12 @@ public:
                     }
                 }
 
-                if (limit_iterations && ++events_processed > sequence_match_max_iterations)
-                    LOG(FATAL) << "Pattern application proves too difficult, exceeding max "
+                if (limit_iterations && ++events_processed > sequence_match_max_iterations){
+                    LOG(WARNING) << "Pattern application proves too difficult, exceeding max "
                                   "iterations are " +
                                           std::to_string(sequence_match_max_iterations);
+                    return false;
+                }
             }
 
             return det_part_it == actions_it;
@@ -645,10 +646,10 @@ public:
         auto events_it = events_begin;
 
         bool match = (this->data(place).pattern_has_time
-                              ? (this->data(place).couldMatchDeterministicParts(events_begin,
+                              ? (this->data(place).could_match_deterministic_parts(events_begin,
                                                                                 events_end) &&
-                                 this->data(place).backtrackingMatch(events_it, events_end))
-                              : this->data(place).dfaMatch(events_it, events_end));
+                                 this->data(place).backtracking_match(events_it, events_end))
+                              : this->data(place).dfa_match(events_it, events_end));
         output.push_back(match);
     }
 };
@@ -699,9 +700,9 @@ private:
 
         size_t count = 0;
         // check if there is a chance of matching the sequence at least once
-        if (this->data(place).couldMatchDeterministicParts(events_begin, events_end)) {
+        if (this->data(place).could_match_deterministic_parts(events_begin, events_end)) {
             while (events_it != events_end &&
-                   this->data(place).backtrackingMatch(events_it, events_end))
+                   this->data(place).backtracking_match(events_it, events_end))
                 ++count;
         }
 
