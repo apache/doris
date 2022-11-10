@@ -52,7 +52,7 @@ public class Abs extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
             FunctionSignature.ret(SmallIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.MAX).args(DecimalV2Type.MAX)
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT)
     );
 
     /**
