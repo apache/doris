@@ -28,16 +28,17 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 /**
  * This rule is for Join Reorder (non Cascades Transfrom Join Reorder).
  */
-public class HyperGraphJoinReorderGroupPlan extends OneRewriteRuleFactory {
+public class HyperGraphJoinReorderGroupLeft extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         // TODO: we need a pattern to match a subtree of join and mark the node in this tree ordered
         return logicalJoin(
-                subTree(LogicalJoin.class, LogicalProject.class),
-                group())
+                group(),
+                subTree(LogicalJoin.class, LogicalProject.class))
                 .thenApply(ctx -> {
                     LogicalJoin<? extends Plan, ? extends Plan> rootJoin = ctx.root;
                     HyperGraph graph = HyperGraph.fromPlan(rootJoin);
+                    System.out.println(graph.toDottyHyperGraph());
                     if (graph.optimize()) {
                         return graph.toPlan();
                     }
