@@ -154,9 +154,8 @@ private:
     }
 
     bool _execute_generic(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) {
-
+                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
+                          const NullMapType* src_null_map, NullMapType* dest_null_map) {
         dest_column.reserve(src_column.size());
 
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
@@ -169,10 +168,10 @@ private:
                 // Insert first element
                 if (src_null_map && (*src_null_map)[src_pos]) {
                     DCHECK(dest_null_map != nullptr);
-                    dest_column.insert_from(src_column,src_pos);
+                    dest_column.insert_from(src_column, src_pos);
                     (*dest_null_map).push_back(true);
                 } else {
-                    dest_column.insert_from(src_column,src_pos);
+                    dest_column.insert_from(src_column, src_pos);
                     if (dest_null_map) {
                         (*dest_null_map).push_back(false);
                     }
@@ -185,12 +184,11 @@ private:
                     if (src_null_map && (*src_null_map)[src_pos] &&
                         (!(*src_null_map)[src_pos - 1])) {
                         DCHECK(dest_null_map != nullptr);
-                    dest_column.insert_from(src_column,src_pos);
+                        dest_column.insert_from(src_column, src_pos);
                         (*dest_null_map).push_back(true);
                         ++dest_pos;
-                    } else if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column,
-                                                                   1))) {
-                        dest_column.insert_from(src_column,src_pos);
+                    } else if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column, 1))) {
+                        dest_column.insert_from(src_column, src_pos);
                         if (dest_null_map) {
                             (*dest_null_map).push_back(false);
                         }
@@ -244,7 +242,7 @@ private:
                                                     dest_offsets, src_null_map, dest_null_map);
         } else {
             res = _execute_generic(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
-                                  dest_null_map);
+                                   dest_null_map);
         }
         return res;
     }
