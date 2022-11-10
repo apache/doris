@@ -406,24 +406,6 @@ visible_functions = [
     [['array_compact'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
     [['array_compact'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
     [['array_compact'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
-    '''
-    Multiple nesting of arrays will not be supported until the compare_at method of ColumnArray is implemented.
-    [['array_compact'], 'ARRAY_ARRAY_BOOLEAN',   ['ARRAY_ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_TINYINT',   ['ARRAY_ARRAY_TINYINT'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_SMALLINT',  ['ARRAY_ARRAY_SMALLINT'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_INT',       ['ARRAY_ARRAY_INT'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_BIGINT',    ['ARRAY_ARRAY_BIGINT'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_LARGEINT',  ['ARRAY_ARRAY_LARGEINT'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_DATETIME',  ['ARRAY_ARRAY_DATETIME'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_DATE',      ['ARRAY_ARRAY_DATE'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_DATETIMEV2',  ['ARRAY_ARRAY_DATETIMEV2'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_DATEV2',      ['ARRAY_ARRAY_DATEV2'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_FLOAT',     ['ARRAY_ARRAY_FLOAT'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_DOUBLE',    ['ARRAY_ARRAY_DOUBLE'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_DECIMALV2', ['ARRAY_ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_VARCHAR',   ['ARRAY_ARRAY_VARCHAR'], '', '', '', 'vec', ''],
-    [['array_compact'], 'ARRAY_ARRAY_STRING',    ['ARRAY_ARRAY_STRING'], '', '', '', 'vec', ''],
-    '''
 
     [['array_intersect'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  '', '', '', 'vec', ''],
     [['array_intersect'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  '', '', '', 'vec', ''],
