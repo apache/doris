@@ -60,6 +60,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -75,7 +76,6 @@
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vintersect_node.h"
 #include "vec/exec/vmysql_scan_node.h"
-#include "vec/exec/vnested_loop_join_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -221,7 +221,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor));
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
     }
 
     // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
@@ -230,7 +230,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, _row_descriptor));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));

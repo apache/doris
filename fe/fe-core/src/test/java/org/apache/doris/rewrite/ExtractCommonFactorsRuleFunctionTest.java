@@ -113,7 +113,6 @@ public class ExtractCommonFactorsRuleFunctionTest {
         String query = "select * from tb1, tb2 where (tb1.k1 >1 and tb1.k1 <3 and tb1.k1 <5 and tb2.k1=1) "
                 + "or (tb1.k1 <2 and tb2.k2=2)";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`tb1`.`k1` < 5"));
         Assert.assertTrue(planString.contains("CROSS JOIN"));
     }
 
