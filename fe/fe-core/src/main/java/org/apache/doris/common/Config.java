@@ -1873,4 +1873,12 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int statistics_cache_refresh_interval = 24 * 2;
+
+    /**
+     * if table has too many replicas, Fe occur oom when schema change.
+     * 10W replicas is a reasonable value for testing.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_replica_count_when_schema_change = 100000;
 }
+

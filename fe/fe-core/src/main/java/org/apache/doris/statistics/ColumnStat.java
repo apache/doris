@@ -216,8 +216,8 @@ public class ColumnStat {
         result.add(Double.toString(avgSizeByte));
         result.add(Double.toString(maxSizeByte));
         result.add(Double.toString(numNulls));
-        result.add(minExpr == null ? "N/A" : minExpr.toSql());
-        result.add(maxExpr == null ? "N/A" : maxExpr.toSql());
+        result.add(Double.toString(minValue));
+        result.add(Double.toString(maxValue));
         return result;
     }
 

@@ -55,6 +55,15 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
 std::string get_build_version(bool compact) {
     std::stringstream ss;
     ss << DORIS_BUILD_VERSION
+#if defined(__x86_64__) || defined(_M_X64)
+#ifdef __AVX2__
+       << "(AVX2)"
+#else
+       << "(SSE4.2)"
+#endif
+#elif defined(__aarch64__)
+       << "(AArch64)"
+#endif
 #ifdef NDEBUG
        << " RELEASE"
 #else

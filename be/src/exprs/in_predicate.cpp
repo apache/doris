@@ -20,8 +20,6 @@
 
 #include "exprs/in_predicate.h"
 
-#include <sstream>
-
 #include "exprs/create_predicate_function.h"
 #include "exprs/expr_context.h"
 #include "runtime/runtime_state.h"
@@ -35,13 +33,17 @@ InPredicate::InPredicate(const TExprNode& node)
           _null_in_set(false),
           _hybrid_set() {}
 
-InPredicate::~InPredicate() {}
+InPredicate::~InPredicate() {
+    if (_should_delete) {
+        delete _hybrid_set;
+    }
+}
 
 Status InPredicate::prepare(RuntimeState* state, HybridSetBase* hset) {
     if (_is_prepare) {
         return Status::OK();
     }
-    _hybrid_set.reset(hset);
+    _hybrid_set = hset;
     if (nullptr == _hybrid_set) {
         return Status::InternalError("Unknown column type.");
     }
@@ -87,10 +89,11 @@ Status InPredicate::prepare(RuntimeState* state, const RowDescriptor& row_desc,
         return Status::InternalError("no Function operator in.");
     }
 
-    _hybrid_set.reset(create_set(_children[0]->type().type));
-    if (nullptr == _hybrid_set.get()) {
+    _hybrid_set = create_set(_children[0]->type().type);
+    if (nullptr == _hybrid_set) {
         return Status::InternalError("Unknown column type.");
     }
+    _should_delete = true;
 
     _is_prepare = true;
 

@@ -32,7 +32,6 @@ class Edge {
     // left and right may not overlap, and both must have at least one bit set.
     private BitSet left = new BitSet(32);
     private BitSet right = new BitSet(32);
-    private BitSet constraints = new BitSet(32);
 
     /**
      * Create simple edge.
@@ -40,7 +39,7 @@ class Edge {
     public Edge(LogicalJoin join, int index) {
         this.index = index;
         this.join = join;
-        this.selectivity = getRowCount(join) / (getRowCount(join.left()) * getRowCount(join.right()));
+        this.selectivity = 1.0;
     }
 
     public LogicalJoin getJoin() {
@@ -69,10 +68,6 @@ class Edge {
         for (BitSet bitSet : bitSets) {
             this.right.or(bitSet);
         }
-    }
-
-    public void addConstraintNode(BitSet constraints) {
-        this.constraints.or(constraints);
     }
 
     public BitSet getLeft() {
@@ -111,7 +106,6 @@ class Edge {
         Edge newEdge = new Edge(join, index);
         newEdge.addLeftNode(right);
         newEdge.addRightNode(left);
-        newEdge.addConstraintNode(constraints);
         return newEdge;
     }
 
