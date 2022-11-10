@@ -27,14 +27,14 @@ SELECT sequence_match('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_
 SELECT sequence_count('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_match_test1;
 
 --not match
-SELECT sequence_match('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
+SELECT sequence_match('(?1)(?t>3600)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
 --match
-SELECT sequence_match('(?1)(?t>=10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
+SELECT sequence_match('(?1)(?t>=3600)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
 
 --not match
-SELECT sequence_count('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
+SELECT sequence_count('(?1)(?t>3600)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
 --match
-SELECT sequence_count('(?1)(?t>=10000)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
+SELECT sequence_count('(?1)(?t>=3600)(?2)', date, number = 1, number = 7) FROM sequence_match_test1;
 
 SELECT sequence_match('(?1)(?2)', date, number = 1, number = 4, number = 3) FROM sequence_match_test1;
 SELECT sequence_count('(?1)(?2)', date, number = 1, number = 4, number = 3) FROM sequence_match_test1;

@@ -44,16 +44,9 @@ Events that occur at the same second may lay in the sequence in an undefined ord
 
 `.*` — Matches any number of events. You do not need conditional arguments to count this element of the pattern.
 
-`(?t operator value)` — Sets the time that should separate two events. We convert time directly to its exact same number.
+`(?t operator value)` —  Sets the time in seconds that should separate two events.
 
-eg.
-
-```
-2022-11-02 10:41:00 -> 20221102104100
-2022-11-02 11:41:00 -> 20221102114100
-```
-
-We describe `t` by a direct interpolation of the two times,  For example, pattern `(?1)(?t>1800)(?2)` matches events that occur more than 18 minutes from each other. pattern `(?1)(?t>10000)(?2)` matches events that occur more than 1 hour from each other. An arbitrary number of any events can lay between these events. You can use the `>=`, `>`, `<`, `<=`, `==` operators.
+We define `t` as the difference in seconds between two times,  For example, pattern `(?1)(?t>1800)(?2)` matches events that occur more than 1800 seconds from each other. pattern `(?1)(?t>10000)(?2)` matches events that occur more than 10000 seconds from each other. An arbitrary number of any events can lay between these events. You can use the `>=`, `>`, `<`, `<=`, `==` operators.
 
 `timestamp` — Column considered to contain time data. Typical data types are `Date` and `DateTime`. You can also use any of the supported UInt data types.
 
@@ -115,12 +108,12 @@ SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_co
 |                                                              2 |
 +----------------------------------------------------------------+
 
-SELECT sequence_count('(?1)(?t>=10000)(?2)', date, number = 1, number = 7) FROM sequence_count_test1;
+SELECT sequence_count('(?1)(?t>=10000)(?2)', date, number = 1, number = 2) FROM sequence_count_test1;
 
 +---------------------------------------------------------------------------+
-| sequence_count('(?1)(?t>=10000)(?2)', `date`, `number` = 1, `number` = 7) |
+| sequence_count('(?1)(?t>=3600)(?2)', `date`, `number` = 1, `number` = 2) |
 +---------------------------------------------------------------------------+
-|                                                                         1 |
+|                                                                         2 |
 +---------------------------------------------------------------------------+
 ```
 
@@ -174,10 +167,10 @@ SELECT sequence_count('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_
 |                                                                0 |
 +------------------------------------------------------------------+
 
-SELECT sequence_count('(?1)(?t>10000)(?2)', date, number = 1, number = 7) FROM sequence_count_test1;
+SELECT sequence_count('(?1)(?t>3600)(?2)', date, number = 1, number = 7) FROM sequence_count_test1;
 
 +--------------------------------------------------------------------------+
-| sequence_count('(?1)(?t>10000)(?2)', `date`, `number` = 1, `number` = 7) |
+| sequence_count('(?1)(?t>3600)(?2)', `date`, `number` = 1, `number` = 7) |
 +--------------------------------------------------------------------------+
 |                                                                        0 |
 +--------------------------------------------------------------------------+
