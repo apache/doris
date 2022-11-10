@@ -32,12 +32,13 @@ TEST(FunctionHasAllTest, function_has_all_test) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Array, TypeIndex::Int32};
 
-        Array vec1 = {Int32(1), Int32(2), Int32(3)};
+        Array vec1 = {Int32(1),Int32(2), Int32(3)};
         Array vec2 = {Int32(2), Int32(3)};
 
         DataSet data_set = {{{vec1, vec2}, UInt8(1)},
                             };
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
+}
 }

@@ -89,7 +89,7 @@ void register_function_hex_variadic(SimpleFunctionFactory& factory);
 
 void register_function_url(SimpleFunctionFactory& factory);
 
-//void register_function_has_all(SimpleFunctionFactory& factory);
+void register_function_has_all(SimpleFunctionFactory& factory);
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
     using FunctionCreators = phmap::flat_hash_map<std::string, Creator>;
@@ -229,7 +229,7 @@ public:
             register_function_url(instance);
             register_function_multi_string_position(instance);
             register_function_multi_string_search(instance);
-           // register_function_has_all(instance);
+            register_function_has_all(instance);
         });
         return instance;
     }

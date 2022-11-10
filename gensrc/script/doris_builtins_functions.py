@@ -2879,6 +2879,7 @@ visible_functions = [
     [['has_all'], 'BOOLEAN', ['ARRAY_DATETIME', 'ARRAY_DATETIME'], '', '', '', 'vec', ''],
     [['has_all'], 'BOOLEAN', ['ARRAY_DATE', 'ARRAY_DATE'], '', '', '', 'vec', ''],
     [['has_all'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+
 ]
 
 # Except the following functions, other function will directly return

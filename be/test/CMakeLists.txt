@@ -369,6 +369,7 @@ set(VEC_TEST_FILES
     vec/function/function_geo_test.cpp
     vec/function/function_test_util.cpp
     vec/function/function_url_test.cpp
+    vec/function/function_has_all_test.cpp
     vec/function/table_function_test.cpp
     vec/function/function_running_difference_test.cpp
     vec/runtime/vdata_stream_test.cpp
