@@ -1081,7 +1081,7 @@ public class SelectStmt extends QueryStmt {
                 }
                 groupingInfo.buildRepeat(groupByClause.getGroupingExprs(), groupByClause.getGroupingSetList());
             }
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
+            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, false);
             if (groupingInfo != null) {
                 groupingInfo.genOutputTupleDescAndSMap(analyzer, groupByClause.getGroupingExprs(), aggExprs);
                 // must do it before copying for createAggInfo()
@@ -1857,7 +1857,7 @@ public class SelectStmt extends QueryStmt {
         }
         // substitute group by
         if (groupByClause != null) {
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
+            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, false);
         }
         // substitute having
         if (havingClause != null) {
