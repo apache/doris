@@ -175,7 +175,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                 sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
             } else {
                 return Status::InternalError(
-                        "Jdbc table sink is one enabled, you can change be config "
+                        "Jdbc table sink is not enabled, you can change be config "
                         "enable_java_support to true and restart be.");
             }
         } else {
