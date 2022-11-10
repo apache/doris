@@ -17,18 +17,35 @@
 
 package org.apache.doris.statistics;
 
-import com.google.common.base.Preconditions;
+import java.util.Objects;
 
-/**
- * Derive ExchangeNode statistics.
- */
-public class ExchangeStatsDerive extends BaseStatsDerive {
+public class StatisticsCacheKey {
+
+    /**
+     * May be index id either, since they are natively same in the code.
+     */
+    public final long tableId;
+    public final String colName;
+
+    public StatisticsCacheKey(long tableId, String colName) {
+        this.tableId = tableId;
+        this.colName = colName;
+    }
 
     @Override
-    protected long deriveRowCount() {
-        Preconditions.checkState(!childrenStatsResult.isEmpty());
-        rowCount = (long) childrenStatsResult.get(0).getRowCount();
-        capRowCountAtLimit();
-        return rowCount;
+    public int hashCode() {
+        return Objects.hash(tableId, colName);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        StatisticsCacheKey k = (StatisticsCacheKey) obj;
+        return this.tableId == k.tableId && this.colName.equals(k.colName);
     }
 }
