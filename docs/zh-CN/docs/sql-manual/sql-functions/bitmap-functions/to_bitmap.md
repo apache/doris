@@ -32,12 +32,35 @@ under the License.
 
 输入为取值在 0 ~ 18446744073709551615 区间的 unsigned bigint ，输出为包含该元素的bitmap。
 当输入值不在此范围时， 会返回NULL。
-该函数主要用于stream load任务将整型字段导入Doris表的bitmap字段。例如
-
+该函数主要用于stream load、broker load等导入任务将整型字段导入Doris表的bitmap字段。例如  
+stream load  
 ```
 cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,user_id, user_id=to_bitmap(user_id)"   http://host:8410/api/test/testDb/_stream_load
 ```
-
+broker load  
+```
+LOAD LABEL dish_2022_03_23
+(
+    DATA INFILE("hdfs://10.220.147.151:8020/user/hive/warehouse/ods.db/ods_demo_orc_detail/*/*")
+    INTO TABLE doris_ods_test_detail
+    COLUMNS TERMINATED BY ","
+    FORMAT AS "orc"
+(dt, page, user_id, user_id) 
+    COLUMNS FROM PATH AS (`day`)
+   SET 
+   (user_id=to_bitmap(user_id))
+    )
+WITH BROKER "broker_name_1" 
+    ( 
+      "username" = "hdfs", 
+      "password" = "" 
+    )
+PROPERTIES
+(
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+);
+```
 ### example
 
 ```
