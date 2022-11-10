@@ -55,8 +55,8 @@ public class CascadesContext {
     private final JobScheduler jobScheduler;
     private JobContext currentJobContext;
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
-    private Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
-    private RuntimeFilterContext runtimeFilterContext;
+    private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
+    private final RuntimeFilterContext runtimeFilterContext;
 
     /**
      * Constructor of OptimizerContext.
