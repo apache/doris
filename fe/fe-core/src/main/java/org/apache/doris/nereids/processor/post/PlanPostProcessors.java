@@ -39,6 +39,7 @@ public class PlanPostProcessors {
 
     /**
      * post process
+     *
      * @param physicalPlan input plan
      * @return physcial plan
      */
@@ -61,7 +62,6 @@ public class PlanPostProcessors {
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
                 builder.add(new RuntimeFilterPruner());
             }
-            builder.add(new Validator());
         }
         builder.add(new Validator());
         return builder.build();

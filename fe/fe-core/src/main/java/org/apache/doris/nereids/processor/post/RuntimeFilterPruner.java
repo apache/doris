@@ -42,7 +42,15 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * prune rf
+ * Doris generates RFs (runtime filter) on Join node to reduce the probe table at scan stage. But some RFs have no effect, because its selectivity is 100%. This pr will remove them.
+ * A RF is effective if
+ *
+ * 1. the build column value range covers part of that of probe column, OR
+ * 2. the build column ndv is less than that of probe column, OR
+ * 3. the build column's ColumnStats.selectivity < 1, OR
+ * 4. the build column is reduced by another RF, which satisfies above criterions.
+ *
+ * TODO: item 2 is not used since the estimation is not accurate now.
  */
 public class RuntimeFilterPruner extends PlanPostProcessor {
 

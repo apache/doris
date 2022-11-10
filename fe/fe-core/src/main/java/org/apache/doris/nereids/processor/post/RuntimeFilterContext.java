@@ -100,6 +100,7 @@ public class RuntimeFilterContext {
 
     /**
      * remove rf from builderNode to target
+     *
      * @param targetId rf target
      * @param builderNode rf src
      */
@@ -185,11 +186,7 @@ public class RuntimeFilterContext {
     }
 
     public void addJoinToTargetMap(PhysicalHashJoin join, ExprId exprId) {
-        if (joinToTargetExprId.get(join) != null) {
-            joinToTargetExprId.get(join).add(exprId);
-        } else {
-            joinToTargetExprId.put(join, Lists.newArrayList(exprId));
-        }
+        joinToTargetExprId.computeIfAbsent(join, k -> Lists.newArrayList()).add(exprId);
     }
 
     public List<ExprId> getTargetExprIdByFilterJoin(PhysicalHashJoin join) {

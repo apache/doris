@@ -1171,7 +1171,7 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * Serialize to thrift object.
      * Used for rest api.
-     **/
+     */
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
