@@ -324,7 +324,7 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     // StorageEngine oneself
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::unique_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
