@@ -191,7 +191,7 @@ private:
         // Pattern is checked in fe, so pattern should be vaild here, we check it and if pattern is invalid, we return 0.
         auto throw_exception = [&](const std::string& msg) {
             LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
-                                  std::to_string(pos - begin);
+                                    std::to_string(pos - begin);
         };
 
         auto match = [&pos, end](const char* str) mutable {
@@ -218,7 +218,7 @@ private:
                         type = PatternActionType::TimeGreater;
                     else if (match("=="))
                         type = PatternActionType::TimeEqual;
-                    else{
+                    else {
                         throw_exception("Unknown time condition");
                         return;
                     }
@@ -226,18 +226,18 @@ private:
                     NativeType duration = 0;
                     const auto* prev_pos = pos;
                     pos = try_read_first_int_text(duration, pos, end);
-                    if (pos == prev_pos){
-                    throw_exception("Could not parse number");
-                    return;
+                    if (pos == prev_pos) {
+                        throw_exception("Could not parse number");
+                        return;
                     }
 
                     if (actions.back().type != PatternActionType::SpecificEvent &&
                         actions.back().type != PatternActionType::AnyEvent &&
-                        actions.back().type != PatternActionType::KleeneStar){
+                        actions.back().type != PatternActionType::KleeneStar) {
                         throw_exception(
                                 "Temporal condition should be preceded by an event condition");
                         return;
-                        }
+                    }
 
                     pattern_has_time = true;
                     actions.emplace_back(type, duration);
@@ -247,10 +247,10 @@ private:
                     pos = try_read_first_int_text(event_number, pos, end);
                     if (pos == prev_pos) throw_exception("Could not parse number");
 
-                    if (event_number > arg_count - 1){
+                    if (event_number > arg_count - 1) {
                         throw_exception("Event number " + std::to_string(event_number) +
                                         " is out of range");
-                                        return;
+                        return;
                     }
 
                     actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
@@ -272,7 +272,7 @@ private:
                 actions.emplace_back(PatternActionType::AnyEvent);
                 dfa_states.back().transition = DFATransition::AnyEvent;
                 dfa_states.emplace_back();
-            } else{
+            } else {
                 throw_exception("Could not parse pattern, unexpected starting symbol");
                 return;
             }
@@ -385,7 +385,7 @@ public:
                 base_it = events_it;
                 ++action_it;
             } else if (action_it->type == PatternActionType::TimeLessOrEqual) {
-                if (events_it->first.second_diff( base_it->first)<= action_it->extra) {
+                if (events_it->first.second_diff(base_it->first) <= action_it->extra) {
                     /// condition satisfied, move onto next action
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
@@ -393,39 +393,39 @@ public:
                 } else if (!do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeLess) {
-                if (events_it->first.second_diff( base_it->first)<action_it->extra) {
+                if (events_it->first.second_diff(base_it->first) < action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (!do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeGreaterOrEqual) {
-                if (events_it->first.second_diff( base_it->first)>=action_it->extra) {
+                if (events_it->first.second_diff(base_it->first) >= action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeGreater) {
-                if (events_it->first.second_diff( base_it->first)>action_it->extra) {
+                if (events_it->first.second_diff(base_it->first) > action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeEqual) {
-                if (events_it->first.second_diff( base_it->first)==action_it->extra) {
+                if (events_it->first.second_diff(base_it->first) == action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
-            } else{
+            } else {
                 LOG(WARNING) << "Unknown PatternActionType";
                 return false;
             }
 
-            if (++i > sequence_match_max_iterations){
+            if (++i > sequence_match_max_iterations) {
                 LOG(WARNING)
                         << "Pattern application proves too difficult, exceeding max iterations (" +
                                    std::to_string(sequence_match_max_iterations) + ")";
@@ -455,7 +455,7 @@ public:
     /// This function can quickly check that a full match is not possible if some deterministic fragment is missing.
     template <typename EventEntry>
     bool could_match_deterministic_parts(const EventEntry events_begin, const EventEntry events_end,
-                                      bool limit_iterations = true) const {
+                                         bool limit_iterations = true) const {
         size_t events_processed = 0;
         auto events_it = events_begin;
 
@@ -483,10 +483,10 @@ public:
                     }
                 }
 
-                if (limit_iterations && ++events_processed > sequence_match_max_iterations){
+                if (limit_iterations && ++events_processed > sequence_match_max_iterations) {
                     LOG(WARNING) << "Pattern application proves too difficult, exceeding max "
-                                  "iterations are " +
-                                          std::to_string(sequence_match_max_iterations);
+                                    "iterations are " +
+                                            std::to_string(sequence_match_max_iterations);
                     return false;
                 }
             }
@@ -656,7 +656,7 @@ public:
 
         bool match = (this->data(place).pattern_has_time
                               ? (this->data(place).could_match_deterministic_parts(events_begin,
-                                                                                events_end) &&
+                                                                                   events_end) &&
                                  this->data(place).backtracking_match(events_it, events_end))
                               : this->data(place).dfa_match(events_it, events_end));
         output.push_back(match);
