@@ -42,7 +42,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Doris generates RFs (runtime filter) on Join node to reduce the probe table at scan stage. But some RFs have no effect, because its selectivity is 100%. This pr will remove them.
+ * Doris generates RFs (runtime filter) on Join node to reduce the probe table at scan stage.
+ * But some RFs have no effect, because its selectivity is 100%. This pr will remove them.
  * A RF is effective if
  *
  * 1. the build column value range covers part of that of probe column, OR
