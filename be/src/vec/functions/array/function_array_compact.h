@@ -134,13 +134,13 @@ private:
             
                 // For the rest of elements, insert if the element is different from the previous.   
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&(*dest_null_map)[src_pos-1]) {
+                    if (src_null_map && (*src_null_map)[src_pos]&&!((*dest_null_map)[src_pos-1])) {
                         DCHECK(dest_null_map != nullptr);
                         (*dest_null_map).push_back(true);
                         dest_datas.push_back(NestType());
                         ++dest_pos;
                     }else if(0 != (src_data_concrete->compare_at(src_pos-1, src_pos,src_column, 1))){
-                        dest_datas.push_back(src_pos);
+                        dest_datas.push_back(src_datas[src_pos]);
                         if (dest_null_map) {
                             (*dest_null_map).push_back(false);
                         }
@@ -199,7 +199,7 @@ private:
             
                 // For the rest of elements, insert if the element is different from the previous.   
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&(*dest_null_map)[src_pos-1]) {
+                    if (src_null_map && (*src_null_map)[src_pos]&&(!(*dest_null_map)[src_pos-1])) {
                         DCHECK(dest_null_map != nullptr);
                         column_string_offsets.push_back(column_string_offsets.back());
                         (*dest_null_map).push_back(true);
