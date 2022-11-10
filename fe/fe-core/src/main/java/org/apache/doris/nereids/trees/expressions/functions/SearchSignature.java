@@ -88,7 +88,7 @@ public class SearchSignature {
 
     private boolean doMatchArity(FunctionSignature sig, List<Expression> arguments) {
         int realArity = arguments.size();
-        if (sig.hasVarArgs && sig.arity < realArity) {
+        if (sig.hasVarArgs && sig.arity > realArity) {
             return false;
         } else if (!sig.hasVarArgs && sig.arity != realArity) {
             return false;

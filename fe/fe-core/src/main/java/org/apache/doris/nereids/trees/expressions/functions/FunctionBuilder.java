@@ -49,10 +49,10 @@ public class FunctionBuilder {
 
     /** check whether arguments can apply to the constructor */
     public boolean canApply(List<? extends Object> arguments) {
-        if (arguments.size() < arity) {
+        if (isVariableLength && arity > arguments.size() + 1) {
             return false;
         }
-        if (arguments.size() != arity && !isVariableLength) {
+        if (!isVariableLength && arguments.size() != arity) {
             return false;
         }
         for (int i = 0; i < arguments.size(); i++) {
@@ -65,7 +65,7 @@ public class FunctionBuilder {
     }
 
     public Class getConstructorArgumentType(int index) {
-        if (isVariableLength && index >= builderMethod.getParameterCount()) {
+        if (isVariableLength && index + 1 >= arity) {
             return builderMethod.getParameterTypes()[arity - 1].getComponentType();
         }
         return builderMethod.getParameterTypes()[index];
@@ -113,7 +113,7 @@ public class FunctionBuilder {
             constructorArguments[i] = nonVarArgs.get(i);
         }
 
-        List<?> varArgs = arguments.subList(arity, arguments.size());
+        List<?> varArgs = arguments.subList(arity - 1, arguments.size());
         Class constructorArgumentType = getConstructorArgumentType(arity);
         Object varArg = Array.newInstance(constructorArgumentType, varArgs.size());
         for (int i = 0; i < varArgs.size(); i++) {
