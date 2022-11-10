@@ -40,7 +40,7 @@ array_compact(arr)
 
 #### Returned value
 
-The array without duplicate.
+The array without continuous duplicate.
 
 Type: Array.
 

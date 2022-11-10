@@ -153,17 +153,11 @@ private:
         return true;
     }
 
-    bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    bool _execute_generic(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
                          const NullMapType* src_null_map, NullMapType* dest_null_map) {
-        const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
 
-        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_column);
-        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
-        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        dest_column.reserve(src_column.size());
 
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
         ColumnArray::Offset64 src_pos = 0;
@@ -175,19 +169,10 @@ private:
                 // Insert first element
                 if (src_null_map && (*src_null_map)[src_pos]) {
                     DCHECK(dest_null_map != nullptr);
-                    column_string_offsets.push_back(column_string_offsets.back());
+                    dest_column.insert_from(src_column,src_pos);
                     (*dest_null_map).push_back(true);
                 } else {
-                    StringRef src_str_ref = src_data_concrete->get_data_at(src_pos);
-                    // copy the src data to column_string_chars
-                    const size_t old_size = column_string_chars.size();
-                    const size_t new_size = old_size + src_str_ref.size;
-                    column_string_chars.resize(new_size);
-                    if (src_str_ref.size > 0) {
-                        memcpy(column_string_chars.data() + old_size, src_str_ref.data,
-                               src_str_ref.size);
-                    }
-                    column_string_offsets.push_back(new_size);
+                    dest_column.insert_from(src_column,src_pos);
                     if (dest_null_map) {
                         (*dest_null_map).push_back(false);
                     }
@@ -200,22 +185,12 @@ private:
                     if (src_null_map && (*src_null_map)[src_pos] &&
                         (!(*src_null_map)[src_pos - 1])) {
                         DCHECK(dest_null_map != nullptr);
-                        column_string_offsets.push_back(column_string_offsets.back());
+                    dest_column.insert_from(src_column,src_pos);
                         (*dest_null_map).push_back(true);
                         ++dest_pos;
-                    } else if (0 != (src_data_concrete->compare_at(src_pos - 1, src_pos, src_column,
+                    } else if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column,
                                                                    1))) {
-                        StringRef src_str_ref = src_data_concrete->get_data_at(src_pos);
-                        // copy the src data to column_string_chars
-                        const size_t old_size = column_string_chars.size();
-                        const size_t new_size = old_size + src_str_ref.size;
-                        column_string_chars.resize(new_size);
-                        if (src_str_ref.size > 0) {
-                            memcpy(column_string_chars.data() + old_size, src_str_ref.data,
-                                   src_str_ref.size);
-                        }
-                        column_string_offsets.push_back(new_size);
-
+                        dest_column.insert_from(src_column,src_pos);
                         if (dest_null_map) {
                             (*dest_null_map).push_back(false);
                         }
@@ -267,8 +242,8 @@ private:
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
                                                     dest_offsets, src_null_map, dest_null_map);
-        } else if (which.is_string()) {
-            res = _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
+        } else {
+            res = _execute_generic(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
                                   dest_null_map);
         }
         return res;
