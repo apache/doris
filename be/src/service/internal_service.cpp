@@ -51,6 +51,9 @@
 #include "util/uid_util.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/json/new_json_reader.h"
+#include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
@@ -426,7 +429,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             return;
         }
     }
-
     if (file_scan_range.__isset.ranges == false) {
         st = Status::InternalError("can not get TFileRangeDesc.");
         st.to_protobuf(result->mutable_status());
@@ -439,8 +441,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     }
     const TFileRangeDesc& range = file_scan_range.ranges.at(0);
     const TFileScanRangeParams& params = file_scan_range.params;
-    // file_slots is no use
-    std::vector<SlotDescriptor*> file_slots;
+
     std::unique_ptr<vectorized::GenericReader> reader(nullptr);
     std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
     switch (params.format_type) {
@@ -450,7 +451,24 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE: {
+        // file_slots is no use
+        std::vector<SlotDescriptor*> file_slots;
         reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots));
+        break;
+    }
+    case TFileFormatType::FORMAT_PARQUET: {
+        std::vector<std::string> column_names;
+        reader.reset(new vectorized::ParquetReader(params, range, column_names));
+        break;
+    }
+    case TFileFormatType::FORMAT_ORC: {
+        std::vector<std::string> column_names;
+        reader.reset(new vectorized::OrcReader(params, range, column_names, ""));
+        break;
+    }
+    case TFileFormatType::FORMAT_JSON: {
+        std::vector<SlotDescriptor*> file_slots;
+        reader.reset(new vectorized::NewJsonReader(profile.get(), params, range, file_slots));
         break;
     }
     default:
@@ -459,7 +477,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         st.to_protobuf(result->mutable_status());
         return;
     }
-    std::unordered_map<std::string, TypeDescriptor> name_to_col_type;
     std::vector<std::string> col_names;
     std::vector<TypeDescriptor> col_types;
     st = reader->get_parsered_schema(&col_names, &col_types);

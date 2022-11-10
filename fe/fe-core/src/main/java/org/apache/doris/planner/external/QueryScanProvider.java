@@ -29,7 +29,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -52,11 +51,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
     private int inputSplitNum = 0;
     private long inputFileSize = 0;
 
-    public abstract String getColumnSeparator() throws UserException;
-
-    public abstract String getLineSeparator();
-
-    public abstract String getHeaderType();
+    public abstract TFileAttributes getFileAttributes() throws UserException;
 
     @Override
     public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
@@ -78,14 +73,8 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             context.params.setFileType(locationType);
             TFileFormatType fileFormatType = getFileFormatType();
             context.params.setFormatType(getFileFormatType());
-            if (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
-                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-                textParams.setColumnSeparator(getColumnSeparator());
-                textParams.setLineDelimiter(getLineSeparator());
-                TFileAttributes fileAttributes = new TFileAttributes();
-                fileAttributes.setTextParams(textParams);
-                fileAttributes.setHeaderType(getHeaderType());
-                context.params.setFileAttributes(fileAttributes);
+            if (fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN || fileFormatType == TFileFormatType.FORMAT_JSON) {
+                context.params.setFileAttributes(getFileAttributes());
             }
 
             // set hdfs params for hdfs file type.
