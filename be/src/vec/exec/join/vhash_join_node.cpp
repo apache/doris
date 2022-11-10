@@ -1280,7 +1280,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 
         if (block.rows() != 0) {
             SCOPED_TIMER(_build_side_merge_block_timer);
-            mutable_block.merge(block);
+            RETURN_IF_CATCH_BAD_ALLOC(mutable_block.merge(block));
         }
 
         if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {

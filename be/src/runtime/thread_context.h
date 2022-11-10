@@ -27,6 +27,7 @@
 #include "gutil/macros.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
+#include "util/defer_op.h"
 
 // Used to observe the memory usage of the specified code segment
 #ifdef USE_MEM_TRACKER
@@ -307,21 +308,22 @@ private:
         if (doris::thread_context()->enable_thread_cache_bad_alloc) {                            \
             try {                                                                                \
                 { stmt; }                                                                        \
-            } catch (std::bad_alloc const&) {                                                    \
+            } catch (std::bad_alloc const& e) {                                                  \
                 return Status::MemoryLimitExceeded(                                              \
-                        fmt::format("PreCatch Bad Alloc: {}",                                    \
+                        fmt::format("PreCatch {}, {}", e.what(),                                 \
                                     doris::thread_context()                                      \
                                             ->_thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
             }                                                                                    \
         } else {                                                                                 \
             try {                                                                                \
                 doris::thread_context()->enable_thread_cache_bad_alloc = true;                   \
+                Defer defer {[&]() {                                                             \
+                    doris::thread_context()->enable_thread_cache_bad_alloc = false;              \
+                }};                                                                              \
                 { stmt; }                                                                        \
-                doris::thread_context()->enable_thread_cache_bad_alloc = false;                  \
-            } catch (std::bad_alloc const&) {                                                    \
-                doris::thread_context()->enable_thread_cache_bad_alloc = false;                  \
+            } catch (std::bad_alloc const& e) {                                                  \
                 return Status::MemoryLimitExceeded(                                              \
-                        fmt::format("PreCatch Bad Alloc: {}",                                    \
+                        fmt::format("PreCatch {}, {}", e.what(),                                 \
                                     doris::thread_context()                                      \
                                             ->_thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
             }                                                                                    \

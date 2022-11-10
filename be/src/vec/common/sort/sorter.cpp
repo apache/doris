@@ -17,6 +17,8 @@
 
 #include "vec/common/sort/sorter.h"
 
+#include "runtime/thread_context.h"
+
 namespace doris::vectorized {
 
 void MergeSorterState::build_merge_tree(SortDescription& sort_description) {
@@ -136,8 +138,8 @@ Status FullSorter::append_block(Block* block) {
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)));
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz);
+            RETURN_IF_CATCH_BAD_ALLOC(data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz));
         }
         block->clear_column_data();
     }
