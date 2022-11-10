@@ -86,6 +86,7 @@ suite("test_array_functions") {
             "storage_format" = "V2"
             )
         """
+    sql """ INSERT INTO ${tableName2} VALUES(-1,3,5) """
     sql """ INSERT INTO ${tableName2} VALUES(1,3,5) """
     sql """ INSERT INTO ${tableName2} VALUES(2,10,2) """
     sql """ INSERT INTO ${tableName2} VALUES(3,NULL,NULL) """
@@ -94,6 +95,8 @@ suite("test_array_functions") {
     sql """ INSERT INTO ${tableName2} VALUES(6,NULL,1) """
     sql """ INSERT INTO ${tableName2} VALUES(7,10,NULL) """
     sql """ INSERT INTO ${tableName2} VALUES(NULL,10,2) """
+    sql """ INSERT INTO ${tableName2} VALUES(8,2,2) """
+    sql """ INSERT INTO ${tableName2} VALUES(9,10,6) """
 
     qt_select "SELECT k1, array_range(k1) from ${tableName2} ORDER BY k1"
     qt_select "SELECT k1, array_range(k1,k2) from ${tableName2} ORDER BY k1"
