@@ -75,6 +75,9 @@ public:
                        const std::string& timezone) override;
     Status init_parquet_type();
 
+    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override;
+
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
                    int32_t len);

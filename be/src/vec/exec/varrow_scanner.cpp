@@ -91,6 +91,7 @@ Status VArrowScanner::_open_next_reader() {
                                              status.get_error_msg());
             } else {
                 update_profile(_cur_file_reader->statistics());
+                _cur_file_reader->get_columns(&_name_to_col_type, &_missing_cols);
                 return status;
             }
         }
@@ -150,23 +151,81 @@ Status VArrowScanner::_init_arrow_batch_if_necessary() {
     return status;
 }
 
+Status VArrowScanner::_fill_missing_columns(Block* block) {
+    if (_missing_cols.empty()) {
+        return Status::OK();
+    }
+
+    int rows = block->rows();
+    for (size_t i = 0; i < _num_of_columns_from_file; ++i) {
+        SlotDescriptor* slot_desc = _src_slot_descs[i];
+        if (slot_desc == nullptr) {
+            continue;
+        }
+
+        if (_missing_cols.find(slot_desc->col_name()) == _missing_cols.end()) {
+            continue;
+        }
+
+        auto it = _col_default_value_vexpr_ctx.find(slot_desc->col_name());
+        if (it == _col_default_value_vexpr_ctx.end()) {
+            return Status::InternalError("failed to find default value expr for slot: {}",
+                                         slot_desc->col_name());
+        }
+
+        if (it->second == nullptr) {
+            //fill with null
+            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                    (*std::move(block->get_by_name(slot_desc->col_name()).column))
+                            .mutate()
+                            .get());
+            nullable_column->insert_many_defaults(rows);
+        } else {
+            // fill with default value
+            auto* ctx = it->second;
+            auto origin_column_num = block->columns();
+            int result_column_id = -1;
+            // PT1 => dest primitive type
+            RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
+            bool is_origin_column = result_column_id < origin_column_num;
+            if (!is_origin_column) {
+                auto result_column_ptr = block->get_by_position(result_column_id).column;
+                // result_column_ptr maybe a ColumnConst, convert it to a normal column
+                result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
+                auto origin_column_type = block->get_by_name(slot_desc->col_name()).type;
+                bool is_nullable = origin_column_type->is_nullable();
+                block->replace_by_position(
+                        block->get_position_by_name(slot_desc->col_name()),
+                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+                block->erase(result_column_id);
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status VArrowScanner::_init_src_block() {
-    size_t batch_pos = 0;
     _src_block.clear();
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _batch->column(batch_pos++).get();
-        // let src column be nullable for simplify converting
-        // TODO, support not nullable for exec efficiently
-        auto is_nullable = true;
-        DataTypePtr data_type =
-                DataTypeFactory::instance().create_data_type(array->type().get(), is_nullable);
+
+        DataTypePtr data_type;
+        auto it = _name_to_col_type.find(slot_desc->col_name());
+        if (it == _name_to_col_type.end()) {
+            data_type =
+                    DataTypeFactory::instance().create_data_type(slot_desc->type(), slot_desc->is_nullable());
+        } else {
+            auto* array = _batch->GetColumnByName(slot_desc->col_name()).get();
+            data_type =
+                    DataTypeFactory::instance().create_data_type(array->type().get(), true);
+        }
+        
         if (data_type == nullptr) {
             return Status::NotSupported(
-                    fmt::format("Not support arrow type:{}", array->type()->name()));
+                    fmt::format("Not support arrow type:{}", slot_desc->col_name()));
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
@@ -230,6 +289,9 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     // for example: TYPE_SMALLINT => TYPE_VARCHAR
     RETURN_IF_ERROR(_cast_src_block(&_src_block));
 
+    // fill missing columns
+    RETURN_IF_ERROR(_fill_missing_columns(&_src_block));
+
     // materialize, src block => dest columns
     return _fill_dest_block(block, eof);
 }
@@ -243,6 +305,13 @@ Status VArrowScanner::_cast_src_block(Block* block) {
         if (slot_desc == nullptr) {
             continue;
         }
+
+        // if not exist in file, just skip it
+        auto it = _name_to_col_type.find(slot_desc->col_name());
+        if (it == _name_to_col_type.end()) {
+            continue;
+        }
+
         auto& arg = block->get_by_name(slot_desc->col_name());
         // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
@@ -262,13 +331,19 @@ Status VArrowScanner::_cast_src_block(Block* block) {
 Status VArrowScanner::_append_batch_to_src_block(Block* block) {
     size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
                                            (_batch->num_rows() - _arrow_batch_cur_idx));
-    size_t column_pos = 0;
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
             continue;
         }
-        auto* array = _batch->column(column_pos++).get();
+
+        // if not exist in file, just skip it
+        auto it = _name_to_col_type.find(slot_desc->col_name());
+        if (it == _name_to_col_type.end()) {
+            continue;
+        }
+
+        auto* array = _batch->GetColumnByName(slot_desc->col_name()).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(
                 array, _arrow_batch_cur_idx, column_with_type_and_name.column,

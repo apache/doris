@@ -76,6 +76,7 @@ private:
     Status _init_src_block() override;
     Status _append_batch_to_src_block(Block* block);
     Status _cast_src_block(Block* block);
+    Status _fill_missing_columns(Block* block);
 
 private:
     // Reader
@@ -84,6 +85,11 @@ private:
     std::shared_ptr<arrow::RecordBatch> _batch;
     size_t _arrow_batch_cur_idx;
 
+    // Get from GenericReader, save the existing columns in file to their type.
+    std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
+    // Get from GenericReader, save columns that requried by scan but not exist in file.
+    // These columns will be filled by default value or null.
+    std::unordered_set<std::string> _missing_cols;
     RuntimeProfile::Counter* _filtered_row_groups_counter;
     RuntimeProfile::Counter* _filtered_rows_counter;
     RuntimeProfile::Counter* _filtered_bytes_counter;

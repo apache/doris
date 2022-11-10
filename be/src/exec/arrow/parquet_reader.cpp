@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <mutex>
+#include <parquet/arrow/schema.h>
 #include <thread>
 
 #include "common/logging.h"
@@ -34,6 +35,7 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
 #include "util/string_util.h"
+#include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris {
 
@@ -118,6 +120,27 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }
+}
+
+Status ParquetReaderWrap::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+                                  std::unordered_set<std::string>* missing_cols) {
+    auto schema_desc = _file_metadata->schema();
+    std::shared_ptr<::arrow::Schema> arrow_schema= nullptr;
+    parquet::arrow::FromParquetSchema(schema_desc, &arrow_schema);
+
+    for (size_t i = 0; i < arrow_schema->num_fields(); ++i) {
+        std::string schema_name =
+                _case_sensitive ? arrow_schema->field(i)->name() : to_lower(arrow_schema->field(i)->name());
+        TypeDescriptor type;
+        RETURN_IF_ERROR(
+                vectorized::arrow_type_to_doris_type(arrow_schema->field(i)->type()->id(), &type));
+        name_to_type->emplace(schema_name, type);
+    }
+
+    for (auto& col : _missing_cols) {
+        missing_cols->insert(col);
+    }
+    return Status::OK();
 }
 
 Status ParquetReaderWrap::size(int64_t* size) {
@@ -254,7 +277,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
     try {
         size_t slots = _include_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
-            auto slot_desc = _file_slot_descs[i];
+            auto slot_desc = _file_slot_descs[_slots_order_in_file[i]];
             column_index = i; // column index in batch record
             switch (_parquet_column_type[i]) {
             case arrow::Type::type::STRING: {

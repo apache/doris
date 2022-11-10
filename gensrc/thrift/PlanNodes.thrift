@@ -193,24 +193,25 @@ struct TBrokerScanRangeParams {
     // This is expr that convert the content read from file
     // the format that need by the compute layer.
     6: optional map<Types.TSlotId, Exprs.TExpr> expr_of_dest_slot
+    7: optional map<Types.TSlotId, Exprs.TExpr> default_value_of_src_slot
 
     // properties need to access broker.
-    7: optional map<string, string> properties;
+    8: optional map<string, string> properties;
 
     // If partition_ids is set, data that doesn't in this partition will be filtered.
-    8: optional list<i64> partition_ids
+    9: optional list<i64> partition_ids
     
     // This is the mapping of dest slot id and src slot id in load expr
     // It excludes the slot id which has the transform expr
-    9: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
+    10: optional map<Types.TSlotId, Types.TSlotId> dest_sid_to_src_sid_without_trans
     // strictMode is a boolean
     // if strict mode is true, the incorrect data (the result of cast is null) will not be loaded
-    10: optional bool strict_mode
+    11: optional bool strict_mode
     // for multibytes separators
-    11: optional i32 column_separator_length = 1;
-    12: optional i32 line_delimiter_length = 1;
-    13: optional string column_separator_str;
-    14: optional string line_delimiter_str;
+    12: optional i32 column_separator_length = 1;
+    13: optional i32 line_delimiter_length = 1;
+    14: optional string column_separator_str;
+    15: optional string line_delimiter_str;
 
 }
 

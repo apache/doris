@@ -82,6 +82,8 @@ public:
     // Close this scanner
     virtual void close() = 0;
     Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple);
+    Status fill_missing_columns(Tuple* tuple, MemPool* mem_pool);
+
 
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
@@ -125,6 +127,17 @@ protected:
 
     // dest slot desc index to src slot desc index
     std::unordered_map<int, int> _dest_slot_to_src_slot_index;
+
+    // col name to default value expr for vectorized
+    std::unordered_map<std::string, vectorized::VExprContext*> _col_default_value_vexpr_ctx;
+    // col name to default value expr
+    std::unordered_map<std::string, ExprContext*> _col_default_value_expr_ctx;
+
+    // Get from GenericReader, save the existing columns in file to their type.
+    std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
+    // Get from GenericReader, save columns that requried by scan but not exist in file.
+    // These columns will be filled by default value or null.
+    std::unordered_set<std::string> _missing_cols;
 
     // to filter src tuple directly
     // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,

@@ -22,9 +22,11 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.BrokerTable;
@@ -56,6 +58,7 @@ import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
@@ -596,6 +599,43 @@ public class BrokerScanNode extends LoadScanNode {
         return rangeDesc;
     }
 
+    protected void setDefaultValueExprs(Table tableRef, ParamCreateContext context) throws UserException {
+        Preconditions.checkNotNull(tableRef);+
+        TExpr tExpr = new TExpr();
+        tExpr.setNodes(Lists.newArrayList());
+        for (Column column : tableRef.getBaseSchema()) {
+            Expr expr;
+            if (column.getDefaultValue() != null) {
+                if (column.getDefaultValueExprDef() != null) {
+                    expr = column.getDefaultValueExpr();
+                } else {
+                    expr = new StringLiteral(column.getDefaultValue());
+                }
+            } else {
+                if (column.isAllowNull()) {
+                    expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                } else {
+                    expr = null;
+                }
+            }
+            SlotDescriptor slotDesc = null;
+            slotDesc = context.srcTupleDescriptor.getColumnSlot(column.getName());
+            // if slot desc is null, which mean it is a unrelated slot, just skip.
+            // eg:
+            // (a, b, c) set (x=a, y=b, z=c)
+            // c does not exist in file, the z will be filled with null, even if z has default value.
+            // and if z is not nullable, the load will fail.
+            if (slotDesc != null) {
+                if (expr != null) {
+                    expr = castToSlot(slotDesc, expr);
+                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                } else {
+                    context.params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
+                }
+            }
+        }
+    }
+
     //TODO(wx):support quantile state column or forbidden it.
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
@@ -614,6 +654,7 @@ public class BrokerScanNode extends LoadScanNode {
                 throw new UserException(e.getMessage());
             }
             processFileGroup(context, fileStatuses);
+            setDefaultValueExprs(targetTable, context);
         }
         if (LOG.isDebugEnabled()) {
             for (TScanRangeLocations locations : locationsList) {

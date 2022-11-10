@@ -65,6 +65,7 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bo
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
+        RETURN_IF_ERROR(BaseScanner::fill_missing_columns(_src_tuple, tuple_pool));
         RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool, fill_tuple));
         break; // break always
     }
@@ -118,6 +119,7 @@ Status ParquetScanner::open_next_reader() {
                                              status.get_error_msg());
             } else {
                 RETURN_IF_ERROR(_cur_file_reader->init_parquet_type());
+                RETURN_IF_ERROR(_cur_file_reader->get_columns(&_name_to_col_type, &_missing_cols));
                 return status;
             }
         }

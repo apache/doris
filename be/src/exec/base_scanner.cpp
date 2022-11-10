@@ -100,6 +100,33 @@ Status BaseScanner::init_expr_ctxes() {
                                      _params.src_tuple_id);
     }
 
+    // init default value expr
+    for (auto slot_desc : src_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+
+        auto it = _params.default_value_of_src_slot.find(slot_desc->id());
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExprContext* ctx = nullptr;
+            if (it != std::end(_params.default_value_of_src_slot) && !it->second.nodes.empty()) {
+                RETURN_IF_ERROR(
+                        vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+                RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
+                RETURN_IF_ERROR(ctx->open(_state));
+            }
+            _col_default_value_vexpr_ctx.emplace(slot_desc->col_name(), ctx);
+        } else {
+            ExprContext* ctx = nullptr;
+            if (it != std::end(_params.default_value_of_src_slot) && !it->second.nodes.empty()) {
+                RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+                RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get()));
+                RETURN_IF_ERROR(ctx->open(_state));
+            }
+            _col_default_value_expr_ctx.emplace(slot_desc->col_name(), ctx);
+        }
+    }
+
     std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
     std::unordered_map<SlotDescriptor*, int> src_slot_desc_to_index {};
     for (int i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
@@ -197,6 +224,51 @@ Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* 
         *fill_tuple = true;
     } else {
         *fill_tuple = false;
+    }
+    return Status::OK();
+}
+
+Status BaseScanner::fill_missing_columns(Tuple* tuple, MemPool* mem_pool) {
+    if (_missing_cols.empty()) {
+        return Status::OK();
+    }
+
+    const TupleDescriptor* src_tuple_desc =
+            _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
+        if (src_tuple_desc == nullptr) {
+        return Status::InternalError("Unknown source tuple descriptor, tuple_id={}",
+                                     _params.src_tuple_id);
+    }
+    for (auto slot_desc : src_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+
+        if (_missing_cols.find(slot_desc->col_name()) == _missing_cols.end()) {
+            continue;
+        }
+
+        auto it = _col_default_value_expr_ctx.find(slot_desc->col_name());
+        if (it == _col_default_value_expr_ctx.end()) {
+            return Status::InternalError("failed to find default value expr for slot: {}",
+                                         slot_desc->col_name());
+        }
+
+        if (it->second == nullptr) {
+            // fill with null if no default value
+            tuple->set_null(slot_desc->null_indicator_offset());
+        } else {
+            // fill with default value
+            auto* ctx = it->second;
+            void* value = ctx->get_value(_src_tuple_row);
+            if (value == nullptr) {
+                tuple->set_null(slot_desc->null_indicator_offset());
+            } else {
+                tuple->set_not_null(slot_desc->null_indicator_offset());
+                void* slot = tuple->get_slot(slot_desc->tuple_offset());
+                RawValue::write(value, slot, slot_desc->type(), mem_pool);
+            }
+        }
     }
     return Status::OK();
 }

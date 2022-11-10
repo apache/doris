@@ -72,16 +72,21 @@ void ArrowReaderWrap::close() {
 Status ArrowReaderWrap::column_indices() {
     _include_column_ids.clear();
     _include_cols.clear();
+    _slots_order_in_file.clear();
+    int index = 0;
     for (auto& slot_desc : _file_slot_descs) {
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(iter->second);
             _include_cols.push_back(slot_desc->col_name());
+            _slots_order_in_file.emplace_back(index);
         } else {
             _missing_cols.push_back(slot_desc->col_name());
         }
+        index++;
     }
+
     return Status::OK();
 }
 
@@ -227,7 +232,7 @@ arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void*
     while (nbytes > 0) {
         Status result = _file->readat(_pos, nbytes, &reads, out);
         if (!result.ok()) {
-            return arrow::Status::IOError("Readat failed.");
+            return arrow::Status::IOError("Readat failed: " + result.to_string());
         }
         if (reads == 0) {
             break;
