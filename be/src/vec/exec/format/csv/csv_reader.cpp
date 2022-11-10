@@ -304,7 +304,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* ro
                 col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
         IColumn* col_ptr = const_cast<IColumn*>(block->get_by_position(i).column.get());
         _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
-                                          false);
+                                          false, 1);
     }
     ++(*rows);
 
