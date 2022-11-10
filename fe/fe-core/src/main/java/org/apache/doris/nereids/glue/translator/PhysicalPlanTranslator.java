@@ -367,15 +367,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> slots = tvfRelation.getLogicalProperties().getOutput();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getTable(), context);
 
-        // set label for explain
-        for (Slot slot : slots) {
-            context.findSlotRef(slot.getExprId()).setLabel(slots.get(0).getQualifiedName());
-        }
-
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor);
         scanNode.finalizeForNereids();
         context.addScanNode(scanNode);
+
+        // set label for explain
+        for (Slot slot : slots) {
+            String tableColumnName = "_table_valued_function_" + tvfRelation.getFunction().getName()
+                    + "." + slots.get(0).getName();
+            context.findSlotRef(slot.getExprId()).setLabel(tableColumnName);
+        }
 
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);
         context.addPlanFragment(planFragment);
