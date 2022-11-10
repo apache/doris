@@ -23,11 +23,15 @@ import org.apache.doris.nereids.metrics.CounterType;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.collect.Maps;
+
+import java.util.Map;
+
 /**
  * counter event
  */
 public class CounterEvent extends Event {
-    private final long count;
+    private static final Map<CounterType, Long> counterMap = Maps.newHashMap();
     private final CounterType counterType;
     private final Group group;
     private final GroupExpression groupExpression;
@@ -36,10 +40,10 @@ public class CounterEvent extends Event {
     /**
      * counter event
      */
-    public CounterEvent(long stateId, long count, CounterType counterType, Group group,
+    public CounterEvent(long stateId, CounterType counterType, Group group,
             GroupExpression groupExpression, Plan plan) {
         super(stateId);
-        this.count = count;
+        counterMap.compute(counterType, (t, l) -> l == null ? 1L : l + 1);
         this.counterType = counterType;
         this.group = group;
         this.groupExpression = groupExpression;
@@ -49,11 +53,15 @@ public class CounterEvent extends Event {
     @Override
     public String toString() {
         return "CounterEvent{"
-                + "count=" + count
+                + "count=" + counterMap.get(counterType)
                 + ", counterType=" + counterType
                 + ", group=" + group
                 + ", groupExpression=" + groupExpression
                 + ", plan=" + plan
                 + '}';
+    }
+
+    public static void clearCounter() {
+        counterMap.clear();
     }
 }

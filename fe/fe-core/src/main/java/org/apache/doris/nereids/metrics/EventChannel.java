@@ -45,6 +45,7 @@ public class EventChannel {
     }
 
     private final Set<Class<? extends Event>> eventSwitch;
+    private final List<EventFilter> filters;
     private Map<Class<? extends Event>, EventProperties> properties = Maps.newHashMap();
     private BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
     private boolean isStop = false;
@@ -54,8 +55,9 @@ public class EventChannel {
      * constructor
      * @param consumers consumer list
      */
-    public EventChannel(List<EventConsumer> consumers) {
+    public EventChannel(List<EventConsumer> consumers, List<EventFilter> filtersBeforeConsume) {
         eventSwitch = EventSwitchParser.parse(ConnectContext.get().getSessionVariable().nereidsEventMode);
+        filters = filtersBeforeConsume;
         for (EventConsumer consumer : consumers) {
             properties.computeIfAbsent(consumer.getTargetClass(), k -> new EventProperties())
                     .getConsumers().add(consumer);
@@ -63,20 +65,23 @@ public class EventChannel {
     }
 
     public EventChannel() {
-        this(Lists.newArrayList());
+        this(Lists.newArrayList(), Lists.newArrayList());
     }
 
     public void add(Event e) {
-        if (filter(e) != null) {
+        if (eventSwitch.contains(e.getClass())) {
             queue.add(e);
         }
     }
 
     private Event filter(Event e) {
-        if (eventSwitch.contains(e.getClass())) {
-            return e;
+        for (EventFilter filter : filters) {
+            e = filter.checkEvent(e);
+            if (e == null) {
+                return null;
+            }
         }
-        return null;
+        return e;
     }
 
     private class Worker implements Runnable {
@@ -84,7 +89,10 @@ public class EventChannel {
         public void run() {
             while (!isStop) {
                 try {
-                    Event e = queue.poll();
+                    Event e = filter(queue.poll());
+                    if (e == null) {
+                        continue;
+                    }
                     for (EventConsumer consumer : properties.get(e.getClass()).getConsumers()) {
                         consumer.consume(e.clone());
                     }

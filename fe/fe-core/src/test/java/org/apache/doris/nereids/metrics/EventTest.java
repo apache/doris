@@ -38,7 +38,7 @@ public class EventTest extends TestWithFeService {
     private EventChannel channel;
     private List<EventProducer> producers;
     private final List<Event> events = ImmutableList.of(
-            new CounterEvent(0, 0, CounterType.PLAN_CONSTRUCTOR, null, null, null),
+            new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null),
             new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE),
             new EnforcerEvent(null, null, null, null),
             new GroupMergeEvent(null, null, null),
@@ -64,7 +64,8 @@ public class EventTest extends TestWithFeService {
                         new PrintConsumer(TransformEvent.class, printStream),
                         new PrintConsumer(EnforcerEvent.class, printStream),
                         new PrintConsumer(GroupMergeEvent.class, printStream),
-                        new PrintConsumer(MemoTransformEvent.class, printStream))
+                        new PrintConsumer(MemoTransformEvent.class, printStream)),
+                ImmutableList.of()
         );
         channel.start();
         producers = ImmutableList.of(
