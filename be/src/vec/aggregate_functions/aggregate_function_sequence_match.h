@@ -192,7 +192,6 @@ private:
         auto throw_exception = [&](const std::string& msg) {
             LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
                                   std::to_string(pos - begin);
-            return 0;
         };
 
         auto match = [&pos, end](const char* str) mutable {
@@ -219,19 +218,26 @@ private:
                         type = PatternActionType::TimeGreater;
                     else if (match("=="))
                         type = PatternActionType::TimeEqual;
-                    else
+                    else{
                         throw_exception("Unknown time condition");
+                        return;
+                    }
 
                     NativeType duration = 0;
                     const auto* prev_pos = pos;
                     pos = try_read_first_int_text(duration, pos, end);
-                    if (pos == prev_pos) throw_exception("Could not parse number");
+                    if (pos == prev_pos){
+                    throw_exception("Could not parse number");
+                    return;
+                    }
 
                     if (actions.back().type != PatternActionType::SpecificEvent &&
                         actions.back().type != PatternActionType::AnyEvent &&
-                        actions.back().type != PatternActionType::KleeneStar)
+                        actions.back().type != PatternActionType::KleeneStar){
                         throw_exception(
                                 "Temporal condition should be preceded by an event condition");
+                        return;
+                        }
 
                     pattern_has_time = true;
                     actions.emplace_back(type, duration);
@@ -241,9 +247,11 @@ private:
                     pos = try_read_first_int_text(event_number, pos, end);
                     if (pos == prev_pos) throw_exception("Could not parse number");
 
-                    if (event_number > arg_count - 1)
+                    if (event_number > arg_count - 1){
                         throw_exception("Event number " + std::to_string(event_number) +
                                         " is out of range");
+                                        return;
+                    }
 
                     actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
                     dfa_states.back().transition = DFATransition::SpecificEvent;
@@ -252,7 +260,10 @@ private:
                     conditions_in_pattern.set(event_number - 1);
                 }
 
-                if (!match(")")) throw_exception("Expected closing parenthesis, found");
+                if (!match(")")) {
+                    throw_exception("Expected closing parenthesis, found");
+                    return;
+                }
 
             } else if (match(".*")) {
                 actions.emplace_back(PatternActionType::KleeneStar);
@@ -261,8 +272,10 @@ private:
                 actions.emplace_back(PatternActionType::AnyEvent);
                 dfa_states.back().transition = DFATransition::AnyEvent;
                 dfa_states.emplace_back();
-            } else
+            } else{
                 throw_exception("Could not parse pattern, unexpected starting symbol");
+                return;
+            }
         }
     }
 
