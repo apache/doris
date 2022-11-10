@@ -53,27 +53,28 @@ namespace doris {
 // TODO: More graceful handling of clients that have failed (maybe better
 // handled by a smart-wrapper of the interface object).
 // TODO: limits on total number of clients, and clients per-backend
+using ClientImplPair = std::pair<void*, ThriftClientImpl*>;
 class ClientCacheHelper {
 public:
     ~ClientCacheHelper();
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
     using ClientFactory =
-            std::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>;
+            std::function<ThriftClientImpl*(const TNetworkAddress& hostport, ClientImplPair** client_key)>;
 
     // Return client for specific host/port in 'client'. If a client
     // is not available, the client parameter is set to nullptr.
     Status get_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
-                      void** client_key, int timeout_ms);
+                      ClientImplPair** client_key, int timeout_ms);
 
     // Close and delete the underlying transport and remove the client from _client_map.
     // Return a new client connecting to the same host/port.
     // Return an error status and set client_key to nullptr if a new client cannot
     // created.
-    Status reopen_client(ClientFactory& factory_method, void** client_key, int timeout_ms);
+    Status reopen_client(ClientFactory& factory_method, ClientImplPair** client_key, int timeout_ms);
 
     // Return a client to the cache, without closing it, and set *client_key to nullptr.
-    void release_client(void** client_key);
+    void release_client(ClientImplPair** client_key);
 
     // Close all connections to a host (e.g., in case of failure) so that on their
     // next use they will have to be Reopen'ed.
@@ -100,11 +101,11 @@ private:
     std::mutex _lock;
 
     // map from (host, port) to list of client keys for that address
-    using ClientCacheMap = std::unordered_map<TNetworkAddress, std::list<void*>>;
+    using ClientCacheMap = std::unordered_map<TNetworkAddress, std::list<ClientImplPair*>>;
     ClientCacheMap _client_cache;
 
     // if cache not found, set client_key as nullptr
-    void _get_client_from_cache(const TNetworkAddress& hostport, void** client_key);
+    void _get_client_from_cache(const TNetworkAddress& hostport, ClientImplPair** client_key);
 
     // TODO(为什么)这里非要设计一层void* 到 Impl的强转 上面的list也是存的void* 为什么不干脆放在一个结构体IClient里然后上面也只存IClient*
     // Map from client key back to its associated ThriftClientImpl transport
@@ -126,7 +127,7 @@ private:
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status _create_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
-                          void** client_key, int timeout_ms);
+                          ClientImplPair** client_key, int timeout_ms);
 };
 
 template <class T>
@@ -183,6 +184,7 @@ public:
 private:
     ClientCache<T>* _client_cache;
     T* _client;
+    std::pair<void*, ThriftClientImpl*>* _client_pair;
 };
 
 // Generic cache of Thrift clients for a given service type.
@@ -258,7 +260,7 @@ private:
     }
 
     // Factory method to produce a new ThriftClient<T> for the wrapped cache
-    ThriftClientImpl* make_client(const TNetworkAddress& hostport, void** client_key) {
+    ThriftClientImpl* make_client(const TNetworkAddress& hostport, ClientImplPair** client_key) {
         static ThriftServer::ServerType server_type = get_thrift_server_type();
         Client* client = new Client(hostport.hostname, hostport.port, server_type);
         *client_key = reinterpret_cast<void*>(client->iface());
