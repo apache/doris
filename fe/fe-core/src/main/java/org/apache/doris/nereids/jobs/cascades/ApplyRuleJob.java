@@ -30,7 +30,6 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.Collections;
 import java.util.List;
@@ -84,12 +83,8 @@ public class ApplyRuleJob extends Job {
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
-                if (ConnectContext.get().getSessionVariable().isEnableNereidsEvent()) {
-                    APPLY_RULE_TRACER.log(
-                            new TransformEvent(groupExpression, plan, newPlans, rule.getRuleType()),
-                            rule::isRewrite
-                    );
-                }
+                APPLY_RULE_TRACER.log(new TransformEvent(groupExpression, plan, newPlans, rule.getRuleType()),
+                        rule::isRewrite);
             }
         }
         groupExpression.setApplied(rule);

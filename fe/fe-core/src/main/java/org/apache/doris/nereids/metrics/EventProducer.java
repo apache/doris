@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.metrics;
 
+import org.apache.doris.qe.ConnectContext;
+
 import com.google.common.base.Preconditions;
 
 import java.util.Collections;
@@ -42,6 +44,9 @@ public class EventProducer {
     }
 
     private void checkAndLog(Event event) {
+        if (!ConnectContext.get().getSessionVariable().isEnableNereidsEvent()) {
+            return;
+        }
         for (EventFilter filter : filters) {
             event = filter.checkEvent(event);
             if (event == null) {

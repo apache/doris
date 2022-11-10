@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.metrics;
 
-import org.apache.doris.nereids.metrics.event.CostStateEvent;
+import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.metrics.event.FunctionCallEvent;
@@ -34,7 +34,7 @@ import com.google.common.collect.ImmutableMap.Builder;
  */
 public abstract class Event implements Cloneable {
     public static final ImmutableMap EVENT_TYPE_SET = new Builder<String, Class<? extends Event>>()
-            .put("costState", CostStateEvent.class)
+            .put("costState", CostStateUpdateEvent.class)
             .put("counter", CounterEvent.class)
             .put("enforcer", EnforcerEvent.class)
             .put("functionCall", FunctionCallEvent.class)

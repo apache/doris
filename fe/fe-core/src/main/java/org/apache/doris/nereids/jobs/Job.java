@@ -106,8 +106,7 @@ public abstract class Job {
                 .getMemo()
                 .copyIn(after, targetGroup, true);
 
-        if (result.generateNewExpression
-                && ConnectContext.get().getSessionVariable().isEnableNereidsEvent()) {
+        if (result.generateNewExpression) {
             tracer.log(new TransformEvent(targetGroup.getLogicalExpression(), before, afters, rule.getRuleType()),
                     rule::isRewrite);
         }

@@ -17,19 +17,29 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import com.google.common.collect.Lists;
+
+import java.util.Collections;
 
 /**
  * When parent node request some properties but children don't have.
  * Enforce add missing properties for child.
  */
 public class EnforceMissingPropertiesHelper {
-
+    private static final EventProducer ENFORCER_TRACER = new EventProducer(
+            EnforcerEvent.class,
+            Collections.emptyList(),
+            NereidsPlanner.CHANNEL
+    );
     private final JobContext context;
     private final GroupExpression groupExpression;
     private double curTotalCost;
@@ -138,6 +148,8 @@ public class EnforceMissingPropertiesHelper {
             PhysicalProperties oldOutputProperty,
             PhysicalProperties newOutputProperty) {
         context.getCascadesContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
+        ENFORCER_TRACER.log(new EnforcerEvent(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
+                oldOutputProperty, newOutputProperty));
         curTotalCost += CostCalculator.calculateCost(enforcer);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,

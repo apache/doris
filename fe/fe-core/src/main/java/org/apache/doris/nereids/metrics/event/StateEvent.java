@@ -29,4 +29,8 @@ public abstract class StateEvent extends Event {
     public StateEvent(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
     }
+
+    protected GroupExpression getGroupExpression() {
+        return groupExpression;
+    }
 }

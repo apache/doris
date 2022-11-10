@@ -67,7 +67,7 @@ public class EventChannel {
     }
 
     public void add(Event e) {
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsEvent() && filter(e) != null) {
+        if (filter(e) != null) {
             queue.add(e);
         }
     }

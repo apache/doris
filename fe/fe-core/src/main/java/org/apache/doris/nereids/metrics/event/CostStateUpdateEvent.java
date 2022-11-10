@@ -23,11 +23,11 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 /**
  * cost state event
  */
-public class CostStateEvent extends StateEvent {
+public class CostStateUpdateEvent extends StateEvent {
     private final double cost;
     private final PhysicalProperties physicalProperties;
 
-    public CostStateEvent(GroupExpression groupExpression, double cost, PhysicalProperties physicalProperties) {
+    public CostStateUpdateEvent(GroupExpression groupExpression, double cost, PhysicalProperties physicalProperties) {
         super(groupExpression);
         this.cost = cost;
         this.physicalProperties = physicalProperties;
@@ -36,7 +36,8 @@ public class CostStateEvent extends StateEvent {
     @Override
     public String toString() {
         return "CostStateEvent{"
-                + "cost=" + cost
+                + "groupExpression=" + getGroupExpression()
+                + ", cost=" + cost
                 + ", physicalProperties=" + physicalProperties
                 + '}';
     }

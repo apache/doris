@@ -17,17 +17,26 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.stats.StatsCalculator;
+
+import java.util.Collections;
 
 /**
  * Job to derive stats for {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
 public class DeriveStatsJob extends Job {
+    private static final EventProducer STATS_STATE_TRACER = new EventProducer(
+            StatsStateEvent.class,
+            Collections.emptyList(),
+            NereidsPlanner.CHANNEL);
     private final GroupExpression groupExpression;
     private boolean deriveChildren;
 
@@ -66,6 +75,8 @@ public class DeriveStatsJob extends Job {
             }
         } else {
             StatsCalculator.estimate(groupExpression);
+            STATS_STATE_TRACER.log(new StatsStateEvent(groupExpression,
+                    groupExpression.getOwnerGroup().getStatistics()));
         }
     }
 }
