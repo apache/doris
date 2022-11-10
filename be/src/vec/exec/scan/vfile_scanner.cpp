@@ -473,8 +473,13 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader.reset(new ParquetReader(
                     _profile, _params, range, _file_col_names, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj())));
-            init_status =
-                    ((ParquetReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
+            if (_push_down_expr == nullptr && _vconjunct_ctx != nullptr &&
+                _partition_slot_descs.empty()) { // TODO: support partition columns
+                RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
+                _discard_conjuncts();
+            }
+            init_status = ((ParquetReader*)(_cur_reader.get()))
+                                  ->init_reader(_colname_to_value_range, _push_down_expr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
@@ -665,6 +670,10 @@ Status VFileScanner::close(RuntimeState* state) {
 
     if (_pre_conjunct_ctx_ptr) {
         (*_pre_conjunct_ctx_ptr)->close(state);
+    }
+
+    if (_push_down_expr) {
+        _push_down_expr->close(state);
     }
 
     RETURN_IF_ERROR(VScanner::close(state));
