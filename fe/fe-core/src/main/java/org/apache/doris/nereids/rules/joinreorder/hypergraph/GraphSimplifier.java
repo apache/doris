@@ -50,7 +50,7 @@ public class GraphSimplifier {
     List<BestSimplification> simplifications = new ArrayList<>();
     PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
     // Note that each index in the graph simplifier is the half of the actual index
-    int edgeSize;
+    private final int edgeSize;
 
     GraphSimplifier(HyperGraph graph) {
         this.graph = graph;
