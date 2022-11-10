@@ -2817,6 +2817,8 @@ visible_functions = [
     # search functions
     [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+
+    [['uuid'], 'VARCHAR', [], '_ZN5doris15StringFunctions4uuidEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 ]
 
 # Except the following functions, other function will directly return
@@ -2852,7 +2854,8 @@ nondeterministic_functions = [
     'current_date',
     'curtime',
     'current_time',
-    'utc_timestamp'
+    'utc_timestamp',
+    'uuid'
 ]
 # This is the subset of ALWAYS_NULLABLE
 # The function belongs to @null_result_with_one_null_param_functions,
