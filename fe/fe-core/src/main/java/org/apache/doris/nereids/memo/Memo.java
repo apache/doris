@@ -455,6 +455,7 @@ public class Memo {
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
                 // remove groupExpression from its owner group to avoid adding it to that.getOwnerGroup()
                 // that.getOwnerGroup() already has this groupExpression.
+                groupExpression.setUnused(true);
                 groupExpression.getOwnerGroup().removeGroupExpression(groupExpression);
                 needMergeGroup.put(groupExpression.getOwnerGroup(), that.getOwnerGroup());
             } else {

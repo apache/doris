@@ -34,10 +34,8 @@ import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -260,6 +258,10 @@ public class Group {
     public int removeParentExpression(GroupExpression parent) {
         parentExpressions.remove(parent);
         return parentExpressions.size();
+    }
+
+    public boolean isEmpty() {
+        return logicalExpressions.isEmpty() && physicalExpressions.isEmpty();
     }
 
     /**
