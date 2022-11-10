@@ -119,11 +119,9 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    if ((_match_all_build && !_match_all_probe &&
+    if ((_match_all_build && _matched_rows_done &&
          _output_null_idx_build_side == _build_blocks.size()) ||
-        (_match_all_build && _match_all_probe && _matched_rows_done &&
-         _output_null_idx_build_side == _build_blocks.size()) ||
-        (_matched_rows_done)) {
+        _matched_rows_done) {
         *eos = true;
         return Status::OK();
     }
@@ -217,9 +215,9 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
             },
             _join_op_variants, make_bool_variant(_match_all_build),
             make_bool_variant(_match_all_probe)));
-
-    *eos = _match_all_build ? _output_null_idx_build_side == _build_blocks.size()
-                            : _matched_rows_done;
+    *eos = _match_all_build
+                   ? _output_null_idx_build_side == _build_blocks.size() && _matched_rows_done
+                   : _matched_rows_done;
 
     Block tmp_block = mutable_join_block.to_block(0);
     RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
