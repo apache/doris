@@ -35,6 +35,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -45,7 +47,9 @@ import java.util.Optional;
  * Inspired by NoisePage and ORCA-Paper.
  */
 public class CostAndEnforcerJob extends Job implements Cloneable {
-    private static final Map<GroupExpression, List<List<PhysicalProperties>>> cache = Maps.newHashMap();
+    public static final Logger LOG = LogManager.getLogger(CostAndEnforcerJob.class);
+    private static final Map<GroupExpression, List<List<PhysicalProperties>>> cacheOfPropertiesHasLowestCostPlan
+            = Maps.newHashMap();
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
 
@@ -56,7 +60,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
     // List of request property to children
     // Example: Physical Hash Join
-    // [ child item: [leftProperties, rightPropertie]]
+    // [ child item: [leftProperties, rightProperties]]
     // [ [Properties {"", ANY}, Properties {"", BROADCAST}],
     //   [Properties {"", SHUFFLE_JOIN}, Properties {"", SHUFFLE_JOIN}]]
     private List<List<PhysicalProperties>> requestChildrenPropertiesList;
@@ -65,9 +69,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
     private final List<GroupExpression> lowestCostChildren = Lists.newArrayList();
 
-    // current child index of travsing all children
+    // current child index of traversing all children
     private int curChildIndex = -1;
-    // child index in the last time of travsing all children
+    // child index in the last time of traversing all children
     private int prevChildIndex = -1;
 
     public CostAndEnforcerJob(GroupExpression groupExpression, JobContext context) {
@@ -76,7 +80,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
     }
 
     public static void clearCache() {
-        cache.clear();
+        cacheOfPropertiesHasLowestCostPlan.clear();
     }
 
     /*-
@@ -112,11 +116,12 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
             // use cache.
-            if (cache.containsKey(groupExpression)) {
+            if (cacheOfPropertiesHasLowestCostPlan.containsKey(groupExpression)) {
                 if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
-                    System.out.printf("cache get %s\n -> %s\n", groupExpression, cache.get(groupExpression));
+                    LOG.warn("cache get {}\n -> {}\n", groupExpression,
+                            cacheOfPropertiesHasLowestCostPlan.get(groupExpression));
                 }
-                for (List<PhysicalProperties> list : cache.get(groupExpression)) {
+                for (List<PhysicalProperties> list : cacheOfPropertiesHasLowestCostPlan.get(groupExpression)) {
                     Preconditions.checkArgument(list.size() == groupExpression.arity());
                     clear();
                     for (; curChildIndex < groupExpression.arity(); curChildIndex++) {
@@ -215,9 +220,9 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     context.setCostUpperBound(curTotalCost);
                 }
                 if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
-                    System.out.printf("set cache: %s\n -> %s\n", groupExpression, requestChildrenProperties);
+                    LOG.warn("set cache: {}\n -> {}\n", groupExpression, requestChildrenProperties);
                 }
-                cache.computeIfAbsent(groupExpression, k ->
+                cacheOfPropertiesHasLowestCostPlan.computeIfAbsent(groupExpression, k ->
                                 Lists.newArrayListWithCapacity(requestChildrenPropertiesList.size()))
                         .add(requestChildrenProperties);
             }
