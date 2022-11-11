@@ -16,23 +16,24 @@
 // under the License.
 
 #pragma once
+
 #include <future>
 #include <variant>
 
-#include "common/object_pool.h"
 #include "exprs/runtime_filter_slots.h"
+#include "join_op.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_map.h"
-#include "vec/common/hash_table/hash_table.h"
-#include "vec/exec/join/join_op.h"
-#include "vec/exec/join/vacquire_list.hpp"
-#include "vec/exec/join/vjoin_node_base.h"
-#include "vec/functions/function.h"
-#include "vec/runtime/shared_hash_table_controller.h"
+#include "vjoin_node_base.h"
 
 namespace doris {
+
+class ObjectPool;
 class IRuntimeFilter;
+
 namespace vectorized {
+
+class SharedHashTableController;
 
 template <typename RowRefListType>
 struct SerializedHashTableContext {
@@ -164,7 +165,7 @@ using HashTableVariants = std::variant<
 class VExprContext;
 class HashJoinNode;
 
-template <class JoinOpType>
+template <int JoinOpType>
 struct ProcessHashTableProbe {
     ProcessHashTableProbe(HashJoinNode* join_node, int batch_size);
 
@@ -220,19 +221,17 @@ struct ProcessHashTableProbe {
     static constexpr int PROBE_SIDE_EXPLODE_RATE = 3;
 };
 
-using HashTableCtxVariants = std::variant<
-        std::monostate,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>>,
-        ProcessHashTableProbe<std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>>,
-        ProcessHashTableProbe<
-                std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>>;
+using HashTableCtxVariants =
+        std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_ANTI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
@@ -358,7 +357,7 @@ private:
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
-    template <class JoinOpType>
+    template <int JoinOpType>
     friend struct ProcessHashTableProbe;
 
     template <class HashTableContext>

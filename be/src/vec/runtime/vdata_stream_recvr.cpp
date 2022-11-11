@@ -256,7 +256,9 @@ VDataStreamRecvr::VDataStreamRecvr(
         bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
+#ifdef USE_MEM_TRACKER
           _state(state),
+#endif
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _total_buffer_limit(total_buffer_limit),
