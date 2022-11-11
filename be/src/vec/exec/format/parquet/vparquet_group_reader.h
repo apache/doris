@@ -45,9 +45,9 @@ public:
     };
 
     RowGroupReader(doris::FileReader* file_reader,
-                   const std::vector<ParquetReadColumn>& read_columns, const RowGroupIndex& _row_group_idx,
-                   const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
-                   const LazyReadContext& lazy_read_ctx);
+                   const std::vector<ParquetReadColumn>& read_columns,
+                   const RowGroupIndex& _row_group_idx, const tparquet::RowGroup& row_group,
+                   cctz::time_zone* ctz, const LazyReadContext& lazy_read_ctx);
 
     ~RowGroupReader();
     Status init(const FieldDescriptor& schema,

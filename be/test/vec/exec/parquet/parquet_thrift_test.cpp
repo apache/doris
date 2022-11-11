@@ -413,8 +413,9 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto row_group = t_metadata.row_groups[0];
     std::shared_ptr<RowGroupReader> row_group_reader;
-    row_group_reader.reset(
-            new RowGroupReader(&file_reader, read_columns, RowGroupIndex(0, 0, 10000), row_group, &ctz, lazy_read_ctx));
+    row_group_reader.reset(new RowGroupReader(&file_reader, read_columns,
+                                              RowGroupIndex(0, 0, 10000), row_group, &ctz,
+                                              lazy_read_ctx));
     std::vector<RowRange> row_ranges = std::vector<RowRange>();
     auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
     auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets);

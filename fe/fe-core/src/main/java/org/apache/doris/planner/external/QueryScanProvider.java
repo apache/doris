@@ -100,7 +100,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                         if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                             fileDesc.setContent(FileContent.POSITION_DELETES.id());
                             IcebergDeleteFileFilter.PositionDelete positionDelete =
-                                (IcebergDeleteFileFilter.PositionDelete) filter;
+                                    (IcebergDeleteFileFilter.PositionDelete) filter;
                             OptionalLong lowerBound = positionDelete.getPositionLowerBound();
                             OptionalLong upperBound = positionDelete.getPositionUpperBound();
                             if (lowerBound.isPresent()) {
@@ -112,7 +112,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                         } else {
                             fileDesc.setContent(FileContent.EQUALITY_DELETES.id());
                             IcebergDeleteFileFilter.EqualityDelete equalityDelete =
-                                (IcebergDeleteFileFilter.EqualityDelete) filter;
+                                    (IcebergDeleteFileFilter.EqualityDelete) filter;
                             deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
                         }
                         fileDesc.addToDeleteFiles(deleteFileDesc);

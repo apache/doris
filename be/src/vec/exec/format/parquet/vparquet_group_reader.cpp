@@ -26,8 +26,8 @@ namespace doris::vectorized {
 RowGroupReader::RowGroupReader(doris::FileReader* file_reader,
                                const std::vector<ParquetReadColumn>& read_columns,
                                const RowGroupIndex& row_group_idx,
-                               const tparquet::RowGroup& row_group,
-                               cctz::time_zone* ctz, const LazyReadContext& lazy_read_ctx)
+                               const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
+                               const LazyReadContext& lazy_read_ctx)
         : _file_reader(file_reader),
           _read_columns(read_columns),
           _row_group_idx(row_group_idx),

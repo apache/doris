@@ -483,7 +483,8 @@ Status VFileScanner::_get_next_reader() {
                 _discard_conjuncts();
             }
             init_status = ((ParquetReader*)(_cur_reader.get()))
-                                  ->init_reader(_file_col_names, _colname_to_value_range, _push_down_expr);
+                                  ->init_reader(_file_col_names, _colname_to_value_range,
+                                                _push_down_expr);
             if (_params.__isset.table_format_params &&
                 _params.table_format_params.table_format_type == "iceberg") {
                 IcebergTableReader* iceberg_reader = new IcebergTableReader(
