@@ -272,11 +272,6 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::OK();
     }
     return _column_readers.at(tablet_column.unique_id())->new_iterator(iter);
-//    if (_column_readers.at(tablet_column.unique_id())->is_empty()) {
-//        return Status::OK();
-//    } else {
-//        return (*iter)->init(iter_opts);
-//    }
 }
 
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
