@@ -1351,6 +1351,141 @@ public:
     }
 };
 
+class FunctionSplitByChar : public IFunction {
+
+public:
+    static constexpr auto name = "split_by_char";
+
+    static FunctionPtr create() { return std::make_shared<FunctionSplitByChar>(); }
+    //using NullMapType = PaddedPODArray<String>;
+    String get_name() const override { return name; }
+
+    bool is_variadic() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(is_string(arguments[0])) << "first argument for function: " << name << " should be string"
+                << " and arguments[0] is " << arguments[0]->get_name();
+        DCHECK(is_string(arguments[1])) << "second argument for function: " << name << " should be char"
+                << " and arguments[1] is " << arguments[1]->get_name();
+        const IDataType* first_type = arguments[0].get();
+        if (first_type->is_nullable()) {
+            return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+        } else {
+            return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        }
+    }
+    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        DCHECK_EQ(arguments.size(), 2);
+
+        ColumnPtr src_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr delimiter_column = 
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        string delimiter = delimiter_column->get_data_at(i).to_string();
+        if (delimiter.size()>1){
+             return Status::RuntimeError(
+                    fmt::format("only supported one or zero character delimiter for function {}(but get {})", get_name(),
+                                delimiter.size()));
+        }
+
+        
+        DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
+        auto dest_column_ptr = ColumnArray::create(src_column_type->create_column(),
+                                                   ColumnArray::ColumnOffsets::create());
+
+        IColumn* dest_nested_column = &dest_column_ptr->get_data();
+        ColumnArray::Offsets& dest_offsets = dest_column_ptr->get_offsets();
+        DCHECK(dest_nested_column != nullptr);
+        dest_offsets.reserve(input_rows_count);
+
+        const NullMapType* src_null_map = nullptr;
+        if (src_column->is_nullable()) {
+            const ColumnNullable* src_nullable_col =
+                    check_and_get_column<ColumnNullable>(*src_column);
+            src_column = src_nullable_col->get_nested_column_ptr();
+            src_null_map = &src_nullable_col->get_null_map_column().get_data();
+        }
+
+        NullMapType* dest_nested_null_map = nullptr;
+        if (dest_nested_column->is_nullable()) {
+            ColumnNullable* dest_nullable_col =
+                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
+            dest_nested_column = dest_nullable_col->get_nested_column_ptr();
+            dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
+        }
+
+        _execute(*src_column,*delimiter_column, *dest_nested_column,dest_offsets, src_null_map,
+                                        dest_nested_null_map);
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+        return Status::OK();
+
+
+
+private:
+    void _execute(const IColumn& src_column, const IColumn& delimiter_column,
+                         IColumn& dest_nested_column, ColumnArray::Offsets& dest_offsets,
+                         const NullMapType* src_null_map, NullMapType* dest_nested_null_map){ 
+
+        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+
+        ColumnArray::Offset64 src_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        ColumnArray::Offset64 src_offsets_size = src_column.get_offsets().size();
+
+        for (size_t i = 0; i < src_offsets_size; i++) {
+            if (src_null_map && src_null_map[i]){
+                dest_nested_null_map.push_back(true);
+                column_string_offsets.push_back(column_string_offsets.back());
+                dest_offsets.push_back(dest_pos);
+                continue;
+            }
+
+            auto delimiter = delimiter_column->get_data_at(i).to_string();
+            auto str = str_col->get_data_at(i).to_string();
+
+            if(str.size == 0) {
+                column_string_offsets.push_back(column_string_offsets.back());
+                dest_offsets.push_back(dest_offsets.back());
+                if(src_null_map){
+                    dest_nested_null_map.push_back(false);
+                }
+                dest_offsets.push_back(dest_pos);
+                continue;
+            }
+
+            if (delimiter.size == 0) {
+                //If there is no delimiter, the entire string is printed
+                const size_t old_size = column_string_chars.size();
+                const size_t new_size = old_size + str.size() + 1;
+                const size_t str_size = str.size();
+                column_string_chars.resize(new_size);
+                if (str_size > 0) {
+                    memcpy(column_string_chars.data() + old_size, str,
+                           str_size);
+                }
+                column_string_chars[old_size + str_size] = 0;
+                column_string_offsets.push_back(new_size);
+                if(src_null_map){
+                    dest_nested_null_map.push_back(false);
+                }
+                dest_pos+=str_size;
+            } else if (delimiter.size == 1) {
+                
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+};
+
 struct SM3Sum {
     static constexpr auto name = "sm3sum";
     using ObjectData = SM3Digest;
