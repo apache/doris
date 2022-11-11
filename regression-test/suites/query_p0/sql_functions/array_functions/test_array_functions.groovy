@@ -70,6 +70,10 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_popback(k5) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k6) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k7) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(3, k1) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(10, null) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(2, 'a') from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(2, 123) from ${tableName} ORDER BY k1"
 
     def tableName2 = "tbl_test_array_range"
     sql """DROP TABLE IF EXISTS ${tableName2}"""
