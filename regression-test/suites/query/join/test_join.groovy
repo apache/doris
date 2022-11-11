@@ -1085,7 +1085,7 @@ suite("test_join", "query,p0") {
     qt_join_bug2"""select n.k1, m.k1, m.k2, n.k2 from (select a.k1, a.k2, a.k3 from 
            baseall a join baseall b on (a.k1 = b.k1 and a.k2 = b.k2 and a.k3 = b.k3)) m 
            left join test n on m.k1 = n.k1 order by 1, 2, 3, 4"""
-    // https://github.com/apache/incubator-doris/issues/4210
+    // https://github.com/apache/doris/issues/4210
     qt_join_bug3"""select * from baseall t1 where k1 = (select min(k1) from test t2 where t2.k1 = t1.k1 and t2.k2=t1.k2)
            order by k1"""
 
