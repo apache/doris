@@ -188,8 +188,8 @@ public class SystemHandler extends AlterHandler {
         }
         if (backendTabletIds.size() < Config.decommission_tablet_check_threshold
                 && Env.getCurrentRecycleBin().allTabletsInRecycledStatus(backendTabletIds)) {
-            LOG.info("tablet size is {}, all tablets on decommissioned backend {} have been recycled",
-                    backendTabletIds.size(), beId);
+            LOG.info("tablet size is {}, all tablets on decommissioned backend {} have been recycled, " +
+                    "so this backend will be dropped immediately", backendTabletIds.size(), beId);
             return true;
         }
         return false;
