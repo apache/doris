@@ -293,7 +293,7 @@ public abstract class QueryStmt extends StatementBase {
             isAscOrder.add(Boolean.valueOf(orderByElement.getIsAsc()));
             nullsFirstParams.add(orderByElement.getNullsFirstParam());
         }
-        substituteOrdinalsAliases(orderingExprs, "ORDER BY", analyzer);
+        substituteOrdinalsAliases(orderingExprs, "ORDER BY", analyzer, true);
 
         // save the order by element after analyzed
         orderByElementsAfterAnalyzed = Lists.newArrayList();
@@ -404,7 +404,7 @@ public abstract class QueryStmt extends StatementBase {
      * Modifies exprs list in-place.
      */
     protected void substituteOrdinalsAliases(List<Expr> exprs, String errorPrefix,
-                                             Analyzer analyzer) throws AnalysisException {
+                                             Analyzer analyzer, boolean aliasFirst) throws AnalysisException {
         Expr ambiguousAlias = getFirstAmbiguousAlias(exprs);
         if (ambiguousAlias != null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NON_UNIQ_ERROR, ambiguousAlias.toColumnLabel());
@@ -420,8 +420,22 @@ public abstract class QueryStmt extends StatementBase {
             Expr substituteExpr = trySubstituteOrdinal(expr, errorPrefix, analyzer);
             if (substituteExpr == null) {
                 substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                if (aliasFirst) {
+                    substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                    i.set(substituteExpr);
+                } else {
+                    try {
+                        // use col name from tableRefs first
+                        expr.analyze(analyzer);
+                    } catch (AnalysisException ex) {
+                        // then consider alias name
+                        substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
+                        i.set(substituteExpr);
+                    }
+                }
+            } else {
+                i.set(substituteExpr);
             }
-            i.set(substituteExpr);
         }
     }
 
