@@ -30,7 +30,7 @@ class TupleDescBuilder;
 // associated with those tuples.
 // TupleIds are monotonically increasing from 0 for each declare_tuple, and
 // SlotIds increase similarly, but are always greater than all TupleIds.
-// Unlike FE, slots are not reordered based on size, and padding is not addded.
+// Unlike FE, slots are not reordered based on size, and padding is not added.
 //
 // Example usage:
 // DescriptorTblBuilder builder;

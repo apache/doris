@@ -195,7 +195,7 @@ public:
     String operator()(const AggregateFunctionStateData& x) const;
 };
 
-/** Converts numberic value of any type to specified type. */
+/** Converts numeric value of any type to specified type. */
 template <typename T>
 class FieldVisitorConvertToNumber : public StaticVisitor<T> {
 public:

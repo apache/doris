@@ -188,7 +188,7 @@ private:
         const char* begin = pos;
         const char* end = pos + pattern.size();
 
-        // Pattern is checked in fe, so pattern should be vaild here, we check it and if pattern is invalid, we return.
+        // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
         auto throw_exception = [&](const std::string& msg) {
             LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
                                     std::to_string(pos - begin);

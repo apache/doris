@@ -45,7 +45,7 @@ private:
     friend class CollectIterator;
     friend class DeleteHandler;
 
-    // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
+    // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                             bool* eof);
