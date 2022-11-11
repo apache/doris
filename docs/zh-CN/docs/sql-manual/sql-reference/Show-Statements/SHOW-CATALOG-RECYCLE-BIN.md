@@ -1,11 +1,11 @@
 ---
 {
-    "title": "uuid",
+    "title": "SHOW-CATALOG-RECYCLE-BIN",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,27 +24,39 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## uuid
-### description
-#### Syntax
+## SHOW-CATALOG-RECYCLE-BIN
 
-`VARCHAR uuid()`
+### Name
 
-返回一个随机的uuid字符串
+SHOW CATALOG RECYCLE BIN
 
+### Description
 
-### example
+该语句用于展示回收站中可回收的库,表或分区元数据信息
 
+语法：
+
+```sql
+SHOW CATALOG RECYCLE BIN [ WHERE NAME [ = "name" | LIKE "name_matcher"] ]
 ```
 
-mysql> select uuid();
-+--------------------------------------+
-| uuid()                               |
-+--------------------------------------+
-| 29077778-fc5e-4603-8368-6b5f8fd55c24 |
-+--------------------------------------+
+### Example
 
-```
+ 1. 展示所有回收站元数据
+    
+      ```sql
+       SHOW CATALOG RECYCLE BIN;
+      ```
 
-### keywords
-    UUID
+ 2. 展示回收站中名称'test'的元数据
+    
+      ```sql
+       SHOW CATALOG RECYCLE BIN WHERE NAME = 'test';
+      ```
+
+### Keywords
+
+    SHOW, CATALOG RECYCLE BIN
+
+### Best Practice
+
