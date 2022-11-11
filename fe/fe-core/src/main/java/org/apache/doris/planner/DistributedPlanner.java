@@ -205,8 +205,8 @@ public class DistributedPlanner {
             Preconditions.checkState(childFragments.size() == 2);
             result = createHashJoinFragment((HashJoinNode) root,
                     childFragments.get(1), childFragments.get(0), fragments);
-        } else if (root instanceof CrossJoinNode) {
-            result = createCrossJoinFragment((CrossJoinNode) root, childFragments.get(1),
+        } else if (root instanceof NestedLoopJoinNode) {
+            result = createCrossJoinFragment((NestedLoopJoinNode) root, childFragments.get(1),
                     childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
@@ -698,7 +698,7 @@ public class DistributedPlanner {
      * which is the destination of the rightChildFragment's output.
      */
     private PlanFragment createCrossJoinFragment(
-            CrossJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
+            NestedLoopJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
             throws UserException {
         // The rhs tree is going to send data through an exchange node which effectively
         // compacts the data. No reason to do it again at the rhs root node.

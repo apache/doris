@@ -44,7 +44,12 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                          _join_op == TJoinOp::LEFT_SEMI_JOIN)),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
-          _is_outer_join(_match_all_build || _match_all_probe) {
+          _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
+                             _join_op == TJoinOp::LEFT_SEMI_JOIN ||
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
+          _is_outer_join(_match_all_build || _match_all_probe),
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+    _init_join_op();
     if (tnode.__isset.hash_join_node) {
         _output_row_desc.reset(
                 new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));

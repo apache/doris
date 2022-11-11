@@ -1668,6 +1668,23 @@ public class Analyzer {
         }
     }
 
+    public void registerNjJoinConjuncts(List<Expr> conjuncts, TableRef rhsRef)
+            throws AnalysisException {
+        Preconditions.checkNotNull(rhsRef);
+        Preconditions.checkNotNull(conjuncts);
+        for (Expr conjunct : conjuncts) {
+            registerConjunct(conjunct);
+            if (rhsRef.getJoinOp().isSemiJoin()) {
+                globalState.sjClauseByConjunct.put(conjunct.getId(), rhsRef);
+                if (rhsRef.getJoinOp().isAntiJoin()) {
+                    globalState.conjunctsByAntiJoinClause.computeIfAbsent(rhsRef.getId(), k -> Lists.newArrayList())
+                            .add(conjunct.getId());
+                }
+            }
+            markConstantConjunct(conjunct, false);
+        }
+    }
+
     /**
      * If the given conjunct is a constant non-oj conjunct, marks it as assigned, and
      * evaluates the conjunct. If the conjunct evaluates to false, marks this query

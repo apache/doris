@@ -49,13 +49,13 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Cross join between left child and right child.
+ * Nested loop join between left child and right child.
  */
-public class CrossJoinNode extends JoinNodeBase {
-    private static final Logger LOG = LogManager.getLogger(CrossJoinNode.class);
+public class NestedLoopJoinNode extends JoinNodeBase {
+    private static final Logger LOG = LogManager.getLogger(NestedLoopJoinNode.class);
 
-    public CrossJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
-        super(id, "CROSS JOIN", StatisticalType.CROSS_JOIN_NODE, outer, inner, innerRef);
+    public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
+        super(id, "NESTED LOOP JOIN", StatisticalType.CROSS_JOIN_NODE, outer, inner, innerRef);
         tupleIds.addAll(outer.getTupleIds());
         tupleIds.addAll(inner.getTupleIds());
     }
@@ -89,28 +89,16 @@ public class CrossJoinNode extends JoinNodeBase {
     protected Pair<Boolean, Boolean> needToCopyRightAndLeft() {
         boolean copyleft = true;
         boolean copyRight = true;
-        switch (joinOp) {
-            case LEFT_ANTI_JOIN:
-            case LEFT_SEMI_JOIN:
-            case NULL_AWARE_LEFT_ANTI_JOIN:
-                copyRight = false;
-                break;
-            case RIGHT_SEMI_JOIN:
-            case RIGHT_ANTI_JOIN:
-                copyleft = false;
-                break;
-            default:
-                break;
-        }
         return Pair.of(copyleft, copyRight);
     }
 
     /**
      * Only for Nereids.
      */
-    public CrossJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
-            List<Expr> srcToOutputList, TupleDescriptor intermediateTuple, TupleDescriptor outputTuple) {
-        super(id, "CROSS JOIN", StatisticalType.CROSS_JOIN_NODE, JoinOperator.CROSS_JOIN);
+    public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
+            JoinOperator joinOperator, List<Expr> srcToOutputList, TupleDescriptor intermediateTuple,
+            TupleDescriptor outputTuple) {
+        super(id, "NESTED LOOP JOIN", StatisticalType.CROSS_JOIN_NODE, joinOperator);
         this.tupleIds.addAll(tupleIds);
         children.add(outer);
         children.add(inner);
@@ -147,7 +135,7 @@ public class CrossJoinNode extends JoinNodeBase {
                 cardinality = Math.round(((double) cardinality) * computeOldSelectivity());
             }
         }
-        LOG.debug("stats CrossJoin: cardinality={}", Long.toString(cardinality));
+        LOG.debug("stats NestedLoopJoin: cardinality={}", Long.toString(cardinality));
     }
 
     @Override
@@ -204,7 +192,7 @@ public class CrossJoinNode extends JoinNodeBase {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(detailPrefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         // todo unify in plan node

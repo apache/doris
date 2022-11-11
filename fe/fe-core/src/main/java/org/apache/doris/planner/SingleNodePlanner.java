@@ -1050,7 +1050,7 @@ public class SingleNodePlanner {
                         && candidateCardinalityIsSmaller(
                                 candidate, tblRefToPlanNodeOfCandidate.second.getCardinality(),
                                 newRoot, newRootRightChildCardinality)))
-                        || (candidate instanceof HashJoinNode && newRoot instanceof CrossJoinNode)) {
+                        || (candidate instanceof HashJoinNode && newRoot instanceof NestedLoopJoinNode)) {
                     newRoot = candidate;
                     minEntry = tblRefToPlanNodeOfCandidate;
                     newRootRightChildCardinality = cardinalityOfCandidate;
@@ -2055,20 +2055,13 @@ public class SingleNodePlanner {
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
         if (eqJoinConjuncts.isEmpty()) {
-
-            // only inner join can change to cross join
-            if (innerRef.getJoinOp().isSemiAntiJoin()) {
-                throw new AnalysisException("non-equal " + innerRef.getJoinOp().toString()
-                        + " is not supported");
-            }
-
             // construct cross join node
             // LOG.debug("Join between {} and {} requires at least one conjunctive"
             //        + " equality predicate between the two tables",
             //        outerRef.getAliasAsName(), innerRef.getAliasAsName());
             // TODO If there are eq join predicates then we should construct a hash join
-            CrossJoinNode result =
-                    new CrossJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
+            NestedLoopJoinNode result =
+                    new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
             result.addConjuncts(ojConjuncts);
             result.init(analyzer);
             return result;
