@@ -49,7 +49,9 @@ public:
 
     virtual const RowDescriptor& row_desc() const override { return *_output_row_desc; }
 
-    virtual const RowDescriptor& intermediate_row_desc() const override { return *_intermediate_row_desc; }
+    virtual const RowDescriptor& intermediate_row_desc() const override {
+        return *_intermediate_row_desc;
+    }
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
