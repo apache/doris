@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.logging.log4j.LogManager;
@@ -34,20 +36,21 @@ import java.util.Objects;
  * date time literal.
  */
 public class DateTimeLiteral extends DateLiteral {
+
+    protected static final int DATETIME_TO_MINUTE_STRING_LENGTH = 16;
+    protected static final int DATETIME_TO_HOUR_STRING_LENGTH = 13;
+    protected static final int DATETIME_DEFAULT_STRING_LENGTH = 10;
+    protected static DateTimeFormatter DATE_TIME_DEFAULT_FORMATTER = null;
+    protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
+    protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
+    protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
+    protected static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
+
     private static final Logger LOG = LogManager.getLogger(DateTimeLiteral.class);
 
-    private static final int DATETIME_TO_MINUTE_STRING_LENGTH = 16;
-    private static final int DATETIME_TO_HOUR_STRING_LENGTH = 13;
-    private static final int DATETIME_DEFAULT_STRING_LENGTH = 10;
-    private static DateTimeFormatter DATE_TIME_DEFAULT_FORMATTER = null;
-    private static DateTimeFormatter DATE_TIME_FORMATTER = null;
-    private static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
-    private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
-    private static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
-
-    private long hour;
-    private long minute;
-    private long second;
+    protected long hour;
+    protected long minute;
+    protected long second;
 
     static {
         try {
@@ -63,7 +66,11 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public DateTimeLiteral(String s) {
-        super(DateTimeType.INSTANCE);
+        this(DateTimeType.INSTANCE, s);
+    }
+
+    protected DateTimeLiteral(DateLikeType dataType, String s) {
+        super(dataType);
         init(s);
     }
 
@@ -71,7 +78,15 @@ public class DateTimeLiteral extends DateLiteral {
      * C'tor data time literal.
      */
     public DateTimeLiteral(long year, long month, long day, long hour, long minute, long second) {
-        super(DateTimeType.INSTANCE);
+        this(DateTimeType.INSTANCE, year, month, day, hour, minute, second);
+    }
+
+    /**
+     * C'tor data time literal.
+     */
+    public DateTimeLiteral(DateLikeType dataType, long year, long month, long day,
+            long hour, long minute, long second) {
+        super(dataType);
         this.hour = hour;
         this.minute = minute;
         this.second = second;
@@ -80,7 +95,8 @@ public class DateTimeLiteral extends DateLiteral {
         this.day = day;
     }
 
-    private void init(String s) throws AnalysisException {
+    @Override
+    protected void init(String s) throws AnalysisException {
         try {
             LocalDateTime dateTime;
             if (s.split("-")[0].length() == 2) {
@@ -132,6 +148,17 @@ public class DateTimeLiteral extends DateLiteral {
         return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
     }
 
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, Type.DATETIME);
+    }
+
+    public DateTimeLiteral plusDays(int days) {
+        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusDays(days);
+        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
+                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
+    }
+
     public DateTimeLiteral plusYears(int years) {
         LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusYears(years);
         return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
@@ -140,12 +167,6 @@ public class DateTimeLiteral extends DateLiteral {
 
     public DateTimeLiteral plusMonths(int months) {
         LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusMonths(months);
-        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
-                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
-    }
-
-    public DateTimeLiteral plusDays(int days) {
-        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusDays(days);
         return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
                 d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
     }
@@ -166,11 +187,6 @@ public class DateTimeLiteral extends DateLiteral {
         LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusSeconds(seconds);
         return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
                 d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
-    }
-
-    @Override
-    public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second);
     }
 
     public long getHour() {
