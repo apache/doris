@@ -180,7 +180,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
     }
     // Indicate whether current thread is reducing mem on hard limit.
     bool reducing_mem_on_hard_limit = false;
-    std::vector<LoadChannel*> channels_to_reduce_mem;
+    std::vector<std::shared_ptr<LoadChannel>> channels_to_reduce_mem;
     {
         std::unique_lock<std::mutex> l(_lock);
         while (_should_wait_flush) {
@@ -202,7 +202,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         // But the load channel's reduce memory process is thread safe, only 1 thread can
         // reduce memory at the same time, other threads will wait on a condition variable,
         // after the reduce-memory work finished, all threads will return.
-        std::vector<std::shared_ptr<LoadChannel>> candidate_channels;
+        std::vector<LoadChannel*> candidate_channels;
         int64_t total_consume = 0;
         for (auto& kv : _load_channels) {
             if (kv.second->is_high_priority()) {
@@ -210,7 +210,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
                 // to avoid blocking them.
                 continue;
             }
-            candidate_channels.push_back(kv.second);
+            candidate_channels.push_back(kv.second.get());
             total_consume += kv.second->mem_consumption();
         }
 
@@ -234,13 +234,13 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         if (_load_channel_min_mem_to_reduce > 0 &&
             largest_channel->mem_consumption() > _load_channel_min_mem_to_reduce) {
             // Pick 1 load channel to reduce memory.
-            channels_to_reduce_mem.push_back(largest_channel.get());
+            channels_to_reduce_mem.push_back(_load_channels[largest_channel->load_id()]);
             mem_consumption_in_picked_channel = largest_channel->mem_consumption();
         } else {
             // Pick multiple channels to reduce memory.
             int64_t mem_to_flushed = total_consume / 3;
             for (auto ch : candidate_channels) {
-                channels_to_reduce_mem.push_back(ch.get());
+                channels_to_reduce_mem.push_back(_load_channels[ch->load_id()]);
                 mem_consumption_in_picked_channel += ch->mem_consumption();
                 if (mem_consumption_in_picked_channel >= mem_to_flushed) {
                     break;
