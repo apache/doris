@@ -168,7 +168,10 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
     qt_sql "select array_join([''], '_')"
     qt_sql "select array_join(['', ''], '_')"
-
+    qt_sql "select array_with_constant(3, '_')"
+    qt_sql "select array_with_constant(2, '1')"
+    qt_sql "select array_with_constant(4, 1223)"
+    qt_sql "select array_with_constant(8, null)"
     // abnormal test
     test {
         sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
