@@ -1309,6 +1309,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         _build_blocks.emplace_back(mutable_block.to_block());
         RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
     }
+    child(1)->close(state);
 
     return std::visit(
             Overload {[&](std::monostate& arg) -> Status {

@@ -82,7 +82,7 @@ public:
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
-    int block_row_max = 4096;
+    int block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool record_rowids = false;
