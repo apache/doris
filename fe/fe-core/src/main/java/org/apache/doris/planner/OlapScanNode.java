@@ -946,6 +946,13 @@ public class OlapScanNode extends ScanNode {
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append("\n").append(prefix).append(String.format("cardinality=%s", cardinality));
+            if (!runtimeFilters.isEmpty()) {
+                output.append("\n").append(prefix).append("Apply RFs: ");
+                output.append(getRuntimeFilterExplainString(false, true));
+            }
+            if (!conjuncts.isEmpty()) {
+                output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
+            }
             return output.toString();
         }
         if (isPreAggregation) {
