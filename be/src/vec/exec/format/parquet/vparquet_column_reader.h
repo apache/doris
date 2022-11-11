@@ -153,7 +153,7 @@ public:
     ArrayColumnReader(cctz::time_zone* ctz) : ParquetColumnReader(ctz) {};
     ~ArrayColumnReader() override { close(); };
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
-                std::vector<RowRange>& row_ranges, size_t max_buf_size);
+                size_t max_buf_size);
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
                             bool* eof) override;

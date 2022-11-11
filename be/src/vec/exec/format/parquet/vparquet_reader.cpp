@@ -152,9 +152,9 @@ Status ParquetReader::file_metadata(FileMetaData** metadata) {
 }
 
 Status ParquetReader::init_reader(
-        const std::vector<std::string>& column_names, VExprContext* vconjunct_ctx,
+        const std::vector<std::string>& column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        const bool& filter_groups) {
+        VExprContext* vconjunct_ctx, const bool& filter_groups) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     Status open_status = _open_file();
     if (!open_status.ok()) {
