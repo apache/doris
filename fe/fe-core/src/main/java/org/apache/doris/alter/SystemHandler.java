@@ -84,7 +84,7 @@ public class SystemHandler extends AlterHandler {
             }
 
             List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
-            if (Config.drop_backend_after_decommission && checkTablets(backendTabletIds)) {
+            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds)) {
                 try {
                     systemInfoService.dropBackend(beId);
                     LOG.info("no available tablet on decommission backend {}, drop it", beId);
@@ -182,8 +182,17 @@ public class SystemHandler extends AlterHandler {
      * 1. backend does not have any tablet.
      * 2. all tablets in backend have been recycled.
      */
-    private boolean checkTablets(List<Long> backendTabletIds) {
-        return backendTabletIds.isEmpty() || Env.getCurrentRecycleBin().allTabletsInRecycledStatus(backendTabletIds);
+    private boolean checkTablets(Long beId, List<Long> backendTabletIds) {
+        if (backendTabletIds.isEmpty()) {
+            return true;
+        }
+        if (backendTabletIds.size() < Config.decommission_tablet_check_threshold
+                && Env.getCurrentRecycleBin().allTabletsInRecycledStatus(backendTabletIds)) {
+            LOG.info("tablet size is {}, all tablets on decommissioned backend {} have been recycled",
+                    backendTabletIds.size(), beId);
+            return true;
+        }
+        return false;
     }
 
     private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)

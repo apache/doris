@@ -99,7 +99,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         }
 
-        return recycledTabletSet.containsAll(backendTabletIds);
+        return recycledTabletSet.size() >= backendTabletIds.size() && recycledTabletSet.containsAll(backendTabletIds);
     }
 
     private void addRecycledTabletsForTable(Set<Long> recycledTabletSet, Table table) {

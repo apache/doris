@@ -1315,6 +1315,15 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
+     * When tablet size of decommissioned backend is lower than this threshold,
+     * SystemHandler will start to check if all tablets of this backend are in recycled status,
+     * this backend will be dropped immediately if the check result is true.
+     * For performance based considerations, better not set a very high value for this.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int decommission_tablet_check_threshold = 5000;
+
+    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
