@@ -283,7 +283,8 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         uint64_t begin = GetCurrentTimeMicros();
         int64_t mem_usage = ch->mem_consumption();
         st = ch->handle_mem_exceed_limit(response);
-        LOG(INFO) << "reduced memory of " << *ch << ", cost " << GetCurrentTimeMicros() - begin
+        LOG(INFO) << "reduced memory of " << *ch << ", cost "
+                  << (GetCurrentTimeMicros() - begin) / 1000
                   << " ms, released memory: " << mem_usage - ch->mem_consumption() << " bytes";
     }
 
