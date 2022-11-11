@@ -1,6 +1,6 @@
 ---
 {
-    "title": "TOPN_ARRAY",
+    "title": "TOPN_WEIGHTED",
     "language": "en"
 }
 ---
@@ -24,14 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## TOPN_ARRAY
+## TOPN_WEIGHTED
 ### description
 #### Syntax
 
-`ARRAY<T> topn_array(expr, INT top_num[, INT space_expand_rate])`
+`ARRAY<T> topn_weighted(expr, BigInt weight, INT top_num[, INT space_expand_rate])`
 
-The topn function uses the Space-Saving algorithm to calculate the top_num frequent items in expr, 
-and return an array about the top n nums, which is an approximation
+The topn_weighted function is calculated using the Space-Saving algorithm, and the sum of the weights in expr is the result of the top n numbers, which is an approximate value
 
 The space_expand_rate parameter is optional and is used to set the number of counters used in the Space-Saving algorithm
 ```
@@ -41,21 +40,21 @@ The higher value of space_expand_rate, the more accurate result will be. The def
 
 ### example
 ```
-mysql> select topn_array(k3,3) from baseall;
-+--------------------------+
-| topn_array(`k3`, 3)      |
-+--------------------------+
-| [3021, 2147483647, 5014] |
-+--------------------------+
+mysql> select topn_weighted(k5,k1,3) from baseall;
++------------------------------+
+| topn_weighted(`k5`, `k1`, 3) |
++------------------------------+
+| [0, 243.325, 100.001]        |
++------------------------------+
 1 row in set (0.02 sec)
 
-mysql> select topn_array(k3,3,100) from baseall;
-+--------------------------+
-| topn_array(`k3`, 3, 100) |
-+--------------------------+
-| [3021, 2147483647, 5014] |
-+--------------------------+
+mysql> select topn_weighted(k5,k1,3,100) from baseall;
++-----------------------------------+
+| topn_weighted(`k5`, `k1`, 3, 100) |
++-----------------------------------+
+| [0, 243.325, 100.001]             |
++-----------------------------------+
 1 row in set (0.02 sec)
 ```
 ### keywords
-TOPN, TOPN_ARRAY
+TOPN, TOPN_WEIGHTED

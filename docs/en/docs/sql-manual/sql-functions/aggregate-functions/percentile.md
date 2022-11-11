@@ -34,7 +34,7 @@ Calculate the exact percentile, suitable for small data volumes. Sort the specif
 
 Parameter Description:
 expr: required. The value is an integer (bigint at most).
-p: The exact percentile is required. The value is [0.0,1.0]
+p: The exact percentile is required. The const value is [0.0,1.0]
 
 ### example
 ```

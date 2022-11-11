@@ -17,12 +17,13 @@
 
 #pragma once
 
-#include "common/status.h"
 #include "util/counts.h"
 #include "util/tdigest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_decimal.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
@@ -262,44 +263,93 @@ public:
 };
 
 struct PercentileState {
-    Counts counts;
-    double quantile = -1.0;
+    std::vector<Counts> vec_counts;
+    std::vector<double> vec_quantile {-1};
+    bool inited_flag = false;
 
     void write(BufferWritable& buf) const {
-        uint32_t serialize_size = counts.serialized_size();
-        std::string result(serialize_size + sizeof(double), '0');
-        memcpy(result.data(), &quantile, sizeof(double));
-        counts.serialize((uint8_t*)result.c_str() + sizeof(double));
-        write_binary(result, buf);
+        write_binary(inited_flag, buf);
+        int size_num = vec_quantile.size();
+        write_binary(size_num, buf);
+        for (const auto& quantile : vec_quantile) {
+            write_binary(quantile, buf);
+        }
+        std::string serialize_str;
+        for (const auto& counts : vec_counts) {
+            serialize_str.resize(counts.serialized_size(), '0');
+            counts.serialize((uint8_t*)serialize_str.c_str());
+            write_binary(serialize_str, buf);
+        }
     }
 
     void read(BufferReadable& buf) {
+        read_binary(inited_flag, buf);
+        int size_num = 0;
+        read_binary(size_num, buf);
+        double data = 0.0;
+        vec_quantile.clear();
+        for (int i = 0; i < size_num; ++i) {
+            read_binary(data, buf);
+            vec_quantile.emplace_back(data);
+        }
         StringRef ref;
-        read_binary(ref, buf);
-        memcpy(&quantile, ref.data, sizeof(double));
-        counts.unserialize((uint8_t*)ref.data + sizeof(double));
+        vec_counts.clear();
+        vec_counts.resize(size_num);
+        for (int i = 0; i < size_num; ++i) {
+            read_binary(ref, buf);
+            vec_counts[i].unserialize((uint8_t*)ref.data);
+        }
     }
 
-    void add(int64_t source, double quantiles) {
-        counts.increment(source, 1);
-        quantile = quantiles;
+    void add(int64_t source, const PaddedPODArray<Float64>& quantiles, int arg_size) {
+        if (!inited_flag) {
+            vec_counts.resize(arg_size);
+            vec_quantile.resize(arg_size, -1);
+            inited_flag = true;
+            for (int i = 0; i < arg_size; ++i) {
+                vec_quantile[i] = quantiles[i];
+            }
+        }
+        for (int i = 0; i < arg_size; ++i) {
+            vec_counts[i].increment(source, 1);
+        }
     }
 
     void merge(const PercentileState& rhs) {
-        counts.merge(&(rhs.counts));
-        if (quantile == -1.0) {
-            quantile = rhs.quantile;
+        if (!rhs.inited_flag) {
+            return;
+        }
+        int size_num = rhs.vec_quantile.size();
+        if (!inited_flag) {
+            vec_counts.resize(size_num);
+            vec_quantile.resize(size_num, -1);
+            inited_flag = true;
+        }
+
+        for (int i = 0; i < size_num; ++i) {
+            if (vec_quantile[i] == -1.0) {
+                vec_quantile[i] = rhs.vec_quantile[i];
+            }
+            vec_counts[i].merge(&(rhs.vec_counts[i]));
         }
     }
 
     void reset() {
-        counts = {};
-        quantile = -1.0;
+        vec_counts.clear();
+        vec_quantile.clear();
+        inited_flag = false;
     }
 
     double get() const {
-        auto result = counts.terminate(quantile); //DoubleVal
+        auto result = vec_counts[0].terminate(vec_quantile[0]); //DoubleVal
         return result.val;
+    }
+
+    void insert_result_into(IColumn& to) const {
+        auto& column_data = static_cast<ColumnVector<Float64>&>(to).get_data();
+        for (int i = 0; i < vec_counts.size(); ++i) {
+            column_data.push_back(vec_counts[i].terminate(vec_quantile[i]).val);
+        }
     }
 };
 
@@ -318,9 +368,8 @@ public:
              Arena*) const override {
         const auto& sources = static_cast<const ColumnVector<Int64>&>(*columns[0]);
         const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
-
-        AggregateFunctionPercentile::data(place).add(sources.get_int(row_num),
-                                                     quantile.get_float64(row_num));
+        AggregateFunctionPercentile::data(place).add(sources.get_int(row_num), quantile.get_data(),
+                                                     1);
     }
 
     void reset(AggregateDataPtr __restrict place) const override {
@@ -344,6 +393,67 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnVector<Float64>&>(to);
         col.insert_value(AggregateFunctionPercentile::data(place).get());
+    }
+};
+
+class AggregateFunctionPercentileArray final
+        : public IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentileArray> {
+public:
+    AggregateFunctionPercentileArray(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentileArray>(
+                      argument_types_, {}) {}
+
+    String get_name() const override { return "percentile_array"; }
+
+    DataTypePtr get_return_type() const override {
+        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat64>()));
+    }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+             Arena*) const override {
+        const auto& sources = static_cast<const ColumnVector<Int64>&>(*columns[0]);
+        const auto& quantile_array = static_cast<const ColumnArray&>(*columns[1]);
+        const auto& offset_column_data = quantile_array.get_offsets();
+        const auto& nested_column =
+                static_cast<const ColumnNullable&>(quantile_array.get_data()).get_nested_column();
+        const auto& nested_column_data = static_cast<const ColumnVector<Float64>&>(nested_column);
+
+        AggregateFunctionPercentileArray::data(place).add(
+                sources.get_int(row_num), nested_column_data.get_data(),
+                offset_column_data.data()[row_num] - offset_column_data.data()[row_num - 1]);
+    }
+
+    void reset(AggregateDataPtr __restrict place) const override {
+        AggregateFunctionPercentileArray::data(place).reset();
+    }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
+        AggregateFunctionPercentileArray::data(place).merge(
+                AggregateFunctionPercentileArray::data(rhs));
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        AggregateFunctionPercentileArray::data(place).write(buf);
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
+        AggregateFunctionPercentileArray::data(place).read(buf);
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_nested_col = to_arr.get_data();
+        if (to_nested_col.is_nullable()) {
+            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
+            AggregateFunctionPercentileArray::data(place).insert_result_into(
+                    col_null->get_nested_column());
+            col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
+        } else {
+            AggregateFunctionPercentileArray::data(place).insert_result_into(to_nested_col);
+        }
+        to_arr.get_offsets().push_back(to_nested_col.size());
     }
 };
 
