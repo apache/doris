@@ -310,5 +310,22 @@ public class ColumnStat {
         this.selectivity = selectivity;
     }
 
-
+    public double ndvIntersection(ColumnStat other) {
+        if (maxValue == minValue) {
+            if (minValue <= other.maxValue && minValue >= other.minValue) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        double min = Math.max(minValue, other.minValue);
+        double max = Math.min(maxValue, other.maxValue);
+        if (min < max) {
+            return Math.ceil(ndv * (max - min) / (maxValue - minValue));
+        } else if (min > max) {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
 }

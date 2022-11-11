@@ -175,10 +175,14 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (columnStat == ColumnStatistic.UNKNOWN) {
             return ColumnStatistic.UNKNOWN;
         }
+        /*
+        we keep columnStat.min and columnStat.max, but set ndv=1.
+        if there is group-by keys, we will update ndv when visiting group clause
+        */
         double width = min.child().getDataType().width();
         return new ColumnStatisticBuilder().setCount(1).setNdv(1).setAvgSizeByte(width).setNumNulls(width)
                 .setDataSize(child.getDataType().width()).setMinValue(columnStat.minValue)
-                .setMaxValue(columnStat.minValue).setSelectivity(1.0)
+                .setMaxValue(columnStat.maxValue).setSelectivity(1.0)
                 .setMinExpr(null).build();
     }
 
@@ -189,9 +193,13 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (columnStat == ColumnStatistic.UNKNOWN) {
             return ColumnStatistic.UNKNOWN;
         }
+        /*
+        we keep columnStat.min and columnStat.max, but set ndv=1.
+        if there is group-by keys, we will update ndv when visiting group clause
+        */
         int width = max.child().getDataType().width();
         return new ColumnStatisticBuilder().setCount(1D).setNdv(1D).setAvgSizeByte(width).setNumNulls(0)
-                .setDataSize(width).setMinValue(columnStat.maxValue).setMaxValue(columnStat.maxValue)
+                .setDataSize(width).setMinValue(columnStat.minValue).setMaxValue(columnStat.maxValue)
                 .setSelectivity(1.0).setMaxExpr(null).setMinExpr(null).build();
     }
 
