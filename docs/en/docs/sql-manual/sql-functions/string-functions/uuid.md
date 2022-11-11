@@ -36,7 +36,6 @@ return a random uuid string
 ### example
 
 ```
-
 mysql> select uuid();
 +--------------------------------------+
 | uuid()                               |

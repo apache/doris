@@ -396,6 +396,7 @@
                                 "sql-manual/sql-functions/string-functions/money_format",
                                 "sql-manual/sql-functions/string-functions/parse_url",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
+                                "sql-manual/sql-functions/string-functions/uuid",
                                 "sql-manual/sql-functions/string-functions/mask/mask",
                                 "sql-manual/sql-functions/string-functions/mask/mask_first_n",
                                 "sql-manual/sql-functions/string-functions/mask/mask_last_n",
@@ -867,7 +868,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-STATUS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-POLICY"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-POLICY",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN"
                             ]
                         },
                         {

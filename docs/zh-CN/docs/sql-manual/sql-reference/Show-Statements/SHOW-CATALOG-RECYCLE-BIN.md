@@ -40,6 +40,19 @@ SHOW CATALOG RECYCLE BIN
 SHOW CATALOG RECYCLE BIN [ WHERE NAME [ = "name" | LIKE "name_matcher"] ]
 ```
 
+说明：
+
+```
+各列含义如下：
+        Type：                元数据类型:Database、Table、Partition
+        Name：                元数据名称		
+        DbId：                database对应的id
+        TableId：             table对应的id
+        PartitionId：         partition对应的id
+        DropTime：            元数据放入回收站的时间
+```
+
+
 ### Example
 
  1. 展示所有回收站元数据

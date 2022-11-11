@@ -36,7 +36,6 @@ under the License.
 ### example
 
 ```
-
 mysql> select uuid();
 +--------------------------------------+
 | uuid()                               |
