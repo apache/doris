@@ -381,10 +381,8 @@ Status ColumnReader::_load_inverted_index_index(
 
     if (is_string_type(type)) {
         // todo(wy): implement
-        _inverted_index.reset();
     } else if (is_numeric_type(type)) {
         // todo(wy): implement
-        _inverted_index.reset();
     } else {
         _inverted_index.reset();
     }

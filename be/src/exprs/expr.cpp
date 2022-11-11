@@ -31,6 +31,7 @@
 #include "exprs/anyval_util.h"
 #include "exprs/arithmetic_expr.h"
 #include "exprs/binary_predicate.h"
+#include "exprs/match_predicate.h"
 #include "exprs/case_expr.h"
 #include "exprs/cast_expr.h"
 #include "exprs/compound_predicate.h"
@@ -383,6 +384,22 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
         }
 
         *expr = pool->add(new CaseExpr(texpr_node));
+        return Status::OK();
+    }
+
+    case TExprNodeType::MATCH_PRED: {
+        DCHECK(texpr_node.__isset.fn);
+        if (texpr_node.fn.name.function_name == "match_any" ||
+            texpr_node.fn.name.function_name == "match_all" ||
+            texpr_node.fn.name.function_name == "match_phrase" ||
+            texpr_node.fn.name.function_name == "match_element_eq" ||
+            texpr_node.fn.name.function_name == "match_element_lt" ||
+            texpr_node.fn.name.function_name == "match_element_gt" ||
+            texpr_node.fn.name.function_name == "match_element_le" ||
+            texpr_node.fn.name.function_name == "match_element_ge") {
+            //*expr = pool->add(new ScalarFnCall(texpr_node));
+            *expr = pool->add(new MatchPredicateExpr(texpr_node));
+        }
         return Status::OK();
     }
 

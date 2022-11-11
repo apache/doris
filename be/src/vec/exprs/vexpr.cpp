@@ -45,6 +45,7 @@ using doris::TypeDescriptor;
 
 VExpr::VExpr(const doris::TExprNode& node)
         : _node_type(node.node_type),
+          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
           _type(TypeDescriptor::from_thrift(node.type)),
           _fn_context_index(-1),
           _prepared(false) {
@@ -61,6 +62,7 @@ VExpr::VExpr(const doris::TExprNode& node)
 
 VExpr::VExpr(const VExpr& vexpr)
         : _node_type(vexpr._node_type),
+          _opcode(vexpr._opcode),
           _type(vexpr._type),
           _data_type(vexpr._data_type),
           _children(vexpr._children),
@@ -70,7 +72,8 @@ VExpr::VExpr(const VExpr& vexpr)
           _prepared(vexpr._prepared) {}
 
 VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
-        : _type(type), _fn_context_index(-1), _prepared(false) {
+        : _opcode(TExprOpcode::INVALID_OPCODE), _type(type),
+          _fn_context_index(-1), _prepared(false) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
@@ -130,7 +133,8 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     case doris::TExprNodeType::ARITHMETIC_EXPR:
     case doris::TExprNodeType::BINARY_PRED:
     case doris::TExprNodeType::FUNCTION_CALL:
-    case doris::TExprNodeType::COMPUTE_FUNCTION_CALL: {
+    case doris::TExprNodeType::COMPUTE_FUNCTION_CALL:
+    case doris::TExprNodeType::MATCH_PRED: {
         *expr = pool->add(new VectorizedFnCall(texpr_node));
         break;
     }

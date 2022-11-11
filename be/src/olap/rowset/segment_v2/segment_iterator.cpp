@@ -21,6 +21,7 @@
 #include <set>
 #include <utility>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -583,6 +584,13 @@ Status SegmentIterator::_apply_inverted_index() {
                 return res;
             }
 
+            std::string pred_sign = _gen_predicate_sign(pred);
+            auto pred_type = pred->type();
+            if (pred_type == PredicateType::MATCH) {
+                _rowid_result_for_index.emplace(
+                        std::make_pair(pred_sign, std::make_pair(false, bitmap)));
+            }
+
             _row_bitmap &= bitmap;
             if (_row_bitmap.isEmpty()) {
                 break; // all rows have been pruned, no need to process further predicates
@@ -591,6 +599,19 @@ Status SegmentIterator::_apply_inverted_index() {
     }
     _col_predicates = std::move(remaining_predicates);
     return Status::OK();
+}
+
+std::string SegmentIterator::_gen_predicate_sign(ColumnPredicate* predicate) {
+    std::string pred_sign;
+
+    auto column_desc = _schema.column(predicate->column_id());
+    auto pred_type = predicate->type();
+    auto predicate_params = predicate->predicate_params();
+    pred_sign = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + column_desc->name() + "_"
+                + predicate->pred_type_string(pred_type) + "_"
+                + predicate_params->value;
+
+    return pred_sign;
 }
 
 Status SegmentIterator::_init_return_column_iterators() {
@@ -1090,9 +1111,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
             nrows_read += rows_to_read;
         }
 
-        auto next_range = RowRanges::create_single(range_from, range_to);
-        auto next_bm_in_row_bitmap = RowRanges::ranges_to_roaring(next_range);
-        _split_row_ranges.emplace_back(next_bm_in_row_bitmap);
+        _split_row_ranges.emplace_back(std::pair{range_from, range_to});
         // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
     } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
     return Status::OK();
@@ -1239,6 +1258,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         nrows_read_limit = 100;
     }
     _split_row_ranges.clear();
+    _split_row_ranges.reserve(nrows_read_limit / 2);
     _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
                            _lazy_materialization_read || _opts.record_rowids);
 
@@ -1352,6 +1372,8 @@ void SegmentIterator::_output_index_result_column(uint16_t* sel_rowid_idx, uint1
                        std::make_shared<vectorized::DataTypeUInt8>(), iter.first});
         if (!iter.second.first) {
             // predicate not in compound query
+            block->get_by_name(column_sign.first).column =
+                    vectorized::DataTypeUInt8().create_column_const(block->rows(), 1u);
             continue;
         }
         _build_index_result_column(sel_rowid_idx, select_size, block, iter.first,
@@ -1370,7 +1392,7 @@ void SegmentIterator::_build_index_result_column(uint16_t* sel_rowid_idx, uint16
     size_t idx_in_row_range = 0;
     size_t idx_in_selected = 0;
     for (auto origin_row_range : _split_row_ranges) {
-        for (auto rowid : origin_row_range) {
+        for (size_t rowid = origin_row_range.first; rowid < origin_row_range.second; ++rowid) {
             if (sel_rowid_idx == nullptr || (idx_in_selected < select_size &&
                                              idx_in_row_range == sel_rowid_idx[idx_in_selected])) {
                 if (index_result.contains(rowid)) {

@@ -45,6 +45,9 @@ enum class InvertedIndexQueryType {
     LESS_EQUAL_QUERY = 2,
     GREATER_THAN_QUERY = 3,
     GREATER_EQUAL_QUERY = 4,
+    MATCH_ANY_QUERY = 5,
+    MATCH_ALL_QUERY = 6,
+    MATCH_PHRASE_QUERY = 7,
 };
 
 class InvertedIndexReader {

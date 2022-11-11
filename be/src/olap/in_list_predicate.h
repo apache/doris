@@ -226,7 +226,7 @@ public:
         auto column_desc = schema.column(_column_id);
         std::string column_name = column_desc->name();
         roaring::Roaring indices;
-        for (auto value : _values) {
+        for (auto value : *_values) {
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             roaring::Roaring index;
             RETURN_IF_ERROR(

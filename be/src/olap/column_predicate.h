@@ -51,6 +51,7 @@ enum class PredicateType {
     IS_NOT_NULL = 10,
     BF = 11,            // BloomFilter
     BITMAP_FILTER = 12, // BitmapFilter
+    MATCH = 13, // fulltext match
 };
 
 inline std::string type_to_string(PredicateType type) {
@@ -132,7 +133,7 @@ public:
                             roaring::Roaring* roaring) const = 0;
 
     //evaluate predicate on inverted
-    virtual Status evaluate(const Schema& schema, InvertedIndexIterator* iterators,
+    virtual Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
                             uint32_t num_rows, roaring::Roaring* bitmap) const {
         return Status::NotSupported(
                 "Not Implemented evaluate with inverted index, please check the predicate");
@@ -213,6 +214,8 @@ public:
             return "is_not_null";
         case PredicateType::BF:
             return "bf";
+        case PredicateType::MATCH:
+            return "match";
         default:
             return "unknown";
         }
