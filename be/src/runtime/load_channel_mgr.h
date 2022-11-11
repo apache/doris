@@ -277,8 +277,11 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
 
     Status st = Status::OK();
     for (auto ch : channels_to_reduce_mem) {
-        LOG(INFO) << "reduce memory of " << *ch;
+        uint64_t begin = GetCurrentTimeMicros();
+        int64_t mem_usage = ch->mem_consumption();
         st = ch->template handle_mem_exceed_limit(response);
+        LOG(INFO) << "reduced memory of " << *ch << ", cost " << GetCurrentTimeMicros() - begin
+                  << " ms, released memory: " << mem_usage - ch->mem_consumption() << " bytes";
     }
 
     {
