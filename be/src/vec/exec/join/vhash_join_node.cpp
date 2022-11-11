@@ -1010,9 +1010,9 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // _vother_join_conjuncts are evaluated in the context of the rows produced by this node
     if (_vother_join_conjunct_ptr) {
-        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->prepare(state, _intermediate_row_desc));
+        RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->prepare(state, *_intermediate_row_desc));
     }
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _intermediate_row_desc));
+    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
 
     // right table data types
     _right_table_data_types = VectorizedUtils::get_data_types(child(1)->row_desc());

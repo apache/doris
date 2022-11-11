@@ -48,6 +48,16 @@ public:
 
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
+    const RowDescriptor& intermediate_row_desc() const override {
+        return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
+    }
+
+    const RowDescriptor& row_desc() const override {
+        return _old_version_flag
+                       ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
+                       : *_output_row_desc;
+    }
+
 private:
     Status _materialize_build_side(RuntimeState* state) override;
 
@@ -89,6 +99,8 @@ private:
 
     int _left_block_pos; // current scan pos in _left_block
     bool _left_side_eos; // if true, left child has no more rows to process
+
+    bool _old_version_flag;
 };
 
 } // namespace doris::vectorized

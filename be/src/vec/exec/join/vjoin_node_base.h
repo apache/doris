@@ -47,9 +47,9 @@ public:
 
     virtual Status open(RuntimeState* state) override;
 
-    const RowDescriptor& row_desc() const override { return _output_row_desc; }
+    virtual const RowDescriptor& row_desc() const override { return *_output_row_desc; }
 
-    const RowDescriptor& intermediate_row_desc() const override { return _intermediate_row_desc; }
+    virtual const RowDescriptor& intermediate_row_desc() const override { return *_intermediate_row_desc; }
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
@@ -80,8 +80,8 @@ protected:
     const bool _is_right_semi_anti;
     const bool _is_outer_join;
 
-    RowDescriptor _output_row_desc;
-    RowDescriptor _intermediate_row_desc;
+    std::unique_ptr<RowDescriptor> _output_row_desc;
+    std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     // output expr
     std::vector<VExprContext*> _output_expr_ctxs;
 
