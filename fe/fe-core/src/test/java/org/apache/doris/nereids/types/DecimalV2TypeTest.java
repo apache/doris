@@ -20,28 +20,28 @@ package org.apache.doris.nereids.types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class DecimalTypeTest {
+public class DecimalV2TypeTest {
     @Test
     public void testIsWiderThan() {
-        Assertions.assertTrue(DecimalType.createDecimalType(10, 5)
-                .isWiderThan(DecimalType.createDecimalType(8, 4)));
-        Assertions.assertFalse(DecimalType.createDecimalType(10, 5)
-                .isWiderThan(DecimalType.createDecimalType(8, 6)));
-        Assertions.assertFalse(DecimalType.createDecimalType(10, 5)
-                .isWiderThan(DecimalType.createDecimalType(8, 2)));
+        Assertions.assertTrue(DecimalV2Type.createDecimalV2Type(10, 5)
+                .isWiderThan(DecimalV2Type.createDecimalV2Type(8, 4)));
+        Assertions.assertFalse(DecimalV2Type.createDecimalV2Type(10, 5)
+                .isWiderThan(DecimalV2Type.createDecimalV2Type(8, 6)));
+        Assertions.assertFalse(DecimalV2Type.createDecimalV2Type(10, 5)
+                .isWiderThan(DecimalV2Type.createDecimalV2Type(8, 2)));
     }
 
     @Test
     public void testWiderDecimal() {
-        Assertions.assertEquals(DecimalType.createDecimalType(14, 5),
-                DecimalType.widerDecimalType(
-                        DecimalType.createDecimalType(12, 3),
-                        DecimalType.createDecimalType(10, 5)));
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(14, 5),
+                DecimalV2Type.widerDecimalV2Type(
+                        DecimalV2Type.createDecimalV2Type(12, 3),
+                        DecimalV2Type.createDecimalV2Type(10, 5)));
     }
 
     @Test
     public void testConstructor() {
-        Assertions.assertEquals(DecimalType.createDecimalType(38, 38),
-                DecimalType.createDecimalType(39, 39));
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(38, 38),
+                DecimalV2Type.createDecimalV2Type(39, 39));
     }
 }
