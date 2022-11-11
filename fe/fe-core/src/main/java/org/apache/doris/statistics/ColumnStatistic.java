@@ -108,6 +108,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
             columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            columnStatisticBuilder.setSelectivity(1.0);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
@@ -118,7 +119,7 @@ public class ColumnStatistic {
     public ColumnStatistic copy() {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).build();
+                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).setSelectivity(selectivity).build();
     }
 
     public ColumnStatistic multiply(double d) {
@@ -132,6 +133,7 @@ public class ColumnStatistic {
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
+                .setSelectivity(selectivity)
                 .build();
     }
 
