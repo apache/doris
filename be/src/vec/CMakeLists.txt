@@ -210,6 +210,7 @@ set(VEC_FILES
   functions/url/function_url.cpp
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp
+  functions/function_running_difference.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
