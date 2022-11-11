@@ -15,22 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Most of the cases are copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases
-// and modified by Doris.
-
-// syntax error:
-// q06 q13 q15
-// Test 23 suites, failed 3 suites
-
-// Note: To filter out tables from sql files, use the following one-liner comamnd
-// sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
 suite("load") {
-    def tables = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
 
-//    for (String table in tables) {
-//        sql """ DROP TABLE IF EXISTS $table """
-//    }
+    // tpch_sf1_p1 is writted to test unique key table merge correctly.
+    // It creates unique key table and sets bucket num to 1 in order to make sure that 
+    // many rowsets will be created during loading and then the merge process will be triggered.
+
+    def tables = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
 
     for (String table in tables) {
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
@@ -111,7 +102,4 @@ suite("load") {
     def table = "revenue1"
     sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/ddl/${table}.sql""").text
-    // We need wait to make sure BE could pass the stats info to FE so that
-    // avoid unnessary inconsistent generated plan which would cause the regression test fail
-    sleep(60000)
 }
