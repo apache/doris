@@ -274,6 +274,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_segment->new_column_iterator(
                     _opts.tablet_schema->column(cid), iter_opts, &_column_iterators[unique_id]));
+            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
 
@@ -386,6 +387,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_segment->new_column_iterator(
                     _opts.tablet_schema->column(cid), iter_opts, &_column_iterators[unique_id]));
+            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
     return Status::OK();
