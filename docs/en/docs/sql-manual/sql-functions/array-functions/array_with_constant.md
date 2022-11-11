@@ -58,6 +58,14 @@ mysql> select array_with_constant(3, 12345);
 +-------------------------------+
 1 row in set (0.01 sec)
 
+mysql> select array_with_constant(3, null);
++------------------------------+
+| array_with_constant(3, NULL) |
++------------------------------+
+| [NULL, NULL, NULL]           |
++------------------------------+
+1 row in set (0.01 sec)
+
 ```
 
 ### keywords
