@@ -119,7 +119,7 @@ public class ColumnStatistic {
     public ColumnStatistic copy() {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).build();
+                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).setSelectivity(selectivity).build();
     }
 
     public ColumnStatistic multiply(double d) {
@@ -133,6 +133,7 @@ public class ColumnStatistic {
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
+                .setSelectivity(selectivity)
                 .build();
     }
 
