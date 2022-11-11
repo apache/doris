@@ -91,6 +91,10 @@ enum TCompressionType {
     ZSTD = 7
 }
 
+enum TCooldownType {
+    USE_REMOTE_DATA = 0,
+    UPLOAD_DATA = 1
+}
 
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id

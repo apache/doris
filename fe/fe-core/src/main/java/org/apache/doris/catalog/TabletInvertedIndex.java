@@ -124,7 +124,8 @@ public class TabletInvertedIndex {
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
-                             List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
+                             List<Triple<Long, Integer, Boolean>> tabletToInMemory,
+                             Map<Long, Replica> replicaCooldownMap) {
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {

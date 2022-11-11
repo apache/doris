@@ -17,8 +17,8 @@
 
 package org.apache.doris.cooldown;
 
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.util.MasterDaemon;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -31,7 +31,20 @@ public class CooldownHandler extends MasterDaemon {
     // tabletId->replicaId, it is used to hold replica which is used to upload segment to remote storage.
     private Map<Long, Long> uploadingReplicaMap = new HashMap<>();
 
-    public CooldownHandler() {
+    private static volatile CooldownHandler INSTANCE = null;
+
+    public static CooldownHandler getInstance() {
+        if (INSTANCE == null) {
+            synchronized (CooldownHandler.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = new CooldownHandler();
+                }
+            }
+        }
+        return INSTANCE;
+    }
+
+    public void handleSyncCooldownType(Map<Long, Replica> replicaCooldownMap) {
 
     }
     private void syncCooldownConf() {

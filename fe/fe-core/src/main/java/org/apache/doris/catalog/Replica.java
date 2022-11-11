@@ -21,6 +21,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.doris.thrift.TCooldownType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -100,6 +101,8 @@ public class Replica implements Writable {
     @Deprecated
     @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
+    @SerializedName(value = "cooldownType")
+    TCooldownType cooldownType = TCooldownType.USE_REMOTE_DATA;
 
     private volatile long versionCount = -1;
 
@@ -244,6 +247,14 @@ public class Replica implements Writable {
     public void setNeedFurtherRepair(boolean needFurtherRepair) {
         this.needFurtherRepair = needFurtherRepair;
         this.furtherRepairSetTime = System.currentTimeMillis();
+    }
+
+    public TCooldownType getCooldownType() {
+        return cooldownType;
+    }
+
+    public void setCooldownType(TCooldownType cooldownType) {
+        this.cooldownType = cooldownType;
     }
 
     // for compatibility

@@ -39,6 +39,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.cooldown.CooldownHandler;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
@@ -84,10 +85,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 
 public class ReportHandler extends Daemon {
@@ -259,6 +257,8 @@ public class ReportHandler extends Daemon {
         Set<Long> tabletFoundInMeta = Sets.newConcurrentHashSet();
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
+        // the cooldown type of replicas which need to be sync. tabletId -> replica
+        Map<Long, Replica> replicaCooldownMap = new HashMap<>();
 
         // dbid -> txn id -> [partition info]
         Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
@@ -278,7 +278,8 @@ public class ReportHandler extends Daemon {
                 transactionsToPublish,
                 transactionsToClear,
                 tabletRecoveryMap,
-                tabletToInMemory);
+                tabletToInMemory,
+                replicaCooldownMap);
 
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {
@@ -319,6 +320,11 @@ public class ReportHandler extends Daemon {
         // 9. send set tablet in memory to be
         if (!tabletToInMemory.isEmpty()) {
             handleSetTabletInMemory(backendId, tabletToInMemory);
+        }
+
+        // 10. send cooldownType which need sync to CooldownHandler
+        if (!replicaCooldownMap.isEmpty()) {
+            CooldownHandler.getInstance().handleSyncCooldownType(replicaCooldownMap);
         }
 
         final SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
