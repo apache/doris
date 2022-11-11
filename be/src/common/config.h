@@ -850,6 +850,9 @@ CONF_Int32(segcompaction_small_threshold, "1048576");
 
 CONF_String(jvm_max_heap_size, "1024M");
 
+// enable java udf and jdbc scannode
+CONF_Bool(enable_java_support, "true");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

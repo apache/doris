@@ -600,17 +600,13 @@ include_directories(
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
-)
-
-if (BUILD_JAVA_UDF)
     include_directories($ENV{JAVA_HOME}/include)
     if (NOT OS_MACOSX)
         include_directories($ENV{JAVA_HOME}/include/linux)
     else()
         include_directories($ENV{JAVA_HOME}/include/darwin)
     endif()
-    add_definitions("-DLIBJVM")
-endif()
+)
 
 if (NOT OS_MACOSX)
     set(WL_START_GROUP "-Wl,--start-group")
