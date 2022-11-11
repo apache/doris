@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-#ifdef LIBJVM
 
 #include "runtime/runtime_state.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -41,4 +40,3 @@ private:
 };
 } // namespace vectorized
 } // namespace doris
-#endif
