@@ -15,13 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.visitor;
 
-/**
- * FunctionTrait.
- */
-public interface FunctionTrait extends ExpressionTrait {
-    String getName();
+import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 
-    boolean hasVarArguments();
+/** TableValuedFunctionVisitor */
+public interface TableValuedFunctionVisitor<R, C> {
+    R visitTableValuedFunction(TableValuedFunction tableValuedFunction, C context);
+
+    default R visitNumbers(Numbers numbers, C context) {
+        return visitTableValuedFunction(numbers, context);
+    }
 }

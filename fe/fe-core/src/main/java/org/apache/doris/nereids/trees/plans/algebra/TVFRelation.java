@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-/**
- * FunctionTrait.
- */
-public interface FunctionTrait extends ExpressionTrait {
-    String getName();
+import org.apache.doris.nereids.analyzer.Relation;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 
-    boolean hasVarArguments();
+/** TVFRelation */
+public interface TVFRelation extends Relation {
+    TableValuedFunction getFunction();
 }
