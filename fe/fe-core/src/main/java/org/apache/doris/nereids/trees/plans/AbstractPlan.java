@@ -19,6 +19,11 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.metrics.CounterType;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -39,7 +44,8 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete plan node.
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
-
+    private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(
+            CounterEvent.class, EventChannel.DEFAULT_CHANNEL);
     protected final StatsDeriveResult statsDeriveResult;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
@@ -66,6 +72,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
         this.statsDeriveResult = statsDeriveResult;
+        PLAN_CONSTRUCT_TRACER.log(new CounterEvent(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
     }
 
     @Override

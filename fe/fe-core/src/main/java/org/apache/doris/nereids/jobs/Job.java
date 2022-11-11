@@ -21,12 +21,15 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.metrics.CounterType;
+import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -41,12 +44,13 @@ import java.util.stream.Collectors;
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
 public abstract class Job {
+    protected static final EventProducer COUNTER_TRACER = new EventProducer(CounterEvent.class,
+            EventChannel.DEFAULT_CHANNEL);
     public final Logger logger = LogManager.getLogger(getClass());
 
     protected JobType type;
     protected JobContext context;
     protected boolean once;
-    protected final boolean enableTrace;
 
     public Job(JobType type, JobContext context) {
         this(type, context, true);
@@ -57,10 +61,6 @@ public abstract class Job {
         this.type = type;
         this.context = context;
         this.once = once;
-        ConnectContext connectContext = ConnectContext.get();
-        this.enableTrace = connectContext == null
-                ? false
-                : connectContext.getSessionVariable().isEnableNereidsTrace();
     }
 
     public void pushJob(Job job) {
@@ -92,8 +92,10 @@ public abstract class Job {
     public abstract void execute() throws AnalysisException;
 
     protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup,
-            EventProducer tracer) {
+            EventProducer transformTracer) {
         context.onInvokeRule(rule.getRuleType());
+        COUNTER_TRACER.log(new CounterEvent(Memo.getStateId(),
+                CounterType.EXPRESSION_TRANSFORM, targetGroup, targetGroup.getLogicalExpression(), before));
 
         List<Plan> afters = rule.transform(before, context.getCascadesContext());
         Preconditions.checkArgument(afters.size() == 1);
@@ -107,10 +109,15 @@ public abstract class Job {
                 .copyIn(after, targetGroup, true);
 
         if (result.generateNewExpression) {
-            tracer.log(new TransformEvent(targetGroup.getLogicalExpression(), before, afters, rule.getRuleType()),
-                    rule::isRewrite);
+            transformTracer.log(new TransformEvent(targetGroup.getLogicalExpression(), before, afters,
+                            rule.getRuleType()), rule::isRewrite);
         }
 
         return Optional.of(result);
+    }
+
+    protected void trace(GroupExpression groupExpression) {
+        COUNTER_TRACER.log(new CounterEvent(Memo.getStateId(), CounterType.JOB_EXECUTION,
+                groupExpression.getOwnerGroup(), groupExpression, groupExpression.getPlan()));
     }
 }

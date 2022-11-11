@@ -19,8 +19,8 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -50,7 +50,8 @@ public class Memo {
     private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(
             GroupMergeEvent.class,
             Collections.emptyList(),
-            NereidsPlanner.CHANNEL);
+            EventChannel.DEFAULT_CHANNEL);
+    private static long stateId = 0;
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -78,6 +79,10 @@ public class Memo {
         return groupExpressions;
     }
 
+    public static long getStateId() {
+        return stateId;
+    }
+
     /**
      * Add plan to Memo.
      *
@@ -89,11 +94,11 @@ public class Memo {
      *                       is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
-        if (rewrite) {
-            return doRewrite(plan, target);
-        } else {
-            return doCopyIn(plan, target);
+        CopyInResult result = rewrite ? doRewrite(plan, target) : doCopyIn(plan, target);
+        if (result.generateNewExpression) {
+            stateId++;
         }
+        return result;
     }
 
     public List<Plan> copyOutAll() {
@@ -392,6 +397,7 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         }
+        GROUP_MERGE_TRACER.log(new GroupMergeEvent(source, destination, needReplaceChild));
         for (GroupExpression groupExpression : needReplaceChild) {
             // After change GroupExpression children, the hashcode will change,
             // so need to reinsert into map.

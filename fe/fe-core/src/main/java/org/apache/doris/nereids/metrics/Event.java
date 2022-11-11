@@ -17,32 +17,10 @@
 
 package org.apache.doris.nereids.metrics;
 
-import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
-import org.apache.doris.nereids.metrics.event.CounterEvent;
-import org.apache.doris.nereids.metrics.event.EnforcerEvent;
-import org.apache.doris.nereids.metrics.event.FunctionCallEvent;
-import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
-import org.apache.doris.nereids.metrics.event.MemoTransformEvent;
-import org.apache.doris.nereids.metrics.event.StatsStateEvent;
-import org.apache.doris.nereids.metrics.event.TransformEvent;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMap.Builder;
-
 /**
  * event
  */
 public abstract class Event implements Cloneable {
-    public static final ImmutableMap EVENT_TYPE_SET = new Builder<String, Class<? extends Event>>()
-            .put("costState", CostStateUpdateEvent.class)
-            .put("counter", CounterEvent.class)
-            .put("enforcer", EnforcerEvent.class)
-            .put("functionCall", FunctionCallEvent.class)
-            .put("groupMerge", GroupMergeEvent.class)
-            .put("memoTransform", MemoTransformEvent.class)
-            .put("statsState", StatsStateEvent.class)
-            .put("transform", TransformEvent.class)
-            .build();
     private final long stateId;
 
     protected Event() {

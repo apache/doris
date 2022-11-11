@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.jobs.rewrite;
 
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
@@ -46,7 +46,7 @@ public class RewriteTopDownJob extends Job {
     private static final EventProducer REWRITE_TOP_DOWN_JOB_TRACER = new EventProducer(
             TransformEvent.class,
             Collections.emptyList(),
-            NereidsPlanner.CHANNEL);
+            EventChannel.DEFAULT_CHANNEL);
     private final Group group;
     private final List<Rule> rules;
 
@@ -76,7 +76,7 @@ public class RewriteTopDownJob extends Job {
     @Override
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
-
+        trace(logicalExpression);
         List<Rule> validRules = getValidRules(logicalExpression, rules);
         for (Rule rule : validRules) {
             Preconditions.checkArgument(rule.isRewrite(),

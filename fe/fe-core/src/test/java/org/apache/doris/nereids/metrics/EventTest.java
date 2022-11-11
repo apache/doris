@@ -20,7 +20,6 @@ package org.apache.doris.nereids.metrics;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
-import org.apache.doris.nereids.metrics.event.MemoTransformEvent;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.RuleType;
@@ -42,7 +41,6 @@ public class EventTest extends TestWithFeService {
             new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE),
             new EnforcerEvent(null, null, null, null),
             new GroupMergeEvent(null, null, null),
-            new MemoTransformEvent(0, 1, null),
             new StatsStateEvent(null, null)
     );
 
@@ -63,8 +61,7 @@ public class EventTest extends TestWithFeService {
                         new PrintConsumer(CounterEvent.class, printStream),
                         new PrintConsumer(TransformEvent.class, printStream),
                         new PrintConsumer(EnforcerEvent.class, printStream),
-                        new PrintConsumer(GroupMergeEvent.class, printStream),
-                        new PrintConsumer(MemoTransformEvent.class, printStream)),
+                        new PrintConsumer(GroupMergeEvent.class, printStream)),
                 ImmutableList.of()
         );
         channel.start();

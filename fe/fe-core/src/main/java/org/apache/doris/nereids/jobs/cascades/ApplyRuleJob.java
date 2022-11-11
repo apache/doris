@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
@@ -41,7 +41,7 @@ public class ApplyRuleJob extends Job {
     private static final EventProducer APPLY_RULE_TRACER = new EventProducer(
             TransformEvent.class,
             Collections.emptyList(),
-            NereidsPlanner.CHANNEL);
+            EventChannel.DEFAULT_CHANNEL);
     private final GroupExpression groupExpression;
     private final Rule rule;
 
@@ -63,6 +63,7 @@ public class ApplyRuleJob extends Job {
         if (groupExpression.hasApplied(rule)) {
             return;
         }
+        trace(groupExpression);
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);

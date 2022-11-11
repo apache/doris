@@ -34,6 +34,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  * event channel
  */
 public class EventChannel {
+    public static final EventChannel DEFAULT_CHANNEL = new EventChannel();
     private static final Logger LOG = LogManager.getLogger(EventChannel.class);
 
     private class EventProperties {
@@ -56,7 +57,7 @@ public class EventChannel {
      * @param consumers consumer list
      */
     public EventChannel(List<EventConsumer> consumers, List<EventFilter> filtersBeforeConsume) {
-        eventSwitch = EventSwitchParser.parse(ConnectContext.get().getSessionVariable().nereidsEventMode);
+        eventSwitch = new EventSwitchParser().parse(ConnectContext.get().getSessionVariable().nereidsEventMode);
         filters = filtersBeforeConsume;
         for (EventConsumer consumer : consumers) {
             properties.computeIfAbsent(consumer.getTargetClass(), k -> new EventProperties())

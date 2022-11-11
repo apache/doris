@@ -17,7 +17,16 @@
 
 package org.apache.doris.nereids.metrics;
 
+import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
+import org.apache.doris.nereids.metrics.event.EnforcerEvent;
+import org.apache.doris.nereids.metrics.event.FunctionCallEvent;
+import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
+import org.apache.doris.nereids.metrics.event.StatsStateEvent;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
+
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
@@ -31,28 +40,39 @@ import java.util.stream.Collectors;
  * parser
  */
 public class EventSwitchParser {
+    private static final Map<String, Class<? extends Event>> EVENT_TYPE_SET =
+            new Builder<String, Class<? extends Event>>()
+            .put("costState", CostStateUpdateEvent.class)
+            .put("counter", CounterEvent.class)
+            .put("enforcer", EnforcerEvent.class)
+            .put("functionCall", FunctionCallEvent.class)
+            .put("groupMerge", GroupMergeEvent.class)
+            .put("statsState", StatsStateEvent.class)
+            .put("transform", TransformEvent.class)
+            .build();
+
     /**
      * parse
      */
-    public static Set<Class<? extends Event>> parse(String eventTypeMode) {
+    public Set<Class<? extends Event>> parse(String eventTypeMode) {
         List<String> strings = Arrays.stream(eventTypeMode.split(","))
                 .map(String::trim)
                 .collect(Collectors.toList());
         Preconditions.checkArgument(strings.size() > 0);
         if ("all".equals(strings.get(0))) {
             if (strings.size() == 1) {
-                return ImmutableSet.copyOf(Event.EVENT_TYPE_SET.values());
+                return ImmutableSet.copyOf(EVENT_TYPE_SET.values());
             }
             Preconditions.checkArgument(strings.size() > 2 && "except".equals(strings.get(1)));
-            Map targetClasses = Maps.newHashMap(Event.EVENT_TYPE_SET);
+            Map targetClasses = Maps.newHashMap(EVENT_TYPE_SET);
             for (String str : strings.subList(2, strings.size())) {
                 targetClasses.remove(str);
             }
             return ImmutableSet.copyOf(targetClasses.values());
         }
         return strings.stream()
-                .filter(str -> Event.EVENT_TYPE_SET.containsKey(str))
-                .map(str -> ((Class<? extends Event>) Event.EVENT_TYPE_SET.get(str)))
+                .filter(EVENT_TYPE_SET::containsKey)
+                .map(str -> ((Class<? extends Event>) EVENT_TYPE_SET.get(str)))
                 .collect(ImmutableSet.toImmutableSet());
     }
 }

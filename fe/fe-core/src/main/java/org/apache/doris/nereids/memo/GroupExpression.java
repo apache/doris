@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.cost.CostEstimate;
+import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -48,7 +48,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(
             CostStateUpdateEvent.class,
             Collections.emptyList(),
-            NereidsPlanner.CHANNEL);
+            EventChannel.DEFAULT_CHANNEL);
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;

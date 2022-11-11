@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -38,8 +38,7 @@ public class EnforceMissingPropertiesHelper {
     private static final EventProducer ENFORCER_TRACER = new EventProducer(
             EnforcerEvent.class,
             Collections.emptyList(),
-            NereidsPlanner.CHANNEL
-    );
+            EventChannel.DEFAULT_CHANNEL);
     private final JobContext context;
     private final GroupExpression groupExpression;
     private double curTotalCost;
