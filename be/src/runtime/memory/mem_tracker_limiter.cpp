@@ -170,7 +170,7 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     std::string detail = msg;
     detail += "\n    " + MemTrackerLimiter::process_mem_log_str();
     if (_enable_print_log_usage) {
-        detail += log_usage();
+        detail += "\n    " + log_usage();
         std::string child_trackers_usage;
         std::vector<MemTracker::Snapshot> snapshots;
         MemTracker::make_group_snapshot(&snapshots, _group_num, _label);
@@ -195,9 +195,17 @@ void MemTrackerLimiter::print_log_process_usage(const std::string& msg) {
     MemTrackerLimiter::make_process_snapshots(&snapshots);
     MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
     for (const auto& snapshot : snapshots) {
-        detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
+        if (snapshot.parent_label == "") {
+            detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
+        }
+    }
+    for (const auto& snapshot : snapshots) {
+        if (snapshot.parent_label != "") {
+            detail += "\n    " + MemTracker::log_usage(snapshot);
+        }
     }
     LOG(WARNING) << detail;
+    // LOG(WARNING) << boost::stacktrace::to_string(boost::stacktrace::stacktrace()); // TODO
 }
 
 std::string MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
@@ -210,7 +218,6 @@ std::string MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
             "exec_mem_limit=8G` to change limit, details mem usage see be.INFO.",
             _label, limit_exceeded_errmsg, msg, BackendOptions::get_localhost(),
             PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str());
-    print_log_usage(detail);
     return detail;
 }
 
@@ -218,6 +225,7 @@ Status MemTrackerLimiter::fragment_mem_limit_exceeded(RuntimeState* state, const
                                                       int64_t failed_alloc_size) {
     auto failed_msg =
             mem_limit_exceeded(msg, tracker_limit_exceeded_errmsg_str(failed_alloc_size, this));
+    print_log_usage(failed_msg);
     state->log_error(failed_msg);
     return Status::MemoryLimitExceeded(failed_msg);
 }

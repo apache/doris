@@ -203,6 +203,7 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
             // the consume to ensure the accuracy of the statistics.
             _limiter_tracker_raw->consume(old_untracked_mem);
             save_exceed_mem_limit_msg();
+            _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
             exceeded();
         }
     } else {
