@@ -474,17 +474,16 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            _cur_reader.reset(new ParquetReader(
-                    _profile, _params, range, _file_col_names, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
+            ParquetReader* parquet_reader = new ParquetReader(
+                    _profile, _params, range, _state->query_options().batch_size,
+                    const_cast<cctz::time_zone*>(&_state->timezone_obj()));
             if (_push_down_expr == nullptr && _vconjunct_ctx != nullptr &&
                 _partition_slot_descs.empty()) { // TODO: support partition columns
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
                 _discard_conjuncts();
             }
-            init_status = ((ParquetReader*)(_cur_reader.get()))
-                                  ->init_reader(_file_col_names, _colname_to_value_range,
-                                                _push_down_expr);
+            init_status = parquet_reader->init_reader(_file_col_names, _colname_to_value_range,
+                                                      _push_down_expr);
             if (_params.__isset.table_format_params &&
                 _params.table_format_params.table_format_type == "iceberg") {
                 IcebergTableReader* iceberg_reader = new IcebergTableReader(
