@@ -43,11 +43,6 @@ public class AggStatsDerive extends BaseStatsDerive {
     }
 
     @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
-
-    @Override
     protected long deriveRowCount() {
         rowCount = 1;
         // rowCount: product of # of distinct values produced by grouping exprs

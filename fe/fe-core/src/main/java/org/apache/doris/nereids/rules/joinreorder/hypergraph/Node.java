@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
@@ -88,5 +89,23 @@ class Node {
         } else {
             complexEdges.add(edge);
         }
+    }
+
+    public void removeEdge(Edge edge) {
+        if (edge.isSimple()) {
+            simpleEdges.remove(edge);
+        } else {
+            complexEdges.remove(edge);
+        }
+    }
+
+    public String getName() {
+        assert plan instanceof GroupPlan : "Each node is a group plan in child";
+        return ((GroupPlan) plan).getGroup().getLogicalExpression().getPlan().getType().name() + index;
+    }
+
+    public double getRowCount() {
+        assert plan instanceof GroupPlan : "Each node is a group plan in child";
+        return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
     }
 }

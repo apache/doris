@@ -274,7 +274,7 @@ void DumpTimeInfo() {
 void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
     // Get the signal name.
     const char* signal_name = NULL;
-    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
         if (signal_number == kFailureSignals[i].number) {
             signal_name = kFailureSignals[i].name;
         }
@@ -437,7 +437,7 @@ inline void InstallFailureSignalHandler() {
     sig_action.sa_flags |= SA_SIGINFO;
     sig_action.sa_sigaction = &FailureSignalHandler;
 
-    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kFailureSignals); ++i) {
         CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, NULL));
     }
     kFailureSignalHandlerInstalled = true;

@@ -416,7 +416,7 @@ public class EsUtil {
             case "nested":
             case "object":
             default:
-                return Type.STRING;
+                return ScalarType.createStringType();
         }
     }
 

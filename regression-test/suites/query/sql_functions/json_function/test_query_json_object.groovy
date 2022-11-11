@@ -20,24 +20,29 @@ suite("test_query_json_object", "query") {
     def tableName = "test_query_json_object"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
-            CREATE TABLE IF NOT EXISTS `${tableName}` (
-              `k1` int(11) NULL COMMENT "user id"
+            CREATE TABLE ${tableName} (
+              `k0` int(11) not null,
+              `k1` int(11) NULL,
+              `k2` boolean NULL,
+              `k3` varchar(255),
+              `k4` datetime
             ) ENGINE=OLAP
-            DUPLICATE KEY(`k1`)
+            DUPLICATE KEY(`k0`,`k1`,`k2`,`k3`,`k4`)
             COMMENT "OLAP"
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 1
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "in_memory" = "false",
             "storage_format" = "V2"
             );
         """
-    sql "insert into ${tableName} values(null);"
-    sql "insert into ${tableName} values(null);"
-    sql "insert into ${tableName} values(null);"
-    sql "insert into ${tableName} values(null);"
-    sql "insert into ${tableName} values(null);"
-    sql "insert into ${tableName} values(1);"
-    qt_sql "select json_object(\"k1\",k1) from ${tableName};"
+    sql "insert into ${tableName} values(1,null,null,null,null);"
+    sql "insert into ${tableName} values(2,1,null,null,null);"
+    sql "insert into ${tableName} values(3,null,true,null,null);"
+    sql "insert into ${tableName} values(4,null,null,'test','2022-01-01 11:11:11');"
+    sql "insert into ${tableName} values(5,1,true,'test','2022-01-01 11:11:11');"
+    qt_sql1 "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4,'k5', null,'k6','k6') from ${tableName};"
+    sql "set enable_vectorized_engine = true;"
+    qt_sql2 "select json_object('k0',k0,'k1',k1,'k2',k2,'k3',k3,'k4',k4,'k5', null,'k6','k6') from ${tableName};"
     sql "DROP TABLE ${tableName};"
 }

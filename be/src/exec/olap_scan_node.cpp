@@ -1535,7 +1535,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             size_t thread_slot_num = 0;
             mem_consume = _scanner_mem_tracker->consumption();
             // check limit for total memory and _scan_row_batches memory
-            if (mem_consume < (state->instance_mem_tracker()->limit() * 6) / 10 &&
+            if (mem_consume < (state->query_mem_tracker()->limit() * 6) / 10 &&
                 _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {

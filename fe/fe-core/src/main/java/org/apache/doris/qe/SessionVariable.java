@@ -191,6 +191,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
+
+    public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
     public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
@@ -219,6 +221,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
 
     public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
+
+    public static final String INTERNAL_SESSION = "internal_session";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -486,7 +490,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
-    private int runtimeFilterMaxInNum = 1024;
+    private int runtimeFilterMaxInNum = 102400;
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
@@ -516,6 +520,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
+    @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR)
+    private double nereidsCboPenaltyFactor = 0.7;
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TRACE)
     private boolean enableNereidsTrace = false;
 
@@ -578,6 +584,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
     public boolean enableNereidsStatsDeriveV2 = false;
+
+    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
+    public boolean internalSession = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -1101,6 +1110,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isNereidsStarSchemaSupport() {
         return isEnableNereidsPlanner() && nereidsStarSchemaSupport;
+    }
+
+    public double getNereidsCboPenaltyFactor() {
+        return nereidsCboPenaltyFactor;
+    }
+
+    public void setNereidsCboPenaltyFactor(double penaltyFactor) {
+        this.nereidsCboPenaltyFactor = penaltyFactor;
     }
 
     public boolean isEnableNereidsTrace() {

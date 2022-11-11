@@ -17,7 +17,6 @@
 
 #pragma once
 
-#ifdef LIBJVM
 #include <jni.h>
 
 #include "gen_cpp/Exprs_types.h"
@@ -128,4 +127,3 @@ private:
 
 } // namespace vectorized
 } // namespace doris
-#endif

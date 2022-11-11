@@ -22,21 +22,28 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InitTableLog;
+import org.apache.doris.datasource.PooledHiveMetaStoreClient;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
+import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Hive metastore external table.
@@ -44,10 +51,14 @@ import java.util.Map;
 public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
-    private List<String> supportedHiveFileFormats = Lists.newArrayList(
-            "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-            "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
-            "org.apache.hadoop.mapred.TextInputFormat");
+    private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+
+    static {
+        SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+    }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
     private DLAType dlaType = DLAType.UNKNOWN;
@@ -80,10 +91,6 @@ public class HMSExternalTable extends ExternalTable {
             } catch (MetaNotFoundException e) {
                 // CHECKSTYLE IGNORE THIS LINE
             }
-            supportedHiveFileFormats = Lists.newArrayList(
-                "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
-                "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat",
-                "org.apache.hadoop.mapred.TextInputFormat");
             if (remoteTable == null) {
                 dlaType = DLAType.UNKNOWN;
             } else {
@@ -107,7 +114,8 @@ public class HMSExternalTable extends ExternalTable {
                 try {
                     remoteExecutor.forward(catalog.getId(), catalog.getDbNullable(dbName).getId(), id);
                 } catch (Exception e) {
-                    LOG.warn("Failed to forward init table {} operation to master. {}", name, e.getMessage());
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init external table %s operation to master", name), e);
                 }
                 return;
             }
@@ -152,9 +160,12 @@ public class HMSExternalTable extends ExternalTable {
      * Now we only support three file input format hive tables: parquet/orc/text. And they must be managed_table.
      */
     private boolean supportedHiveTable() {
-        boolean isManagedTable = remoteTable.getTableType().equalsIgnoreCase("MANAGED_TABLE");
+        // boolean isManagedTable = remoteTable.getTableType().equalsIgnoreCase("MANAGED_TABLE");
+        // TODO: try to support EXTERNAL_TABLE
+        boolean isManagedTable = true;
         String inputFileFormat = remoteTable.getSd().getInputFormat();
-        boolean supportedFileFormat = inputFileFormat != null && supportedHiveFileFormats.contains(inputFileFormat);
+        boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
         return isManagedTable && supportedFileFormat;
     }
 
@@ -164,16 +175,12 @@ public class HMSExternalTable extends ExternalTable {
         if (dlaType.equals(DLAType.UNKNOWN)) {
             schemaChanged = true;
         } else {
-            try {
-                for (FieldSchema field : HiveMetaStoreClientHelper.getSchema(dbName, name,
-                        ((HMSExternalCatalog) catalog).getHiveMetastoreUris())) {
-                    int columnId = (int) Env.getCurrentEnv().getNextId();
-                    tmpSchema.add(new Column(field.getName(),
-                            HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                            true, null, field.getComment(), true, null, columnId));
-                }
-            } catch (DdlException e) {
-                LOG.warn("Fail to get schema of hms table {}", name, e);
+            List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
+            for (FieldSchema field : schema) {
+                int columnId = (int) Env.getCurrentEnv().getNextId();
+                tmpSchema.add(new Column(field.getName(),
+                        HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                        true, null, field.getComment(), true, null, columnId));
             }
             if (fullSchema == null || fullSchema.size() != tmpSchema.size()) {
                 schemaChanged = true;
@@ -206,17 +213,10 @@ public class HMSExternalTable extends ExternalTable {
         if (remoteTable == null) {
             synchronized (this) {
                 if (remoteTable == null) {
-                    String uri = ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
-                    try {
-                        remoteTable = HiveMetaStoreClientHelper.getTable(dbName, name, uri);
-                    } catch (DdlException e) {
-                        LOG.warn("Fail to get remote hive table. db {}, table {}, uri {}", dbName, name, uri);
-                        throw new MetaNotFoundException(e);
-                    }
+                    remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
                 }
             }
         }
-        // TODO: Refresh cached remoteTable
         return remoteTable;
     }
 
@@ -338,6 +338,14 @@ public class HMSExternalTable extends ExternalTable {
 
     public Map<String, String> getS3Properties() {
         return catalog.getCatalogProperty().getS3Properties();
+    }
+
+    public List<Partition> getHivePartitions(ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
+        List<Partition> hivePartitions = Lists.newArrayList();
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        client.listPartitionsByExpr(remoteTable.getDbName(), remoteTable.getTableName(),
+                SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), hivePartitions);
+        return hivePartitions;
     }
 }
 

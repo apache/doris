@@ -409,6 +409,7 @@ terminal String
     KW_IS,
     KW_ISNULL,
     KW_ISOLATION,
+    KW_INVERTED,
     KW_JOB,
     KW_JOIN,
     KW_JSON,
@@ -1830,9 +1831,9 @@ create_stmt ::=
     {:
         RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, partitionDesc, distributionDesc, properties, query);
     :}
-    | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
-        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, comment), false)));
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
     :}
     /* resource */
     | KW_CREATE opt_external:isExternal KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
@@ -3142,9 +3143,9 @@ column_definition ::=
     ;
 
 index_definition ::=
-    KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    KW_INDEX opt_if_not_exists:ifNotExists ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
-        RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, comment);
+        RESULT = new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment);
     :}
     ;
 
@@ -3180,6 +3181,10 @@ opt_index_type ::=
     | KW_USING KW_BITMAP
     {:
         RESULT = IndexDef.IndexType.BITMAP;
+    :}
+    | KW_USING KW_INVERTED
+    {:
+        RESULT = IndexDef.IndexType.INVERTED;
     :}
     ;
 
@@ -3812,6 +3817,10 @@ describe_stmt ::=
     | KW_SHOW KW_COLUMNS KW_FROM table_name:table
     {:
         RESULT = new DescribeStmt(table, false);
+    :}
+    | describe_command KW_FUNCTION table_valued_function_ref:tvf
+    {:
+        RESULT = new DescribeStmt(tvf);
     :}
     | describe_command table_name:table KW_ALL
     {:
@@ -4957,9 +4966,9 @@ table_ref ::=
   ;
 
 table_valued_function_ref ::=
-  ident:func_name LPAREN string_list:param_list RPAREN opt_table_alias:alias
+  ident:func_name LPAREN key_value_map:properties RPAREN opt_table_alias:alias
   {:
-    RESULT = new TableValuedFunctionRef(func_name, alias, param_list);
+    RESULT = new TableValuedFunctionRef(func_name, alias, properties);
   :}
   ;
 
@@ -6488,6 +6497,8 @@ keyword ::=
     | KW_IDENTIFIED:id
     {: RESULT = id; :}
     | KW_INDEXES:id
+    {: RESULT = id; :}
+    | KW_INVERTED:id
     {: RESULT = id; :}
     | KW_ISNULL:id
     {: RESULT = id; :}

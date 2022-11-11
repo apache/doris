@@ -50,8 +50,6 @@ public:
 private:
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
 
-    // Not Owned
-    ExecEnv* _exec_env;
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
 

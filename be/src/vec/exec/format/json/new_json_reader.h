@@ -39,12 +39,17 @@ public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof);
+
+    NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
     ~NewJsonReader() override = default;
 
     Status init_reader();
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+    Status get_parsered_schema(std::vector<std::string>* col_names,
+                               std::vector<TypeDescriptor>* col_types) override;
 
 private:
     Status _get_range_params();
@@ -106,8 +111,6 @@ private:
     FileReader* _real_file_reader;
     std::unique_ptr<LineReader> _line_reader;
     bool _reader_eof;
-
-    TFileFormatType::type _file_format_type;
 
     // When we fetch range doesn't start from 0 will always skip the first line
     bool _skip_first_line;

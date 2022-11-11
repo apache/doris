@@ -19,10 +19,11 @@
 
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
+#include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"

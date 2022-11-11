@@ -435,6 +435,20 @@ visible_functions = [
     [['array_slice', '%element_slice%'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
     [['array_slice', '%element_slice%'], 'ARRAY_STRING', ['ARRAY_STRING', 'BIGINT', 'BIGINT'], '', '', '', 'vec', ''],
+
+    [['array_popback'], 'ARRAY_BOOLEAN', ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_TINYINT', ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_INT', ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_BIGINT', ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DATETIME', ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DATE', ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_FLOAT', ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DOUBLE', ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+    [['array_popback'], 'ARRAY_STRING', ['ARRAY_STRING'], '', '', '', 'vec', ''],
     
     [['array_range'], 'ARRAY_INT',       ['INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT',       ['INT', 'INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -1978,6 +1992,7 @@ visible_functions = [
     [['if'], 'DATEV2', ['BOOLEAN', 'DATEV2', 'DATEV2'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], '', '', '', 'vec', 'CUSTOM'],
+    [['if'], 'HLL', ['BOOLEAN', 'HLL', 'HLL'], '', '', '', 'vec', 'CUSTOM'],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], '', '', '', 'vec', 'CUSTOM'],
     [['if'], 'STRING', ['BOOLEAN', 'STRING', 'STRING'], '', '', '', 'vec', 'CUSTOM'],
@@ -2465,10 +2480,10 @@ visible_functions = [
 
     [['json_array'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris13JsonFunctions10json_arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
-            '', '', 'vec', ''],
+            '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['json_object'], 'VARCHAR', ['VARCHAR', '...'],
             '_ZN5doris13JsonFunctions11json_objectEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
-            '', '', 'vec', ''],
+            '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['json_quote'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris13JsonFunctions10json_quoteEPN9doris_udf15FunctionContextERKNS1_9StringValE',
             '', '', 'vec', ''],
@@ -2495,17 +2510,23 @@ visible_functions = [
     [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'],
         '_ZN5doris15BitmapFunctions20to_bitmap_with_checkEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
-    [['bitmap_hash'], 'BITMAP', ['VARCHAR'],
-        '_ZN5doris15BitmapFunctions11bitmap_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE',
-        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
-    [['bitmap_hash64'], 'BITMAP', ['VARCHAR'],
-        '_ZN5doris15BitmapFunctions11bitmap_hash64EPN9doris_udf15FunctionContextERKNS1_9StringValE',
-        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['to_bitmap'], 'BITMAP', ['STRING'],
         '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['to_bitmap_with_check'], 'BITMAP', ['STRING'],
         '_ZN5doris15BitmapFunctions20to_bitmap_with_checkEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['to_bitmap'], 'BITMAP', ['BIGINT'],
+        '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['to_bitmap_with_check'], 'BITMAP', ['BIGINT'],
+        '_ZN5doris15BitmapFunctions20to_bitmap_with_checkEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['bitmap_hash'], 'BITMAP', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions11bitmap_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['bitmap_hash64'], 'BITMAP', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions11bitmap_hash64EPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['bitmap_hash'], 'BITMAP', ['STRING'],
         '_ZN5doris15BitmapFunctions11bitmap_hash64EPN9doris_udf15FunctionContextERKNS1_9StringValE',
@@ -2792,6 +2813,12 @@ visible_functions = [
     [['protocol'], 'STRING', ['STRING'],
         'fake_symble_for_no_vec', '', '',
         'vec', ''],
+
+    # search functions
+    [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+
+    [['uuid'], 'VARCHAR', [], '_ZN5doris15StringFunctions4uuidEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 ]
 
 # Except the following functions, other function will directly return
@@ -2827,7 +2854,8 @@ nondeterministic_functions = [
     'current_date',
     'curtime',
     'current_time',
-    'utc_timestamp'
+    'utc_timestamp',
+    'uuid'
 ]
 # This is the subset of ALWAYS_NULLABLE
 # The function belongs to @null_result_with_one_null_param_functions,

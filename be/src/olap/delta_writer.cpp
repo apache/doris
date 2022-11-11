@@ -25,6 +25,7 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
@@ -283,12 +284,23 @@ void DeltaWriter::_reset_mem_table() {
     if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
         _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
     }
+#ifndef BE_TEST
+    auto mem_table_insert_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()),
+            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+    auto mem_table_flush_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()),
+            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+#else
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()));
     auto mem_table_flush_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()));
+#endif
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         _mem_table_tracker.push_back(mem_table_insert_tracker);
@@ -404,7 +416,11 @@ Status DeltaWriter::cancel() {
 void DeltaWriter::save_mem_consumption_snapshot() {
     std::lock_guard<std::mutex> l(_lock);
     _mem_consumption_snapshot = mem_consumption();
-    _memtable_consumption_snapshot = _mem_table->memory_usage();
+    if (_mem_table == nullptr) {
+        _memtable_consumption_snapshot = 0;
+    } else {
+        _memtable_consumption_snapshot = _mem_table->memory_usage();
+    }
 }
 
 int64_t DeltaWriter::get_memtable_consumption_inflush() const {

@@ -188,11 +188,12 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     continue;
                 }
 
-                NamedExpression localOutputExpr = new Alias(aggregateFunction.withAggregateParam(
+                AggregateFunction localAggregateFunction = aggregateFunction.withAggregateParam(
                         aggregateFunction.getAggregateParam()
                                 .withDistinct(false)
                                 .withGlobal(false)
-                ), aggregateFunction.toSql());
+                );
+                NamedExpression localOutputExpr = new Alias(localAggregateFunction, aggregateFunction.toSql());
 
                 List<DataType> inputTypesBeforeDissemble = aggregateFunction.children()
                         .stream()
@@ -207,7 +208,9 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                         .withChildren(Lists.newArrayList(localOutputExpr.toSlot()));
 
                 inputSubstitutionMap.put(aggregateFunction, substitutionValue);
-                globalOutputSMap.put(aggregateFunction, substitutionValue);
+                // because we use local output exprs to generate global output in disassembleDistinct,
+                // so we must use localAggregateFunction as key
+                globalOutputSMap.put(localAggregateFunction, substitutionValue);
                 localOutputExprs.add(localOutputExpr);
             }
         }

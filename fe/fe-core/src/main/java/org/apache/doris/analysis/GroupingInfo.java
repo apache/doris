@@ -89,7 +89,29 @@ public class GroupingInfo {
     }
 
     public void substitutePreRepeatExprs(ExprSubstitutionMap smap, Analyzer analyzer) {
+        ArrayList<Expr> originalPreRepeatExprs = new ArrayList<>(preRepeatExprs);
         preRepeatExprs = Expr.substituteList(preRepeatExprs, smap, analyzer, true);
+
+        // remove unmaterialized slotRef from preRepeatExprs
+        ArrayList<Expr> materializedPreRepeatExprs = new ArrayList<>();
+        ArrayList<Expr> unMaterializedSlotRefs = new ArrayList<>();
+        for (int i = 0; i < preRepeatExprs.size(); ++i) {
+            Expr expr = preRepeatExprs.get(i);
+            if (expr instanceof SlotRef && !((SlotRef) expr).getDesc().isMaterialized()) {
+                unMaterializedSlotRefs.add(originalPreRepeatExprs.get(i));
+            } else {
+                materializedPreRepeatExprs.add(expr);
+            }
+        }
+        preRepeatExprs = materializedPreRepeatExprs;
+
+        // set slotRef unmaterialized in outputTupleSmap
+        for (Expr expr : unMaterializedSlotRefs) {
+            Expr rExpr = outputTupleSmap.get(expr);
+            if (rExpr instanceof SlotRef) {
+                ((SlotRef) rExpr).getDesc().setIsMaterialized(false);
+            }
+        }
     }
 
     // generate virtual slots for grouping or grouping_id functions

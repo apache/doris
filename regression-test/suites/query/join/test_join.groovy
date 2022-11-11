@@ -180,22 +180,10 @@ suite("test_join", "query,p0") {
     for (s in selected) {
         qt_left_join4"""select ${s} from ${tbName1} a left join ${tbName2} b 
                     on a.k1 = b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
-        test {
-            sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left join ${tbName2} b
                 on a.k1 > b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left join ${tbName2} b
                 on a.k1 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
         test {
             sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
                order by 1, 2, 3, 4, 5 limit 65535"""
@@ -204,47 +192,17 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left join ${tbName2} b
                on a.k1 = b.k1 or a.k2 = b.k2 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left join ${tbName2} b
                on a.k1 < b.k1 or a.k2 > b.k2 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left join ${tbName2} b
                on a.k1 = b.k1 or a.k2 > b.k2 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left join ${tbName2} b
                on a.k1 = b.k1 or a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left join ${tbName2} b
                     on a.k1 < b.k1 or a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        qt_left_join5"""select ${s} from ${tbName1} a left join ${tbName2} b on a.k1 = b.k1 
+        qt_left_join5"""select ${s} from ${tbName1} a left join ${tbName2} b on a.k1 = b.k1
                 left join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
     }
 
@@ -260,22 +218,10 @@ suite("test_join", "query,p0") {
     for (s in selected) {
         qt_left_outer_join4"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                 on a.k1 = b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
-        test {
-            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b
                 on a.k1 > b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b
                 on a.k1 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
         test {
             sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -284,52 +230,22 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b
                     on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b
                     on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        qt_left_outer_join5"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
+        qt_left_outer_join5"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1
                 left outer join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
 
     }
@@ -341,24 +257,12 @@ suite("test_join", "query,p0") {
     for (s in selected) {
         qt_right_join2"""select ${s} from ${tbName1} a right join ${tbName2} b 
                on a.k1 = b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
-        test {
-            sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right join ${tbName2} b
                on a.k1 > b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right join ${tbName2} b
                     on a.k1 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        qt_right_join3"""select ${s} from ${tbName1} a right join ${tbName2} b 
+        qt_right_join3"""select ${s} from ${tbName1} a right join ${tbName2} b
                 on a.k1 = b.k1 and a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
         test {
             sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
@@ -368,52 +272,22 @@ suite("test_join", "query,p0") {
                 assertTrue(exception != null)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right join ${tbName2} b
                     on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right join ${tbName2} b
                     on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        qt_right_join4"""select ${s} from ${tbName1} a right join ${tbName2} b on a.k1 = b.k1 
+        qt_right_join4"""select ${s} from ${tbName1} a right join ${tbName2} b on a.k1 = b.k1
                 right join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
     }
     qt_right_join5"""select ${i} from ${tbName1} a right join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
@@ -427,25 +301,13 @@ suite("test_join", "query,p0") {
     for (s in selected) {
         qt_right_outer_join2"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
                on a.k1 = b.k1 order by 1, 2, 3, 4, 5 limit 65535"""
-        test {
-            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                     on a.k1 > b.k1 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                     on a.k1 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        qt_right_outer_join3"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+        qt_right_outer_join3"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                on a.k1 = b.k1 and a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
         test {
             sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
@@ -455,52 +317,22 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                     on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                     on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a right  outer join ${tbName2} b
                     on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                     order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        qt_right_outer_join4"""select ${s} from ${tbName1} a right outer join ${tbName2} b on a.k1 = b.k1 
+        qt_right_outer_join4"""select ${s} from ${tbName1} a right outer join ${tbName2} b on a.k1 = b.k1
                 right outer join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
 
     }
@@ -519,22 +351,10 @@ suite("test_join", "query,p0") {
                  order by 1, 2, 3, 4, 5 limit 65535"""
         sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                  order by 1, 2, 3, 4, 5 limit 65535"""
-        test {
-            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 > b.k1 
+            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 > b.k1
                 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 > 0 
+            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 > 0
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
         test {
             sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b 
                 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
@@ -543,52 +363,22 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b
                 on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b
                 on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b
                 on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b
                 on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b
                 on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and b.k3 != 0 and a.k6 > "000" 
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a full outer join ${tbName2} b on a.k1 = b.k1
                 full outer join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
         sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                  left outer join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
@@ -1295,7 +1085,7 @@ suite("test_join", "query,p0") {
     qt_join_bug2"""select n.k1, m.k1, m.k2, n.k2 from (select a.k1, a.k2, a.k3 from 
            baseall a join baseall b on (a.k1 = b.k1 and a.k2 = b.k2 and a.k3 = b.k3)) m 
            left join test n on m.k1 = n.k1 order by 1, 2, 3, 4"""
-    // https://github.com/apache/incubator-doris/issues/4210
+    // https://github.com/apache/doris/issues/4210
     qt_join_bug3"""select * from baseall t1 where k1 = (select min(k1) from test t2 where t2.k1 = t1.k1 and t2.k2=t1.k2)
            order by k1"""
 

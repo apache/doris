@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.BitSet;
@@ -24,28 +26,24 @@ import java.util.BitSet;
 class Edge {
     final int index;
     final LogicalJoin join;
+    final double selectivity;
 
     // The endpoints (hypernodes) of this hyperedge.
     // left and right may not overlap, and both must have at least one bit set.
-    BitSet left = new BitSet(32);
-    BitSet right = new BitSet(32);
-    BitSet constraints = new BitSet(32);
-    double selectivity = 1;
+    private BitSet left = new BitSet(32);
+    private BitSet right = new BitSet(32);
 
     /**
      * Create simple edge.
      */
-    public Edge(int index, LogicalJoin join) {
+    public Edge(LogicalJoin join, int index) {
         this.index = index;
         this.join = join;
+        this.selectivity = 1.0;
     }
 
     public LogicalJoin getJoin() {
         return join;
-    }
-
-    public double getSelectivity() {
-        return selectivity;
     }
 
     public boolean isSimple() {
@@ -56,20 +54,44 @@ class Edge {
         this.left.or(left);
     }
 
+    public void addLeftNodes(BitSet... bitSets) {
+        for (BitSet bitSet : bitSets) {
+            this.left.or(bitSet);
+        }
+    }
+
     public void addRightNode(BitSet right) {
         this.right.or(right);
     }
 
-    public void addConstraintNode(BitSet constraints) {
-        this.constraints.or(constraints);
+    public void addRightNodes(BitSet... bitSets) {
+        for (BitSet bitSet : bitSets) {
+            this.right.or(bitSet);
+        }
     }
 
     public BitSet getLeft() {
         return left;
     }
 
+    public void setLeft(BitSet left) {
+        this.left = left;
+    }
+
     public BitSet getRight() {
         return right;
+    }
+
+    public void setRight(BitSet right) {
+        this.right = right;
+    }
+
+    public boolean isBefore(Edge edge) {
+        // When this join reference nodes is a subset of other join, then this join must appear before that join
+        BitSet thisBitSet = getReferenceNodes();
+        BitSet otherBitSet = edge.getReferenceNodes();
+        thisBitSet.or(otherBitSet);
+        return thisBitSet.equals(otherBitSet);
     }
 
     public BitSet getReferenceNodes() {
@@ -80,12 +102,31 @@ class Edge {
         return bitSet;
     }
 
-    public Edge reverse() {
-        Edge newEdge = new Edge(index, join);
+    public Edge reverse(int index) {
+        Edge newEdge = new Edge(join, index);
         newEdge.addLeftNode(right);
         newEdge.addRightNode(left);
-        newEdge.addConstraintNode(constraints);
         return newEdge;
+    }
+
+    public int getIndex() {
+        return index;
+    }
+
+    public double getSelectivity() {
+        return selectivity;
+    }
+
+    private double getRowCount(Plan plan) {
+        if (plan instanceof GroupPlan) {
+            return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
+        }
+        return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("<%s - %s>", left, right);
     }
 }
 
