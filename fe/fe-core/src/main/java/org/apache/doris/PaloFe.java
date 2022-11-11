@@ -39,13 +39,19 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
+import io.grpc.netty.shaded.io.netty.util.internal.logging.InternalLoggerFactory;
+import io.grpc.netty.shaded.io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.config.Configuration;
+import org.apache.logging.log4j.core.config.LoggerConfig;
 
 import java.io.File;
 import java.io.IOException;
@@ -56,6 +62,15 @@ import java.nio.channels.OverlappingFileLockException;
 
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
+
+    static {
+        InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
+        LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+        Configuration config = ctx.getConfiguration();
+        LoggerConfig loggerConfig = config.getLoggerConfig("io.grpc.netty.shaded.io.netty");
+        loggerConfig.setLevel(Level.INFO);
+        ctx.updateLoggers();
+    }
 
     public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
     public static final String PID_DIR = System.getenv("PID_DIR");
