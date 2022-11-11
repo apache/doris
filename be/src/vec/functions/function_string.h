@@ -1476,6 +1476,7 @@ private:
                 string_pos+= str_size;
                 dest_pos++;
                 column_string_offsets.push_back(string_pos);
+                LOG(WARNING) << std::to_string(string_pos);
             } else if (delimiter.size() == 1) {
                 for(size_t str_pos = 0;str_pos <= str.size();) {
                     const size_t str_offset = str_pos;
