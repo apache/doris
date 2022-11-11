@@ -20,7 +20,7 @@ suite("hll_agg") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    // bitmap_union, bitmap_union_count, bitmap_union_int
+    // hll_union, hll_raw_agg, hll_union_agg
     test {
         sql """
                 select

@@ -17,12 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.table;
 
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Id;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.statistics.ColumnStat;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.tablefunction.NumbersTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -53,14 +57,18 @@ public class Numbers extends TableValuedFunction {
     @Override
     public StatsDeriveResult computeStats(List<Slot> slots) {
         Preconditions.checkArgument(slots.size() == 1);
+        try {
+            NumbersTableValuedFunction catalogFunction = (NumbersTableValuedFunction) getCatalogFunction();
+            long rowNum = catalogFunction.getTotalNumbers();
 
-        NumbersTableValuedFunction catalogFunction = (NumbersTableValuedFunction) getCatalogFunction();
-        long rowNum = catalogFunction.getTotalNumbers();
-
-        Map<Slot, ColumnStat> columnIdToNdv = Maps.newHashMap();
-        ColumnStat columnStat = new ColumnStat(rowNum, 8, 8, 0, 0, rowNum - 1);
-        columnIdToNdv.put(slots.get(0), columnStat);
-        return new StatsDeriveResult(rowNum, columnIdToNdv);
+            Map<Id, ColumnStatistic> columnToStatistics = Maps.newHashMap();
+            ColumnStatistic columnStat = new ColumnStatistic(rowNum, rowNum, 8, 0, 8, 0, rowNum - 1,
+                    1.0 / rowNum, new IntLiteral(0, Type.BIGINT), new IntLiteral(rowNum - 1, Type.BIGINT));
+            columnToStatistics.put(slots.get(0).getExprId(), columnStat);
+            return new StatsDeriveResult(rowNum, columnToStatistics);
+        } catch (Exception t) {
+            throw new NereidsException(t.getMessage(), t);
+        }
     }
 
     @Override
