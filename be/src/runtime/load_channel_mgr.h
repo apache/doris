@@ -202,7 +202,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         // But the load channel's reduce memory process is thread safe, only 1 thread can
         // reduce memory at the same time, other threads will wait on a condition variable,
         // after the reduce-memory work finished, all threads will return.
-        std::vector<LoadChannel*> candidate_channels;
+        std::vector<std::shared_ptr<LoadChannel>> candidate_channels;
         int64_t total_consume = 0;
         for (auto& kv : _load_channels) {
             if (kv.second->is_high_priority()) {
@@ -210,7 +210,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
                 // to avoid blocking them.
                 continue;
             }
-            candidate_channels.push_back(kv.second.get());
+            candidate_channels.push_back(kv.second);
             total_consume += kv.second->mem_consumption();
         }
 
@@ -234,13 +234,13 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         if (_load_channel_min_mem_to_reduce > 0 &&
             largest_channel->mem_consumption() > _load_channel_min_mem_to_reduce) {
             // Pick 1 load channel to reduce memory.
-            channels_to_reduce_mem.push_back(largest_channel);
+            channels_to_reduce_mem.push_back(largest_channel.get());
             mem_consumption_in_picked_channel = largest_channel->mem_consumption();
         } else {
             // Pick multiple channels to reduce memory.
             int64_t mem_to_flushed = total_consume / 3;
             for (auto ch : candidate_channels) {
-                channels_to_reduce_mem.push_back(ch);
+                channels_to_reduce_mem.push_back(ch.get());
                 mem_consumption_in_picked_channel += ch->mem_consumption();
                 if (mem_consumption_in_picked_channel >= mem_to_flushed) {
                     break;
@@ -279,7 +279,7 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
     for (auto ch : channels_to_reduce_mem) {
         uint64_t begin = GetCurrentTimeMicros();
         int64_t mem_usage = ch->mem_consumption();
-        st = ch->template handle_mem_exceed_limit(response);
+        st = ch->handle_mem_exceed_limit(response);
         LOG(INFO) << "reduced memory of " << *ch << ", cost " << GetCurrentTimeMicros() - begin
                   << " ms, released memory: " << mem_usage - ch->mem_consumption() << " bytes";
     }
