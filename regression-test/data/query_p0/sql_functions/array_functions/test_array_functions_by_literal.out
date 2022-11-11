@@ -123,7 +123,7 @@ false
 3
 
 -- !sql --
-6
+6.0
 
 -- !sql --
 2.0
@@ -138,7 +138,7 @@ false
 3
 
 -- !sql --
-6
+6.0
 
 -- !sql --
 \N
@@ -387,5 +387,5 @@ _
 [1223, 1223, 1223, 1223]
 
 -- !sql --
-\N
+[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
 

@@ -44,9 +44,6 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[1]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeArray>(make_nullable(arguments[1])));
-        }
         return std::make_shared<DataTypeArray>(make_nullable(arguments[1]));
     }
 
@@ -73,19 +70,11 @@ public:
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
         value->replicate(array_sizes.data(), offset, *clone->assume_mutable().get());
-        if (value->is_nullable()) {
-            auto nested_column = ColumnNullable::create(clone->assume_mutable(),
-                                                        ColumnUInt8::create(clone->size(), 0));
-            auto array = ColumnArray::create(std::move(nested_column), std::move(offsets_col));
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(array),
-                                                   ColumnUInt8::create(array->size(), 0)));
-        } else {
-            auto nested_column = ColumnNullable::create(clone->assume_mutable(),
-                                                        ColumnUInt8::create(clone->size(), 0));
-            auto array = ColumnArray::create(std::move(nested_column), std::move(offsets_col));
-            block.replace_by_position(result, std::move(array));
+        if (!clone->is_nullable()) {
+            clone = ColumnNullable::create(std::move(clone), ColumnUInt8::create(clone->size(), 0));
         }
+        auto array = ColumnArray::create(std::move(clone), std::move(offsets_col));
+        block.replace_by_position(result, std::move(array));
         return Status::OK();
     }
 };
