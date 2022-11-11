@@ -82,7 +82,7 @@ class ExpressionEstimationTest {
         //min/max not changed. select max(A) as X from T group by B. X.min is A.min, not A.max
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
         Assertions.assertEquals(0, estimated.minValue);
-        Assertions.assertEquals(500, estimated.maxValue);
+        Assertions.assertEquals(1000, estimated.maxValue);
         Assertions.assertEquals(1, estimated.ndv);
     }
 
