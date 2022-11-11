@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -51,9 +52,9 @@ import java.util.stream.Collectors;
  * for example:
  * a > 1 and a > 2 => a > 2
  * a > 1 or a > 2 => a > 1
- * a in (1,2,3) and a > 1 => a in (1,2,3)
+ * a in (1,2,3) and a > 1 => a in (2,3)
  * a in (1,2,3) and a in (3,4,5) => a = 3
- * a in(1,2,3) and a in (4,5,6) => a in(1,2,3) and a in (4,5,6)
+ * a in(1,2,3) and a in (4,5,6) => false
  * The logic is as follows:
  * 1. for `And` expression.
  *    1. extract conjunctions then build `ValueDesc` for each conjunction
@@ -62,7 +63,7 @@ import java.util.stream.Collectors;
  *    a > 1 and a > 2
  *    1. a > 1 => RangeValueDesc((1...+∞)), a > 2 => RangeValueDesc((2...+∞))
  *    2. (1...+∞) intersect (2...+∞) => (2...+∞)
- * 2. for `Or` expression (same as `And`).
+ * 2. for `Or` expression (similar to `And`).
  */
 public class SimplifyRange extends AbstractExpressionRewriteRule {
 
@@ -70,14 +71,14 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return expr instanceof CompoundPredicate ? (Expression) expr.accept(new RangeInference(), null) : expr;
+        return expr instanceof CompoundPredicate ? expr.accept(new RangeInference(), null).expr : expr;
     }
 
-    private static class RangeInference extends ExpressionVisitor<Object, Void> {
+    private static class RangeInference extends ExpressionVisitor<ValueDesc, Void> {
 
         @Override
-        public Object visit(Expression expr, Void context) {
-            return expr;
+        public ValueDesc visit(Expression expr, Void context) {
+            return ResultValue.of(expr);
         }
 
         private ValueDesc buildRange(ComparisonPredicate predicate) {
@@ -87,7 +88,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             if (right.isLiteral() && right.getDataType().isNumericType()) {
                 return ValueDesc.range((ComparisonPredicate) rewrite);
             }
-            return RangeValue.EMPTY;
+            return ValueDesc.EMPTY;
         }
 
         @Override
@@ -122,19 +123,19 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                     && ExpressionUtils.matchNumericType(inPredicate.getOptions())) {
                 return ValueDesc.discrete(inPredicate);
             }
-            return DiscreteValue.EMPTY;
+            return ValueDesc.EMPTY;
         }
 
         @Override
-        public Expression visitAnd(And and, Void context) {
+        public ValueDesc visitAnd(And and, Void context) {
             List<Expression> result = simplify(ExpressionUtils.extractConjunction(and), ValueDesc::intersect);
-            return ExpressionUtils.and(result);
+            return ResultValue.of(ExpressionUtils.and(result));
         }
 
         @Override
-        public Expression visitOr(Or or, Void context) {
+        public ValueDesc visitOr(Or or, Void context) {
             List<Expression> result = simplify(ExpressionUtils.extractDisjunction(or), ValueDesc::union);
-            return ExpressionUtils.or(result);
+            return ResultValue.of(ExpressionUtils.or(result));
         }
 
         private List<Expression> simplify(List<Expression> predicates, BinaryOperator<ValueDesc> op) {
@@ -142,20 +143,20 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             List<ValueDesc> valueDescList = Lists.newArrayList();
 
             for (Expression predicate : predicates) {
-                Object value = predicate.accept(this, null);
-                // can not build `ValueDesc`, so does not handle `predicate`
-                if (value.equals(RangeValue.EMPTY) || value.equals(DiscreteValue.EMPTY)) {
+                ValueDesc value = predicate.accept(this, null);
+                // can not build `ValueDesc`, so does not handle `predicate`, skip it.
+                if (value.equals(ValueDesc.EMPTY)) {
                     result.add(predicate);
-                } else if (value instanceof Expression) {
+                } else if (value instanceof ResultValue) {
                     // With simplified expression, it is possible to build `ValueDesc` as well
-                    Object o = ((Expression) value).accept(this, null);
-                    if (o instanceof Expression) {
-                        result.add((Expression) o);
+                    ValueDesc o = value.expr.accept(this, null);
+                    if (o instanceof ResultValue) {
+                        result.add(o.expr);
                     } else {
-                        valueDescList.add((ValueDesc) o);
+                        valueDescList.add(o);
                     }
-                } else if (value instanceof ValueDesc) {
-                    valueDescList.add((ValueDesc) value);
+                } else {
+                    valueDescList.add(value);
                 }
             }
             // grouping according to `reference`, `ValueDesc` in the same group can perform intersect or union
@@ -176,7 +177,9 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         }
     }
 
-    private abstract static class ValueDesc {
+    private static class ValueDesc {
+        public static final ValueDesc EMPTY = new ValueDesc(null, null);
+        public static final ValueDesc FALSE = new ValueDesc(BooleanLiteral.FALSE, BooleanLiteral.FALSE);
         Expression expr;
         Expression reference;
 
@@ -185,28 +188,37 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             this.reference = reference;
         }
 
-        public abstract ValueDesc union(ValueDesc other);
+        public ValueDesc union(ValueDesc other) {
+            throw new RuntimeException("not implements union()");
+        }
 
         public ValueDesc union(RangeValue range, DiscreteValue discrete) {
             long count = discrete.values.stream().filter(x -> range.range.test(x)).count();
             if (count == discrete.values.size()) {
                 return range;
             }
-            return RangeValue.EMPTY;
+            return EMPTY;
         }
 
-        public abstract ValueDesc intersect(ValueDesc other);
+        public ValueDesc intersect(ValueDesc other) {
+            throw new RuntimeException("not implements intersect()");
+        }
 
         public ValueDesc intersect(RangeValue range, DiscreteValue discrete) {
             DiscreteValue result = new DiscreteValue(discrete.reference, discrete.expr, Sets.newHashSet());
-            discrete.values.stream().filter(x -> range.range.test(x)).forEach(result.values::add);
+            discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
             if (result.values.size() > 0) {
                 return result;
             }
-            return DiscreteValue.EMPTY;
+            return FALSE;
         }
 
-        public abstract Expression toExpression();
+        public Expression toExpression() {
+            if (this.equals(FALSE)) {
+                return BooleanLiteral.FALSE;
+            }
+            return null;
+        }
 
         public static ValueDesc range(ComparisonPredicate predicate) {
             Literal value = (Literal) predicate.right();
@@ -239,8 +251,6 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
      * a > 1 => (1...+∞)
      */
     private static class RangeValue extends ValueDesc {
-
-        public static final RangeValue EMPTY = new RangeValue(null, null);
         Range<Literal> range;
 
         public RangeValue(Expression reference, Expression expr) {
@@ -250,28 +260,38 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         @Override
         public ValueDesc union(ValueDesc other) {
             if (other instanceof RangeValue) {
-                RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.or(expr, other.expr));
-                rangeValue.range = range.span(((RangeValue) other).range);
-                return rangeValue;
+                RangeValue o = (RangeValue) other;
+                if (range.isConnected(o.range)) {
+                    RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.or(expr, other.expr));
+                    rangeValue.range = range.span(o.range);
+                    return rangeValue;
+                } else {
+                    return EMPTY;
+                }
             }
             return union(this, (DiscreteValue) other);
         }
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
+            if (this.equals(FALSE) || other.equals(FALSE)) {
+                return FALSE;
+            }
             if (other instanceof RangeValue) {
-                RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.and(expr, other.expr));
-                rangeValue.range = range.intersection(((RangeValue) other).range);
-                return rangeValue;
+                RangeValue o = (RangeValue) other;
+                if (range.isConnected(o.range)) {
+                    RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.and(expr, other.expr));
+                    rangeValue.range = range.intersection(o.range);
+                    return rangeValue;
+                } else {
+                    return FALSE;
+                }
             }
             return intersect(this, (DiscreteValue) other);
         }
 
         @Override
         public Expression toExpression() {
-            if (this.equals(RangeValue.EMPTY)) {
-                return null;
-            }
             List<Expression> result = Lists.newArrayList();
             if (range.hasLowerBound()) {
                 if (range.lowerBoundType() == BoundType.CLOSED) {
@@ -282,7 +302,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             }
             if (range.hasUpperBound()) {
                 if (range.upperBoundType() == BoundType.CLOSED) {
-                    result.add(new LessThanEqual(reference, range.lowerEndpoint()));
+                    result.add(new LessThanEqual(reference, range.upperEndpoint()));
                 } else {
                     result.add(new LessThan(reference, range.upperEndpoint()));
                 }
@@ -297,14 +317,11 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
      * a in (1,2,3) => [1,2,3]
      */
     private static class DiscreteValue extends ValueDesc {
-
-        public static final DiscreteValue EMPTY = new DiscreteValue(null, null, null);
-
         Set<Literal> values;
 
         public DiscreteValue(Expression reference, Expression expr, Set<Literal> values) {
             super(reference, expr);
-            this.values = values;
+            this.values = Sets.newLinkedHashSet(values);
         }
 
         @Override
@@ -321,26 +338,39 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
+            if (this.equals(FALSE) || other.equals(FALSE)) {
+                return FALSE;
+            }
             if (other instanceof DiscreteValue) {
                 DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.and(expr, other.expr),
                         Sets.newHashSet());
                 discreteValue.values.addAll(((DiscreteValue) other).values);
                 discreteValue.values.retainAll(this.values);
-                return discreteValue.values.isEmpty() ? DiscreteValue.EMPTY : discreteValue;
+                return discreteValue.values.isEmpty() ? FALSE : discreteValue;
             }
             return intersect((RangeValue) other, this);
         }
 
         @Override
         public Expression toExpression() {
-            if (this.equals(DiscreteValue.EMPTY)) {
-                return null;
-            }
             if (values.size() == 1) {
                 return new EqualTo(reference, values.iterator().next());
             } else {
                 return new InPredicate(reference, Lists.newArrayList(values));
             }
+        }
+    }
+
+    /**
+     * Represents processing result.
+     */
+    private static class ResultValue extends ValueDesc {
+        public ResultValue(Expression reference, Expression expr) {
+            super(reference, expr);
+        }
+
+        public static ValueDesc of(Expression result) {
+            return new ResultValue(result, result);
         }
     }
 }
