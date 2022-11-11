@@ -81,6 +81,7 @@ public:
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
+                                       const TabletIndex* index_meta,
                                             InvertedIndexIterator** iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {

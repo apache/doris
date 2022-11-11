@@ -106,7 +106,7 @@ public:
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
-    Status new_inverted_index_iterator(InvertedIndexParserType inverted_index_analyser_type,
+    Status new_inverted_index_iterator(const TabletIndex* index_meta,
                                        InvertedIndexIterator** iterator);
 
     // Seek to the first entry in the column.
@@ -180,17 +180,16 @@ private:
 
     // Read column inverted indexes into memory
     // May be called multiple times, subsequent calls will no op.
-    Status _ensure_inverted_index_loaded(InvertedIndexParserType inverted_index_analyser_type) {
-        return _load_inverted_index_once.call([this, inverted_index_analyser_type] {
-            RETURN_IF_ERROR(_load_inverted_index_index(inverted_index_analyser_type));
-            return Status::OK();
-        });
+    Status _ensure_inverted_index_loaded(const TabletIndex* index_meta) {
+        // load inverted index only if not loaded or index_id is changed
+        RETURN_IF_ERROR(_load_inverted_index_index(index_meta));
+        return Status::OK();
     }
 
     Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
     Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
     Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
-    Status _load_inverted_index_index(InvertedIndexParserType inverted_index_analyser_type);
+    Status _load_inverted_index_index(const TabletIndex* index_meta);
     Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
 
     bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
@@ -228,7 +227,7 @@ private:
     const BloomFilterIndexPB* _bf_index_meta = nullptr;
 
     DorisCallOnce<Status> _load_index_once;
-    DorisCallOnce<Status> _load_inverted_index_once;
+    mutable std::mutex _load_index_lock;
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;

@@ -283,12 +283,11 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
+                                            const TabletIndex *index_meta,
                                             InvertedIndexIterator** iter) {
     auto col_unique_id = tablet_column.unique_id();
-    if (_column_readers.count(col_unique_id) > 0 &&
-        tablet_column.has_inverted_index()) {
-        return _column_readers.at(col_unique_id)->new_inverted_index_iterator(
-                        tablet_column.get_inverted_index_parser_type(), iter);
+    if (_column_readers.count(col_unique_id) > 0 && index_meta) {
+        return _column_readers.at(col_unique_id)->new_inverted_index_iterator(index_meta, iter);
     }
     return Status::OK();
 }

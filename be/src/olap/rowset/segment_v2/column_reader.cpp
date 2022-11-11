@@ -143,10 +143,10 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 }
 
 Status ColumnReader::new_inverted_index_iterator(
-        InvertedIndexParserType inverted_index_analyser_type, InvertedIndexIterator** iterator) {
-    RETURN_IF_ERROR(_ensure_inverted_index_loaded(inverted_index_analyser_type));
+        const TabletIndex* index_meta, InvertedIndexIterator** iterator) {
+    RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
     if (_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index->new_iterator(inverted_index_analyser_type, iterator));
+        RETURN_IF_ERROR(_inverted_index->new_iterator(index_meta, iterator));
     }
     return Status::OK();
 }
@@ -371,7 +371,14 @@ Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory
 }
 
 Status ColumnReader::_load_inverted_index_index(
-        InvertedIndexParserType inverted_index_analyser_type) {
+        const TabletIndex* index_meta) {
+    std::lock_guard<std::mutex> wlock(_load_index_lock);
+
+    if (_inverted_index && index_meta &&
+        _inverted_index->get_index_id() == index_meta->index_id()) {
+        return Status::OK();
+    }
+
     FieldType type;
     if ((FieldType)_meta.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         type = (FieldType)_meta.children_columns(0).type();

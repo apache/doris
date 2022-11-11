@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
@@ -53,12 +54,12 @@ enum class InvertedIndexQueryType {
 class InvertedIndexReader {
 public:
     explicit InvertedIndexReader(io::FileSystem* fs, const std::string& path,
-                                 const uint32_t uniq_id)
-            : _fs(fs), _path(path), _uuid(uniq_id) {};
+                                 const uint32_t index_id)
+            : _fs(fs), _path(path), _index_id(index_id) {};
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(InvertedIndexParserType analyser_type,
+    virtual Status new_iterator(const TabletIndex* index_meta,
                                 InvertedIndexIterator** iterator) = 0;
     virtual Status query(const std::string& column_name, const void* query_value,
                          InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
@@ -69,12 +70,13 @@ public:
 
     virtual InvertedIndexReaderType type() = 0;
     bool indexExists(io::Path& index_file_path);
+    uint32_t get_index_id() { return _index_id; }
 
 protected:
     friend class InvertedIndexIterator;
     io::FileSystem* _fs;
     std::string _path;
-    uint32_t _uuid;
+    uint32_t _index_id;
 };
 
 class InvertedIndexIterator {

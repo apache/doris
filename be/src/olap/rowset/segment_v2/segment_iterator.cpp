@@ -656,7 +656,8 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         int32_t unique_id = _schema.unique_id(cid);
         if (_inverted_index_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    _opts.tablet_schema->column(cid), &_inverted_index_iterators[unique_id]));
+                    _opts.tablet_schema->column(cid), _opts.tablet_schema->get_inverted_index(cid),
+                    &_inverted_index_iterators[unique_id]));
         }
     }
     return Status::OK();

@@ -18,6 +18,7 @@
 #include <limits>
 #include <type_traits>
 
+#include "common/consts.h"
 #include "common/logging.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_number.h"

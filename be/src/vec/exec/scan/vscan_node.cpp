@@ -17,6 +17,7 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/runtime_filter_mgr.h"
