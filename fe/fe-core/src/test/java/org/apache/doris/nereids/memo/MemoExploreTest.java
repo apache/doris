@@ -24,8 +24,10 @@ import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
@@ -36,12 +38,15 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Map;
 
-class MemoMergeGroupTest implements PatternMatchSupported {
+class MemoExploreTest implements PatternMatchSupported {
 
     private final ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
+    private final LogicalJoin<LogicalOlapScan, LogicalOlapScan> logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN,
+            PlanConstructor.newLogicalOlapScan(0, "A", 0),
+            PlanConstructor.newLogicalOlapScan(1, "B", 0));
 
-    /**
+    /*
      * ┌─────────────────────────┐     ┌───────────┐
      * │  ┌─────┐       ┌─────┐  │     │  ┌─────┐  │
      * │  │0┌─┐ │       │1┌─┐ │  │     │  │1┌─┐ │  │
@@ -100,5 +105,44 @@ class MemoMergeGroupTest implements PatternMatchSupported {
         Assertions.assertEquals(dstGroup, srcParentExpression.child(0));
 
         Assertions.assertNull(srcParentGroup.getBestPlan(PhysicalProperties.ANY));
+    }
+
+    /**
+     * Original:
+     * Group 0: LogicalOlapScan A
+     * Group 1: LogicalOlapScan B
+     * Group 2: Join(Group 0, Group 1)
+     * <p>
+     * Then:
+     * Copy In Join(Group 1, Group 0) into Group 3
+     * <p>
+     * Expected:
+     * Group 0: LogicalOlapScan A
+     * Group 1: LogicalOlapScan B
+     * Group 2: Join(Group 0, Group 1), Project(Group3)
+     * Group 3: Join(Group 1, Group 0)
+     */
+    @Test
+    public void testInsertSameGroup() {
+        PlanChecker.from(connectContext, logicalJoinAB)
+                .transform(
+                        // swap join's children
+                        logicalJoin(logicalOlapScan(), logicalOlapScan()).then(joinBA ->
+                                new LogicalProject<>(Lists.newArrayList(joinBA.getOutput()),
+                                        new LogicalJoin<>(JoinType.INNER_JOIN, joinBA.right(), joinBA.left()))
+                        ))
+                .checkGroupNum(4)
+                .checkGroupExpressionNum(5)
+                .checkMemo(memo -> {
+                    Group root = memo.getRoot();
+                    Assertions.assertEquals(2, root.getLogicalExpressions().size());
+                    GroupExpression joinAB = root.getLogicalExpressions().get(0);
+                    GroupExpression project = root.getLogicalExpressions().get(1);
+                    GroupExpression joinBA = project.child(0).getLogicalExpression();
+                    Assertions.assertTrue(joinAB.getPlan() instanceof LogicalJoin);
+                    Assertions.assertTrue(joinBA.getPlan() instanceof LogicalJoin);
+                    Assertions.assertEquals(joinAB.child(0), joinBA.child(1));
+                    Assertions.assertEquals(joinAB.child(1), joinBA.child(0));
+                });
     }
 }
