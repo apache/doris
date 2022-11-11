@@ -202,7 +202,8 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         // But the load channel's reduce memory process is thread safe, only 1 thread can
         // reduce memory at the same time, other threads will wait on a condition variable,
         // after the reduce-memory work finished, all threads will return.
-        std::vector<LoadChannel*> candidate_channels;
+        using ChannelMemPair = std::pair<std::shared_ptr<LoadChannel>, int64_t>;
+        std::vector<ChannelMemPair> candidate_channels;
         int64_t total_consume = 0;
         for (auto& kv : _load_channels) {
             if (kv.second->is_high_priority()) {
@@ -210,8 +211,10 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
                 // to avoid blocking them.
                 continue;
             }
-            candidate_channels.push_back(kv.second.get());
-            total_consume += kv.second->mem_consumption();
+            int64_t mem = kv.second->mem_consumption();
+            // save the mem consumption, since the calculation might be expensive.
+            candidate_channels.push_back(std::make_pair(kv.second, mem));
+            total_consume += mem;
         }
 
         if (candidate_channels.empty()) {
@@ -223,8 +226,8 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
 
         // sort all load channels, try to find the largest one.
         std::sort(candidate_channels.begin(), candidate_channels.end(),
-                  [](LoadChannel* lhs, LoadChannel* rhs) {
-                      return lhs->mem_consumption() > rhs->mem_consumption();
+                  [](const ChannelMemPair& lhs, const ChannelMemPair& rhs) {
+                      return lhs.second > rhs.second;
                   });
 
         int64_t mem_consumption_in_picked_channel = 0;
@@ -232,16 +235,16 @@ Status LoadChannelMgr::_handle_mem_exceed_limit(TabletWriterAddResult* response)
         // If some load-channel is big enough, we can reduce it only, try our best to avoid
         // reducing small load channels.
         if (_load_channel_min_mem_to_reduce > 0 &&
-            largest_channel->mem_consumption() > _load_channel_min_mem_to_reduce) {
+            largest_channel.second > _load_channel_min_mem_to_reduce) {
             // Pick 1 load channel to reduce memory.
-            channels_to_reduce_mem.push_back(_load_channels[largest_channel->load_id()]);
-            mem_consumption_in_picked_channel = largest_channel->mem_consumption();
+            channels_to_reduce_mem.push_back(largest_channel.first);
+            mem_consumption_in_picked_channel = largest_channel.second;
         } else {
             // Pick multiple channels to reduce memory.
             int64_t mem_to_flushed = total_consume / 3;
             for (auto ch : candidate_channels) {
-                channels_to_reduce_mem.push_back(_load_channels[ch->load_id()]);
-                mem_consumption_in_picked_channel += ch->mem_consumption();
+                channels_to_reduce_mem.push_back(ch.first);
+                mem_consumption_in_picked_channel += ch.second;
                 if (mem_consumption_in_picked_channel >= mem_to_flushed) {
                     break;
                 }
