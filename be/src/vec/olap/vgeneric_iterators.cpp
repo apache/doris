@@ -45,7 +45,7 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
             auto unique_id = _schema.column(cid)->unique_id();
             if (_column_iterators_map.count(unique_id) < 1) {
                 ColumnIteratorOptions iter_opts;
-                iter_opts.io_ctx.reader_type = ReaderType::INVALID;
+                iter_opts.need_init = false;
                 RETURN_IF_ERROR(_segment->new_column_iterator(opts.tablet_schema->column(cid),
                                                               iter_opts,
                                                               &_column_iterators_map[unique_id]));
