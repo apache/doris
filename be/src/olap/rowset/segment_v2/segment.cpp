@@ -254,8 +254,7 @@ Status Segment::_create_column_readers() {
 // in the new schema column c's cid == 2
 // but in the old schema column b's cid == 2
 // but they are not the same column
-Status Segment::new_column_iterator(const TabletColumn& tablet_column,
-                                    const ColumnIteratorOptions& iter_opts, ColumnIterator** iter) {
+Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter) {
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
@@ -266,17 +265,13 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                         tablet_column.has_default_value(), tablet_column.default_value(),
                         tablet_column.is_nullable(), std::move(type_info), tablet_column.length(),
                         tablet_column.precision(), tablet_column.frac()));
+        ColumnIteratorOptions iter_opts;
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();
         return Status::OK();
     }
-    RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(iter));
-    if (iter_opts.need_init) {
-        return (*iter)->init(iter_opts);
-    } else {
-        return Status::OK();
-    }
+    return _column_readers.at(tablet_column.unique_id())->new_iterator(iter);
 }
 
 Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
