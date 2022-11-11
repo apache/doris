@@ -196,6 +196,7 @@ enum ReaderType {
     READER_BASE_COMPACTION = 2,
     READER_CUMULATIVE_COMPACTION = 3,
     READER_CHECKSUM = 4,
+    INVALID = 99,
 };
 
 // <start_version_id, end_version_id>, such as <100, 110>
