@@ -316,12 +316,12 @@ suite("test_window_function") {
     String k1 = fields[3]
     String k2 = fields[5]
     String k3 = fields[3]
-    qt_first_value1"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3})
+    qt_first_value1"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2})
              as wj from baseall  order by ${k1}, wj"""
-    qt_first_value2"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_first_value2"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2}
              range between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_first_value3"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3} 
+    qt_first_value3"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2} 
              rows between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
     qt_first_value4"""select a, min(d) as wjj from 

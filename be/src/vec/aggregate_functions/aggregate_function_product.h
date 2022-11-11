@@ -50,6 +50,33 @@ struct AggregateFunctionProductData {
     void reset(T value) { product = std::move(value); }
 };
 
+template <>
+struct AggregateFunctionProductData<Decimal128> {
+    Decimal128 product {};
+
+    void add(Decimal128 value) {
+        DecimalV2Value decimal_product(static_cast<Int128>(product));
+        DecimalV2Value decimal_value(static_cast<Int128>(value));
+        DecimalV2Value ret = decimal_product * decimal_value;
+        memcpy(&product, &ret, sizeof(Decimal128));
+    }
+
+    void merge(const AggregateFunctionProductData& other) {
+        DecimalV2Value decimal_product(static_cast<Int128>(product));
+        DecimalV2Value decimal_value(static_cast<Int128>(other.product));
+        DecimalV2Value ret = decimal_product * decimal_value;
+        memcpy(&product, &ret, sizeof(Decimal128));
+    }
+
+    void write(BufferWritable& buffer) const { write_binary(product, buffer); }
+
+    void read(BufferReadable& buffer) { read_binary(product, buffer); }
+
+    Decimal128 get() const { return product; }
+
+    void reset(Decimal128 value) { product = std::move(value); }
+};
+
 template <typename T, typename TResult, typename Data>
 class AggregateFunctionProduct final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionProduct<T, TResult, Data>> {

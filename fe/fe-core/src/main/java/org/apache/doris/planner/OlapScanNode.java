@@ -56,6 +56,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
@@ -537,7 +538,7 @@ public class OlapScanNode extends ScanNode {
         // update statsDeriveResult for real statistics
         // After statistics collection is complete, remove the logic
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            statsDeriveResult.setRowCount(cardinality);
+            statsDeriveResult = new StatsDeriveResult(cardinality, statsDeriveResult.getSlotIdToColumnStats());
         }
     }
 
@@ -934,10 +935,24 @@ public class OlapScanNode extends ScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
 
-        String indexName = olapTable.getIndexNameById(selectedIndexId);
+        long selectedIndexIdForExplain = selectedIndexId;
+        if (selectedIndexIdForExplain == -1) {
+            // If there is no data in table, the selectedIndexId will be -1, set it to base index id,
+            // so that to avoid "null" in explain result.
+            selectedIndexIdForExplain = olapTable.getBaseIndexId();
+        }
+        String indexName = olapTable.getIndexNameById(selectedIndexIdForExplain);
         output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append("\n").append(prefix).append(String.format("cardinality=%s", cardinality));
+            if (!runtimeFilters.isEmpty()) {
+                output.append("\n").append(prefix).append("Apply RFs: ");
+                output.append(getRuntimeFilterExplainString(false, true));
+            }
+            if (!conjuncts.isEmpty()) {
+                output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
+            }
             return output.toString();
         }
         if (isPreAggregation) {

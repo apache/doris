@@ -20,16 +20,9 @@
 #include <string>
 #include <utility>
 
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/key_holder_helpers.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_const.h"
-#include "vec/common/aggregation_common.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/field_visitors.h"
-#include "vec/common/hash_table/hash_set.h"
-#include "vec/common/hash_table/hash_table.h"
-#include "vec/common/sip_hash.h"
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
 #include "vec/io/io_helper.h"
@@ -57,11 +50,11 @@ struct AggregateFunctionSortData {
         }
     }
 
-    void serialize(BufferWritable& buf) const {
+    void serialize(const RuntimeState* state, BufferWritable& buf) const {
         PBlock pblock;
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
-        block.serialize(&pblock, &uncompressed_bytes, &compressed_bytes,
+        block.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes, &compressed_bytes,
                         segment_v2::CompressionTypePB::SNAPPY);
 
         write_string_binary(pblock.SerializeAsString(), buf);
@@ -99,6 +92,7 @@ private:
     DataTypes _arguments;
     const SortDescription& _sort_desc;
     Block _block;
+    const RuntimeState* _state;
 
     AggregateDataPtr get_nested_place(AggregateDataPtr __restrict place) const noexcept {
         return place + prefix_size;
@@ -110,12 +104,13 @@ private:
 
 public:
     AggregateFunctionSort(const AggregateFunctionPtr& nested_func, const DataTypes& arguments,
-                          const SortDescription& sort_desc)
+                          const SortDescription& sort_desc, const RuntimeState* state)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSort>(
                       arguments, nested_func->get_parameters()),
               _nested_func(nested_func),
               _arguments(arguments),
-              _sort_desc(sort_desc) {
+              _sort_desc(sort_desc),
+              _state(state) {
         for (const auto& type : _arguments) {
             _block.insert({type, ""});
         }
@@ -132,7 +127,7 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).serialize(buf);
+        this->data(place).serialize(_state, buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
@@ -179,5 +174,6 @@ public:
 
 AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& nested_function,
                                                     const DataTypes& arguments,
-                                                    const SortDescription& sort_desc);
+                                                    const SortDescription& sort_desc,
+                                                    RuntimeState* state);
 } // namespace doris::vectorized

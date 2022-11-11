@@ -27,7 +27,7 @@ import org.apache.doris.nereids.types.IntegerType;
 /**
  * Represents Integer literal
  */
-public class IntegerLiteral extends Literal {
+public class IntegerLiteral extends IntegerLikeLiteral {
 
     private final int value;
 
@@ -54,5 +54,10 @@ public class IntegerLiteral extends Literal {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "Can not convert to legacy literal: " + value, e);
         }
+    }
+
+    @Override
+    public Number getNumber() {
+        return value;
     }
 }

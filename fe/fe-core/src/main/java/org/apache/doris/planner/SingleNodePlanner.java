@@ -1925,8 +1925,7 @@ public class SingleNodePlanner {
                         null, -1);
                 break;
             case ICEBERG:
-                scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
-                        null, -1);
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case HUDI:
                 scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
@@ -1936,8 +1935,7 @@ public class SingleNodePlanner {
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), (JdbcTable) tblRef.getTable());
                 break;
             case TABLE_VALUED_FUNCTION:
-                scanNode = new TableValuedFunctionScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
-                        "TableValuedFunctionScanNode", ((TableValuedFunctionRef) tblRef).getTableFunction());
+                scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
                 break;
             case HMS_EXTERNAL_TABLE:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
@@ -1948,7 +1946,8 @@ public class SingleNodePlanner {
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode) {
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode
+                || scanNode instanceof ExternalFileScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             }
@@ -2041,10 +2040,24 @@ public class SingleNodePlanner {
         // are materialized)
         getHashLookupJoinConjuncts(analyzer, outer, inner,
                 eqJoinConjuncts, errMsg, innerRef.getJoinOp());
+        analyzer.markConjunctsAssigned(eqJoinConjuncts);
+
+        List<Expr> ojConjuncts = Lists.newArrayList();
+        if (innerRef.getJoinOp().isOuterJoin()) {
+            // Also assign conjuncts from On clause. All remaining unassigned conjuncts
+            // that can be evaluated by this join are assigned in createSelectPlan().
+            ojConjuncts = analyzer.getUnassignedOjConjuncts(innerRef);
+        } else if (innerRef.getJoinOp().isAntiJoin()) {
+            ojConjuncts = analyzer.getUnassignedAntiJoinConjuncts(innerRef);
+        } else if (innerRef.getJoinOp().isSemiJoin()) {
+            final List<TupleId> tupleIds = innerRef.getAllTupleIds();
+            ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
+        }
+        analyzer.markConjunctsAssigned(ojConjuncts);
         if (eqJoinConjuncts.isEmpty()) {
 
             // only inner join can change to cross join
-            if (innerRef.getJoinOp().isOuterJoin() || innerRef.getJoinOp().isSemiAntiJoin()) {
+            if (innerRef.getJoinOp().isSemiAntiJoin()) {
                 throw new AnalysisException("non-equal " + innerRef.getJoinOp().toString()
                         + " is not supported");
             }
@@ -2056,21 +2069,9 @@ public class SingleNodePlanner {
             // TODO If there are eq join predicates then we should construct a hash join
             CrossJoinNode result =
                     new CrossJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
+            result.addConjuncts(ojConjuncts);
             result.init(analyzer);
             return result;
-        }
-        analyzer.markConjunctsAssigned(eqJoinConjuncts);
-
-        List<Expr> ojConjuncts = Lists.newArrayList();
-        if (innerRef.getJoinOp().isOuterJoin()) {
-            // Also assign conjuncts from On clause. All remaining unassigned conjuncts
-            // that can be evaluated by this join are assigned in createSelectPlan().
-            ojConjuncts = analyzer.getUnassignedOjConjuncts(innerRef);
-            analyzer.markConjunctsAssigned(ojConjuncts);
-        } else if (innerRef.getJoinOp().isSemiAntiJoin()) {
-            final List<TupleId> tupleIds = innerRef.getAllTupleIds();
-            ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
-            analyzer.markConjunctsAssigned(ojConjuncts);
         }
 
         HashJoinNode result =

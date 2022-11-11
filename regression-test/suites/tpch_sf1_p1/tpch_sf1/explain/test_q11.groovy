@@ -55,10 +55,11 @@ suite("test_explain_tpch_sf_1_q11") {
             """
         check {
             explainStr ->
-		explainStr.contains("VTOP-N\n" + 
-				"  |  order by: <slot 22> `\$a\$1`.`\$c\$2` DESC") && 
-		explainStr.contains("cross join:\n" + 
-				"  |  predicates: <slot 9> sum(<slot 31> * <slot 32>) > <slot 20> sum(<slot 43> * <slot 44>) * 0.0001") && 
+		explainStr.contains("VTOP-N\n" +
+				"  |  order by: <slot 22> `\$a\$1`.`\$c\$2` DESC") &&
+		explainStr.contains("CROSS JOIN\n" +
+		        "  |  join op: CROSS JOIN()\n" +
+				"  |  other predicates: <slot 76> > <slot 77> * 0.0001") &&
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: sum(<slot 9> sum(<slot 31> * <slot 32>))\n" + 
 				"  |  group by: <slot 8> `ps_partkey`") && 
@@ -80,11 +81,11 @@ suite("test_explain_tpch_sf_1_q11") {
 		explainStr.contains("vec output tuple id: 14") && 
 		explainStr.contains("output slot ids: 38 39 42 \n" + 
 				"  |  hash output slot ids: 16 12 13 ") && 
-		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.partsupp(partsupp), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF003[in_or_bloom] -> `ps_suppkey`") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `n_name` = 'GERMANY'") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF002[in_or_bloom] -> <slot 16>") && 
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
@@ -102,11 +103,11 @@ suite("test_explain_tpch_sf_1_q11") {
 		explainStr.contains("vec output tuple id: 12") && 
 		explainStr.contains("output slot ids: 24 25 26 29 \n" + 
 				"  |  hash output slot ids: 0 1 2 5 ") && 
-		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.partsupp(partsupp), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF001[in_or_bloom] -> `ps_suppkey`") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `n_name` = 'GERMANY'") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 5>")
             
         }

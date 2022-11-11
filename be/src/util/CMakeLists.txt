@@ -114,6 +114,7 @@ set(UTIL_FILES
   quantile_state.cpp
   jni-util.cpp
   exception.cpp
+  libjvm_loader.cpp
 )
 
 if (WITH_MYSQL)

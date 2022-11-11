@@ -61,17 +61,17 @@ import java.util.Optional;
 
 class MemoTest implements PatternMatchSupported {
 
-    private ConnectContext connectContext = MemoTestUtils.createConnectContext();
+    private final ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
-    private LogicalJoin<LogicalOlapScan, LogicalOlapScan> logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN,
+    private final LogicalJoin<LogicalOlapScan, LogicalOlapScan> logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN,
             PlanConstructor.newLogicalOlapScan(0, "A", 0),
             PlanConstructor.newLogicalOlapScan(1, "B", 0));
 
-    private LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
+    private final LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
             JoinType.INNER_JOIN, logicalJoinAB, PlanConstructor.newLogicalOlapScan(2, "C", 0));
 
     @Test
-    void mergeGroup() throws Exception {
+    void mergeGroup() {
         Memo memo = new Memo();
         GroupId gid2 = new GroupId(2);
         Group srcGroup = new Group(gid2, new GroupExpression(new FakePlan()), new LogicalProperties(ArrayList::new));
@@ -85,13 +85,13 @@ class MemoTest implements PatternMatchSupported {
         GroupExpression ge2 = new GroupExpression(d, Arrays.asList(dstGroup));
         GroupId gid1 = new GroupId(1);
         Group g2 = new Group(gid1, ge2, new LogicalProperties(ArrayList::new));
-        Map<GroupId, Group> groups = (Map<GroupId, Group>) Deencapsulation.getField(memo, "groups");
+        Map<GroupId, Group> groups = Deencapsulation.getField(memo, "groups");
         groups.put(gid2, srcGroup);
         groups.put(gid3, dstGroup);
         groups.put(gid0, g1);
         groups.put(gid1, g2);
         Map<GroupExpression, GroupExpression> groupExpressions =
-                (Map<GroupExpression, GroupExpression>) Deencapsulation.getField(memo, "groupExpressions");
+                Deencapsulation.getField(memo, "groupExpressions");
         groupExpressions.put(ge1, ge1);
         groupExpressions.put(ge2, ge2);
         memo.mergeGroup(srcGroup, dstGroup);
@@ -395,7 +395,7 @@ class MemoTest implements PatternMatchSupported {
         // valid case: 5 steps
         class A extends UnboundRelation {
             // 1: declare the Plan has some states
-            State state;
+            final State state;
 
             public A(List<String> nameParts, State state) {
                 this(nameParts, state, Optional.empty());

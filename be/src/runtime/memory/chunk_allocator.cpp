@@ -135,7 +135,8 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
           _steal_arena_limit(reserve_limit * 0.1),
           _reserved_bytes(0),
           _arenas(CpuInfo::get_max_num_cores()) {
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(-1, "ChunkAllocator");
+    _mem_tracker =
+            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "ChunkAllocator");
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }

@@ -42,6 +42,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.CatalogLog;
+import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -172,7 +176,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_DB: {
                     DropDbInfo dropDbInfo = (DropDbInfo) journal.getData();
-                    env.replayDropDb(dropDbInfo.getDbName(), dropDbInfo.isForceDrop());
+                    env.replayDropDb(dropDbInfo.getDbName(), dropDbInfo.isForceDrop(), dropDbInfo.getRecycleTime());
                     break;
                 }
                 case OperationType.OP_ALTER_DB: {
@@ -218,7 +222,7 @@ public class EditLog {
                     Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
                             + info.getTableId());
-                    env.replayDropTable(db, info.getTableId(), info.isForceDrop());
+                    env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
@@ -310,7 +314,8 @@ public class EditLog {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), env);
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false, 0),
+                                env);
                     }
                     break;
                 }
@@ -923,6 +928,31 @@ public class EditLog {
                 case OperationType.OP_ALTER_USER: {
                     final AlterUserOperationLog log = (AlterUserOperationLog) journal.getData();
                     env.getAuth().replayAlterUser(log);
+                    break;
+                }
+                case OperationType.OP_INIT_CATALOG: {
+                    final InitCatalogLog log = (InitCatalogLog) journal.getData();
+                    env.getCatalogMgr().replayInitCatalog(log);
+                    break;
+                }
+                case OperationType.OP_REFRESH_EXTERNAL_DB: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    break;
+                }
+                case OperationType.OP_INIT_EXTERNAL_DB: {
+                    final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
+                    env.getCatalogMgr().replayInitExternalDb(log);
+                    break;
+                }
+                case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    break;
+                }
+                case OperationType.OP_INIT_EXTERNAL_TABLE: {
+                    final InitTableLog log = (InitTableLog) journal.getData();
+                    env.getCatalogMgr().replayInitExternalTable(log);
                     break;
                 }
                 default: {
@@ -1578,6 +1608,26 @@ public class EditLog {
 
     public void logAlterScheduleTask(List<String> taskIds) {
         logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
+    }
+
+    public void logInitCatalog(InitCatalogLog log) {
+        logEdit(OperationType.OP_INIT_CATALOG, log);
+    }
+
+    public void logRefreshExternalDb(ExternalObjectLog log) {
+        logEdit(OperationType.OP_REFRESH_EXTERNAL_DB, log);
+    }
+
+    public void logInitExternalDb(InitDatabaseLog log) {
+        logEdit(OperationType.OP_INIT_EXTERNAL_DB, log);
+    }
+
+    public void logRefreshExternalTable(ExternalObjectLog log) {
+        logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
+    }
+
+    public void logInitExternalTable(InitTableLog log) {
+        logEdit(OperationType.OP_INIT_EXTERNAL_TABLE, log);
     }
 
     public Journal getJournal() {

@@ -303,13 +303,6 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 && !changeChildren;
     }
 
-    private Set<Slot> getJoinOutput(Plan left, Plan right) {
-        HashSet<Slot> joinOutput = new HashSet<>();
-        joinOutput.addAll(left.getOutput());
-        joinOutput.addAll(right.getOutput());
-        return joinOutput;
-    }
-
     /**
      * Find hash condition from joinFilter
      * Get InnerJoin from left, right from [candidates].
@@ -328,7 +321,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             Plan candidate = candidates.get(i);
             Set<Slot> rightOutputSet = candidate.getOutputSet();
 
-            Set<Slot> joinOutput = getJoinOutput(left, candidate);
+            Set<Slot> joinOutput = JoinUtils.getJoinOutputSet(left, candidate);
 
             List<Expression> currentJoinFilter = joinFilter.stream()
                     .filter(expr -> {
@@ -351,15 +344,15 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
         // All { left -> one in [candidates] } is CrossJoin
         // Generate a CrossJoin
-        for (int j = candidates.size() - 1; j >= 0; j--) {
-            if (usedPlansIndex.contains(j)) {
+        for (int i = 0; i < candidates.size(); i++) {
+            if (usedPlansIndex.contains(i)) {
                 continue;
             }
-            usedPlansIndex.add(j);
+            usedPlansIndex.add(i);
             return new LogicalJoin<>(JoinType.CROSS_JOIN,
                     ExpressionUtils.EMPTY_CONDITION,
                     otherJoinConditions,
-                    left, candidates.get(j));
+                    left, candidates.get(i));
         }
 
         throw new RuntimeException("findInnerJoin: can't reach here");

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
@@ -43,9 +44,11 @@ public abstract class AbstractPhysicalJoin<
         extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
     protected final JoinType joinType;
 
-    protected final List<Expression> hashJoinConjuncts;
+    protected final ImmutableList<Expression> hashJoinConjuncts;
 
-    protected final List<Expression> otherJoinConjuncts;
+    protected final ImmutableList<Expression> otherJoinConjuncts;
+
+    protected boolean shouldTranslateOutput = true;
 
     /**
      * Constructor of PhysicalJoin.
@@ -55,8 +58,8 @@ public abstract class AbstractPhysicalJoin<
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = hashJoinConjuncts;
-        this.otherJoinConjuncts = Objects.requireNonNull(otherJoinConjuncts, "condition can not be null");
+        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
+        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
     }
 
     /**
@@ -68,12 +71,20 @@ public abstract class AbstractPhysicalJoin<
             StatsDeriveResult statsDeriveResult, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = hashJoinConjuncts;
-        this.otherJoinConjuncts = Objects.requireNonNull(otherJoinConjuncts, "condition can not be null");
+        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
+        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
     }
 
     public List<Expression> getHashJoinConjuncts() {
         return hashJoinConjuncts;
+    }
+
+    public boolean isShouldTranslateOutput() {
+        return shouldTranslateOutput;
+    }
+
+    public void setShouldTranslateOutput(boolean shouldTranslateOutput) {
+        this.shouldTranslateOutput = shouldTranslateOutput;
     }
 
     public JoinType getJoinType() {

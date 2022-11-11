@@ -1216,6 +1216,29 @@ false	3	1989	1002	11011905	24453.325	false	2012-03-14	2000-01-01T00:00	yunlj8@nk
 2
 3
 
+-- !left_anti_join_with_other_pred --
+\N
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+
+-- !right_anti_join_with_other_pred --
+1
+2
+3
+
 -- !join_without_keyword1 --
 1	1	1989	1989	1001	1001
 2	2	1986	1986	1001	1001

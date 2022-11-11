@@ -38,6 +38,7 @@ import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -167,6 +168,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AnalysisJobScheduler;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -206,10 +208,18 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisJobInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisJobInfo.JobState;
+import org.apache.doris.statistics.AnalysisJobInfo.ScheduleType;
+import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.StatisticStorageInitializer;
+import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.statistics.StatisticsJobScheduler;
 import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatisticsTaskScheduler;
+import org.apache.doris.statistics.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
@@ -241,6 +251,7 @@ import com.sleepycat.je.rep.NetworkRestoreConfig;
 import lombok.Setter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -434,6 +445,10 @@ public class Env {
     private PolicyMgr policyMgr;
 
     private MTMVJobManager mtmvJobManager;
+
+    private final AnalysisJobScheduler analysisJobScheduler;
+
+    private final StatisticsCache statisticsCache;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -629,6 +644,8 @@ public class Env {
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.mtmvJobManager = new MTMVJobManager();
+        this.analysisJobScheduler = new AnalysisJobScheduler();
+        this.statisticsCache = new StatisticsCache();
     }
 
     public static void destroyCheckpoint() {
@@ -1412,6 +1429,7 @@ public class Env {
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         this.statisticsJobScheduler.start();
         this.statisticsTaskScheduler.start();
+        new StatisticStorageInitializer().start();
     }
 
     // start threads that should running on all FE
@@ -1624,6 +1642,10 @@ public class Env {
                 connection.disconnect();
             }
         }
+    }
+
+    public StatisticsCache getStatisticsCache() {
+        return statisticsCache;
     }
 
     public boolean hasReplayer() {
@@ -1937,7 +1959,7 @@ public class Env {
      **/
     public long loadCatalog(DataInputStream in, long checksum) throws IOException {
         CatalogMgr mgr = CatalogMgr.read(in);
-        // When enable the multi catalog in the first time, the mgr will be a null value.
+        // When enable the multi catalog in the first time, the "mgr" will be a null value.
         // So ignore it to use default catalog manager.
         if (mgr != null) {
             this.catalogMgr = mgr;
@@ -2617,7 +2639,7 @@ public class Env {
     }
 
     public void replayCreateDb(Database db) {
-        getInternalCatalog().replayCreateDb(db);
+        getInternalCatalog().replayCreateDb(db, "");
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
@@ -2628,8 +2650,8 @@ public class Env {
         getInternalCatalog().replayDropLinkDb(info);
     }
 
-    public void replayDropDb(String dbName, boolean isForceDrop) throws DdlException {
-        getInternalCatalog().replayDropDb(dbName, isForceDrop);
+    public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
+        getInternalCatalog().replayDropDb(dbName, isForceDrop, recycleTime);
     }
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
@@ -2649,13 +2671,7 @@ public class Env {
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
-        long dbId = info.getDbId();
-        Database db = Env.getCurrentRecycleBin().replayRecoverDatabase(dbId);
-
-        // add db to catalog
-        replayCreateDb(db);
-
-        LOG.info("replay recover db[{}]", dbId);
+        getInternalCatalog().replayRecoverDatabase(info);
     }
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
@@ -2725,7 +2741,7 @@ public class Env {
         getInternalCatalog().replayErasePartition(partitionId);
     }
 
-    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverPartition(info);
     }
 
@@ -3210,19 +3226,21 @@ public class Env {
         getInternalCatalog().dropTable(stmt);
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay) {
-        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay);
+    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
+                                      Long recycleTime) {
+        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
-    public void replayDropTable(Database db, long tableId, boolean isForceDrop) throws MetaNotFoundException {
-        getInternalCatalog().replayDropTable(db, tableId, isForceDrop);
+    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
+                                Long recycleTime) throws MetaNotFoundException {
+        getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
         getInternalCatalog().replayEraseTable(tableId);
     }
 
-    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverTable(info);
     }
 
@@ -5200,5 +5218,51 @@ public class Env {
             }
         }
         return count;
+    }
+
+    public AnalysisJobScheduler getAnalysisJobScheduler() {
+        return analysisJobScheduler;
+    }
+
+    // TODO:
+    //  1. handle partition level analysis statement properly
+    //  2. support sample job
+    //  3. support period job
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+        String catalogName = analyzeStmt.getCatalogName();
+        String db = analyzeStmt.getDBName();
+        String tbl = analyzeStmt.getTblName();
+        List<String> colNames = analyzeStmt.getOptColumnNames();
+        String persistAnalysisJobSQLTemplate = "INSERT INTO " + StatisticConstants.STATISTIC_DB_NAME + "."
+                + StatisticConstants.ANALYSIS_JOB_TABLE + " VALUES(${jobId}, '${catalogName}', '${dbName}',"
+                + "'${tblName}','${colName}', '${jobType}', '${analysisType}', '${message}', '${lastExecTimeInMs}',"
+                + "'${state}', '${scheduleType}')";
+        if (colNames != null) {
+            for (String colName : colNames) {
+                AnalysisJobInfo analysisJobInfo = new AnalysisJobInfo(Env.getCurrentEnv().getNextId(), catalogName, db,
+                        tbl, colName, AnalysisJobInfo.JobType.MANUAL, ScheduleType.ONCE);
+                analysisJobInfo.analysisType = AnalysisType.FULL;
+                Map<String, String> params = new HashMap<>();
+                params.put("jobId", String.valueOf(analysisJobInfo.jobId));
+                params.put("catalogName", analysisJobInfo.catalogName);
+                params.put("dbName", analysisJobInfo.dbName);
+                params.put("tblName", analysisJobInfo.tblName);
+                params.put("colName", analysisJobInfo.colName);
+                params.put("jobType", analysisJobInfo.jobType.toString());
+                params.put("analysisType", analysisJobInfo.analysisType.toString());
+                params.put("message", "");
+                params.put("lastExecTimeInMs", "0");
+                params.put("state", JobState.PENDING.toString());
+                params.put("scheduleType", analysisJobInfo.scheduleType.toString());
+                try {
+                    StatisticsUtil.execUpdate(
+                            new StringSubstitutor(params).replace(persistAnalysisJobSQLTemplate));
+                } catch (Exception e) {
+                    LOG.warn("Failed to persite job for column: {}", colName, e);
+                    return;
+                }
+                Env.getCurrentEnv().getAnalysisJobScheduler().schedule(analysisJobInfo);
+            }
+        }
     }
 }

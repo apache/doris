@@ -19,37 +19,26 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
-
-import com.google.common.base.Preconditions;
-
-import java.util.Objects;
 
 /**
  * Varchar type literal, in theory,
  * the difference from StringLiteral is that VarcharLiteral keeps the length information.
  */
-public class VarcharLiteral extends Literal {
-
-    private final String value;
+public class VarcharLiteral extends StringLikeLiteral {
 
     public VarcharLiteral(String value) {
-        super(VarcharType.SYSTEM_DEFAULT);
-        this.value = Objects.requireNonNull(value);
+        super(value, VarcharType.createVarcharType(value.length()));
     }
 
     public VarcharLiteral(String value, int len) {
-        super(VarcharType.createVarcharType(len));
-        this.value = Objects.requireNonNull(value);
-        Preconditions.checkArgument(value.length() <= len);
+        super(len >= 0 ? value.substring(0, Math.min(value.length(), len)) : value, VarcharType.createVarcharType(len));
     }
 
     @Override
     public String getValue() {
-        return value;
+        return getStringValue();
     }
 
     @Override
@@ -65,27 +54,5 @@ public class VarcharLiteral extends Literal {
     @Override
     public String toString() {
         return "'" + value + "'";
-    }
-
-    private DateLiteral convertToDate(DataType targetType) throws AnalysisException {
-        DateLiteral dateLiteral = null;
-        if (targetType.isDate()) {
-            dateLiteral = new DateLiteral(value);
-        } else if (targetType.isDateTime()) {
-            dateLiteral = new DateTimeLiteral(value);
-        }
-        return dateLiteral;
-    }
-
-    @Override
-    public double getDouble() {
-        long v = 0;
-        int pos = 0;
-        int len = Math.min(value.length(), 8);
-        while (pos < len) {
-            v += ((long) value.charAt(pos)) << ((7 - pos) * 8);
-            pos++;
-        }
-        return (double) v;
     }
 }

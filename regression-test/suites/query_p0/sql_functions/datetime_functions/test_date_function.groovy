@@ -263,7 +263,7 @@ suite("test_date_function") {
     qt_sql """ select yearweek('1989-03-21', 6) """
     qt_sql """ select yearweek('1989-03-21', 7) """
 
-    qt_sql """ select count(*) from (select * from numbers("200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
+    qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
     sql """ drop table ${tableName} """
 
@@ -475,6 +475,33 @@ suite("test_date_function") {
         ('2022-02-28', '2022-02-28 23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1) from ${tableName};
+    """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+
+    // test to_monday
+    sql """ SET enable_vectorized_engine = TRUE; """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth date,    
+                birth1 datev2, 
+                birth2 datetime, 
+                birth3 datetimev2)
+            UNIQUE KEY(birth, birth1, birth2, birth3)
+            DISTRIBUTED BY HASH (birth) BUCKETS 1 
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values 
+        ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
+        ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
+        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59'),
+        ('1970-01-02', '1970-01-02', '1970-01-02 01:02:03', '1970-01-02 02:03:04');"""
+    qt_sql """
+        select to_monday(birth), to_monday(birth1), 
+                to_monday(birth2), to_monday(birth3) 
+                from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
 }

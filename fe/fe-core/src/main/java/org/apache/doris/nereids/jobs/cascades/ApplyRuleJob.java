@@ -59,7 +59,10 @@ public class ApplyRuleJob extends Job {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
+            String traceBefore = enableTrace ? getMemoTraceLog() : null;
             context.onInvokeRule(rule.getRuleType());
+
+            boolean changed = false;
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
                 CopyInResult result = context.getCascadesContext()
@@ -69,6 +72,7 @@ public class ApplyRuleJob extends Job {
                     continue;
                 }
 
+                changed = true;
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
@@ -76,6 +80,10 @@ public class ApplyRuleJob extends Job {
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
+            }
+            if (changed && enableTrace) {
+                String traceAfter = getMemoTraceLog();
+                printTraceLog(rule, traceBefore, traceAfter);
             }
         }
         groupExpression.setApplied(rule);

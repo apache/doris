@@ -1315,18 +1315,6 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
-     * enable spark load for temporary use
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_spark_load = true;
-
-    /**
-     * enable use odbc table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_odbc_table = true;
-
-    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1578,7 +1566,7 @@ public class Config extends ConfigBase {
 
     /*
      * If set to true, when creating table, Doris will allow to locate replicas of a tablet
-     * on same host. And also the tablet repair and balance will be disabled.
+     * on same host.
      * This is only for local test, so that we can deploy multi BE on same host and create table
      * with multi replicas.
      * DO NOT use it for production env.
@@ -1778,10 +1766,10 @@ public class Config extends ConfigBase {
     public static int be_exec_version = max_be_exec_version;
 
     @ConfField(mutable = false)
-    public static int statistic_job_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_job_scheduler_execution_interval_ms = 1000;
 
     @ConfField(mutable = false)
-    public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
     /*
      * mtmv scheduler framework is still under dev, remove this config when it is graduate.
@@ -1829,4 +1817,68 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
+
+    /**
+     * The iceberg and hudi table will be removed in v1.3
+     * Use multi catalog instead.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_iceberg_hudi_table = true;
+
+    /**
+     * The default connection timeout for hive metastore.
+     * hive.metastore.client.socket.timeout
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static long hive_metastore_client_timeout_second = 10;
+
+    @ConfField(mutable = false)
+    public static int statistic_table_bucket_count = 7;
+
+    @ConfField
+    public static long statistics_max_mem_per_query_in_bytes = 2L * 1024 * 1024 * 1024;
+
+    @ConfField
+    public static int statistic_parallel_exec_instance_num = 1;
+
+    @ConfField
+    public static int statistics_simultaneously_running_job_num = 10;
+
+    @ConfField
+    public static int statistic_internal_table_replica_num = 1;
+
+    @ConfField
+    public static int statistic_clean_interval_in_hours = 24 * 2;
+
+    @ConfField
+    public static int statistics_stale_statistics_fetch_size = 1000;
+
+    @ConfField
+    public static int statistics_outdated_record_detector_running_interval_in_minutes = 5;
+
+    @ConfField
+    public static int statistics_records_outdated_time_in_ms = 2 * 24 * 3600 * 1000;
+
+    @ConfField
+    public static int statistics_job_execution_timeout_in_min = 5;
+
+    @ConfField
+    public static int statistics_table_creation_retry_interval_in_seconds = 5;
+
+    @ConfField
+    public static int statistics_cache_max_size = 100000;
+
+    @ConfField
+    public static int statistics_cache_valid_duration_in_hours = 24 * 2;
+
+    @ConfField
+    public static int statistics_cache_refresh_interval = 24 * 2;
+
+    /**
+     * if table has too many replicas, Fe occur oom when schema change.
+     * 10W replicas is a reasonable value for testing.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_replica_count_when_schema_change = 100000;
 }
+

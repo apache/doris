@@ -414,13 +414,23 @@ public:
 
         if (auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
             DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
+
+            // update neseted column by nullmap
+            auto* __restrict null_map = nullable->get_null_map_data().data();
+            auto* __restrict nested_bool_data =
+                    ((ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
+            auto rows = nullable->size();
+            for (size_t i = 0; i < rows; i++) {
+                nested_bool_data[i] = null_map[i] ? false : nested_bool_data[i];
+            }
+
             Block temporary_block {{nullable->get_nested_column_ptr(),
                                     remove_nullable(arg_cond.type), arg_cond.name},
                                    arg_then,
                                    arg_else,
                                    block.get_by_position(result)};
 
-            execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
+            execute_impl(context, temporary_block, {0, 1, 2}, 3, rows);
 
             block.get_by_position(result).column =
                     std::move(temporary_block.get_by_position(3).column);

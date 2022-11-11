@@ -17,8 +17,6 @@
 
 #pragma once
 
-#ifdef LIBJVM
-
 #include <jni.h>
 #include <unistd.h>
 
@@ -70,6 +68,7 @@ public:
         RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_close_id);
         RETURN_IF_STATUS_ERROR(status, JniUtil::GetJniExceptionMsg(env));
+        env->DeleteGlobalRef(executor_cl);
         env->DeleteGlobalRef(executor_obj);
     }
 
@@ -107,6 +106,10 @@ public:
             RETURN_IF_ERROR(jni_frame.push(env));
             RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
             executor_obj = env->NewObject(executor_cl, executor_ctor_id, ctor_params_bytes);
+
+            jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
+            env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
+            env->DeleteLocalRef(ctor_params_bytes);
         }
         RETURN_ERROR_IF_EXC(env);
         RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, executor_obj, &executor_obj));
@@ -157,6 +160,9 @@ public:
         jbyteArray arr = env->NewByteArray(len);
         env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_merge_id, place, arr);
+        jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
+        env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
+        env->DeleteLocalRef(arr);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -171,6 +177,9 @@ public:
         serialize_data.resize(len);
         env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         write_binary(serialize_data, buf);
+        jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
+        env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
+        env->DeleteLocalRef(arr);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -201,16 +210,18 @@ public:
         ColumnString::Offsets& offsets =                                                           \
                 const_cast<ColumnString::Offsets&>(str_col->get_offsets());                        \
         int increase_buffer_size = 0;                                                              \
+        int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);           \
+        chars.resize(buffer_size);                                                                 \
         *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                            \
         *output_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());                           \
         *output_intermediate_state_ptr = chars.size();                                             \
         jboolean res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,                 \
                                                         executor_result_id, to.size() - 1, place); \
         while (res != JNI_TRUE) {                                                                  \
-            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
             increase_buffer_size++;                                                                \
-            chars.reserve(chars.size() + buffer_size);                                             \
-            chars.resize(chars.size() + buffer_size);                                              \
+            int32_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);       \
+            chars.resize(buffer_size);                                                             \
+            *output_value_buffer = reinterpret_cast<int64_t>(chars.data());                        \
             *output_intermediate_state_ptr = chars.size();                                         \
             res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,  \
                                                    to.size() - 1, place);                          \
@@ -227,11 +238,8 @@ public:
             EVALUATE_JAVA_UDAF;
         } else {
             *output_null_value = -1;
-            *output_value_buffer = reinterpret_cast<int64_t>(to.get_raw_data().data);
             auto& data_col = to;
             EVALUATE_JAVA_UDAF;
-            env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,
-                                             to.size() - 1, place);
         }
         return JniUtil::GetJniExceptionMsg(env);
     }
@@ -391,4 +399,3 @@ private:
 };
 
 } // namespace doris::vectorized
-#endif

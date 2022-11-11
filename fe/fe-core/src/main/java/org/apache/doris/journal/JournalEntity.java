@@ -37,6 +37,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.CatalogLog;
+import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
@@ -196,8 +200,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_TABLE: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
+                data = DropInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -238,14 +241,12 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RECOVER_DB:
             case OperationType.OP_RECOVER_TABLE:
             case OperationType.OP_RECOVER_PARTITION: {
-                data = new RecoverInfo();
-                ((RecoverInfo) data).readFields(in);
+                data = RecoverInfo.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_DROP_ROLLUP: {
-                data = new DropInfo();
-                ((DropInfo) data).readFields(in);
+                data = DropInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -685,6 +686,27 @@ public class JournalEntity implements Writable {
             case OperationType.OP_ALTER_CATALOG_PROPS:
             case OperationType.OP_REFRESH_CATALOG: {
                 data = CatalogLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_CATALOG: {
+                data = InitCatalogLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_EXTERNAL_DB: {
+                data = InitDatabaseLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INIT_EXTERNAL_TABLE: {
+                data = InitTableLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_REFRESH_EXTERNAL_DB:
+            case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
+                data = ExternalObjectLog.read(in);
                 isRead = true;
                 break;
             }

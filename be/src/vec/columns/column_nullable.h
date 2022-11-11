@@ -124,6 +124,15 @@ public:
                                                   dict_num);
     }
 
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            const size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        get_null_map_column().fill(0, num);
+        get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
+    }
+
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         get_null_map_column().fill(0, num);

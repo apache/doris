@@ -42,6 +42,7 @@ import java.util.List;
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
+
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
@@ -49,7 +50,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (nameParts.size()) {
                 case 1: { // table
                     // Use current database name from catalog.
-                    return bindWithCurrentDb(ctx.cascadesContext, nameParts);
+                    return bindWithCurrentDb(ctx.cascadesContext, nameParts.get(0));
                 }
                 case 2: { // db.table
                     // Use database name from table name parts.
@@ -73,9 +74,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, List<String> nameParts) {
+    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String tableName) {
+        // check if it is a CTE's name
+        CTEContext cteContext = cascadesContext.getStatementContext().getCteContext();
+        if (cteContext.containsCTE(tableName)) {
+            return new LogicalSubQueryAlias<>(tableName, cteContext.getAnalyzedCTEPlan(tableName));
+        }
+
         String dbName = cascadesContext.getConnectContext().getDatabase();
-        Table table = getTable(dbName, nameParts.get(0), cascadesContext.getConnectContext().getEnv());
+        Table table = getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
             return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),

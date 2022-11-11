@@ -72,7 +72,7 @@ fi
 
 eval set -- "${OPTS}"
 
-PARALLEL="$(($(nproc) / 5 + 1))"
+PARALLEL="$(($(nproc) / 2 + 1))"
 
 CLEAN=0
 RUN=0
@@ -229,35 +229,6 @@ jdk_version() {
     echo "${result}"
     return 0
 }
-
-setup_java_env() {
-    local java_version
-
-    if [[ -z "${JAVA_HOME}" ]]; then
-        return 1
-    fi
-
-    local jvm_arch='amd64'
-    if [[ "$(uname -m)" == 'aarch64' ]]; then
-        jvm_arch='aarch64'
-    fi
-    java_version="$(
-        set -e
-        jdk_version "${JAVA_HOME}/bin/java"
-    )"
-    if [[ "${java_version}" -gt 8 ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jdk
-    elif [[ -d "${JAVA_HOME}/jre" ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jre
-    else
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-    fi
-}
-
-# prepare jvm if needed
-setup_java_env || true
 
 # prepare gtest output dir
 GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"

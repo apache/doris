@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.types.coercion;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.types.DataType;
 
 /**
@@ -32,7 +34,13 @@ public interface AbstractDataType {
     /**
      * This AbstractDataType could accept other without implicit cast
      */
-    boolean acceptsType(DataType other);
+    boolean acceptsType(AbstractDataType other);
+
+    /**
+     * convert nereids's data type to legacy catalog data type
+     * @return legacy catalog data type
+     */
+    Type toCatalogDataType();
 
     /**
      * simple string used to print error message
@@ -44,6 +52,7 @@ public interface AbstractDataType {
      * @param targetDataType the target data type
      * @return true if assignable
      */
+    @Developing
     default boolean isAssignableFrom(AbstractDataType targetDataType) {
         if (this.equals(targetDataType)) {
             return true;

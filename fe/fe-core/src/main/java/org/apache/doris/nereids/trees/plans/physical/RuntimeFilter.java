@@ -17,12 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -58,37 +53,6 @@ public class RuntimeFilter {
         this.builderNode = builderNode;
     }
 
-    /**
-     * create RF
-     */
-    public static RuntimeFilter createRuntimeFilter(RuntimeFilterId id, EqualTo conjunction,
-            TRuntimeFilterType type, int exprOrder, PhysicalHashJoin node) {
-        Pair<Expression, Expression> srcs = checkAndMaybeSwapChild(conjunction, node);
-        if (srcs == null) {
-            return null;
-        }
-        return new RuntimeFilter(id, ((SlotReference) srcs.second), ((SlotReference) srcs.first), type, exprOrder,
-                node);
-    }
-
-    private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
-            PhysicalHashJoin join) {
-        if (expr.children().stream().anyMatch(Literal.class::isInstance)) {
-            return null;
-        }
-        if (expr.child(0).equals(expr.child(1))) {
-            return null;
-        }
-        if (!expr.children().stream().allMatch(SlotReference.class::isInstance)) {
-            return null;
-        }
-        //current we assume that there are certainly different slot reference in equal to.
-        //they are not from the same relation.
-        int exchangeTag = join.child(0).getOutput().stream().anyMatch(slot -> slot.getExprId().equals(
-                ((SlotReference) expr.child(1)).getExprId())) ? 1 : 0;
-        return Pair.of(expr.child(exchangeTag), expr.child(1 ^ exchangeTag));
-    }
-
     public Slot getSrcExpr() {
         return srcSlot;
     }
@@ -111,14 +75,6 @@ public class RuntimeFilter {
 
     public PhysicalHashJoin getBuilderNode() {
         return builderNode;
-    }
-
-    public void setTargetSlot(Slot targetSlot) {
-        this.targetSlot = targetSlot;
-    }
-
-    public boolean isUninitialized() {
-        return !finalized;
     }
 
     public void setFinalized() {

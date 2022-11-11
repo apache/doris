@@ -186,6 +186,8 @@ protected:
     std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
+    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> _in_filters_push_down;
+
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
 
@@ -221,6 +223,8 @@ protected:
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_scanners;
 
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     // time of prefilter input block from scanner

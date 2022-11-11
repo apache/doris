@@ -120,7 +120,7 @@ endif()
 # Set Boost
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
-set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_ROOT ${THIRDPARTY_DIR})
 set(Boost_NO_BOOST_CMAKE OFF)
 set(BOOST_VERSION "1.73.0")
 
@@ -601,28 +601,11 @@ include_directories(
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
-
-if (BUILD_JAVA_UDF)
-    execute_process(COMMAND chmod 755 ${BASE_DIR}/../tools/find_libjvm.sh)
-    execute_process(COMMAND ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
-    FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
-    if("${LIB_JVM}" STREQUAL "")
-        message(STATUS "Disable JAVA UDF because there is no libjvm found!")
-    else()
-        set(DORIS_DEPENDENCIES
-            ${DORIS_DEPENDENCIES}
-            jvm
-        )
-        add_library(jvm SHARED IMPORTED)
-        set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
-        include_directories($ENV{JAVA_HOME}/include)
-        if (NOT OS_MACOSX)
-            include_directories($ENV{JAVA_HOME}/include/linux)
-        else()
-            include_directories($ENV{JAVA_HOME}/include/darwin)
-        endif()
-        add_definitions("-DLIBJVM")
-    endif()
+include_directories($ENV{JAVA_HOME}/include)
+if (NOT OS_MACOSX)
+    include_directories($ENV{JAVA_HOME}/include/linux)
+else()
+    include_directories($ENV{JAVA_HOME}/include/darwin)
 endif()
 
 if (NOT OS_MACOSX)

@@ -42,10 +42,10 @@ namespace segment_v2 {
 
 using io::FileCacheManager;
 
-Status Segment::open(io::FileSystem* fs, const std::string& path, const std::string& cache_path,
-                     uint32_t segment_id, TabletSchemaSPtr tablet_schema,
+Status Segment::open(io::FileSystemSPtr fs, const std::string& path, const std::string& cache_path,
+                     uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(segment_id, tablet_schema));
+    std::shared_ptr<Segment> segment(new Segment(segment_id, rowset_id, tablet_schema));
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(path, &file_reader));
@@ -71,8 +71,11 @@ Status Segment::open(io::FileSystem* fs, const std::string& path, const std::str
     return Status::OK();
 }
 
-Segment::Segment(uint32_t segment_id, TabletSchemaSPtr tablet_schema)
-        : _segment_id(segment_id), _tablet_schema(tablet_schema), _meta_mem_usage(0) {}
+Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema)
+        : _segment_id(segment_id),
+          _rowset_id(rowset_id),
+          _tablet_schema(tablet_schema),
+          _meta_mem_usage(0) {}
 
 Segment::~Segment() {
 #ifndef BE_TEST

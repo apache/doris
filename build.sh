@@ -50,9 +50,10 @@ Usage: $0 <options>
      -j                 build Backend parallel
 
   Environment variables:
-    USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
-    STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-    DISABLE_JAVA_UDF    If set DISABLE_JAVA_UDF=ON, we will do not build binary with java-udf. Default is OFF.
+    USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
+    DISABLE_JAVA_UDF            If set DISABLE_JAVA_UDF=ON, we will do not build binary with java-udf. Default is OFF.
+    DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -289,12 +290,30 @@ if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
     DISABLE_JAVA_UDF='OFF'
 fi
 
+if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
+    DISABLE_JAVA_CHECK_STYLE='OFF'
+fi
+
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
 
 if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
-    BUILD_JAVA_UDF=0
+    if [[ -z "${JAVA_HOME}" ]]; then
+        CAUSE='the environment variable JAVA_HOME is not set'
+    else
+        LIBJVM="$(find "${JAVA_HOME}/" -name 'libjvm.dylib')"
+        if [[ -z "${LIBJVM}" ]]; then
+            CAUSE="the library libjvm.dylib is missing"
+        elif [[ "$(file "${LIBJVM}" | awk '{print $NF}')" != "$(uname -m)" ]]; then
+            CAUSE='the architecture which the library libjvm.dylib is built for does not match'
+        fi
+    fi
+
+    if [[ -n "${CAUSE}" ]]; then
+        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with JAVA UDF due to ${CAUSE}.\033[0m"
+        BUILD_JAVA_UDF=0
+    fi
 fi
 
 if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
@@ -387,7 +406,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
-        -DBUILD_JAVA_UDF="${BUILD_JAVA_UDF}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
@@ -449,7 +467,11 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
+    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests -Dcheckstyle.skip=true
+    else
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -DskipTests
+    fi
     cd "${DORIS_HOME}"
 fi
 
@@ -494,7 +516,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         "${DORIS_OUTPUT}/udf/include"
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
-    cp -r -p "${DORIS_HOME}/bin/check_be_version.sh" "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
 
     # Fix Killed: 9 error on MacOS (arm64).

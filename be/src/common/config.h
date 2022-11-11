@@ -46,25 +46,9 @@ CONF_Int32(single_replica_load_brpc_num_threads, "64");
 // If no ip match this rule, will choose one randomly.
 CONF_String(priority_networks, "");
 
-////
-//// tcmalloc gc parameter
-////
-// min memory for TCmalloc, when used memory is smaller than this, do not returned to OS
-CONF_mInt64(tc_use_memory_min, "10737418240");
-// free memory rate.[0-100]
-CONF_mInt64(tc_free_memory_rate, "20");
-// tcmallc aggressive_memory_decommit
-CONF_Bool(tc_enable_aggressive_memory_decommit, "false");
-
-// Bound on the total amount of bytes allocated to thread caches.
-// This bound is not strict, so it is possible for the cache to go over this bound
-// in certain circumstances. This value defaults to 1GB
-// If you suspect your application is not scaling to many threads due to lock contention in TCMalloc,
-// you can try increasing this value. This may improve performance, at a cost of extra memory
-// use by TCMalloc.
-// reference: https://gperftools.github.io/gperftools/tcmalloc.html: TCMALLOC_MAX_TOTAL_THREAD_CACHE_BYTES
-//            https://github.com/gperftools/gperftools/issues/1111
-CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
+// memory mode
+// performance or compact
+CONF_String(memory_mode, "performance");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
@@ -300,6 +284,9 @@ CONF_mInt32(quick_compaction_max_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
+
+// This config can be set to limit thread number in  segcompaction thread pool.
+CONF_mInt32(seg_compaction_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
@@ -647,16 +634,8 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(enable_tcmalloc_hook, "true");
 
-// If true, switch TLS MemTracker to count more detailed memory,
-// including caches such as ExecNode operators and TabletManager.
-//
-// At present, there is a performance problem in the frequent switch thread mem tracker.
-// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
-// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
-// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
-// TODO: 1. Reduce unnecessary thread mem tracker switches,
-//       2. Consider using raw pointers for mem tracker in thread local
-CONF_Bool(memory_verbose_track, "false");
+// Print more detailed logs, more detailed records, etc.
+CONF_Bool(memory_debug, "false");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
@@ -843,10 +822,6 @@ CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
-// If set to true, the new scan node framework will be used.
-// This config should be removed when the new scan node is ready.
-CONF_Bool(enable_new_scan_node, "true");
-
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
@@ -865,7 +840,18 @@ CONF_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
+CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+
+// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
+CONF_Int32(segcompaction_threshold_segment_num, "10");
+
+// The segment whose row number above the threshold will be compacted during segcompaction
+CONF_Int32(segcompaction_small_threshold, "1048576");
+
 CONF_String(jvm_max_heap_size, "1024M");
+
+// enable java udf and jdbc scannode
+CONF_Bool(enable_java_support, "true");
 
 #ifdef BE_TEST
 // test s3

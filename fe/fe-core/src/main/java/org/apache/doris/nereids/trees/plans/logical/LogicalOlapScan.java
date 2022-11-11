@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -32,7 +31,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
@@ -45,10 +43,10 @@ import java.util.Optional;
 public class LogicalOlapScan extends LogicalRelation {
 
     private final long selectedIndexId;
-    private final List<Long> selectedTabletId;
+    private final ImmutableList<Long> selectedTabletId;
     private final boolean partitionPruned;
 
-    private final List<Long> candidateIndexIds;
+    private final ImmutableList<Long> candidateIndexIds;
     private final boolean indexSelected;
 
     private final PreAggStatus preAggStatus;
@@ -80,12 +78,11 @@ public class LogicalOlapScan extends LogicalRelation {
         //   revisit this after rollup and materialized view selection are fully supported.
         this.selectedIndexId = CollectionUtils.isEmpty(candidateIndexIds)
                 ? getTable().getBaseIndexId() : candidateIndexIds.get(0);
-        this.selectedTabletId = Lists.newArrayList();
-        for (Partition partition : getTable().getAllPartitions()) {
-            selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
-        }
+        this.selectedTabletId = getTable().getAllPartitions().stream()
+                .flatMap(partition -> partition.getBaseIndex().getTabletIdsInOrder().stream())
+                .collect(ImmutableList.toImmutableList());
         this.partitionPruned = partitionPruned;
-        this.candidateIndexIds = candidateIndexIds;
+        this.candidateIndexIds = ImmutableList.copyOf(candidateIndexIds);
         this.indexSelected = indexSelected;
         this.preAggStatus = preAggStatus;
     }

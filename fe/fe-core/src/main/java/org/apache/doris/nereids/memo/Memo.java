@@ -72,7 +72,6 @@ public class Memo {
 
     /**
      * Add plan to Memo.
-     * TODO: add ut later
      *
      * @param plan {@link Plan} or {@link Expression} to be added
      * @param target target group to add node. null to generate new Group
@@ -203,7 +202,7 @@ public class Memo {
 
     /**
      * add or replace the plan into the target group.
-     *
+     * <p>
      * the result truth table:
      * <pre>
      * +---------------------------------------+-----------------------------------+--------------------------------+
@@ -296,8 +295,7 @@ public class Memo {
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
-        GroupExpression newGroupExpression = new GroupExpression(plan);
-        newGroupExpression.setChildren(childrenGroups);
+        GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
         return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
@@ -387,14 +385,16 @@ public class Memo {
             }
         }
         for (GroupExpression groupExpression : needReplaceChild) {
+            // After change GroupExpression children, the hashcode will change,
+            // so need to reinsert into map.
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
-            // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
                     children.set(i, destination);
                 }
             }
+
             GroupExpression that = groupExpressions.get(groupExpression);
             if (that != null && that.getOwnerGroup() != null
                     && !that.getOwnerGroup().equals(groupExpression.getOwnerGroup())) {
@@ -480,6 +480,7 @@ public class Memo {
             // case 5:
             // if targetGroup is null or targetGroup equal to the existedExpression's ownerGroup,
             // then recycle the temporary new group expression
+            // No ownerGroup, don't need ownerGroup.removeChild()
             recycleExpression(newExpression);
             return CopyInResult.of(false, existedExpression);
         }
@@ -487,14 +488,14 @@ public class Memo {
 
     /**
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
-     *
+     * <p>
      * the scenario is:
      * ```
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
      * ```
-     *
+     * <p>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */
@@ -512,8 +513,7 @@ public class Memo {
         List<GroupExpression> logicalExpressions = fromGroup.clearLogicalExpressions();
         recycleGroup(fromGroup);
 
-        recycleLogicalExpressions(targetGroup);
-        recyclePhysicalExpressions(targetGroup);
+        recycleLogicalAndPhysicalExpressions(targetGroup);
 
         for (GroupExpression logicalExpression : logicalExpressions) {
             targetGroup.addLogicalExpression(logicalExpression);
@@ -522,8 +522,7 @@ public class Memo {
     }
 
     private void reInitGroup(Group group, GroupExpression initLogicalExpression, LogicalProperties logicalProperties) {
-        recycleLogicalExpressions(group);
-        recyclePhysicalExpressions(group);
+        recycleLogicalAndPhysicalExpressions(group);
 
         group.setLogicalProperties(logicalProperties);
         group.addLogicalExpression(initLogicalExpression);
@@ -562,42 +561,45 @@ public class Memo {
         }
     }
 
+    /**
+     * Notice: this func don't replace { Parent GroupExpressions -> this Group }.
+     */
     private void recycleGroup(Group group) {
+        // recycle in memo.
         if (groups.get(group.getGroupId()) == group) {
             groups.remove(group.getGroupId());
         }
-        recycleLogicalExpressions(group);
-        recyclePhysicalExpressions(group);
+
+        // recycle children GroupExpression
+        recycleLogicalAndPhysicalExpressions(group);
     }
 
-    private void recycleLogicalExpressions(Group group) {
-        if (!group.getLogicalExpressions().isEmpty()) {
-            for (GroupExpression logicalExpression : group.getLogicalExpressions()) {
-                recycleExpression(logicalExpression);
-            }
-            group.clearLogicalExpressions();
-        }
+    private void recycleLogicalAndPhysicalExpressions(Group group) {
+        group.getLogicalExpressions().forEach(this::recycleExpression);
+        group.clearLogicalExpressions();
+
+        group.getPhysicalExpressions().forEach(this::recycleExpression);
+        group.clearPhysicalExpressions();
     }
 
-    private void recyclePhysicalExpressions(Group group) {
-        if (!group.getPhysicalExpressions().isEmpty()) {
-            for (GroupExpression physicalExpression : group.getPhysicalExpressions()) {
-                recycleExpression(physicalExpression);
-            }
-            group.clearPhysicalExpressions();
-        }
-    }
-
+    /**
+     * Notice: this func don't clear { OwnerGroup() -> this GroupExpression }.
+     */
     private void recycleExpression(GroupExpression groupExpression) {
+        // recycle in memo.
         if (groupExpressions.get(groupExpression) == groupExpression) {
             groupExpressions.remove(groupExpression);
         }
-        for (Group childGroup : groupExpression.children()) {
+
+        // recycle parentGroupExpr in childGroup
+        groupExpression.children().forEach(childGroup -> {
             // if not any groupExpression reference child group, then recycle the child group
             if (childGroup.removeParentExpression(groupExpression) == 0) {
                 recycleGroup(childGroup);
             }
-        }
+        });
+
+        groupExpression.setOwnerGroup(null);
     }
 
     @Override
