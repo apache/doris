@@ -197,10 +197,7 @@ void MemTrackerLimiter::print_log_process_usage(const std::string& msg) {
     for (const auto& snapshot : snapshots) {
         if (snapshot.parent_label == "") {
             detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
-        }
-    }
-    for (const auto& snapshot : snapshots) {
-        if (snapshot.parent_label != "") {
+        } else {
             detail += "\n    " + MemTracker::log_usage(snapshot);
         }
     }

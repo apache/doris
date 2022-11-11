@@ -105,7 +105,7 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
 
 std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
     return fmt::format("MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)",
-                       snapshot.label, snapshot.type, print_bytes(snapshot.cur_consumption),
+                       snapshot.label, snapshot.parent_label, print_bytes(snapshot.cur_consumption),
                        snapshot.cur_consumption, print_bytes(snapshot.peak_consumption),
                        snapshot.peak_consumption);
 }
