@@ -15,13 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.rules.implementation;
+
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 
 /**
- * FunctionTrait.
+ * Implementation rule that convert LogicalTVFRelation to PhysicalTVFRelation.
  */
-public interface FunctionTrait extends ExpressionTrait {
-    String getName();
-
-    boolean hasVarArguments();
+public class LogicalTVFRelationToPhysicalTVFRelation extends OneImplementationRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalTVFRelation()
+                .then(relation -> new PhysicalTVFRelation(relation.getId(),
+                        relation.getFunction(), relation.getLogicalProperties()))
+                .toRule(RuleType.LOGICAL_TVF_RELATION_TO_PHYSICAL_TVF_RELATION);
+    }
 }

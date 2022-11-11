@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
@@ -235,13 +236,15 @@ public class GenerateScalarFunction {
     @Disabled
     @Developing
     public void generate() throws IOException {
-        Map<String, String> scalarFunctionCodes = collectScalarFunctionCodes();
+        Map<String, String> functionCodes = collectFunctionCodes();
         // Pair<className, Pair<functionName, code>>
-        List<Pair<String, Pair<String, String>>> codeInfos = scalarFunctionCodes.entrySet()
+        List<Pair<String, Pair<String, String>>> codeInfos = functionCodes.entrySet()
                 .stream()
                 .map(kv -> Pair.of(getClassName(kv.getKey()), Pair.of(kv.getKey(), kv.getValue())))
                 .sorted(Comparator.comparing(Pair::key))
                 .collect(Collectors.toList());
+
+        System.out.println(codeInfos.stream().map(kv -> kv.second.first).collect(Collectors.joining("\n")));
 
         generateFunctionsFile(codeInfos);
 
@@ -411,11 +414,11 @@ public class GenerateScalarFunction {
                 + "    }\n";
     }
 
-    private Map<String, String> collectScalarFunctionCodes() {
+    private Map<String, String> collectFunctionCodes() {
         FunctionSet<Object> functionSet = new FunctionSet<>();
         functionSet.init();
 
-        ArrayListMultimap<String, ScalarFunction> scalarFunctionMap = ArrayListMultimap.create();
+        ArrayListMultimap<String, Function> functionMap = ArrayListMultimap.create();
         for (Entry<String, List<Function>> kv : functionSet.getVectorizedFunctions().entrySet()) {
             String functionName = kv.getKey();
             if (aliasToName.containsKey(functionName)) {
@@ -430,29 +433,33 @@ public class GenerateScalarFunction {
                     if (operators.contains(functionName) || functionName.startsWith("castto") || isArrayFunction(function)) {
                         continue;
                     }
-                    scalarFunctionMap.put(functionName, scalarFunction);
+                    functionMap.put(functionName, scalarFunction);
+                }
+
+                if (function instanceof AggregateFunction) {
+                    functionMap.put(functionName, function);
                 }
             }
         }
 
-        List<ScalarFunction> scalarFunctionInfo = scalarFunctionMap
+        List<Function> functionInfoList = functionMap
                 .entries()
                 .stream()
                 .map(kv -> kv.getValue())
                 .collect(Collectors.toList());
 
-        Map<String, Map<Integer, List<ScalarFunction>>> name2Functions = Maps.newTreeMap();
-        for (ScalarFunction functionInfo : scalarFunctionInfo) {
+        Map<String, Map<Integer, List<Function>>> name2Functions = Maps.newTreeMap();
+        for (Function functionInfo : functionInfoList) {
             String functionName = functionInfo.getFunctionName().getFunction();
             if (aliasToName.containsKey(functionName)) {
                 continue;
             }
-            Map<Integer, List<ScalarFunction>> arity2Functions = name2Functions.get(functionName);
+            Map<Integer, List<Function>> arity2Functions = name2Functions.get(functionName);
             if (arity2Functions == null) {
                 arity2Functions = new TreeMap<>();
                 name2Functions.put(functionName, arity2Functions);
             }
-            List<ScalarFunction> functionInfos = arity2Functions.get(functionInfo.getArgs().length);
+            List<Function> functionInfos = arity2Functions.get(functionInfo.getArgs().length);
             if (functionInfos == null) {
                 functionInfos = Lists.newArrayList();
                 arity2Functions.put(functionInfo.getArgs().length, functionInfos);
@@ -471,18 +478,18 @@ public class GenerateScalarFunction {
                 .stream()
                 .sorted(Comparator.comparing(Entry::getKey))
                 .map(kv -> {
-                    List<ScalarFunction> scalarFunctions = Lists.newArrayList();
-                    for (List<ScalarFunction> functions : kv.getValue().values()) {
-                        for (ScalarFunction function : functions) {
+                    List<Function> functionsNeedGenerate = Lists.newArrayList();
+                    for (List<Function> functions : kv.getValue().values()) {
+                        for (Function function : functions) {
                             if (function.isUserVisible()) {
-                                scalarFunctions.add(function);
+                                functionsNeedGenerate.add(function);
                             }
                         }
                     }
-                    String code = generateScalarFunctions(kv.getKey(), scalarFunctions, functionSet, name2Generator);
+                    String code = generateFunctions(kv.getKey(), functionsNeedGenerate, functionSet, name2Generator);
                     if (code.isEmpty()) {
                         throw new IllegalStateException(
-                                "can not generate code for " + scalarFunctions.get(0).functionName());
+                                "can not generate code for " + functionsNeedGenerate.get(0).functionName());
                     }
                     return Pair.of(kv.getKey(), code);
                 })
@@ -498,17 +505,18 @@ public class GenerateScalarFunction {
         return className;
     }
 
-    private String generateScalarFunctions(String functionName, List<ScalarFunction> scalarFunctions,
+    private String generateFunctions(String functionName, List<Function> functions,
             FunctionSet functionSet, Map<String, FunctionCodeGenerator> name2Generator) {
-        checkScalarFunctions(scalarFunctions);
+        checkFunctions(functions);
 
+        Class functionType = getFunctionType(functions.get(0));
         String className = getClassName(functionName);
 
-        boolean hasVarArg = scalarFunctions.stream().anyMatch(ScalarFunction::hasVarArgs);
-        if (hasVarArg && !scalarFunctions.stream().allMatch(ScalarFunction::hasVarArgs)) {
+        boolean hasVarArg = functions.stream().anyMatch(Function::hasVarArgs);
+        if (hasVarArg && !functions.stream().allMatch(Function::hasVarArgs)) {
             throw new IllegalStateException("can not generate");
         }
-        List<Class> interfaces = getInterfaces(functionName, hasVarArg, scalarFunctions, functionSet);
+        List<Class> interfaces = getInterfaces(functionName, hasVarArg, functions, functionSet);
 
         String interfaceStr = interfaces.isEmpty()
                 ? ""
@@ -523,17 +531,17 @@ public class GenerateScalarFunction {
             imports.addAll(generator.get().imports());
         }
 
-        List<String> signatures = generateSignatures(scalarFunctions, imports);
+        List<String> signatures = generateSignatures(functions, imports);
 
-        String extendsClass = "ScalarFunction";
+        String extendsClass = functionType.getSimpleName();
         if (FunctionCallExpr.TIME_FUNCTIONS_WITH_PRECISION.contains(functionName)) {
             extendsClass = "DateTimeWithPrecision";
             imports.add(DateTimeWithPrecision.class);
         }
 
-        String code = generateScalarFunctionHeader(scalarFunctions, hasVarArg, interfaces, imports)
+        String code = generateFunctionHeader(functions, hasVarArg, interfaces, imports, functionType)
                 + "/**\n"
-                + " * ScalarFunction '" + functionName + "'. This class is generated by GenerateScalarFunction.\n"
+                + " * " + functionType.getSimpleName() + " '" + functionName + "'. This class is generated by GenerateFunction.\n"
                 + " */\n";
 
         if (generator.isPresent()) {
@@ -551,7 +559,7 @@ public class GenerateScalarFunction {
             code += generator.get().fields();
         }
 
-        code += generateConstructors(className, scalarFunctions);
+        code += generateConstructors(className, functions);
 
         if (generator.isPresent()) {
             code += generator.get().computeSignature();
@@ -567,7 +575,7 @@ public class GenerateScalarFunction {
             code += generator.get().methods();
         }
 
-        code += generateWithChildren(className, hasVarArg, scalarFunctions);
+        code += generateWithChildren(className, hasVarArg, functions);
 
         if (!signatures.isEmpty()) {
             code += "    @Override\n"
@@ -582,9 +590,19 @@ public class GenerateScalarFunction {
         return code.trim() + "\n}\n";
     }
 
-    private List<String> generateSignatures(List<ScalarFunction> scalarFunctions, Set<Class> imports) {
+    private Class getFunctionType(Function function) {
+        if (function instanceof ScalarFunction) {
+            return org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction.class;
+        } else if (function instanceof AggregateFunction) {
+            return org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction.class;
+        } else {
+            throw new IllegalStateException("Unknown function type: " + function.getClass());
+        }
+    }
+
+    private List<String> generateSignatures(List<Function> functions, Set<Class> imports) {
         List<String> signatures = Lists.newArrayList();
-        for (ScalarFunction function : scalarFunctions) {
+        for (Function function : functions) {
             imports.add(DataType.fromCatalogType(function.getReturnType()).getClass());
             String returnType = getDataTypeAndInstance(function.getReturnType()).second;
             String args = Arrays.stream(function.getArgs())
@@ -625,7 +643,7 @@ public class GenerateScalarFunction {
     }
 
     private List<Class> getInterfaces(String functionName, boolean hasVarArgs,
-            List<ScalarFunction> scalarFunctions, FunctionSet functionSet) {
+            List<Function> scalarFunctions, FunctionSet functionSet) {
         Set<Integer> aritySet = scalarFunctions.stream()
                 .map(f -> f.getArgs().length)
                 .collect(Collectors.toSet());
@@ -640,7 +658,7 @@ public class GenerateScalarFunction {
             interfaces.add(Nondeterministic.class);
         }
 
-        ScalarFunction scalarFunction = scalarFunctions.get(0);
+        Function scalarFunction = scalarFunctions.get(0);
         if (!customNullableFunctions.contains(functionName)) {
             boolean isPropagateNullable = scalarFunction.getNullableMode() == NullableMode.DEPEND_ON_ARGUMENT;
             if (isPropagateNullable && !functionName.equals("substring")) {
@@ -674,9 +692,9 @@ public class GenerateScalarFunction {
         }
     }
 
-    private String generateWithChildren(String className, boolean hasVarArg, List<ScalarFunction> scalarFunctions) {
+    private String generateWithChildren(String className, boolean hasVarArg, List<Function> scalarFunctions) {
         Optional<Integer> minVarArity = scalarFunctions.stream()
-                .filter(ScalarFunction::hasVarArgs)
+                .filter(Function::hasVarArgs)
                 .map(f -> f.getArgs().length)
                 .min(Ordering.natural());
         Set<Integer> sortedAritySet = Sets.newTreeSet(scalarFunctions.stream()
@@ -778,11 +796,11 @@ public class GenerateScalarFunction {
         return code;
     }
 
-    private String generateConstructors(String className, List<ScalarFunction> scalarFunctions) {
+    private String generateConstructors(String className, List<Function> scalarFunctions) {
         Set<Integer> generatedConstructorArity = Sets.newTreeSet();
 
         String code = "";
-        for (ScalarFunction scalarFunction : scalarFunctions) {
+        for (Function scalarFunction : scalarFunctions) {
             int arity = scalarFunction.getArgs().length;
             if (generatedConstructorArity.contains(arity)) {
                 continue;
@@ -805,21 +823,30 @@ public class GenerateScalarFunction {
         return code;
     }
 
-    private void checkScalarFunctions(List<ScalarFunction> scalarFunctions) {
-        if (scalarFunctions.size() <= 0) {
+    private void checkFunctions(List<Function> functions) {
+        if (functions.size() <= 0) {
             return;
         }
 
-        ScalarFunction firstFunction = scalarFunctions.get(0);
+        Function firstFunction = functions.get(0);
         String functionName = firstFunction.getFunctionName().getFunction();
         NullableMode nullableMode = firstFunction.getNullableMode();
 
-        for (int i = 1; i < scalarFunctions.size(); i++) {
-            Assertions.assertEquals(functionName, scalarFunctions.get(i).getFunctionName().getFunction());
+        boolean isScalarFunction = firstFunction instanceof ScalarFunction;
+        boolean isAggregateFunction = firstFunction instanceof AggregateFunction;
+
+        for (int i = 1; i < functions.size(); i++) {
+            boolean functionIsScalarFunction = functions.get(i) instanceof ScalarFunction;
+            boolean functionIsAggregateFunction = functions.get(i) instanceof AggregateFunction;
+
+            Assertions.assertEquals(isScalarFunction, functionIsScalarFunction);
+            Assertions.assertEquals(isAggregateFunction, functionIsAggregateFunction);
+
+            Assertions.assertEquals(functionName, functions.get(i).getFunctionName().getFunction());
 
             if (!customNullableFunctions.contains(functionName)) {
-                Assertions.assertEquals(nullableMode, scalarFunctions.get(i).getNullableMode(),
-                        scalarFunctions.get(0).functionName() + " nullable mode not consistent");
+                Assertions.assertEquals(nullableMode, functions.get(i).getNullableMode(),
+                        functions.get(0).functionName() + " nullable mode not consistent");
             }
         }
     }
@@ -827,42 +854,10 @@ public class GenerateScalarFunction {
     private Pair<String, String> getDataTypeAndInstance(Type type) {
         DataType dataType = DataType.fromCatalogType(type);
         String dataTypeClassName = dataType.getClass().getSimpleName();
-        try {
-            Field instanceField = dataType.getClass().getDeclaredField("INSTANCE");
-            if (Modifier.isPublic(instanceField.getModifiers()) && Modifier.isStatic(instanceField.getModifiers())) {
-                Object instance = instanceField.get(null);
-                if (instance == dataType) {
-                    return Pair.of(dataTypeClassName, dataTypeClassName + ".INSTANCE");
-                }
-            }
-        } catch (Throwable t) {
-            // skip exception
-        }
 
-        try {
-            Field systemDefaultField = dataType.getClass().getDeclaredField("SYSTEM_DEFAULT");
-            if (Modifier.isPublic(systemDefaultField.getModifiers())
-                    && Modifier.isStatic(systemDefaultField.getModifiers())) {
-                Object systemDefault = systemDefaultField.get(null);
-                if (systemDefault == dataType) {
-                    return Pair.of(dataTypeClassName, dataTypeClassName + ".SYSTEM_DEFAULT");
-                }
-            }
-        } catch (Throwable t) {
-            // skip exception
-        }
-
-        try {
-            Field maxField = dataType.getClass().getDeclaredField("MAX");
-            if (Modifier.isPublic(maxField.getModifiers())
-                    && Modifier.isStatic(maxField.getModifiers())) {
-                Object max = maxField.get(null);
-                if (max == dataType) {
-                    return Pair.of(dataTypeClassName, dataTypeClassName + ".MAX");
-                }
-            }
-        } catch (Throwable t) {
-            // skip exception
+        String constantInstanceName = findConstantInstanceName(dataType);
+        if (constantInstanceName != null) {
+            return Pair.of(dataTypeClassName, dataTypeClassName + "." + constantInstanceName);
         }
 
         if (type.isArrayType()) {
@@ -871,6 +866,38 @@ public class GenerateScalarFunction {
         }
 
         throw new IllegalStateException("Unsupported generate code by data type: " + type);
+    }
+
+    private String findConstantInstanceName(DataType dataType) {
+        try {
+            for (Field field : dataType.getClass().getDeclaredFields()) {
+                if (Modifier.isPublic(field.getModifiers()) && Modifier.isStatic(field.getModifiers())
+                        && Modifier.isFinal(field.getModifiers())) {
+                    Object instance = field.get(null);
+                    if (instance == dataType) {
+                        return field.getName();
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+        return null;
+    }
+
+    private boolean instanceExists(DataType dataType, String constantField) {
+        try {
+            Field field = dataType.getClass().getDeclaredField(constantField);
+            if (Modifier.isPublic(field.getModifiers()) && Modifier.isStatic(field.getModifiers())) {
+                Object instance = field.get(null);
+                if (instance == dataType) {
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            // skip exception
+        }
+        return false;
     }
 
     private Class getArityExpressionType(boolean hasVarArg, Set<Integer> aritySet) {
@@ -940,8 +967,8 @@ public class GenerateScalarFunction {
         }
     }
 
-    private String generateScalarFunctionHeader(List<ScalarFunction> scalarFunctions,
-            boolean hasVarArgs, List<Class> interfaces, Set<Class> imports) {
+    private String generateFunctionHeader(List<Function> scalarFunctions,
+            boolean hasVarArgs, List<Class> interfaces, Set<Class> imports, Class functionType) {
         List<Class> importDorisClasses = Lists.newArrayList(
                 interfaces.stream()
                         .filter(i -> i.getPackage().getName().startsWith("org.apache.doris"))

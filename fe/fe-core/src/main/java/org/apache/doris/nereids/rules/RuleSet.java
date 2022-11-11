@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOl
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
+import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
@@ -99,6 +100,7 @@ public class RuleSet {
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
+            .add(new LogicalTVFRelationToPhysicalTVFRelation())
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
