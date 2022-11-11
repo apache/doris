@@ -43,9 +43,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range)
-        : _profile(nullptr),
-          _scan_params(params),
-          _scan_range(range) {}
+        : _profile(nullptr), _scan_params(params), _scan_range(range) {}
 
 ParquetReader::~ParquetReader() {
     close();
@@ -154,8 +152,7 @@ Status ParquetReader::file_metadata(FileMetaData** metadata) {
 }
 
 Status ParquetReader::init_reader(
-        const std::vector<std::string>& column_names,
-        VExprContext* vconjunct_ctx,
+        const std::vector<std::string>& column_names, VExprContext* vconjunct_ctx,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const bool& filter_groups) {
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
@@ -538,7 +535,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
                                               skipped_page_range);
         if (skipped_page_range.empty()) {
-            break;
+            continue;
         }
         tparquet::OffsetIndex offset_index;
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, buff, buffer_size, &offset_index));

@@ -55,8 +55,7 @@ public:
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz);
 
-    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  const std::vector<std::string>& column_names);
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 
     ~ParquetReader() override;
     // for test
@@ -71,8 +70,7 @@ public:
     Status init_reader(
             const std::vector<std::string>& column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx,
-            const bool& filter_groups = true);
+            VExprContext* vconjunct_ctx, const bool& filter_groups = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
