@@ -474,9 +474,9 @@ Status VFileScanner::_get_next_reader() {
         // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            ParquetReader* parquet_reader = new ParquetReader(
-                    _profile, _params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()));
+            ParquetReader* parquet_reader =
+                    new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
+                                      const_cast<cctz::time_zone*>(&_state->timezone_obj()));
             if (_push_down_expr == nullptr && _vconjunct_ctx != nullptr &&
                 _partition_slot_descs.empty()) { // TODO: support partition columns
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
