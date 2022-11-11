@@ -70,6 +70,12 @@ LoadChannelMgr::~LoadChannelMgr() {
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    // If a load channel's memory consumption is no more than 10% of the hard limit, it's not
+    // worth to reduce memory on it. Since we only reduce 1/3 memory for one load channel,
+    // for a channel consume 10% of hard limit, we can only release about 3% memory each time,
+    // it's not quite helpfull to reduce memory pressure.
+    // In this case we need to pick multiple load channels to reduce memory more effectively.
+    _load_channel_min_mem_to_reduce = _load_hard_mem_limit * 0.05;
     _mem_tracker = std::make_unique<MemTracker>("LoadChannelMgr");
     _mem_tracker_set = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
                                                            "LoadChannelMgrTrackerSet");
