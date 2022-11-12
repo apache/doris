@@ -1475,6 +1475,14 @@ public class Config extends ConfigBase {
     public static int max_dynamic_partition_num = 500;
 
     /**
+     * Used to limit the maximum number of partitions that can be created when creating multi partition,
+     * to avoid creating too many partitions at one time.
+     * The number is determined by "start" and "end" in the multi partition parameters.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_multi_partition_num = 4096;
+
+    /**
      * Control the max num of backup/restore job per db
      */
     @ConfField(mutable = true, masterOnly = true)
