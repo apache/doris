@@ -119,7 +119,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     }
 
     // During storage migration, the tablet is moved to another disk, have to check
-    // if the new tablet's rowset version is larger than the old one to prvent losting data during
+    // if the new tablet's rowset version is larger than the old one to prevent losting data during
     // migration
     int64_t old_time, new_time;
     int32_t old_version, new_version;

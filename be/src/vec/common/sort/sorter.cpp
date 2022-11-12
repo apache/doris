@@ -177,7 +177,7 @@ Status FullSorter::_do_sort() {
 
     // dispose TOP-N logic
     if (_limit != -1) {
-        // Here is a little opt to reduce the mem uasge, we build a max heap
+        // Here is a little opt to reduce the mem usage, we build a max heap
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.

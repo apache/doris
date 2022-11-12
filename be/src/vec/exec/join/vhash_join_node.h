@@ -177,17 +177,17 @@ struct ProcessHashTableProbe {
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
                                   int size, int last_probe_index, size_t probe_size,
                                   bool all_match_one, bool have_other_join_conjunct);
-    // Only process the join with no other join conjunt, because of no other join conjunt
+    // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                       MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
-    // In the presence of other join conjunt, the process of join become more complicated.
-    // each matching join column need to be processed by other join conjunt. so the sturct of mutable block
+    // In the presence of other join conjunct, the process of join become more complicated.
+    // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
-    // The output result is determined by the other join conjunt result and same_to_prev struct
+    // The output result is determined by the other join conjunct result and same_to_prev struct
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status do_process_with_other_join_conjuncts(HashTableType& hash_table_ctx,
                                                 ConstNullMapPtr null_map,

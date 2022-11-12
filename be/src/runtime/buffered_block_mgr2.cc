@@ -457,7 +457,7 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
         lock_guard<SpinLock> lock(_s_block_mgrs_lock);
         BlockMgrsMap::iterator it = _s_query_to_block_mgrs.find(_query_id);
         // IMPALA-2286: Another fragment may have called create() for this _query_id and
-        // saw that this BufferedBlockMgr2 is being destructed.  That fragement will
+        // saw that this BufferedBlockMgr2 is being destructed.  That fragment will
         // overwrite the map entry for _query_id, pointing it to a different
         // BufferedBlockMgr2 object.  We should let that object's destructor remove the
         // entry.  On the other hand, if the second BufferedBlockMgr2 is destructed before

@@ -42,7 +42,7 @@ private:
         Actually we only need to output column c1, no need to output columns in bitmap table B.
         Copy large bitmap columns are very expensive and slow.
 
-        Here we check if the slot is realy used, otherwise we avoid copy it and just insert a default value.
+        Here we check if the slot is really used, otherwise we avoid copy it and just insert a default value.
 
         A better solution is:
             1. FE: create a new output tuple based on the real output slots;

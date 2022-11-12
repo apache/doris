@@ -139,7 +139,7 @@ public:
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits;
-    // permits required by the compaction task which is waitting for permits
+    // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits;
 
     HistogramMetric* tablet_version_num_distribution;

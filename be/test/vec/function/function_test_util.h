@@ -202,7 +202,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         block.insert({std::move(column), desc.data_type, desc.col_name});
     }
 
-    // 1.2 parepare args for function call
+    // 1.2 prepare args for function call
     ColumnNumbers arguments;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;

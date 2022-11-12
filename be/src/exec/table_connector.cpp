@@ -144,7 +144,7 @@ Status TableConnector::append(const std::string& table_name, RowBatch* batch,
                 break;
             }
         }
-        // Translate utf8 string to utf16 to use unicode encodeing
+        // Translate utf8 string to utf16 to use unicode encoding
         insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
                                         _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
     }
@@ -310,7 +310,7 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
                 break;
             }
         }
-        // Translate utf8 string to utf16 to use unicode encodeing
+        // Translate utf8 string to utf16 to use unicode encoding
         insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
                                         _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
     }
