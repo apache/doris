@@ -113,7 +113,6 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_compact(k5) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_compact(k6) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_compact(k7) from ${tableName} ORDER BY k1"
-
     qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
     
 }

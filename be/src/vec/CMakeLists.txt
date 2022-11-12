@@ -163,6 +163,7 @@ set(VEC_FILES
   functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
   functions/array/function_array_with_constant.cpp
+  functions/array/function_has_all.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -221,7 +222,6 @@ set(VEC_FILES
   functions/function_convert_tz.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
-  functions/function_has_all.cpp
   functions/url/function_url.cpp
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp

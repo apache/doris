@@ -32,17 +32,17 @@ TEST(FunctionHasAllTest, function_has_all_test) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Array, TypeIndex::Int32};
 
-        Array vec1 = {Int32(1),Int32(2), Int32(3)};
+        Array vec1 = {Int32(1),Int32(2), Int32(3),Null()};
         Array vec2 = {Int32(2), Int32(3)};
         Array vec3 = {Int32(2), Int32(4)};
         Array vec4 = {};
-        Array vec5 = {Int32(1),Null()};
+        Array vec5 = {Null()};
         Array vec6 = {Int32(1),Int32(2), Null()};
 
         DataSet data_set = {{{vec1, vec2}, UInt8(1)},
                             {{vec1, vec3}, UInt8(0)},
                             {{vec1, vec4}, UInt8(1)},
-                            {{vec1, vec5}, UInt8(0)},
+                            {{vec1, vec5}, UInt8(1)},
                             {{vec6, vec5}, UInt8(1)},
                             };
 
@@ -63,6 +63,7 @@ TEST(FunctionHasAllTest, function_has_all_test) {
                             {{vec1, vec4}, UInt8(1)},
                             {{vec1, vec5}, UInt8(0)},
                             {{vec6, vec5}, UInt8(1)},
+                            {{Null(), vec1}, Null()},
                             };
 
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
@@ -86,19 +87,35 @@ TEST(FunctionHasAllTest, function_has_all_test) {
 
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
-     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Array, TypeIndex::Float32};
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Array, TypeIndex::Date};
 
-        Array vec1 = {Field("abc", 3),Field("def", 3),Field("ghi", 3)};
-        Array vec2 = {Float32(3.3), Float32(1.3)};
-        Array vec5 = {Field("abc", 3),Field("", 0)};
-       
-
-        DataSet data_set = {{{vec1, vec2}, UInt8(0)},
-                            {{vec1, vec5}, UInt8(0)},      
-                            };
+        Array vec1 = {str_to_date_time("2022-11-12", false),str_to_date_time("2022-11-11", false), 
+                      str_to_date_time("", false)};
+        Array vec2 = {str_to_date_time("2022-11-12", false)};
+        Array vec3 = {};
+        DataSet data_set = {{{vec1, vec2}, UInt8(1)},
+                            {{vec1, Null()}, Null()},
+                            {{vec1, vec3}, UInt8(1)},
+                           };
 
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Array, TypeIndex::DateTime};
+
+        Array vec1 = {str_to_date_time("2022-11-02 00:00:00"),str_to_date_time("2022-11-12 00:00:00"), 
+                      str_to_date_time("")};
+        Array vec2 = {str_to_date_time("2022-11-02 00:00:00")};
+        Array vec3 = {str_to_date_time("")};
+
+        DataSet data_set = {{{vec1, vec2}, UInt8(1)},
+                            {{vec1, Null()}, Null()},
+                            {{vec1, vec3}, UInt8(1)},    
+                           };
+
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+    }
+    
 }
 }
