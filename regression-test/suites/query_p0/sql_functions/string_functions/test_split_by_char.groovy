@@ -56,6 +56,7 @@ suite("test_split_by_char") {
     sql """ INSERT INTO ${tableName} VALUES(8, 'a,b,c', ',') """
     sql """ INSERT INTO ${tableName} VALUES(9, 'a,b,c,', ',') """
     sql """ INSERT INTO ${tableName} VALUES(10, null, ',') """
+    sql """ INSERT INTO ${tableName} VALUES(11, 'a,b,c,12345,', ',') """
 
     qt_sql "SELECT *, split_by_char(v1, v2) FROM ${tableName} ORDER BY k1"
 }
