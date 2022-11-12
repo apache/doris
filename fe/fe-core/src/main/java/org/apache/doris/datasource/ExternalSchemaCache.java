@@ -88,8 +88,7 @@ public class ExternalSchemaCache {
         try {
             return schemaCache.get(key);
         } catch (ExecutionException e) {
-            // TODO: how to handle exception?
-            throw new RuntimeException(e);
+            throw new CacheException("failed to get schema for %s in catalog %s", e, key, catalog.getName());
         }
     }
 
