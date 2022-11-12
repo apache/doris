@@ -201,20 +201,20 @@ suite("test_jdbc_query_mysql", "p0") {
         sql  """
                 CREATE TABLE `${inDorisTable1}`
                 (
-                    `game_code`          varchar(50)  NOT NULL DEFAULT "-" COMMENT "游戏Code",
-                    `plat_code`          varchar(50)  NOT NULL DEFAULT "-" COMMENT "平台Code",
-                    `sid`                int(11)      NULL COMMENT "区服id",
-                    `name`               varchar(50)  NULL COMMENT "区服名",
-                    `day`                varchar(32)  NULL COMMENT "开服日期",
-                    `merged_to`          int(11)      NULL COMMENT "主服id",
-                    `merge_count`        int(11)      NULL COMMENT "合服次数",
-                    `merge_path`         varchar(255) NULL COMMENT "合服顺序",
-                    `merge_time`         bigint(20)   NULL COMMENT "合服时间",
-                    `merge_history_time` bigint(20)   NULL COMMENT "历史合服时间",
-                    `open_time`          bigint(20)   NULL COMMENT "开服时间",
-                    `open_day`           int(11)      NULL COMMENT "开服日期",
-                    `time_zone`          varchar(32)  NULL COMMENT "时区",
-                    `state`              smallint(6)  NULL COMMENT "区服状态"
+                    `game_code`          varchar(50)  NOT NULL DEFAULT "-",
+                    `plat_code`          varchar(50)  NOT NULL DEFAULT "-",
+                    `sid`                int(11)      NULL,
+                    `name`               varchar(50)  NULL,
+                    `day`                varchar(32)  NULL,
+                    `merged_to`          int(11)      NULL,
+                    `merge_count`        int(11)      NULL,
+                    `merge_path`         varchar(255) NULL,
+                    `merge_time`         bigint(20)   NULL,
+                    `merge_history_time` bigint(20)   NULL,
+                    `open_time`          bigint(20)   NULL,
+                    `open_day`           int(11)      NULL,
+                    `time_zone`          varchar(32)  NULL,
+                    `state`              smallint(6)  NULL
                 ) ENGINE = OLAP 
                 DUPLICATE KEY(`game_code`, `plat_code`, `sid`, `name`)
                 COMMENT "维度表"
