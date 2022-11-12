@@ -1438,21 +1438,24 @@ private:
         ColumnArray::Offset64 dest_pos = 0;
         const ColumnString* src_column_string = reinterpret_cast<const ColumnString*>(&src_column);
         ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
+        NullMapType null_map (src_null_map->size());
+        for (size_t i = 0; i <src_null_map->size(); ++i){
+            null_map[i]=(*src_null_map)[i];
+        }
 
         for (size_t i = 0; i < src_offsets_size; i++) {
-            if (src_null_map && (*src_null_map)[i]){
+            if (src_null_map && null_map[i]){
                 (*dest_nested_null_map).push_back(true);
                 column_string_offsets.push_back(string_pos);
                 dest_offsets.push_back(dest_pos);
                 continue;
             }
 
-            auto delimiter = delimiter_column.get_data_at(i).to_string();
-            auto str = src_column_string->get_data_at(i).to_string();
+            const auto delimiter = delimiter_column.get_data_at(i).to_string();
+            const auto str = src_column_string->get_data_at(i).to_string();
             StringRef str_ref = src_column_string->get_data_at(i);
 
             if(str.size() == 0) {
-                column_string_offsets.push_back(string_pos);
                 dest_offsets.push_back(dest_pos);
                 if(src_null_map){
                     (*dest_nested_null_map).push_back(false);
@@ -1476,7 +1479,6 @@ private:
                 string_pos+= str_size;
                 dest_pos++;
                 column_string_offsets.push_back(string_pos);
-                LOG(WARNING) << std::to_string(string_pos);
             } else if (delimiter.size() == 1) {
                 for(size_t str_pos = 0;str_pos <= str.size();) {
                     const size_t str_offset = str_pos;
@@ -1495,7 +1497,6 @@ private:
                     string_pos+= split_part_size;
                     dest_pos++;
                     column_string_offsets.push_back(string_pos);
-                    LOG(WARNING) << std::to_string(string_pos);
                 }
             }
             dest_offsets.push_back(dest_pos);
