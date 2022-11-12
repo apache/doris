@@ -79,6 +79,7 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.thrift.TPartitionType;
@@ -1059,6 +1060,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setChild(0, leftFragment.getPlanRoot());
         hashJoinNode.setChild(1, rightFragment.getPlanRoot());
         leftFragment.setPlanRoot(hashJoinNode);
+        rightFragment.getTargetRuntimeFilterIds().stream().forEach(leftFragment::setBuilderRuntimeFilterIds);
+        rightFragment.getBuilderRuntimeFilterIds().stream().forEach(leftFragment::setBuilderRuntimeFilterIds);
         context.removePlanFragment(rightFragment);
         leftFragment.setHasColocatePlanNode(true);
         return leftFragment;
