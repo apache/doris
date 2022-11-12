@@ -59,7 +59,7 @@ suite("rollup") {
             }
         }
     }
-    Thread.sleep(200)
+    Thread.sleep(2000)
 
     sql "insert into rollup_t1 values(1, 2, 3, 4)"
     sql "insert into rollup_t1 values(1, 2, 3, 2)"
