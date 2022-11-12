@@ -59,7 +59,8 @@ public class StatsDeriveResult {
     }
 
     public double computeSize() {
-        return Math.max(1, slotIdToColumnStats.values().stream().map(s -> s.dataSize).reduce(0D, Double::sum))
+        //TODO use avgSize to replace 8.0 when avgSize is ready
+        return Math.max(1, slotIdToColumnStats.values().stream().map(s -> 8.0).reduce(0D, Double::sum))
                 * rowCount;
     }
 
