@@ -112,7 +112,7 @@ public:
 
     bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
                                     std::vector<OlapTuple>& end_scan_keys, bool& begin_include,
-                                    bool& end_include, int32_t max_scan_key_num);
+                                    bool& end_include, bool* eos, int32_t max_scan_key_num);
 
     bool has_intersection(ColumnValueRange<primitive_type>& range);
 
@@ -325,7 +325,7 @@ public:
 
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
-                           bool* exact_value);
+                           bool* exact_value, bool* eos);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
@@ -516,7 +516,7 @@ size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() cons
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        bool& begin_include, bool& end_include, int32_t max_scan_key_num) {
+        bool& begin_include, bool& end_include, bool* eos, int32_t max_scan_key_num) {
     constexpr bool reject_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
                                  primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
                                  primitive_type == PrimitiveType::TYPE_HLL ||
@@ -528,6 +528,7 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                                  primitive_type == PrimitiveType::TYPE_DATETIMEV2;
     begin_include = is_begin_include();
     end_include = is_end_include();
+    bool is_empty_range = false;
     if constexpr (reject_type) {
         begin_scan_keys.emplace_back();
         begin_scan_keys.back().add_value(
@@ -549,28 +550,59 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                 cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
         return true;
     } else {
-        CppType current = get_range_min_value();
+        CppType min_value = get_range_min_value();
         CppType max_value = get_range_max_value();
-        if (!is_begin_include() && !is_end_include() && current < TYPE_MAX &&
-            current + 1 < max_value) {
-            begin_include = true;
-            ++current;
+
+        if (contain_null()) {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_null();
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_null();
         }
 
-        size_t range_size = is_fixed_value_convertible() ? max_value - current : 0;
-        size_t step_size = std::max(
-                (range_size / max_scan_key_num) + (range_size % max_scan_key_num != 0), (size_t)1);
+        if (!is_begin_include()) {
+            if (min_value == TYPE_MAX) {
+                is_empty_range = true;
+            } else {
+                begin_include = true;
+                ++min_value;
+            }
+        }
+        if (!is_end_include()) {
+            if (max_value == TYPE_MIN) {
+                is_empty_range = true;
+            } else {
+                end_include = true;
+                --max_value;
+            }
+        }
 
+        if (begin_include && end_include && min_value > max_value) {
+            is_empty_range = true;
+        }
+        if (is_empty_range) {
+            if (!contain_null()) {
+                begin_scan_keys.clear();
+                end_scan_keys.clear();
+                *eos = true;
+            }
+            return false;
+        }
+
+        int128_t range_size = is_fixed_value_convertible() ? (int128_t)max_value - min_value : 0;
+        size_t step_size = range_size / max_scan_key_num;
+
+        auto current = min_value;
         if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
             current.set_type(TimeType::TIME_DATE);
         }
 
-        while (current < max_value) {
+        while (current <= max_value) {
             begin_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(
                     cast_to_string<primitive_type, CppType>(current, scale()));
 
-            if (max_value - current < step_size) {
+            if ((int128_t)max_value - current < step_size) {
                 current = max_value;
             } else {
                 current += step_size;
@@ -579,15 +611,13 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             end_scan_keys.emplace_back();
             end_scan_keys.back().add_value(
                     cast_to_string<primitive_type, CppType>(current, scale()));
-        }
 
-        if (contain_null()) {
-            begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_null();
-            end_scan_keys.emplace_back();
-            end_scan_keys.back().add_null();
+            if (current == max_value) {
+                break;
+            }
+            ++current;
         }
-        return step_size != 1;
+        return step_size != 0;
     }
 }
 
@@ -883,7 +913,7 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
 
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
-                                     int32_t max_scan_key_num, bool* exact_value) {
+                                     int32_t max_scan_key_num, bool* exact_value, bool* eos) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using ConstIterator = typename std::set<CppType>::const_iterator;
 
@@ -913,7 +943,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
     } else {
         if (_begin_scan_keys.empty() && range.is_fixed_value_convertible() && _is_convertible) {
             if (range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, _begin_include,
-                                                 _end_include, max_scan_key_num)) {
+                                                 _end_include, eos, max_scan_key_num)) {
                 _has_range_value = true;
             }
             return Status::OK();
