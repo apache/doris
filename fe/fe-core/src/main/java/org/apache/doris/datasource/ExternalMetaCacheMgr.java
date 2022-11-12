@@ -80,9 +80,16 @@ public class ExternalMetaCacheMgr {
         }
     }
 
-    public void removeSchemaCache(long catalogId, String dbName, String tblName) {
-        ExternalSchemaCache cache = schemaCacheMap.get(catalogId);
-        cache.invalidateCache(dbName, tblName);
-        LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+    public void removeCache(long catalogId, String dbName, String tblName) {
+        ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
+        if (schemaCache != null) {
+            schemaCache.invalidateCache(dbName, tblName);
+            LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+        }
+        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        if (metaCache != null) {
+            metaCache.invalidateCache(dbName, tblName);
+            LOG.debug("invalid meta cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+        }
     }
 }

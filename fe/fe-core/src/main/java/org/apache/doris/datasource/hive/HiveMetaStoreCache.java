@@ -272,6 +272,12 @@ public class HiveMetaStoreCache {
         }
     }
 
+    public void invalidateCache(String dbName, String tblName) {
+        PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, null);
+        partitionValuesCache.invalidate(key);
+        // TODO: find a way to invalidate partitionCache and fileCache
+    }
+
     /**
      * The Key of hive partition value cache
      */
