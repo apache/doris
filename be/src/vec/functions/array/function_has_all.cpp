@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/functions/array/function_has_all.h"
+
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -24,4 +25,4 @@ void register_function_has_all(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHasAll>();
 }
 
-} 
+} // namespace doris::vectorized

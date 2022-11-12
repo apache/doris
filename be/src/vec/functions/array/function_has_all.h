@@ -17,15 +17,14 @@
 #pragma once
 
 #include "vec/columns/column_array.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/functions/function.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type.h"
-#include "vec/functions/array/function_array_utils.h"
 #include "vec/columns/column_const.h"
+#include "vec/common/hash_table/hash_set.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
-#include "vec/common/hash_table/hash_set.h"
 namespace doris::vectorized {
 
 template <typename T>
@@ -68,7 +67,7 @@ struct HasallSetImpl<ColumnString> {
         return true;
     }
 };
-class FunctionHasAll: public IFunction {
+class FunctionHasAll : public IFunction {
 public:
     static constexpr auto name = "has_all";
     using NullMapType = PaddedPODArray<UInt8>;
@@ -81,7 +80,7 @@ public:
 
     static FunctionPtr create() { return std::make_shared<FunctionHasAll>(); }
 
-    DataTypePtr get_return_type_impl(const DataTypes & arguments) const override{
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         auto left_data_type = remove_nullable(arguments[0]);
         auto right_data_type = remove_nullable(arguments[1]);
         DCHECK(is_array(left_data_type)) << arguments[0]->get_name();
@@ -96,107 +95,108 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
-     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                         size_t result, size_t input_rows_count) override{
-            auto left_column =
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-            auto right_column =
-                    block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-            ColumnArrayExecutionData left_exec_data;
-            ColumnArrayExecutionData right_exec_data;
+        auto right_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        ColumnArrayExecutionData left_exec_data;
+        ColumnArrayExecutionData right_exec_data;
 
-            Status ret = Status::RuntimeError(
-                    fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
-                                block.get_by_position(arguments[0]).type->get_name(),
-                                block.get_by_position(arguments[1]).type->get_name()));
+        Status ret = Status::RuntimeError(
+                fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
+                            block.get_by_position(arguments[0]).type->get_name(),
+                            block.get_by_position(arguments[1]).type->get_name()));
 
-            // extract array column
-            if (!extract_column_array_info(*left_column, left_exec_data) ||
-                !extract_column_array_info(*right_column, right_exec_data)) {
-                return ret;
-            }
+        // extract array column
+        if (!extract_column_array_info(*left_column, left_exec_data) ||
+            !extract_column_array_info(*right_column, right_exec_data)) {
+            return ret;
+        }
 
-            // prepare return column
-            auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
-            auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
-            UInt8* dst_null_map_data = dst_null_map->get_data().data();
+        // prepare return column
+        auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
+        auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
+        UInt8* dst_null_map_data = dst_null_map->get_data().data();
 
-            // any array is null return null
-            RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
-            RETURN_IF_ERROR(_execute_nullable(right_exec_data, dst_null_map_data));
+        // any array is null return null
+        RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
+        RETURN_IF_ERROR(_execute_nullable(right_exec_data, dst_null_map_data));
 
-            // execute overlap check
-            if (left_exec_data.nested_col->is_column_string()) {
-                ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
+        // execute overlap check
+        if (left_exec_data.nested_col->is_column_string()) {
+            ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+        } else if (left_exec_data.nested_col->is_date_type()) {
+            ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+        } else if (left_exec_data.nested_col->is_datetime_type()) {
+            ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
                                                     dst_null_map_data,
                                                     dst_nested_col->get_data().data());
-            } else if (left_exec_data.nested_col->is_date_type()) {
-                ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
+        } else if (left_exec_data.nested_col->is_numeric()) {
+            if (check_column<ColumnUInt8>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt8>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data,
+                                                    dst_null_map_data,
                                                     dst_nested_col->get_data().data());
-            } else if (left_exec_data.nested_col->is_datetime_type()) {
-                ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-            } else if (left_exec_data.nested_col->is_numeric()) {
-                if (check_column<ColumnUInt8>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                } else if (check_column<ColumnInt8>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                } else if (check_column<ColumnInt16>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                } else if (check_column<ColumnInt32>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                } else if (check_column<ColumnInt64>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                } else if (check_column<ColumnInt128>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                } else if (check_column<ColumnFloat32>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                } else if (check_column<ColumnFloat64>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
-                                                        dst_null_map_data,
-                                                        dst_nested_col->get_data().data());
-                }
-            } else if (left_exec_data.nested_col->is_column_decimal()) {
-                if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
-                                                            dst_null_map_data,
-                                                            dst_nested_col->get_data().data());
-                }
+            } else if (check_column<ColumnInt16>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt32>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            } else if (check_column<ColumnInt128>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
+            } else if (check_column<ColumnFloat32>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
+                                                       dst_null_map_data,
+                                                       dst_nested_col->get_data().data());
+            } else if (check_column<ColumnFloat64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
+                                                       dst_null_map_data,
+                                                       dst_nested_col->get_data().data());
             }
-
-            if (ret == Status::OK()) {
-                block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
-                                                                        std::move(dst_null_map)));
+        } else if (left_exec_data.nested_col->is_column_decimal()) {
+            if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
+                                                          dst_null_map_data,
+                                                          dst_nested_col->get_data().data());
             }
+        }
 
-            return ret;
+        if (ret == Status::OK()) {
+            block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
+                                                                     std::move(dst_null_map)));
+        }
+
+        return ret;
     }
+
 private:
     template <typename T>
     Status _execute_internal(const ColumnArrayExecutionData& left_data,
                              const ColumnArrayExecutionData& right_data,
                              const UInt8* dst_nullmap_data, UInt8* dst_data) {
-        using ExecutorImpl =HasallSetImpl<T>;
+        using ExecutorImpl = HasallSetImpl<T>;
         for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;
             }
-            
+
             ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
             ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
             ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
@@ -205,16 +205,15 @@ private:
                 dst_data[row] = 1;
                 continue;
             }
-            
+
             ExecutorImpl impl;
             impl.insert_array(left_data.nested_col, left_start, left_size);
             dst_data[row] = impl.find_all(right_data.nested_col, right_start, right_size);
-           
         }
         return Status::OK();
     }
 
-     Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
+    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
         for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;
@@ -229,5 +228,4 @@ private:
     }
 };
 
-
- }
+} // namespace doris::vectorized
