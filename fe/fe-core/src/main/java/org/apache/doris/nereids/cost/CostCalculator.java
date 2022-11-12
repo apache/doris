@@ -162,7 +162,7 @@ public class CostCalculator {
                 beNumber = Math.max(1, beNumber);
                 double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
                 //if build side is big, avoid use broadcast join
-                if (buildSize * instanceNumber > memLimit / 5) {
+                if (buildSize * instanceNumber > memLimit / 5 || childStatistics.getRowCount() > 900000) {
                     return CostEstimate.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
                 }
                 return CostEstimate.of(
