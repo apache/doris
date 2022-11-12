@@ -121,4 +121,23 @@ Status LoadChannel::cancel() {
     return Status::OK();
 }
 
+void LoadChannel::handle_mem_exceed_limit() {
+    bool found = false;
+    std::shared_ptr<TabletsChannel> channel;
+    {
+        // lock so that only one thread can check mem limit
+        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        found = _find_largest_consumption_channel(&channel);
+    }
+    // Release lock so that other threads can still call add_batch concurrently.
+    if (found) {
+        DCHECK(channel != nullptr);
+        channel->reduce_mem_usage();
+    } else {
+        // should not happen, add log to observe
+        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
+                     << "load_id=" << _load_id;
+    }
+}
+
 } // namespace doris
