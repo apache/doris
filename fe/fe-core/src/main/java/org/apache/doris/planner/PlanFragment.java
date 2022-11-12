@@ -414,4 +414,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public boolean isTransferQueryStatisticsWithEveryBatch() {
         return transferQueryStatisticsWithEveryBatch;
     }
+
+    @Override
+    public String toString() {
+        return fragmentId.toString();
+    }
 }

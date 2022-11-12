@@ -635,7 +635,16 @@ public class Coordinator {
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
                     tParam.setBackendId(execState.backend.getId());
                     tParam.setNeedWaitExecutionTrigger(twoPhaseExecution);
-
+                    if (tParam.isSetParams() && tParam.params.isSetRuntimeFilterParams()) {
+                        TRuntimeFilterParams rfp = tParam.params.runtime_filter_params;
+                        if (rfp.isSetRidToRuntimeFilter() && rfp.isSetRidToTargetParam()
+                                && rfp.rid_to_runtime_filter.size() != rfp.rid_to_target_param.size()) {
+                            System.out.println("rf not match");
+                        }
+                        if (rfp.isSetRidToRuntimeFilter() != rfp.isSetRidToTargetParam()) {
+                            System.out.println("rf not match 2");
+                        }
+                    }
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
                         needCheckBackendExecStates.add(execState);

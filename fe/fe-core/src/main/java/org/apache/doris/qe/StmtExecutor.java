@@ -733,6 +733,7 @@ public class StmtExecutor implements ProfileWriter {
                     throw e;
                 } catch (Exception e) {
                     LOG.error("Analyze failed. {}", context.getQueryIdentifier(), e);
+                    e.printStackTrace();
                     if (parsedStmt instanceof LogicalPlanAdapter) {
                         throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
                     }
