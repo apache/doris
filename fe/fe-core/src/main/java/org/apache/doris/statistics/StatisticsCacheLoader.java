@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
