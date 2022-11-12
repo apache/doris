@@ -70,7 +70,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
 
     auto sort_size = sort_info.ordering_exprs.size();
     auto real_arguments_size = agg_fn_evaluator->_argument_types_with_sort.size() - sort_size;
-    // Child arguments conatins [real arguments, order by arguments], we pass the arguments
+    // Child arguments contains [real arguments, order by arguments], we pass the arguments
     // to the order by functions
     for (int i = 0; i < sort_size; ++i) {
         agg_fn_evaluator->_sort_description.emplace_back(real_arguments_size + i,

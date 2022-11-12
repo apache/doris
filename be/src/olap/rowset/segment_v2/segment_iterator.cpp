@@ -697,7 +697,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     return Status::OK();
 }
 
-/* ---------------------- for vecterization implementation  ---------------------- */
+/* ---------------------- for vectorization implementation  ---------------------- */
 
 /**
  *  For storage layer data type, can be measured from two perspectives:
@@ -1135,7 +1135,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // step 1: evaluate vectorization predicate
         selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
 
-        // step 2: evaluate short ciruit predicate
+        // step 2: evaluate short circuit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test

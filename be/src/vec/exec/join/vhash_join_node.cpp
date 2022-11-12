@@ -544,7 +544,7 @@ DISABLE_OPTIMIZATION Status ProcessHashTableProbe<JoinOpType>::do_process_with_o
 
         auto& mcol = mutable_block.mutable_columns();
         // use in right join to change visited state after
-        // exec the vother join conjunt
+        // exec the vother join conjunct
         std::vector<bool*> visited_map;
         visited_map.reserve(1.2 * _batch_size);
 
@@ -664,7 +664,7 @@ DISABLE_OPTIMIZATION Status ProcessHashTableProbe<JoinOpType>::do_process_with_o
         }
         output_block->swap(mutable_block.to_block());
 
-        // dispose the other join conjunt exec
+        // dispose the other join conjunct exec
         if (output_block->rows()) {
             int result_column_id = -1;
             int orig_columns = output_block->columns();
@@ -699,7 +699,7 @@ DISABLE_OPTIMIZATION Status ProcessHashTableProbe<JoinOpType>::do_process_with_o
                         *visited_map[i] |= other_hit;
                         filter_map.push_back(other_hit || !same_to_prev[i] ||
                                              (!column->get_bool(i - 1) && filter_map.back()));
-                        // Here to keep only hit join conjunt and other join conjunt is true need to be output.
+                        // Here to keep only hit join conjunct and other join conjunt is true need to be output.
                         // if not, only some key must keep one row will output will null right table column
                         if (same_to_prev[i] && filter_map.back() && !column->get_bool(i - 1))
                             filter_map[i - 1] = false;
@@ -1289,7 +1289,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                                             BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
             }
             _build_blocks.emplace_back(mutable_block.to_block());
-            // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
+            // TODO:: Rethink may we should do the process after we receive all build blocks ?
             // which is better.
             RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
 
