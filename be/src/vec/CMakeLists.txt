@@ -112,6 +112,16 @@ set(VEC_FILES
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
+  exec/join/inner_join_impl.cpp
+  exec/join/left_semi_join_impl.cpp
+  exec/join/left_anti_join_impl.cpp
+  exec/join/left_outer_join_impl.cpp
+  exec/join/full_outer_join_impl.cpp
+  exec/join/right_outer_join_impl.cpp
+  exec/join/cross_join_impl.cpp
+  exec/join/right_semi_join_impl.cpp
+  exec/join/right_anti_join_impl.cpp
+  exec/join/null_aware_left_anti_join_impl.cpp
   exec/data_gen_functions/vnumbers_tvf.cpp
   exec/vdata_gen_scan_node.cpp
   exprs/vectorized_agg_fn.cpp
@@ -200,6 +210,7 @@ set(VEC_FILES
   functions/uuid.cpp
   functions/function_coalesce.cpp
   functions/function_date_or_datetime_computation.cpp
+  functions/function_date_or_datetime_computation_v2.cpp
   functions/function_date_or_datetime_to_string.cpp
   functions/function_datetime_string_to_string.cpp
   functions/function_grouping.cpp
