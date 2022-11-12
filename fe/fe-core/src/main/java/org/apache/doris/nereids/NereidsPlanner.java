@@ -86,6 +86,12 @@ public class NereidsPlanner extends Planner {
             System.out.println(memo);
             LOG.info(memo);
         }
+        String tree = physicalPlan.treeString();
+        System.out.println(tree);
+        LOG.info(tree);
+        String memo = cascadesContext.getMemo().toString();
+        System.out.println(memo);
+        LOG.info(memo);
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
         scanNodeList = planTranslatorContext.getScanNodes();

@@ -26,11 +26,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+import java.util.HashMap;
+import java.util.Map;
+
 
 public class StatisticsCache {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
+    private Map<String, ColumnStatistic> columnStatCache = new HashMap();
 
     private final AsyncLoadingCache<StatisticsCacheKey, ColumnStatistic> cache = Caffeine.newBuilder()
             .maximumSize(Config.statistics_cache_max_size)
@@ -40,19 +43,27 @@ public class StatisticsCache {
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
         if (ConnectContext.get().getSessionVariable().internalSession) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
         }
-        StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
-        CompletableFuture<ColumnStatistic> f = cache.get(k);
-        if (f.isDone()) {
-            try {
-                return f.get();
-            } catch (Exception e) {
-                LOG.warn("Unexpected exception while returning ColumnStatistic", e);
-                return ColumnStatistic.UNKNOWN;
-            }
+        if (columnStatCache.isEmpty()) {
+            columnStatCache = StatisticsCacheLoader.load();
         }
-        return ColumnStatistic.UNKNOWN;
+        //StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
+        //CompletableFuture<ColumnStatistic> f = cache.get(k);
+        //if (f.isDone()) {
+        //    try {
+        //        return f.get();
+        //    } catch (Exception e) {
+        //        LOG.warn("Unexpected exception while returning ColumnStatistic", e);
+        //        return ColumnStatistic.UNKNOWN;
+        //    }
+        //}
+        ColumnStatistic stat = columnStatCache.get(tblId + "-" + colName);
+        if (stat == null) {
+            LOG.error("column stats missing: " + tblId + "-" + colName);
+            stat = ColumnStatistic.DEFAULT;
+        }
+        return stat;
     }
 
     // TODO: finish this method.

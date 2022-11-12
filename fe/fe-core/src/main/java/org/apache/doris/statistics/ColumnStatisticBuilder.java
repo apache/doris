@@ -31,7 +31,7 @@ public class ColumnStatisticBuilder {
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
 
-    private boolean buildOnUnknown;
+    private boolean buildOnDefault;
 
     public ColumnStatisticBuilder() {
     }
@@ -47,7 +47,7 @@ public class ColumnStatisticBuilder {
         this.selectivity = columnStatistic.selectivity;
         this.minExpr = columnStatistic.minExpr;
         this.maxExpr = columnStatistic.maxExpr;
-        this.buildOnUnknown = columnStatistic == ColumnStatistic.UNKNOWN;
+        this.buildOnDefault = columnStatistic == ColumnStatistic.DEFAULT;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
@@ -145,7 +145,7 @@ public class ColumnStatisticBuilder {
                 minExpr, maxExpr);
     }
 
-    public boolean isBuildOnUnknown() {
-        return buildOnUnknown;
+    public boolean isBuildOnDefault() {
+        return buildOnDefault;
     }
 }
