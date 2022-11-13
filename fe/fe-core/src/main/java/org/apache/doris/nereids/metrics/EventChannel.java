@@ -19,13 +19,16 @@ package org.apache.doris.nereids.metrics;
 
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -34,55 +37,53 @@ import java.util.concurrent.LinkedBlockingQueue;
  * event channel
  */
 public class EventChannel {
-    public static final EventChannel DEFAULT_CHANNEL = new EventChannel();
     private static final Logger LOG = LogManager.getLogger(EventChannel.class);
-
-    private class EventProperties {
-        private final List<EventConsumer> consumers = Lists.newArrayList();
-
-        public List<EventConsumer> getConsumers() {
-            return consumers;
-        }
-    }
-
-    private final Set<Class<? extends Event>> eventSwitch;
-    private final List<EventFilter> filters;
-    private Map<Class<? extends Event>, EventProperties> properties = Maps.newHashMap();
-    private BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
+    private static final EventChannel DEFAULT_CHANNEL = new EventChannel();
+    private Set<Class<? extends Event>> eventSwitch = new HashSet<>();
+    private final Map<Class<? extends Event>, List<EventConsumer>> consumers = Maps.newHashMap();
+    private final Map<Class<? extends Event>, List<EventFilter>> filters = Maps.newHashMap();
+    private final BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
     private boolean isStop = false;
     private Thread thread;
 
-    /**
-     * constructor
-     * @param consumers consumer list
-     */
-    public EventChannel(List<EventConsumer> consumers, List<EventFilter> filtersBeforeConsume) {
-        eventSwitch = new EventSwitchParser().parse(ConnectContext.get().getSessionVariable().nereidsEventMode);
-        filters = filtersBeforeConsume;
-        for (EventConsumer consumer : consumers) {
-            properties.computeIfAbsent(consumer.getTargetClass(), k -> new EventProperties())
-                    .getConsumers().add(consumer);
-        }
-    }
-
-    public EventChannel() {
-        this(Lists.newArrayList(), Lists.newArrayList());
-    }
-
     public void add(Event e) {
-        if (eventSwitch.contains(e.getClass())) {
-            queue.add(e);
-        }
+        queue.add(e);
     }
 
     private Event filter(Event e) {
-        for (EventFilter filter : filters) {
+        for (EventFilter filter : filters.get(e.getClass())) {
             e = filter.checkEvent(e);
             if (e == null) {
                 return null;
             }
         }
         return e;
+    }
+
+    public EventChannel addConsumers(List<EventConsumer> consumers) {
+        consumers.forEach(consumer -> this.consumers
+                .computeIfAbsent(consumer.getTargetClass(), k -> Lists.newArrayList()).add(consumer));
+        return this;
+    }
+
+    public EventChannel addFilters(List<EventFilter> filters) {
+        filters.forEach(filter -> this.filters
+                .computeIfAbsent(filter.getTargetClass(), k -> Lists.newArrayList()).add(filter));
+        return this;
+    }
+
+    public EventChannel setConnectContext(ConnectContext context) {
+        Preconditions.checkArgument(Objects.nonNull(context));
+        eventSwitch = new EventSwitchParser().parse(context.getSessionVariable().nereidsEventMode);
+        return this;
+    }
+
+    public Set<Class<? extends Event>> getEventSwitch() {
+        return eventSwitch;
+    }
+
+    public static EventChannel getDefaultChannel() {
+        return DEFAULT_CHANNEL;
     }
 
     private class Worker implements Runnable {
@@ -94,15 +95,15 @@ public class EventChannel {
                     if (e == null) {
                         continue;
                     }
-                    for (EventConsumer consumer : properties.get(e.getClass()).getConsumers()) {
+                    for (EventConsumer consumer : consumers.get(e.getClass())) {
                         consumer.consume(e.clone());
                     }
                 } catch (Exception e) {
                     LOG.warn("encounter exception when push event: ", e);
                 }
             }
-            for (EventProperties property : properties.values()) {
-                for (EventConsumer consumer : property.getConsumers()) {
+            for (List<EventConsumer> consumerList : consumers.values()) {
+                for (EventConsumer consumer : consumerList) {
                     consumer.close();
                 }
             }

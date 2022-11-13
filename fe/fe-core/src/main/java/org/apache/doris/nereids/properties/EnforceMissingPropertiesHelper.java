@@ -38,7 +38,7 @@ public class EnforceMissingPropertiesHelper {
     private static final EventProducer ENFORCER_TRACER = new EventProducer(
             EnforcerEvent.class,
             Collections.emptyList(),
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     private final JobContext context;
     private final GroupExpression groupExpression;
     private double curTotalCost;

@@ -56,14 +56,11 @@ public class EventTest extends TestWithFeService {
     public void runBeforeAll() {
         connectContext.getSessionVariable().setEnableNereidsEvent(true);
         connectContext.getSessionVariable().setNereidsEventMode("counter, transform");
-        channel = new EventChannel(
-                ImmutableList.of(
+        channel = new EventChannel().addConsumers(ImmutableList.of(
                         new PrintConsumer(CounterEvent.class, printStream),
                         new PrintConsumer(TransformEvent.class, printStream),
                         new PrintConsumer(EnforcerEvent.class, printStream),
-                        new PrintConsumer(GroupMergeEvent.class, printStream)),
-                ImmutableList.of()
-        );
+                        new PrintConsumer(GroupMergeEvent.class, printStream)));
         channel.start();
         producers = ImmutableList.of(
                 new EventProducer(TransformEvent.class, ImmutableList.of(

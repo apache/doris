@@ -46,7 +46,7 @@ public class RewriteTopDownJob extends Job {
     private static final EventProducer REWRITE_TOP_DOWN_JOB_TRACER = new EventProducer(
             TransformEvent.class,
             Collections.emptyList(),
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     private final Group group;
     private final List<Rule> rules;
 

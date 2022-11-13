@@ -41,7 +41,7 @@ public class ApplyRuleJob extends Job {
     private static final EventProducer APPLY_RULE_TRACER = new EventProducer(
             TransformEvent.class,
             Collections.emptyList(),
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     private final GroupExpression groupExpression;
     private final Rule rule;
 

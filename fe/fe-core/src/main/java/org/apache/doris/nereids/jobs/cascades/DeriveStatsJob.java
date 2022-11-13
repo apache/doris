@@ -36,7 +36,7 @@ public class DeriveStatsJob extends Job {
     private static final EventProducer STATS_STATE_TRACER = new EventProducer(
             StatsStateEvent.class,
             Collections.emptyList(),
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     private final GroupExpression groupExpression;
     private boolean deriveChildren;
 

@@ -48,7 +48,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(
             CostStateUpdateEvent.class,
             Collections.emptyList(),
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;

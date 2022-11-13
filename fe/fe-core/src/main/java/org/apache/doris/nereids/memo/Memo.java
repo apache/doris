@@ -50,7 +50,7 @@ public class Memo {
     private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(
             GroupMergeEvent.class,
             Collections.emptyList(),
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     private static long stateId = 0;
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();

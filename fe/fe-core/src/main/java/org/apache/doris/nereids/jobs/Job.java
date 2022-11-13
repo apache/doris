@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
  */
 public abstract class Job {
     protected static final EventProducer COUNTER_TRACER = new EventProducer(CounterEvent.class,
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     public final Logger logger = LogManager.getLogger(getClass());
 
     protected JobType type;

@@ -45,7 +45,7 @@ import javax.annotation.Nullable;
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
     private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(
-            CounterEvent.class, EventChannel.DEFAULT_CHANNEL);
+            CounterEvent.class, EventChannel.getDefaultChannel());
     protected final StatsDeriveResult statsDeriveResult;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;

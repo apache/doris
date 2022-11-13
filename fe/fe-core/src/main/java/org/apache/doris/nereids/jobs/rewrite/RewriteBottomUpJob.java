@@ -45,7 +45,7 @@ public class RewriteBottomUpJob extends Job {
     private static final EventProducer REWRITE_BOTTOM_UP_JOB_TRACER = new EventProducer(
             TransformEvent.class,
             Collections.emptyList(),
-            EventChannel.DEFAULT_CHANNEL);
+            EventChannel.getDefaultChannel());
     private final Group group;
     private final List<Rule> rules;
     private final boolean childrenOptimized;
