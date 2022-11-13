@@ -92,7 +92,8 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, ClientImp
     // not clean up internal buffers it reopens. To work around this issue, create a new
     // client instead.
     delete client_to_close;
-    client_pair->first = nullptr;
+    delete client_pair;
+    client_pair = nullptr;
 
     if (_metrics_enabled) {
         thrift_opened_clients->increment(-1);
@@ -116,7 +117,8 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
     Status status = client_impl->open();
 
     if (!status.ok()) {
-        client_pair->first = nullptr;
+        delete client_pair;
+        client_pair = nullptr;
         return status;
     }
     client_impl->set_send_timeout(timeout_ms);
