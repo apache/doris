@@ -59,22 +59,23 @@ public:
     ~ClientCacheHelper();
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
-    using ClientFactory =
-            std::function<ThriftClientImpl*(const TNetworkAddress& hostport, ClientImplPair& client_key)>;
+    using ClientFactory = std::function<ThriftClientImpl*(const TNetworkAddress& hostport,
+                                                          ClientImplPair*& client_pair)>;
 
     // Return client for specific host/port in 'client'. If a client
     // is not available, the client parameter is set to nullptr.
     Status get_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
-                      ClientImplPair& client_key, int timeout_ms);
+                      ClientImplPair*& client_pair, int timeout_ms);
 
     // Close and delete the underlying transport and remove the client from _client_map.
     // Return a new client connecting to the same host/port.
     // Return an error status and set client_key to nullptr if a new client cannot
     // created.
-    Status reopen_client(ClientFactory& factory_method, ClientImplPair& client_key, int timeout_ms);
+    Status reopen_client(ClientFactory& factory_method, ClientImplPair*& client_pair,
+                         int timeout_ms);
 
     // Return a client to the cache, without closing it, and set *client_key to nullptr.
-    void release_client(ClientImplPair& client_key);
+    void release_client(ClientImplPair*& client_pair);
 
     // Close all connections to a host (e.g., in case of failure) so that on their
     // next use they will have to be Reopen'ed.
@@ -105,12 +106,7 @@ private:
     ClientCacheMap _client_cache;
 
     // if cache not found, set client_key as nullptr
-    void _get_client_from_cache(const TNetworkAddress& hostport, ClientImplPair& client_key);
-
-    // TODO(为什么)这里非要设计一层void* 到 Impl的强转 上面的list也是存的void* 为什么不干脆放在一个结构体IClient里然后上面也只存IClient*
-    // Map from client key back to its associated ThriftClientImpl transport
-    using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
-    // ClientMap _client_map;
+    void _get_client_from_cache(const TNetworkAddress& hostport, ClientImplPair*& client_pair);
 
     bool _metrics_enabled;
 
@@ -127,7 +123,7 @@ private:
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
     Status _create_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
-                          ClientImplPair& client_key, int timeout_ms);
+                          ClientImplPair*& client_pair, int timeout_ms);
 };
 
 template <class T>
@@ -151,7 +147,7 @@ template <class T>
 class ClientConnection {
 public:
     ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, Status* status)
-            : _client_cache(client_cache), _client_pair(new ClientImplPair(nullptr, nullptr)) {
+            : _client_cache(client_cache), _client_pair(nullptr) {
         *status = _client_cache->get_client(address, _client_pair, 0);
 
         if (status->ok()) {
@@ -161,7 +157,7 @@ public:
 
     ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, int timeout_ms,
                      Status* status)
-            : _client_cache(client_cache), _client_pair(new ClientImplPair(nullptr, nullptr)) {
+            : _client_cache(client_cache), _client_pair(nullptr) {
         *status = _client_cache->get_client(address, _client_pair, timeout_ms);
 
         if (status->ok()) {
@@ -171,22 +167,25 @@ public:
 
     ~ClientConnection() {
         if (_client_pair->first != nullptr) {
-            _client_cache->release_client(*_client_pair);
+            _client_cache->release_client(_client_pair);
         }
-        // actually the pointer is restored by cache
+        // the client is owned by others, we should just only point to nullptr
+        // and delete the memory for the pair
+        _client_pair->first = nullptr;
+        _client_pair->second = nullptr;
+        delete _client_pair;
         _client_pair = nullptr;
     }
 
-    Status reopen(int timeout_ms) { return _client_cache->reopen_client(*_client_pair, timeout_ms); }
+    Status reopen(int timeout_ms) { return _client_cache->reopen_client(_client_pair, timeout_ms); }
 
-    Status reopen() { return _client_cache->reopen_client(*_client_pair, 0); }
+    Status reopen() { return _client_cache->reopen_client(_client_pair, 0); }
 
-    T* operator->() const { return  reinterpret_cast<T*>(_client_pair->first); }
+    T* operator->() const { return reinterpret_cast<T*>(_client_pair->first); }
 
 private:
     ClientCache<T>* _client_cache;
-    // T* _client;
-    // We should not own the lifetime of pair, cause we
+    // We should not own the lifetime of the pair, cause we
     // need to return it once we don't need this connection
     ClientImplPair* _client_pair;
 };
@@ -244,31 +243,29 @@ private:
     // Obtains a pointer to a Thrift interface object (of type T),
     // backed by a live transport which is already open. Returns
     // Status::OK() unless there was an error opening the transport.
-    Status get_client(const TNetworkAddress& hostport, ClientImplPair& iface_pair, int timeout_ms) {
-        return _client_cache_helper.get_client(hostport, _client_factory,
-                                               iface_pair, timeout_ms);
+    Status get_client(const TNetworkAddress& hostport, ClientImplPair*& client_pair,
+                      int timeout_ms) {
+        return _client_cache_helper.get_client(hostport, _client_factory, client_pair, timeout_ms);
     }
 
     // Close and delete the underlying transport. Return a new client connecting to the
     // same host/port.
     // Return an error status if a new connection cannot be established and *client will be
     // nullptr in that case.
-    Status reopen_client(ClientImplPair& client, int timeout_ms) {
-        return _client_cache_helper.reopen_client(_client_factory, client,
-                                                  timeout_ms);
+    Status reopen_client(ClientImplPair*& client, int timeout_ms) {
+        return _client_cache_helper.reopen_client(_client_factory, client, timeout_ms);
     }
 
     // Return the client to the cache and set *client to nullptr.
-    void release_client(ClientImplPair& client) {
-        return _client_cache_helper.release_client(client);
+    void release_client(ClientImplPair*& client_pair) {
+        return _client_cache_helper.release_client(client_pair);
     }
 
     // Factory method to produce a new ThriftClient<T> for the wrapped cache
-    ThriftClientImpl* make_client(const TNetworkAddress& hostport, ClientImplPair*& client_key) {
+    ThriftClientImpl* make_client(const TNetworkAddress& hostport, ClientImplPair*& client_pair) {
         static ThriftServer::ServerType server_type = get_thrift_server_type();
         Client* client = new Client(hostport.hostname, hostport.port, server_type);
-        client_key->first = reinterpret_cast<void*>(client->iface());
-        client_key->second = client;
+        client_pair = new ClientImplPair(reinterpret_cast<void*>(client->iface()), client);
         return client;
     }
 
