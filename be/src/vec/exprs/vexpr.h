@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "exprs/bloomfilter_predicate.h"
+#include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
 #include "udf/udf_internal.h"
@@ -45,7 +46,7 @@ public:
     // resize inserted param column to make sure column size equal to block.rows()
     // and return param column index
     static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
-        // usualy elem.column always is const column, so we just clone it.
+        // usually elem.column always is const column, so we just clone it.
         elem.column = elem.column->clone_resized(size);
         block->insert(std::move(elem));
         return block->columns() - 1;
@@ -146,7 +147,7 @@ public:
     /// expr.
     virtual ColumnPtrWrapper* get_const_col(VExprContext* context);
 
-    int fn_context_index() { return _fn_context_index; };
+    int fn_context_index() const { return _fn_context_index; };
 
     static const VExpr* expr_without_cast(const VExpr* expr) {
         if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
@@ -164,6 +165,8 @@ public:
                    << this->debug_string();
         return nullptr;
     }
+
+    virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information

@@ -321,8 +321,12 @@ public class CastExpr extends Expr {
         }
 
         if (fn == null) {
-            throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
+            if (childType.isNull() && Type.canCastTo(childType, type)) {
+                return;
+            } else {
+                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                     + " from " + childType + " to " + type);
+            }
         }
 
         if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {

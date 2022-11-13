@@ -381,7 +381,7 @@ TEST_F(BrokerScannerTest, normal) {
     EXPECT_EQ(5, *(int*)tuple->get_slot(4));
     EXPECT_EQ(6, *(int*)tuple->get_slot(8));
 
-    // 7, 8, unqualitifed
+    // 7, 8, unqualified
     st = scanner.get_next(tuple, &tuple_pool, &eof, &fill_tuple);
     EXPECT_TRUE(st.ok());
     EXPECT_FALSE(eof);

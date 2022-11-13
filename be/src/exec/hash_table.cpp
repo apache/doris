@@ -175,8 +175,7 @@ Status HashTable::resize_buckets(int64_t num_buckets) {
 
     int64_t old_num_buckets = _num_buckets;
     int64_t delta_bytes = (num_buckets - old_num_buckets) * sizeof(Bucket);
-    Status st = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
-            delta_bytes);
+    Status st = thread_context()->thread_mem_tracker()->check_limit(delta_bytes);
     if (!st) {
         LOG_EVERY_N(WARNING, 100) << "resize bucket failed: " << st.to_string();
         return st;

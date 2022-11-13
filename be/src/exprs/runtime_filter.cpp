@@ -17,9 +17,6 @@
 
 #include "runtime_filter.h"
 
-#include <memory>
-#include <type_traits>
-
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/binary_predicate.h"
@@ -41,7 +38,9 @@
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/exprs/vbloom_predicate.h"
+#include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
@@ -312,8 +311,7 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
     }
 
     if constexpr (is_vectorized) {
-        *reinterpret_cast<doris::vectorized::VExpr**>(expr) =
-                pool->add(new doris::vectorized::VLiteral(node));
+        *reinterpret_cast<vectorized::VExpr**>(expr) = pool->add(new vectorized::VLiteral(node));
     } else {
         *reinterpret_cast<Expr**>(expr) = pool->add(new Literal(node));
     }
@@ -409,7 +407,10 @@ public:
               _column_return_type(params->column_return_type),
               _filter_type(params->filter_type),
               _fragment_instance_id(params->fragment_instance_id),
-              _filter_id(params->filter_id) {}
+              _filter_id(params->filter_id),
+              _use_batch(_state->enable_vectorized_exec() &&
+                         IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+                                                          _column_return_type)) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
@@ -420,14 +421,17 @@ public:
               _column_return_type(column_type),
               _filter_type(type),
               _fragment_instance_id(fragment_instance_id),
-              _filter_id(filter_id) {}
+              _filter_id(filter_id),
+              _use_batch(_state->enable_vectorized_exec() &&
+                         IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+                                                          _column_return_type)) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
         _max_in_num = params->max_in_num;
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            _hybrid_set.reset(create_set(_column_return_type));
+            _hybrid_set.reset(create_set(_column_return_type, _state->enable_vectorized_exec()));
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
@@ -441,7 +445,7 @@ public:
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-            _hybrid_set.reset(create_set(_column_return_type));
+            _hybrid_set.reset(create_set(_column_return_type, _state->enable_vectorized_exec()));
             _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
             _bloomfilter_func->set_length(params->bloom_filter_size);
             return Status::OK();
@@ -459,17 +463,14 @@ public:
         _is_bloomfilter = true;
         insert_to_bloom_filter(_bloomfilter_func.get());
         // release in filter
-        _hybrid_set.reset(create_set(_column_return_type));
+        _hybrid_set.reset(create_set(_column_return_type, _state->enable_vectorized_exec()));
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
         if (_hybrid_set->size() > 0) {
-            bool use_batch = _state->enable_vectorized_exec() &&
-                             IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
-                                                              _column_return_type);
             auto it = _hybrid_set->begin();
 
-            if (use_batch) {
+            if (_use_batch) {
                 while (it->has_next()) {
                     bloom_filter->insert_fixed_len((char*)it->get_value());
                     it->next();
@@ -549,20 +550,6 @@ public:
 
     void insert(const StringRef& value) {
         switch (_column_return_type) {
-        // todo: rethink logic of hll/bitmap/date
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            // DateTime->DateTimeValue
-            vectorized::DateTime date_time =
-                    *reinterpret_cast<const vectorized::DateTime*>(value.data);
-            vectorized::VecDateTimeValue vec_date_time_value =
-                    binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(date_time);
-            doris::DateTimeValue date_time_value;
-            vec_date_time_value.convert_vec_dt_to_dt(&date_time_value);
-            insert(reinterpret_cast<const void*>(&date_time_value));
-            break;
-        }
-
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
@@ -631,7 +618,8 @@ public:
                 _is_ignored_in_filter = true;
                 _ignored_in_filter_msg = wrapper->_ignored_in_filter_msg;
                 // release in filter
-                _hybrid_set.reset(create_set(_column_return_type));
+                _hybrid_set.reset(
+                        create_set(_column_return_type, _state->enable_vectorized_exec()));
                 break;
             }
             // try insert set
@@ -650,7 +638,8 @@ public:
                 _is_ignored_in_filter = true;
 
                 // release in filter
-                _hybrid_set.reset(create_set(_column_return_type));
+                _hybrid_set.reset(
+                        create_set(_column_return_type, _state->enable_vectorized_exec()));
             }
             break;
         }
@@ -720,10 +709,10 @@ public:
             _ignored_in_filter_msg = _pool->add(new std::string(in_filter->ignored_msg()));
             return Status::OK();
         }
-        _hybrid_set.reset(create_set(type));
+        _hybrid_set.reset(create_set(type, _state->enable_vectorized_exec()));
         switch (type) {
         case TYPE_BOOLEAN: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 bool bool_val = column.boolval();
                 set->insert(&bool_val);
@@ -731,7 +720,7 @@ public:
             break;
         }
         case TYPE_TINYINT: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 int8_t int_val = static_cast<int8_t>(column.intval());
                 set->insert(&int_val);
@@ -739,7 +728,7 @@ public:
             break;
         }
         case TYPE_SMALLINT: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 int16_t int_val = static_cast<int16_t>(column.intval());
                 set->insert(&int_val);
@@ -747,7 +736,7 @@ public:
             break;
         }
         case TYPE_INT: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 int32_t int_val = column.intval();
                 set->insert(&int_val);
@@ -755,7 +744,7 @@ public:
             break;
         }
         case TYPE_BIGINT: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 int64_t long_val = column.longval();
                 set->insert(&long_val);
@@ -763,7 +752,7 @@ public:
             break;
         }
         case TYPE_LARGEINT: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto string_val = column.stringval();
                 StringParser::ParseResult result;
@@ -775,7 +764,7 @@ public:
             break;
         }
         case TYPE_FLOAT: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 float float_val = static_cast<float>(column.doubleval());
                 set->insert(&float_val);
@@ -783,7 +772,7 @@ public:
             break;
         }
         case TYPE_DOUBLE: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 double double_val = column.doubleval();
                 set->insert(&double_val);
@@ -791,7 +780,7 @@ public:
             break;
         }
         case TYPE_DATEV2: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto date_v2_val = column.intval();
                 set->insert(&date_v2_val);
@@ -799,7 +788,7 @@ public:
             break;
         }
         case TYPE_DATETIMEV2: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto date_v2_val = column.longval();
                 set->insert(&date_v2_val);
@@ -808,17 +797,27 @@ public:
         }
         case TYPE_DATETIME:
         case TYPE_DATE: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
-                                       ObjectPool* pool) {
-                auto& string_val_ref = column.stringval();
-                DateTimeValue datetime_val;
-                datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
-                set->insert(&datetime_val);
-            });
+            if (_state->enable_vectorized_exec()) {
+                batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set,
+                                           PColumnValue& column, ObjectPool* pool) {
+                    auto& string_val_ref = column.stringval();
+                    vectorized::VecDateTimeValue datetime_val;
+                    datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
+                    set->insert(&datetime_val);
+                });
+            } else {
+                batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set,
+                                           PColumnValue& column, ObjectPool* pool) {
+                    auto& string_val_ref = column.stringval();
+                    DateTimeValue datetime_val;
+                    datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
+                    set->insert(&datetime_val);
+                });
+            }
             break;
         }
         case TYPE_DECIMALV2: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto& string_val_ref = column.stringval();
                 DecimalV2Value decimal_val(string_val_ref);
@@ -827,7 +826,7 @@ public:
             break;
         }
         case TYPE_DECIMAL32: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 int32_t decimal_32_val = column.intval();
                 set->insert(&decimal_32_val);
@@ -835,7 +834,7 @@ public:
             break;
         }
         case TYPE_DECIMAL64: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 int64_t decimal_64_val = column.longval();
                 set->insert(&decimal_64_val);
@@ -843,7 +842,7 @@ public:
             break;
         }
         case TYPE_DECIMAL128: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto string_val = column.stringval();
                 StringParser::ParseResult result;
@@ -857,7 +856,7 @@ public:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {
-            batch_assign(in_filter, [](std::unique_ptr<HybridSetBase>& set, PColumnValue& column,
+            batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto& string_val_ref = column.stringval();
                 auto val_ptr = pool->add(new std::string(string_val_ref));
@@ -1049,7 +1048,7 @@ public:
     std::string* get_ignored_in_filter_msg() const { return _ignored_in_filter_msg; }
 
     void batch_assign(const PInFilter* filter,
-                      void (*assign_func)(std::unique_ptr<HybridSetBase>& _hybrid_set,
+                      void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
                                           PColumnValue&, ObjectPool*)) {
         for (int i = 0; i < filter->values_size(); ++i) {
             PColumnValue column = filter->values(i);
@@ -1057,22 +1056,29 @@ public:
         }
     }
 
+    size_t get_in_filter_size() const { return _hybrid_set->size(); }
+
     friend class IRuntimeFilter;
 
 private:
     RuntimeState* _state;
     ObjectPool* _pool;
+
+    // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
     std::unique_ptr<MinMaxFuncBase> _minmax_func;
-    std::unique_ptr<HybridSetBase> _hybrid_set;
+    std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloomfilter_func;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
     UniqueId _fragment_instance_id;
     uint32_t _filter_id;
+
+    // When _column_return_type is invalid, _use_batch will be always false.
+    bool _use_batch;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
@@ -1168,9 +1174,13 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctx
 Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs) {
     DCHECK(is_consumer());
     if (!_is_ignored) {
+        _set_push_down();
+        _profile->add_info_string("Info", _format_status());
         return _wrapper->get_push_vexprs(push_vexprs, _state, _vprobe_ctx);
+    } else {
+        _profile->add_info_string("Info", _format_status());
+        return Status::OK();
     }
-    return Status::OK();
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs,
@@ -1200,6 +1210,7 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
                                            const RowDescriptor& desc) {
+    _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
     }
@@ -1219,13 +1230,13 @@ bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
     SCOPED_TIMER(_await_time_cost);
     int64_t wait_times_ms = _state->runtime_filter_wait_time_ms();
+    std::unique_lock<std::mutex> lock(_inner_mutex);
     if (!_is_ready) {
         int64_t ms_since_registration = MonotonicMillis() - registration_time_;
         int64_t ms_remaining = wait_times_ms - ms_since_registration;
         if (ms_remaining <= 0) {
             return _is_ready;
         }
-        std::unique_lock<std::mutex> lock(_inner_mutex);
         return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
                                   [this] { return this->_is_ready; });
     }
@@ -1234,9 +1245,13 @@ bool IRuntimeFilter::await() {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+    std::unique_lock<std::mutex> lock(_inner_mutex);
     _is_ready = true;
     _inner_cv.notify_all();
-    _effect_timer.reset();
+
+    if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER) {
+        _profile->add_info_string("InFilterSize", std::to_string(_wrapper->get_in_filter_size()));
+    }
 }
 
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
@@ -1355,14 +1370,11 @@ Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, Obje
 
 void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     DCHECK(parent_profile != nullptr);
-    _profile.reset(new RuntimeProfile("RuntimeFilter:" + ::doris::to_string(_runtime_filter_type)));
+    _profile.reset(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                                  ::doris::to_string(_runtime_filter_type))));
     parent_profile->add_child(_profile.get(), true, nullptr);
-
-    _effect_time_cost = ADD_TIMER(_profile, "EffectTimeCost");
     _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
-    _effect_timer.reset(new ScopedTimer<MonotonicStopWatch>(_effect_time_cost));
-    _effect_timer->start();
-
+    _profile->add_info_string("Info", _format_status());
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }
@@ -1526,11 +1538,22 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        batch_copy<DateTimeValue>(filter, it, [](PColumnValue* column, const DateTimeValue* value) {
-            char convert_buffer[30];
-            value->to_string(convert_buffer);
-            column->set_stringval(convert_buffer);
-        });
+        if (_state->enable_vectorized_exec()) {
+            batch_copy<vectorized::VecDateTimeValue>(
+                    filter, it,
+                    [](PColumnValue* column, const vectorized::VecDateTimeValue* value) {
+                        char convert_buffer[30];
+                        value->to_string(convert_buffer);
+                        column->set_stringval(convert_buffer);
+                    });
+        } else {
+            batch_copy<DateTimeValue>(filter, it,
+                                      [](PColumnValue* column, const DateTimeValue* value) {
+                                          char convert_buffer[30];
+                                          value->to_string(convert_buffer);
+                                          column->set_stringval(convert_buffer);
+                                      });
+        }
         return;
     }
     case TYPE_DECIMALV2: {
@@ -1735,7 +1758,7 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
             node.__isset.vector_opcode = true;
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
             auto in_pred = _pool->add(new InPredicate(node));
-            RETURN_IF_ERROR(in_pred->prepare(state, _hybrid_set.release()));
+            RETURN_IF_ERROR(in_pred->prepare(state, _hybrid_set.get()));
             in_pred->add_child(Expr::copy(_pool, prob_expr->root()));
             ExprContext* ctx = _pool->add(new ExprContext(in_pred));
             container->push_back(ctx);
@@ -1799,8 +1822,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
     case RuntimeFilterType::IN_FILTER: {
         if (!_is_ignored_in_filter) {
             TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-            type_desc.__set_is_nullable(
-                    _hybrid_set->size() > 0 ? true : vprob_expr->root()->is_nullable());
+            type_desc.__set_is_nullable(false);
             TExprNode node;
             node.__set_type(type_desc);
             node.__set_node_type(TExprNodeType::IN_PRED);
@@ -1808,20 +1830,14 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
             node.__set_opcode(TExprOpcode::FILTER_IN);
             node.__isset.vector_opcode = true;
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
-            node.__set_is_nullable(_hybrid_set->size() > 0 ? true
-                                                           : vprob_expr->root()->is_nullable());
+            node.__set_is_nullable(false);
 
-            // VInPredicate
-            doris::vectorized::VExpr* expr = nullptr;
-            RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr(_pool, node, &expr));
+            auto in_pred = _pool->add(new vectorized::VDirectInPredicate(node));
+            in_pred->set_filter(_hybrid_set);
             auto cloned_vexpr = vprob_expr->root()->clone(_pool);
-            expr->add_child(cloned_vexpr);
-
-            auto& children = const_cast<std::vector<doris::vectorized::VExpr*>&>(expr->children());
-            _hybrid_set->to_vexpr_list(_pool, &children, vprob_expr->root()->type().precision,
-                                       vprob_expr->root()->type().scale);
-            container->push_back(
-                    _pool->add(new doris::vectorized::VRuntimeFilterWrapper(node, expr)));
+            in_pred->add_child(cloned_vexpr);
+            auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, in_pred));
+            container->push_back(wrapper);
         }
         break;
     }
@@ -1838,7 +1854,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         max_pred->add_child(cloned_vexpr);
         max_pred->add_child(max_literal);
         container->push_back(
-                _pool->add(new doris::vectorized::VRuntimeFilterWrapper(max_pred_node, max_pred)));
+                _pool->add(new vectorized::VRuntimeFilterWrapper(max_pred_node, max_pred)));
 
         // create min filter
         doris::vectorized::VExpr* min_pred = nullptr;
@@ -1852,25 +1868,25 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         min_pred->add_child(cloned_vexpr);
         min_pred->add_child(min_literal);
         container->push_back(
-                _pool->add(new doris::vectorized::VRuntimeFilterWrapper(min_pred_node, min_pred)));
+                _pool->add(new vectorized::VRuntimeFilterWrapper(min_pred_node, min_pred)));
         break;
     }
     case RuntimeFilterType::BLOOM_FILTER: {
         // create a bloom filter
         TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
-        type_desc.__set_is_nullable(vprob_expr->root()->is_nullable());
+        type_desc.__set_is_nullable(false);
         TExprNode node;
         node.__set_type(type_desc);
         node.__set_node_type(TExprNodeType::BLOOM_PRED);
         node.__set_opcode(TExprOpcode::RT_FILTER);
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
-        node.__set_is_nullable(vprob_expr->root()->is_nullable());
-        auto bloom_pred = _pool->add(new doris::vectorized::VBloomPredicate(node));
+        node.__set_is_nullable(false);
+        auto bloom_pred = _pool->add(new vectorized::VBloomPredicate(node));
         bloom_pred->set_filter(_bloomfilter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bloom_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(new doris::vectorized::VRuntimeFilterWrapper(node, bloom_pred));
+        auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bloom_pred));
         container->push_back(wrapper);
         break;
     }

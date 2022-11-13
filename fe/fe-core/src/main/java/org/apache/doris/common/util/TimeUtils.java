@@ -36,7 +36,13 @@ import java.text.ParseException;
 import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
 import java.time.DateTimeException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 import java.util.Date;
 import java.util.SimpleTimeZone;
 import java.util.TimeZone;
@@ -277,4 +283,26 @@ public class TimeUtils {
         }
         throw new DdlException("Parse time zone " + value + " error");
     }
+
+    // format string DateTime  And Full Zero for hour,minute,second
+    public static LocalDateTime formatDateTimeAndFullZero(String datetime, DateTimeFormatter formatter) {
+        TemporalAccessor temporal = formatter.parse(datetime);
+        int year = temporal.isSupported(ChronoField.YEAR)
+                ? temporal.get(ChronoField.YEAR) : 0;
+        int month = temporal.isSupported(ChronoField.MONTH_OF_YEAR)
+                ? temporal.get(ChronoField.MONTH_OF_YEAR) : 1;
+        int day = temporal.isSupported(ChronoField.DAY_OF_MONTH)
+                ? temporal.get(ChronoField.DAY_OF_MONTH) : 1;
+        int hour = temporal.isSupported(ChronoField.HOUR_OF_DAY)
+                ? temporal.get(ChronoField.HOUR_OF_DAY) : 0;
+        int minute = temporal.isSupported(ChronoField.MINUTE_OF_HOUR)
+                ? temporal.get(ChronoField.MINUTE_OF_HOUR) : 0;
+        int second = temporal.isSupported(ChronoField.SECOND_OF_MINUTE)
+                ? temporal.get(ChronoField.SECOND_OF_MINUTE) : 0;
+        int milliSecond = temporal.isSupported(ChronoField.MILLI_OF_SECOND)
+                ? temporal.get(ChronoField.MILLI_OF_SECOND) : 0;
+        return LocalDateTime.of(LocalDate.of(year, month, day),
+                LocalTime.of(hour, minute, second, milliSecond * 1000000));
+    }
+
 }

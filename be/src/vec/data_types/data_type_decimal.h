@@ -313,7 +313,7 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
         if (common::mul_overflow(static_cast<MaxNativeType>(value), converted_value,
                                  converted_value)) {
-            LOG(FATAL) << "Decimal convert overflow";
+            LOG(WARNING) << "Decimal convert overflow";
         }
     } else
         converted_value =
@@ -322,7 +322,7 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
     if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {
         if (converted_value < std::numeric_limits<typename ToFieldType::NativeType>::min() ||
             converted_value > std::numeric_limits<typename ToFieldType::NativeType>::max()) {
-            LOG(FATAL) << "Decimal convert overflow";
+            LOG(WARNING) << "Decimal convert overflow";
         }
     }
 
@@ -350,7 +350,7 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
             if constexpr (std::numeric_limits<ToFieldType>::is_signed) {
                 if (converted_value < std::numeric_limits<ToFieldType>::min() ||
                     converted_value > std::numeric_limits<ToFieldType>::max()) {
-                    LOG(FATAL) << "Decimal convert overflow";
+                    LOG(WARNING) << "Decimal convert overflow";
                 }
             } else {
                 using CastIntType =
@@ -359,7 +359,7 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
                 if (converted_value < 0 ||
                     converted_value >
                             static_cast<CastIntType>(std::numeric_limits<ToFieldType>::max())) {
-                    LOG(FATAL) << "Decimal convert overflow";
+                    LOG(WARNING) << "Decimal convert overflow";
                 }
             }
         }

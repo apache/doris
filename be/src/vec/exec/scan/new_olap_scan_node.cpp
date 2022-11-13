@@ -22,7 +22,6 @@
 #include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
-#include "vec/functions/in.h"
 
 namespace doris::vectorized {
 
@@ -53,6 +52,8 @@ Status NewOlapScanNode::_init_profile() {
 
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
+    _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
+    _process_conjunct_timer = ADD_TIMER(_runtime_profile, "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
@@ -116,7 +117,9 @@ static std::string olap_filter_to_string(const doris::TCondition& condition) {
         op_name = "NOT IN";
     }
     return fmt::format("{{{} {} {}}}", condition.column_name, op_name,
-                       to_string(condition.condition_values));
+                       condition.condition_values.size() > 128
+                               ? "[more than 128 elements]"
+                               : to_string(condition.condition_values));
 }
 
 static std::string olap_filters_to_string(const std::vector<doris::TCondition>& filters) {
@@ -147,6 +150,7 @@ static std::string tablets_id_to_string(
 }
 
 Status NewOlapScanNode::_process_conjuncts() {
+    SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(VScanNode::_process_conjuncts());
     if (_eos) {
         return Status::OK();
@@ -166,7 +170,9 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     // we use `exact_range` to identify a key range is an exact range or not when we convert
     // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
     bool exact_range = true;
-    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
+    bool eos = false;
+    for (int column_index = 0;
+         column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
          ++column_index) {
         auto iter = _colname_to_value_range.find(column_names[column_index]);
         if (_colname_to_value_range.end() == iter) {
@@ -179,22 +185,25 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                     // because extend_scan_key method may change the first parameter.
                     // but the original range may be converted to olap filters, if it's not a exact_range.
                     auto temp_range = range;
-                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
-                                                               &exact_range));
-                    if (exact_range) {
-                        _colname_to_value_range.erase(iter->first);
+                    if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+                        RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
+                                                                   &exact_range, &eos));
+                        if (exact_range) {
+                            _colname_to_value_range.erase(iter->first);
+                        }
                     }
                     return Status::OK();
                 },
                 iter->second));
     }
+    _eos |= eos;
 
     for (auto& iter : _colname_to_value_range) {
         std::vector<TCondition> filters;
         std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
         for (const auto& filter : filters) {
-            _olap_filters.push_back(std::move(filter));
+            _olap_filters.push_back(filter);
         }
     }
 
@@ -282,13 +291,13 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         _eos = true;
         return Status::OK();
     }
+    SCOPED_TIMER(_scanner_init_timer);
+    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
         _runtime_profile->add_info_string("RemainedDownPredicates",
                                           (*_vconjunct_ctx_ptr)->root()->debug_string());
     }
-
-    auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<doris::OlapScanRange>> cond_ranges;
@@ -342,7 +351,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             _scanner_pool.add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
                                              _olap_filters, _bloom_filters_push_down,
-                                             _push_down_functions));
+                                             _in_filters_push_down, _push_down_functions));
             scanners->push_back((VScanner*)scanner);
             disk_set.insert(scanner->scan_disk());
         }

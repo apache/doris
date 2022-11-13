@@ -26,7 +26,7 @@
 // but don't require including the dangerous netinet/in.h.
 //
 // Buffer routines will copy to and from buffers without causing
-// a bus error when the architecture requires differnt byte alignments
+// a bus error when the architecture requires different byte alignments
 
 #pragma once
 

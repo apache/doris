@@ -96,7 +96,7 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
     if (_vconjunct_ctx) {
         _discard_conjuncts();
     }
-    // Notice that the number of runtiem filters may be larger than _applied_rf_num.
+    // Notice that the number of runtime filters may be larger than _applied_rf_num.
     // But it is ok because it will be updated at next time.
     RETURN_IF_ERROR(_parent->clone_vconjunct_ctx(&_vconjunct_ctx));
     _applied_rf_num = arrived_rf_num;

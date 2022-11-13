@@ -103,7 +103,8 @@ public:
             _stream_reader = nullptr;
         }
     };
-    virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, size_t batch_size,
+    virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                                    ColumnSelectVector& select_vector, size_t batch_size,
                                     size_t* read_rows, bool* eof) = 0;
     static Status create(FileReader* file, FieldSchema* field, const ParquetReadColumn& column,
                          const tparquet::RowGroup& row_group, std::vector<RowRange>& row_ranges,
@@ -138,10 +139,12 @@ public:
     ~ScalarColumnReader() override { close(); };
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                 std::vector<RowRange>& row_ranges, size_t max_buf_size);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, size_t batch_size,
-                            size_t* read_rows, bool* eof) override;
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
+                            bool* eof) override;
     Status _skip_values(size_t num_values);
-    Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type);
+    Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,
+                        ColumnSelectVector& select_vector);
     void close() override;
 };
 
@@ -151,15 +154,17 @@ public:
     ~ArrayColumnReader() override { close(); };
     Status init(FileReader* file, FieldSchema* field, tparquet::ColumnChunk* chunk,
                 std::vector<RowRange>& row_ranges, size_t max_buf_size);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, size_t batch_size,
-                            size_t* read_rows, bool* eof) override;
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
+                            bool* eof) override;
     void close() override;
 
 private:
     void _reserve_def_levels_buf(size_t size);
     void _init_rep_levels_buf();
     void _load_rep_levels();
-    Status _load_nested_column(ColumnPtr& doris_column, DataTypePtr& type, size_t read_values);
+    Status _load_nested_column(ColumnPtr& doris_column, DataTypePtr& type, size_t read_values,
+                               ColumnSelectVector& select_vector);
     Status _generate_array_offset(std::vector<size_t>& element_offsets, size_t pre_batch_size,
                                   size_t* real_batch_size, size_t* num_values);
     void _fill_array_offset(MutableColumnPtr& doris_column, std::vector<size_t>& element_offsets,

@@ -781,8 +781,10 @@ nonterminal List<PartitionValue> partition_value_list;
 nonterminal List<PartitionValue> partition_key_item_list;
 nonterminal List<List<PartitionValue>> list_partition_values_list;
 nonterminal SinglePartitionDesc single_partition_desc;
-nonterminal List<SinglePartitionDesc> opt_single_partition_desc_list;
-nonterminal List<SinglePartitionDesc> single_partition_desc_list;
+nonterminal List<AllPartitionDesc> opt_all_partition_desc_list;
+nonterminal List<AllPartitionDesc> all_partition_desc_list;
+nonterminal PartitionKeyDesc fixed_multi_partition_key_desc;
+nonterminal MultiPartitionDesc multi_partition_desc;
 
 nonterminal List<AccessPrivilege> privilege_list;
 nonterminal List<String> string_list;
@@ -2812,13 +2814,13 @@ opt_partition ::=
     :}
     /* Range partition */
     | KW_PARTITION KW_BY KW_RANGE LPAREN ident_list:columns RPAREN
-            LPAREN opt_single_partition_desc_list:list RPAREN
+            LPAREN opt_all_partition_desc_list:list RPAREN
     {:
         RESULT = new RangePartitionDesc(columns, list);
     :}
     /* List partition */
     | KW_PARTITION KW_BY KW_LIST LPAREN ident_list:columns RPAREN
-            LPAREN opt_single_partition_desc_list:list RPAREN
+            LPAREN opt_all_partition_desc_list:list RPAREN
     {:
         RESULT = new ListPartitionDesc(columns, list);
     :}
@@ -2886,24 +2888,33 @@ opt_keys ::=
     :}
     ;
 
-opt_single_partition_desc_list ::=
+opt_all_partition_desc_list ::=
     /* Empty */
     {:
         RESULT = null;
     :}
-    | single_partition_desc_list:list
+    | all_partition_desc_list:list
     {:
         RESULT = list;
     :}
     ;
 
-single_partition_desc_list ::=
-    single_partition_desc_list:list COMMA single_partition_desc:desc
+all_partition_desc_list ::=
+    all_partition_desc_list:list COMMA single_partition_desc:desc
     {:
         list.add(desc);
         RESULT = list;
     :}
     | single_partition_desc:desc
+    {:
+        RESULT = Lists.newArrayList(desc);
+    :}
+    | all_partition_desc_list:list COMMA multi_partition_desc:desc
+    {:
+        list.add(desc);
+        RESULT = list;
+    :}
+    | multi_partition_desc:desc
     {:
         RESULT = Lists.newArrayList(desc);
     :}
@@ -2925,6 +2936,22 @@ single_partition_desc ::=
         opt_key_value_map:properties
     {:
         RESULT = new SinglePartitionDesc(ifNotExists, partName, desc, properties);
+    :}
+    ;
+
+multi_partition_desc ::=
+    fixed_multi_partition_key_desc:desc
+        opt_key_value_map:properties
+    {:
+        RESULT = new MultiPartitionDesc(desc, properties);
+    :}
+    ;
+
+fixed_multi_partition_key_desc ::=
+    // FROM (lower) TO (upper) INTERVAL time_interval time_type
+    KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit
+    {:
+        RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit);
     :}
     ;
 
@@ -5561,7 +5588,23 @@ func_args_def ::=
 
 cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
-  {: RESULT = new CastExpr(targetType, e); :}
+  {: 
+    CastExpr castExpr = new CastExpr(targetType, e); 
+    if (targetType.getType().getLength() != -1
+        && (targetType.getType().getPrimitiveType() == PrimitiveType.VARCHAR 
+        || targetType.getType().getPrimitiveType() == PrimitiveType.CHAR)) {
+        // transfer cast(xx as char(N)/varchar(N)) to substr(cast(xx as char), 1, N)
+        // this is just a workaround to make the result correct
+        ArrayList<Expr> exprs = new ArrayList<>();
+        exprs.add(castExpr);
+        exprs.add(new IntLiteral(1));
+        exprs.add(new IntLiteral(targetType.getType().getLength()));
+        RESULT = new FunctionCallExpr("substr", new FunctionParams(exprs));
+    }
+    else {
+        RESULT = castExpr;
+    }
+  :}
   ;
 
 case_expr ::=

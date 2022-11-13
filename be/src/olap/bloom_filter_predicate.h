@@ -182,11 +182,4 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& colu
     return new_size;
 }
 
-class BloomFilterColumnPredicateFactory {
-public:
-    static ColumnPredicate* create_column_predicate(
-            uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, FieldType type,
-            int be_exec_version);
-};
-
 } //namespace doris

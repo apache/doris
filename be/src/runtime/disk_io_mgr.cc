@@ -955,7 +955,6 @@ void DiskIoMgr::work_loop(DiskQueue* disk_queue) {
     //   3. Perform the read or write as specified.
     // Cancellation checking needs to happen in both steps 1 and 3.
 
-    thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
     while (!_shut_down) {
         RequestContext* worker_context = nullptr;
         ;

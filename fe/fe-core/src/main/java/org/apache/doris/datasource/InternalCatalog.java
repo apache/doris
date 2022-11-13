@@ -321,6 +321,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         return Lists.newArrayList(idToDb.keySet());
     }
 
+    public List<Database> getDbs() {
+        return Lists.newArrayList(idToDb.values());
+    }
+
     private void unlock() {
         if (lock.isHeldByCurrentThread()) {
             this.lock.unlock();

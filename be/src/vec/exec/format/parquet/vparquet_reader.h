@@ -29,6 +29,7 @@
 #include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vparquet_column_reader.h"
 #include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
@@ -43,6 +44,7 @@ public:
         int32_t read_row_groups = 0;
         int64_t filtered_group_rows = 0;
         int64_t filtered_page_rows = 0;
+        int64_t lazy_read_filtered_rows = 0;
         int64_t read_rows = 0;
         int64_t filtered_bytes = 0;
         int64_t read_bytes = 0;
@@ -62,7 +64,8 @@ public:
     void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            VExprContext* vconjunct_ctx);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -85,6 +88,7 @@ private:
         RuntimeProfile::Counter* to_read_row_groups;
         RuntimeProfile::Counter* filtered_group_rows;
         RuntimeProfile::Counter* filtered_page_rows;
+        RuntimeProfile::Counter* lazy_read_filtered_rows;
         RuntimeProfile::Counter* filtered_bytes;
         RuntimeProfile::Counter* to_read_bytes;
         RuntimeProfile::Counter* column_read_time;
@@ -104,6 +108,7 @@ private:
 
     void _init_profile();
     bool _next_row_group_reader();
+    void _init_lazy_read();
     Status _init_read_columns();
     Status _init_row_group_readers();
     // Page Index Filter
@@ -137,6 +142,10 @@ private:
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
+
+    // Used for column lazy read.
+    RowGroupReader::LazyReadContext _lazy_read_ctx;
+
     std::list<int32_t> _read_row_groups;
     // parquet file reader object
     size_t _batch_size;

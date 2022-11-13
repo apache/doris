@@ -17,16 +17,17 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.statistics.ColumnStat;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 
 import com.google.common.base.Preconditions;
 
@@ -39,9 +40,9 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
 
     private static final double DEFAULT_EQUAL_SELECTIVITY = 0.3;
     private static final double DEFAULT_RANGE_SELECTIVITY = 0.8;
-    private final Map<Slot, ColumnStat> slotRefToStats;
+    private final Map<Id, ColumnStatistic> slotRefToStats;
 
-    public FilterSelectivityCalculator(Map<Slot, ColumnStat> slotRefToStats) {
+    public FilterSelectivityCalculator(Map<Id, ColumnStatistic> slotRefToStats) {
         Preconditions.checkNotNull(slotRefToStats);
         this.slotRefToStats = slotRefToStats;
     }
@@ -95,17 +96,17 @@ public class FilterSelectivityCalculator extends ExpressionVisitor<Double, Void>
         //TODO: remove the assumption that fun(A) and A have the same stats
         SlotReference left = (SlotReference) equalTo.left().getInputSlots().toArray()[0];
         Literal literal = (Literal) equalTo.right();
-        ColumnStat columnStats = slotRefToStats.get(left);
+        ColumnStatistic columnStats = slotRefToStats.get(left.getExprId());
         if (columnStats == null) {
             throw new RuntimeException("FilterSelectivityCalculator - col stats not found: " + left);
         }
-        ColumnStat newStats = new ColumnStat(1, columnStats.getAvgSizeByte(),
-                columnStats.getMaxSizeByte(), 0,
-                literal.getDouble(), literal.getDouble());
-        newStats.setSelectivity(1.0 / columnStats.getNdv());
-        slotRefToStats.put(left, newStats);
-        double ndv = columnStats.getNdv();
-        return ndv < 0 ? DEFAULT_EQUAL_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.getNdv();
+        ColumnStatistic newStats = new ColumnStatisticBuilder(columnStats)
+                .setMinValue(literal.getDouble()).setMaxValue(literal.getDouble())
+                    .setSelectivity(1.0 / columnStats.ndv).build();
+
+        slotRefToStats.put(left.getExprId(), newStats);
+        double ndv = columnStats.ndv;
+        return ndv < 0 ? DEFAULT_EQUAL_SELECTIVITY : ndv == 0 ? 0 : 1.0 / columnStats.ndv;
     }
     // TODO: Should consider the distribution of data.
 }

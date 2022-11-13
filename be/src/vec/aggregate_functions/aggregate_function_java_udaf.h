@@ -17,8 +17,6 @@
 
 #pragma once
 
-#ifdef LIBJVM
-
 #include <jni.h>
 #include <unistd.h>
 
@@ -46,7 +44,7 @@ const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZJJ)V";
 const char* UDAF_EXECUTOR_SERIALIZE_SIGNATURE = "(J)[B";
 const char* UDAF_EXECUTOR_MERGE_SIGNATURE = "(J[B)V";
 const char* UDAF_EXECUTOR_RESULT_SIGNATURE = "(JJ)Z";
-// Calling Java method about those signture means: "(argument-types)return-type"
+// Calling Java method about those signature means: "(argument-types)return-type"
 // https://www.iitk.ac.in/esc101/05Aug/tutorial/native1.1/implementing/method.html
 
 struct AggregateJavaUdafData {
@@ -401,4 +399,3 @@ private:
 };
 
 } // namespace doris::vectorized
-#endif

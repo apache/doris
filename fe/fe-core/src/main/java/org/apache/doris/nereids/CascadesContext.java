@@ -27,7 +27,6 @@ import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
@@ -56,9 +55,8 @@ public class CascadesContext {
     private final JobScheduler jobScheduler;
     private JobContext currentJobContext;
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
-    private Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
-    private RuntimeFilterContext runtimeFilterContext;
-    private EventChannel channel = new EventChannel();
+    private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
+    private final RuntimeFilterContext runtimeFilterContext;
 
     /**
      * Constructor of OptimizerContext.
@@ -131,10 +129,6 @@ public class CascadesContext {
 
     public RuntimeFilterContext getRuntimeFilterContext() {
         return runtimeFilterContext;
-    }
-
-    public EventChannel getChannel() {
-        return channel;
     }
 
     public void setCurrentJobContext(JobContext currentJobContext) {

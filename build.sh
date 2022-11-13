@@ -406,7 +406,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
-        -DBUILD_JAVA_UDF="${BUILD_JAVA_UDF}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \

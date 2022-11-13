@@ -77,6 +77,7 @@ public class ApplyRuleJob extends Job {
                     continue;
                 }
 
+                changed = true;
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));

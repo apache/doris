@@ -197,8 +197,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
 
-    public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
-            "enable_remove_no_conjuncts_runtime_filter_policy";
+    public static final String ENABLE_RUNTIME_FILTER_PRUNE =
+            "enable_runtime_filter_prune";
 
     static final String SESSION_CONTEXT = "session_context";
 
@@ -225,6 +225,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_EVENT = "enable_nereids_event";
 
     public static final String NEREIDS_EVENT_MODE = "nereids_event_mode";
+
+    public static final String INTERNAL_SESSION = "internal_session";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -492,7 +494,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
-    private int runtimeFilterMaxInNum = 1024;
+    private int runtimeFilterMaxInNum = 102400;
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
@@ -533,8 +535,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
     private boolean enableNereidsReorderToEliminateCrossJoin = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)
-    public boolean enableRemoveNoConjunctsRuntimeFilterPolicy = false;
+    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE)
+    public boolean enableRuntimeFilterPrune = false;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -586,6 +588,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
     public boolean enableNereidsStatsDeriveV2 = false;
+
+    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
+    public boolean internalSession = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_EVENT)
     public boolean enableNereidsEvent = false;
@@ -1177,24 +1182,22 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsStatsDeriveV2 = enableNereidsStatsDeriveV2;
     }
 
-    /**
-     * Serialize to thrift object.
-     * Used for rest api.
-     **/
-    public boolean isEnableRemoveNoConjunctsRuntimeFilterPolicy() {
-        return enableRemoveNoConjunctsRuntimeFilterPolicy;
+    public boolean isEnableRuntimeFilterPrune() {
+        return enableRuntimeFilterPrune;
     }
 
-    public void setEnableRemoveNoConjunctsRuntimeFilterPolicy(boolean enableRemoveNoConjunctsRuntimeFilterPolicy) {
-        this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
+    public void setEnableRuntimeFilterPrune(boolean enableRuntimeFilterPrune) {
+        this.enableRuntimeFilterPrune = enableRuntimeFilterPrune;
     }
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }
 
-    // Serialize to thrift object
-    // used for rest api
+    /**
+     * Serialize to thrift object.
+     * Used for rest api.
+     */
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);

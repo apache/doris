@@ -41,7 +41,7 @@ import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.StringType;
@@ -107,7 +107,7 @@ public class CharacterLiteralTypeCoercion extends AbstractExpressionRewriteRule 
                 ret = new FloatLiteral(Float.parseFloat(value));
             } else if (dataType instanceof DoubleType) {
                 ret = new DoubleLiteral(Double.parseDouble(value));
-            } else if (dataType instanceof DecimalType) {
+            } else if (dataType instanceof DecimalV2Type) {
                 ret = new DecimalLiteral(new BigDecimal(value));
             } else if (dataType instanceof CharType) {
                 ret = new CharLiteral(value, value.length());
