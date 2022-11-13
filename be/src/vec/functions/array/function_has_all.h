@@ -214,7 +214,7 @@ private:
     }
 
     void _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
-        if (!data.array_nullmap_data){
+        if (!data.array_nullmap_data) {
             return;
         }
         for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
