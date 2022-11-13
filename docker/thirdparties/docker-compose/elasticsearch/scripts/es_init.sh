@@ -18,6 +18,7 @@
 
 # es 6
 # create index test1
+# shellcheck disable=SC2154
 curl "http://${ES_6_HOST}:9200/test1" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/es6_test1.json"
 # create index test2
 curl "http://${ES_6_HOST}:9200/test2_20220808" -H "Content-Type:application/json" -X PUT -d '@/mnt/scripts/index/es6_test2.json'
