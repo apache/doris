@@ -18,49 +18,79 @@
 version: "3.9"
 
 services:
-  es6:
+  doris--es_6:
     # es official not provide 6.x image for arm/v8, use compatible image.
     image: webhippie/elasticsearch:6.8
-    container_name: elasticsearch6
     ports:
-      - "19200:9200"
+      - ${DOCKER_ES_6_EXTERNAL_PORT}:9200
     environment:
       ELASTICSEARCH_CLUSTER_NAME: "elasticsearch6"
       ES_JAVA_OPTS: "-Xms256m -Xmx256m"
       discovery.type: "single-node"
       ELASTICSEARCH_XPACK_SECURITY_ENABLED: "false"
+    volumes:
+      - ./data/es6/:/usr/share/elasticsearch/data
+    networks:
+      - doris--es
     healthcheck:
       test: [ "CMD", "curl", "localhost:9200" ]
       interval: 30s
       timeout: 10s
       retries: 100
-  es7:
+  doris--es_7:
     image: elasticsearch:7.17.5
-    container_name: elasticsearch7
     ports:
-      - "29200:9200"
+      - ${DOCKER_ES_7_EXTERNAL_PORT}:9200
     environment:
       cluster.name: "elasticsearch7"
       ES_JAVA_OPTS: "-Xms256m -Xmx256m"
       discovery.type: "single-node"
       xpack.security.enabled: "false"
+    volumes:
+      - ./data/es7/:/usr/share/elasticsearch/data
+    networks:
+      - doris--es
     healthcheck:
       test: [ "CMD", "curl", "localhost:9200" ]
       interval: 30s
       timeout: 10s
       retries: 100
-  es8:
+  doris--es_8:
     image: elasticsearch:8.3.3
-    container_name: elasticsearch8
     ports:
-      - "39200:9200"
+      - ${DOCKER_ES_8_EXTERNAL_PORT}:9200
     environment:
       cluster.name: "elasticsearch8"
       ES_JAVA_OPTS: "-Xms256m -Xmx256m"
       discovery.type: "single-node"
       xpack.security.enabled: "false"
+    volumes:
+      - ./data/es8/:/usr/share/elasticsearch/data
+    networks:
+      - doris--es
     healthcheck:
       test: [ "CMD", "curl", "localhost:9200" ]
       interval: 30s
       timeout: 10s
       retries: 100
+  doris--_init_data:
+    image: webdevops/toolbox
+    volumes:
+      - ./scripts/:/mnt/scripts
+    environment:
+      ES_6_HOST: "doris--es_6"
+      ES_7_HOST: "doris--es_7"
+      ES_8_HOST: "doris--es_8"
+    command: [ "sh","-c","/mnt/scripts/es_init.sh" ]
+    depends_on:
+      doris--es_6:
+        condition: service_healthy
+      doris--es_7:
+        condition: service_healthy
+      doris--es_8:
+        condition: service_healthy
+    networks:
+      - doris--es
+
+networks:
+  doris--es:
