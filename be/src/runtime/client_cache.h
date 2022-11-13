@@ -151,7 +151,7 @@ public:
         *status = _client_cache->get_client(address, _client_pair, 0);
 
         if (status->ok()) {
-            DCHECK(_client_pair->first != nullptr);
+            DCHECK(_client_pair != nullptr);
         }
     }
 
@@ -161,18 +161,18 @@ public:
         *status = _client_cache->get_client(address, _client_pair, timeout_ms);
 
         if (status->ok()) {
-            DCHECK(_client_pair->first != nullptr);
+            DCHECK(_client_pair != nullptr);
         }
     }
 
     ~ClientConnection() {
-        if (_client_pair->first != nullptr) {
+        if (_client_pair != nullptr) {
             _client_cache->release_client(_client_pair);
+            // the client is owned by others, we should just only point to nullptr
+            // and delete the memory for the pair
+            _client_pair->first = nullptr;
+            _client_pair->second = nullptr;
         }
-        // the client is owned by others, we should just only point to nullptr
-        // and delete the memory for the pair
-        _client_pair->first = nullptr;
-        _client_pair->second = nullptr;
         delete _client_pair;
         _client_pair = nullptr;
     }
