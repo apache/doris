@@ -35,34 +35,39 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_opened_clients, MetricUnit::NOUNIT,
                                    "Total clients in the cache, including those in use");
 
 ClientCacheHelper::~ClientCacheHelper() {
-    for (auto& it : _client_map) {
-        delete it.second;
+    // for (auto& it : _client_map) {
+    //     delete it.second;
+    // }
+    for (auto& pairs: _client_cache) {
+        for (auto& pair: pairs.second) {
+            delete pair->second;
+        }
     }
 }
 
-void ClientCacheHelper::_get_client_from_cache(const TNetworkAddress& hostport, void** client_key) {
-    *client_key = nullptr;
+void ClientCacheHelper::_get_client_from_cache(const TNetworkAddress& hostport, ClientImplPair& client_key) {
+    client_key.first = nullptr;
     std::lock_guard<std::mutex> lock(_lock);
     //VLOG_RPC << "get_client(" << hostport << ")";
     auto cache_entry = _client_cache.find(hostport);
 
     if (cache_entry == _client_cache.end()) {
-        cache_entry = _client_cache.insert(std::make_pair(hostport, std::list<void*>())).first;
+        cache_entry = _client_cache.insert(std::make_pair(hostport, std::list<ClientImplPair*>())).first;
         DCHECK(cache_entry != _client_cache.end());
     }
 
-    std::list<void*>& info_list = cache_entry->second;
+    std::list<ClientImplPair*>& info_list = cache_entry->second;
     if (!info_list.empty()) {
-        *client_key = info_list.front();
+        client_key = *info_list.front();
         VLOG_RPC << "get_client(): cached client for " << hostport;
         info_list.pop_front();
     }
 }
 
 Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
-                                     void** client_key, int timeout_ms) {
+                                     ClientImplPair& client_key, int timeout_ms) {
     _get_client_from_cache(hostport, client_key);
-    if (*client_key == nullptr) {
+    if (client_key.first == nullptr) {
         RETURN_IF_ERROR(_create_client(hostport, factory_method, client_key, timeout_ms));
     }
 
@@ -73,16 +78,11 @@ Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, ClientFact
     return Status::OK();
 }
 
-Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** client_key,
+Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, ClientImplPair& client_key,
                                         int timeout_ms) {
-    DCHECK(*client_key != nullptr) << "Trying to reopen nullptr client";
-    ThriftClientImpl* client_to_close = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto client_map_entry = _client_map.find(*client_key);
-        DCHECK(client_map_entry != _client_map.end());
-        client_to_close = client_map_entry->second;
-    }
+    DCHECK(client_key.first != nullptr) << "Trying to reopen nullptr client";
+    ThriftClientImpl* client_to_close = client_key.second;
+    
     const std::string ipaddress = client_to_close->ipaddress();
     int port = client_to_close->port();
 
@@ -91,12 +91,8 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
     // TODO: Thrift TBufferedTransport cannot be re-opened after Close() because it does
     // not clean up internal buffers it reopens. To work around this issue, create a new
     // client instead.
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        _client_map.erase(*client_key);
-    }
     delete client_to_close;
-    *client_key = nullptr;
+    client_key.first = nullptr;
 
     if (_metrics_enabled) {
         thrift_opened_clients->increment(-1);
@@ -109,7 +105,7 @@ Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, void** cl
 }
 
 Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
-                                         ClientFactory& factory_method, void** client_key,
+                                         ClientFactory& factory_method, ClientImplPair& client_key,
                                          int timeout_ms) {
     std::unique_ptr<ThriftClientImpl> client_impl(factory_method(hostport, client_key));
     //VLOG_CONNECTION << "create_client(): adding new client for "
@@ -120,17 +116,11 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
     Status status = client_impl->open();
 
     if (!status.ok()) {
-        *client_key = nullptr;
+        client_key.first = nullptr;
         return status;
     }
     client_impl->set_send_timeout(timeout_ms);
     client_impl->set_recv_timeout(timeout_ms);
-
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        // Because the client starts life 'checked out', we don't add it to the cache map
-        _client_map[*client_key] = client_impl.release();
-    }
 
     if (_metrics_enabled) {
         thrift_opened_clients->increment(1);
@@ -139,14 +129,14 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
     return Status::OK();
 }
 
-void ClientCacheHelper::release_client(void** client_key) {
-    DCHECK(*client_key != nullptr) << "Trying to release nullptr client";
+void ClientCacheHelper::release_client(ClientImplPair& client_key) {
+    DCHECK(client_key.first != nullptr) << "Trying to release nullptr client";
     ThriftClientImpl* client_to_close = nullptr;
     {
         std::lock_guard<std::mutex> lock(_lock);
-        auto client_map_entry = _client_map.find(*client_key);
-        DCHECK(client_map_entry != _client_map.end());
-        client_to_close = client_map_entry->second;
+        // auto client_map_entry = _client_map.find(*client_key);
+        // DCHECK(client_map_entry != _client_map.end());
+        client_to_close = client_key.second;
 
         auto cache_list = _client_cache.find(
                 make_network_address(client_to_close->ipaddress(), client_to_close->port()));
@@ -154,9 +144,9 @@ void ClientCacheHelper::release_client(void** client_key) {
         if (_max_cache_size_per_host >= 0 &&
             cache_list->second.size() >= _max_cache_size_per_host) {
             // cache of this host is full, close this client connection and remove if from _client_map
-            _client_map.erase(*client_key);
+            // _client_map.erase(*client_key);
         } else {
-            cache_list->second.push_back(*client_key);
+            cache_list->second.push_back(&client_key);
             // There is no need to close client if we put it to cache list.
             client_to_close = nullptr;
         }
@@ -174,7 +164,6 @@ void ClientCacheHelper::release_client(void** client_key) {
         thrift_used_clients->increment(-1);
     }
 
-    *client_key = nullptr;
 }
 
 void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
@@ -189,11 +178,8 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
 
         VLOG_RPC << "Invalidating all " << cache_entry->second.size()
                  << " clients for: " << hostport;
-        for (void* client_key : cache_entry->second) {
-            auto client_map_entry = _client_map.find(client_key);
-            DCHECK(client_map_entry != _client_map.end());
-            ThriftClientImpl* info = client_map_entry->second;
-            _client_map.erase(client_key);
+        for (auto& pair : cache_entry->second) {
+            ThriftClientImpl* info = pair->second;
             to_close.push_back(info);
         }
     }
