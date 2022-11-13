@@ -79,7 +79,8 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
 
 Segment::~Segment() {
 #ifndef BE_TEST
-    StorageEngine::instance()->segment_meta_mem_tracker()->release(_meta_mem_usage);
+    if (StorageEngine::instance())
+        StorageEngine::instance()->segment_meta_mem_tracker()->release(_meta_mem_usage);
 #endif
 }
 
@@ -149,7 +150,8 @@ Status Segment::_parse_footer() {
                                   _file_reader->path().native(), file_size, 12 + footer_length);
     }
     _meta_mem_usage += footer_length;
-    StorageEngine::instance()->segment_meta_mem_tracker()->consume(footer_length);
+    if (StorageEngine::instance())
+        StorageEngine::instance()->segment_meta_mem_tracker()->consume(footer_length);
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -214,7 +216,8 @@ Status Segment::load_index() {
             DCHECK(footer.has_short_key_page_footer());
 
             _meta_mem_usage += body.get_size();
-            StorageEngine::instance()->segment_meta_mem_tracker()->consume(body.get_size());
+            if (StorageEngine::instance())
+                StorageEngine::instance()->segment_meta_mem_tracker()->consume(body.get_size());
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }
