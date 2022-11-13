@@ -121,8 +121,8 @@ public:
         UInt8* dst_null_map_data = dst_null_map->get_data().data();
 
         // any array is null return null
-        RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
-        RETURN_IF_ERROR(_execute_nullable(right_exec_data, dst_null_map_data));
+        _execute_nullable(left_exec_data, dst_null_map_data);
+        _execute_nullable(right_exec_data, dst_null_map_data);
 
         // execute overlap check
         if (left_exec_data.nested_col->is_column_string()) {
@@ -213,18 +213,21 @@ private:
         return Status::OK();
     }
 
-    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
+    void _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
+        if (!data.array_nullmap_data){
+            return;
+        }
         for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;
             }
 
-            if (data.array_nullmap_data && data.array_nullmap_data[row]) {
+            if (data.array_nullmap_data[row]) {
                 dst_nullmap_data[row] = 1;
                 continue;
             }
         }
-        return Status::OK();
+        return;
     }
 };
 
