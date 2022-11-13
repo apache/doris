@@ -635,7 +635,7 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 CONF_Bool(enable_tcmalloc_hook, "true");
 
 // Print more detailed logs, more detailed records, etc.
-CONF_Bool(memory_debug, "false");
+CONF_mBool(memory_debug, "false");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.

@@ -133,9 +133,7 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits) {
     }
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
-    if (check_limits &&
-        !thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
-                chunk_size)) {
+    if (check_limits && !thread_context()->thread_mem_tracker()->check_limit(chunk_size)) {
         return Status::MemoryAllocFailed("MemPool find new chunk {} bytes faild, exceed limit",
                                          chunk_size);
     }
