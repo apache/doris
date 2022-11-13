@@ -44,7 +44,7 @@ ClientCacheHelper::~ClientCacheHelper() {
 
 void ClientCacheHelper::_get_client_from_cache(const TNetworkAddress& hostport,
                                                ClientImplPair*& client_pair) {
-    client_pair->first = nullptr;
+    client_pair = nullptr;
     std::lock_guard<std::mutex> lock(_lock);
     //VLOG_RPC << "get_client(" << hostport << ")";
     auto cache_entry = _client_cache.find(hostport);
@@ -66,7 +66,7 @@ void ClientCacheHelper::_get_client_from_cache(const TNetworkAddress& hostport,
 Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
                                      ClientImplPair*& client_pair, int timeout_ms) {
     _get_client_from_cache(hostport, client_pair);
-    if (client_pair->first == nullptr) {
+    if (client_pair == nullptr) {
         RETURN_IF_ERROR(_create_client(hostport, factory_method, client_pair, timeout_ms));
     }
 
@@ -79,7 +79,7 @@ Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, ClientFact
 
 Status ClientCacheHelper::reopen_client(ClientFactory& factory_method, ClientImplPair*& client_pair,
                                         int timeout_ms) {
-    DCHECK(client_pair->first != nullptr) << "Trying to reopen nullptr client";
+    DCHECK(client_pair != nullptr && client_pair->first != nullptr) << "Trying to reopen nullptr client";
     ThriftClientImpl* client_to_close = client_pair->second;
 
     const std::string ipaddress = client_to_close->ipaddress();
@@ -129,7 +129,7 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
 }
 
 void ClientCacheHelper::release_client(ClientImplPair*& client_pair) {
-    DCHECK(client_pair->first != nullptr) << "Trying to release nullptr client";
+    DCHECK(client_pair != nullptr && client_pair->first != nullptr) << "Trying to release nullptr client";
     ThriftClientImpl* client_to_close = nullptr;
     {
         std::lock_guard<std::mutex> lock(_lock);
