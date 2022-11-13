@@ -194,7 +194,8 @@ public class EsUtil {
         return properties;
     }
 
-    private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList, Map<String, String> fieldsContext) {
+    private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList,
+            Map<String, String> fieldsContext) {
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         switch (compoundPredicate.getOp()) {
             case AND: {
