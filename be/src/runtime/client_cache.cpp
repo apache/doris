@@ -144,8 +144,11 @@ void ClientCacheHelper::release_client(ClientImplPair*& client_pair) {
                 make_network_address(client_to_close->ipaddress(), client_to_close->port()));
         DCHECK(cache_list != _client_cache.end());
         // restore the client unless cache of this host if full
-        if (!(_max_cache_size_per_host >= 0 &&
-              cache_list->second.size() >= _max_cache_size_per_host)) {
+        if (_max_cache_size_per_host >= 0 &&
+              cache_list->second.size() >= _max_cache_size_per_host) {
+            // cache of this host is full, close this client connection and remove if from _client_map
+            delete client_pair;
+        } else {
             cache_list->second.push_back(client_pair);
             // There is no need to close client if we put it to cache list.
             client_to_close = nullptr;
@@ -164,14 +167,11 @@ void ClientCacheHelper::release_client(ClientImplPair*& client_pair) {
         thrift_used_clients->increment(-1);
     }
 
-    // make sure the resouce wouldn't be deleted by
-    // deleting the pair
-    client_pair->first = nullptr;
-    client_pair->second = nullptr;
+    client_pair = nullptr;
 }
 
 void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
-    std::vector<ThriftClientImpl*> to_close;
+    std::list<ClientImplPair*> to_close;
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto cache_entry = _client_cache.find(hostport);
@@ -182,14 +182,13 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
 
         VLOG_RPC << "Invalidating all " << cache_entry->second.size()
                  << " clients for: " << hostport;
-        for (auto& pair : cache_entry->second) {
-            ThriftClientImpl* info = pair->second;
-            to_close.push_back(info);
-        }
+        to_close.swap(to_close);
+        _client_cache.erase(hostport);
     }
 
     for (auto* info : to_close) {
-        info->close();
+        info->second->close();
+        delete info->second;
         delete info;
     }
 }

@@ -168,13 +168,7 @@ public:
     ~ClientConnection() {
         if (_client_pair != nullptr) {
             _client_cache->release_client(_client_pair);
-            // the client is owned by others, we should just only point to nullptr
-            // and delete the memory for the pair
-            _client_pair->first = nullptr;
-            _client_pair->second = nullptr;
         }
-        delete _client_pair;
-        _client_pair = nullptr;
     }
 
     Status reopen(int timeout_ms) { return _client_cache->reopen_client(_client_pair, timeout_ms); }
