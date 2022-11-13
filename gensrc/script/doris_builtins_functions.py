@@ -2865,11 +2865,8 @@ visible_functions = [
     [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
-<<<<<<< HEAD
     [['uuid'], 'VARCHAR', [], '_ZN5doris15StringFunctions4uuidEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
-=======
->>>>>>> fix
     [['has_all'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], '', '', '', 'vec', ''],
     [['has_all'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', ''],
     [['has_all'], 'BOOLEAN', ['ARRAY_INT', 'ARRAY_INT'], '', '', '', 'vec', ''],
@@ -2882,10 +2879,6 @@ visible_functions = [
     [['has_all'], 'BOOLEAN', ['ARRAY_DATETIME', 'ARRAY_DATETIME'], '', '', '', 'vec', ''],
     [['has_all'], 'BOOLEAN', ['ARRAY_DATE', 'ARRAY_DATE'], '', '', '', 'vec', ''],
     [['has_all'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', ''],
-<<<<<<< HEAD
-
-=======
->>>>>>> fix
 ]
 
 # Except the following functions, other function will directly return
