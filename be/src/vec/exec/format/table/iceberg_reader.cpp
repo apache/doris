@@ -122,7 +122,7 @@ void IcebergTableReader::filter_rows() {
         }
     }
     auto* parquet_reader = ((ParquetReader*)_file_format_reader);
-    parquet_reader->generate_candidate_row_ranges(delete_row_ranges);
+    parquet_reader->merge_delete_row_ranges(delete_row_ranges);
 }
 
 Status IcebergTableReader::init_row_filters() {

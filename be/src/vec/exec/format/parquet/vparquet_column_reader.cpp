@@ -61,7 +61,7 @@ void ParquetColumnReader::init_column_metadata(const tparquet::ColumnChunk& chun
 
 void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end_index,
                                                 std::list<RowRange>& read_ranges) {
-    if (_row_ranges->size() == 0) {
+    if (_row_ranges->empty()) {
         read_ranges.emplace_back(start_index, end_index);
         return;
     }

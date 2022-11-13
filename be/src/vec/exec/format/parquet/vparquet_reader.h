@@ -78,7 +78,7 @@ public:
 
     Status file_metadata(FileMetaData** metadata);
 
-    void generate_candidate_row_ranges(const std::vector<RowRange>& delete_row_ranges);
+    void merge_delete_row_ranges(const std::vector<RowRange>& delete_row_ranges);
 
     int64_t size() const { return _file_reader->size(); }
 
@@ -123,8 +123,7 @@ private:
     Status _init_row_group_readers(const bool& filter_groups);
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
-    Status _process_page_index(const tparquet::RowGroup& row_group,
-                               std::vector<RowRange>& candidate_row_ranges);
+    Status _process_page_index(const tparquet::RowGroup& row_group);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);

@@ -416,9 +416,10 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     row_group_reader.reset(new RowGroupReader(&file_reader, read_columns,
                                               RowGroupIndex(0, 0, 10000), row_group, &ctz,
                                               lazy_read_ctx));
-    std::vector<RowRange> row_ranges = std::vector<RowRange>();
     auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
     auto stg = row_group_reader->init(meta_data->schema(), col_offsets);
+    std::vector<RowRange> row_ranges = std::vector<RowRange>();
+    row_group_reader->set_row_ranges(row_ranges);
     EXPECT_TRUE(stg.ok());
 
     vectorized::Block block;

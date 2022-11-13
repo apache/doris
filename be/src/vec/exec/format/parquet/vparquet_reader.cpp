@@ -312,7 +312,7 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
-void ParquetReader::generate_candidate_row_ranges(const std::vector<RowRange>& delete_row_ranges) {
+void ParquetReader::merge_delete_row_ranges(const std::vector<RowRange>& delete_row_ranges) {
     //    std::vector<RowRange> group_delete_row_ranges;
     //    for (auto& range : _delete_row_ranges) {
     //        // TODO: reduce ranges of the following group
@@ -423,7 +423,7 @@ Status ParquetReader::_init_row_group_readers(const bool& filter_groups) {
         row_group_reader.reset(new RowGroupReader(_file_reader.get(), _read_columns, *group_index,
                                                   row_group, _ctz, _lazy_read_ctx));
         group_index++;
-        RETURN_IF_ERROR(_process_page_index(row_group, _row_ranges));
+        RETURN_IF_ERROR(_process_page_index(row_group));
         if (_row_ranges.empty()) {
             _row_ranges.emplace_back(0, row_group.num_rows);
             _statistics.read_rows += row_group.num_rows;
@@ -497,8 +497,7 @@ bool ParquetReader::_has_page_index(const std::vector<tparquet::ColumnChunk>& co
     return page_index.check_and_get_page_index_ranges(columns);
 }
 
-Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
-                                          std::vector<RowRange>& candidate_row_ranges) {
+Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group) {
     if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         return Status::OK();
     }
@@ -566,14 +565,14 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             }
         } else {
             // read row with candidate ranges rather than skipped ranges
-            candidate_row_ranges.emplace_back(skip_end, skip_range.first_row);
+            _row_ranges.emplace_back(skip_end, skip_range.first_row);
             read_rows += skip_range.first_row - skip_end;
             skip_end = skip_range.last_row;
         }
     }
     DCHECK_LE(skip_end, row_group.num_rows);
     if (skip_end != row_group.num_rows) {
-        candidate_row_ranges.emplace_back(skip_end, row_group.num_rows);
+        _row_ranges.emplace_back(skip_end, row_group.num_rows);
         read_rows += row_group.num_rows - skip_end;
     }
     _statistics.read_rows += read_rows;
