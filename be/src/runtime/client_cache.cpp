@@ -145,7 +145,7 @@ void ClientCacheHelper::release_client(ClientImplPair*& client_pair) {
         DCHECK(cache_list != _client_cache.end());
         // restore the client unless cache of this host if full
         if (_max_cache_size_per_host >= 0 &&
-              cache_list->second.size() >= _max_cache_size_per_host) {
+            cache_list->second.size() >= _max_cache_size_per_host) {
             // cache of this host is full, close this client connection and remove if from _client_map
             delete client_pair;
         } else {
