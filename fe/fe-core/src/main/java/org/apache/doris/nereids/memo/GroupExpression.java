@@ -41,6 +41,7 @@ import java.util.Optional;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
+    public int hashCnt = 0;
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;
@@ -228,6 +229,7 @@ public class GroupExpression {
 
     @Override
     public int hashCode() {
+        hashCnt++;
         return Objects.hash(children, plan);
     }
 

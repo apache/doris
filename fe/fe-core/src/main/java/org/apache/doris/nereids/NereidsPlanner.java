@@ -86,6 +86,8 @@ public class NereidsPlanner extends Planner {
             System.out.println(memo);
             LOG.info(memo);
         }
+        System.out.println(cascadesContext.getMemo()
+                .getGroupExpressions().keySet().stream().map(g -> g.hashCnt).collect(Collectors.toList()));
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
         scanNodeList = planTranslatorContext.getScanNodes();
