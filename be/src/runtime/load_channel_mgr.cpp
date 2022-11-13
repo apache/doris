@@ -182,7 +182,6 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     {
         std::vector<UniqueId> need_delete_channel_ids;
         std::lock_guard<std::mutex> l(_lock);
-        VLOG_CRITICAL << "there are " << _load_channels.size() << " running load channels";
         int i = 0;
         for (auto& kv : _load_channels) {
             VLOG_CRITICAL << "load channel[" << i++ << "]: " << *(kv.second);
@@ -212,7 +211,8 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     // on this Backend
     LOG(INFO) << "load mem consumption(bytes). limit: " << _load_hard_mem_limit
               << ", current: " << _mem_tracker->consumption()
-              << ", peak: " << _mem_tracker->peak_consumption();
+              << ", peak: " << _mem_tracker->peak_consumption()
+              << ", total running load channels: " << _load_channels.size();
 
     return Status::OK();
 }
