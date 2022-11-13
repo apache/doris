@@ -48,10 +48,12 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
         List<ResultRow> resultBatches = StatisticsUtil.execStatisticQuery(QUERY_COLUMN_ALL);
         Map<String, ColumnStatistic> map = new HashMap<>();
         try {
+            LOG.info("load column statistics count: " + resultBatches.size());
             resultBatches.stream().forEach(
                     row -> {
                         try {
                             ColumnStatistic stat = ColumnStatistic.fromResultRow(row);
+                            LOG.info("load column statistic: " + row.toString());
                             String key = row.getColumnValue("id");
                             map.put(key, stat);
                         } catch (Exception e) {
