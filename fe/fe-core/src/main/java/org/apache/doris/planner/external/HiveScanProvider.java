@@ -74,7 +74,6 @@ public class HiveScanProvider extends HMSTableScanProvider {
     private static final String PROP_FIELD_DELIMITER = "field.delim";
     private static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    private static final int MIN_BATCH_FETCH_PARTITION_NUM = 100;
 
     protected HMSExternalTable hmsTable;
 
@@ -137,6 +136,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
 
     @Override
     public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
+        long start = System.currentTimeMillis();
         try {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
@@ -179,7 +179,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
                         hmsTable.getRemoteTable().getSd().getLocation(), null);
                 getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles);
             }
-            LOG.debug("get {} files for table: {}", allFiles.size(), hmsTable.getName());
+            LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
+                    allFiles.size(), hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
             return allFiles;
         } catch (Throwable t) {
             LOG.warn("get file split failed for table: {}", hmsTable.getName(), t);

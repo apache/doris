@@ -278,7 +278,7 @@ public class HiveMetaStoreCache {
         List<InputSplit> retFiles = Lists.newArrayListWithExpectedSize(
                 fileLists.stream().mapToInt(l -> l.size()).sum());
         fileLists.stream().forEach(l -> retFiles.addAll(l));
-        LOG.debug("get #{} files by #{} partitions in catalog {} cost: {} ms",
+        LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
                 retFiles.size(), partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
         return retFiles;
     }
