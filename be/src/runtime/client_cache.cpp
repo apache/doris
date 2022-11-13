@@ -35,9 +35,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_3ARG(thrift_opened_clients, MetricUnit::NOUNIT,
                                    "Total clients in the cache, including those in use");
 
 ClientCacheHelper::~ClientCacheHelper() {
-    // for (auto& it : _client_map) {
-    //     delete it.second;
-    // }
     for (auto& pairs : _client_cache) {
         for (auto& pair : pairs.second) {
             delete pair->second;
