@@ -188,12 +188,13 @@ public class HiveScanProvider extends HMSTableScanProvider {
     private void getFileSplitByLocation(HiveMetaStoreCache cache, String location, String inputFormat,
             List<InputSplit> allFiles) {
         LOG.debug("try get file split by location: {}", inputFormat);
-        allFiles.addAll(cache.getFiles(location, inputFormat));
+        ImmutableList<InputSplit> files = cache.getFiles(location, inputFormat);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("get files from location: {}: {}", location,
+            LOG.debug("get #{} files from location: {}: {}", files.size(), location,
                     Joiner.on(",")
-                            .join(allFiles.stream().map(f -> ((FileSplit) f).getPath()).collect(Collectors.toList())));
+                            .join(files.stream().map(f -> ((FileSplit) f).getPath()).collect(Collectors.toList())));
         }
+        allFiles.addAll(files);
     }
 
     protected Configuration setConfiguration() {
