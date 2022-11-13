@@ -131,12 +131,12 @@ Status ParquetReader::_open_file() {
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
                                                         _scan_range.start_offset,
                                                         _scan_range.file_size, 0, _file_reader));
+    }
+    if (_file_metadata == nullptr) {
         RETURN_IF_ERROR(_file_reader->open());
         if (_file_reader->size() == 0) {
             return Status::EndOfFile("Empty Parquet File");
         }
-    }
-    if (_file_metadata == nullptr) {
         RETURN_IF_ERROR(parse_thrift_footer(_file_reader.get(), _file_metadata));
     }
     return Status::OK();
