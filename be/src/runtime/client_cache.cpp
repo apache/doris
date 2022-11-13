@@ -125,6 +125,7 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
     if (_metrics_enabled) {
         thrift_opened_clients->increment(1);
     }
+    client_impl.release();
 
     return Status::OK();
 }
