@@ -74,6 +74,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
     private static final String PROP_FIELD_DELIMITER = "field.delim";
     private static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     private static final String DEFAULT_LINE_DELIMITER = "\n";
+    private static final int MIN_BATCH_FETCH_PARTITION_NUM = 100;
 
     protected HMSExternalTable hmsTable;
 
@@ -162,20 +163,21 @@ public class HiveScanProvider extends HMSTableScanProvider {
                 Collection<Long> filteredPartitionIds = pruner.prune();
 
                 // 3. get partitions from cache
-                List<HivePartition> partitions = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
+                List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
                 for (Long id : filteredPartitionIds) {
                     ListPartitionItem listPartitionItem = (ListPartitionItem) keyItemMap.get(id);
-                    partitions.add(cache.getPartition(hmsTable.getDbName(), hmsTable.getName(),
-                            listPartitionItem.getItems().get(0).getPartitionValuesAsStringList()));
+                    partitionValuesList.add(listPartitionItem.getItems().get(0).getPartitionValuesAsStringList());
                 }
+                List<HivePartition> partitions = cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(),
+                        partitionValuesList);
                 // 4. get all files of partitions
-                for (HivePartition partition : partitions) {
-                    getFileSplitByLocation(cache, partition.getPath(), partition.getInputFormat(), allFiles);
-                }
+                getFileSplitByPartitions(cache, partitions, allFiles);
             } else {
-                // unpartitioned table, get all files of partitions
-                getFileSplitByLocation(cache, hmsTable.getRemoteTable().getSd().getLocation(),
-                        hmsTable.getRemoteTable().getSd().getInputFormat(), allFiles);
+                // unpartitioned table, create a dummy partition to save location and inputformat,
+                // so that we can unify the interface.
+                HivePartition dummyPartition = new HivePartition(hmsTable.getRemoteTable().getSd().getInputFormat(),
+                        hmsTable.getRemoteTable().getSd().getLocation(), null);
+                getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles);
             }
             LOG.debug("get {} files for table: {}", allFiles.size(), hmsTable.getName());
             return allFiles;
@@ -185,14 +187,14 @@ public class HiveScanProvider extends HMSTableScanProvider {
         }
     }
 
-    private void getFileSplitByLocation(HiveMetaStoreCache cache, String location, String inputFormat,
+    private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
             List<InputSplit> allFiles) {
-        LOG.debug("try get file split by location: {}", inputFormat);
-        ImmutableList<InputSplit> files = cache.getFiles(location, inputFormat);
+        List<InputSplit> files = cache.getFilesByPartitions(partitions);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("get #{} files from location: {}: {}", files.size(), location,
+            LOG.debug("get #{} files from #{} partitions: {}: {}", files.size(), partitions.size(),
                     Joiner.on(",")
-                            .join(files.stream().map(f -> ((FileSplit) f).getPath()).collect(Collectors.toList())));
+                            .join(files.stream().limit(10).map(f -> ((FileSplit) f).getPath())
+                                    .collect(Collectors.toList())));
         }
         allFiles.addAll(files);
     }

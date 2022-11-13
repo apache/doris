@@ -171,6 +171,10 @@ public class HMSExternalTable extends ExternalTable {
         return partitionColumns;
     }
 
+    public List<String> getPartitionColumnNames() {
+        return getPartitionColumns().stream().map(c -> c.getName()).collect(Collectors.toList());
+    }
+
     @Override
     public boolean isView() {
         return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();

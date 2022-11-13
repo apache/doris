@@ -56,6 +56,8 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 // The cache of a hms catalog. 3 kind of caches:
 // 1. partitionValuesCache: cache the partition values of a table, for partition prune.
@@ -63,6 +65,7 @@ import java.util.concurrent.TimeUnit;
 // 3. fileCache: cache the files of a location.
 public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
+    private static final int MIN_BATCH_FETCH_PARTITION_NUM = 50;
 
     private HMSExternalCatalog catalog;
 
@@ -151,7 +154,7 @@ public class HiveMetaStoreCache {
         if (LOG.isDebugEnabled()) {
             LOG.debug("load #{} partitions for {} in catalog {}", partitionNames.size(), key, catalog.getName());
         }
-        List<ListPartitionItem> partitionValues = Lists.newArrayListWithCapacity(partitionNames.size());
+        List<ListPartitionItem> partitionValues = Lists.newArrayListWithExpectedSize(partitionNames.size());
         for (String partitionName : partitionNames) {
             partitionValues.add(toListPartitionItem(partitionName, key.types));
         }
@@ -163,7 +166,7 @@ public class HiveMetaStoreCache {
         // parse it to get values "cn" and "beijing"
         String[] parts = partitionName.split("/");
         Preconditions.checkState(parts.length == types.size(), partitionName + " vs. " + types);
-        List<PartitionValue> values = Lists.newArrayListWithCapacity(types.size());
+        List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String part : parts) {
             String[] kv = part.split("=");
             Preconditions.checkState(kv.length == 2, partitionName);
@@ -254,22 +257,53 @@ public class HiveMetaStoreCache {
         }
     }
 
-    public HivePartition getPartition(String dbName, String tblName, List<String> partitionValues) {
-        PartitionCacheKey key = new PartitionCacheKey(dbName, tblName, partitionValues);
-        try {
-            return partitionCache.get(key);
-        } catch (ExecutionException e) {
-            throw new CacheException("failed to get partition for %s in catalog %s", e, key, catalog.getName());
+    public List<InputSplit> getFilesByPartitions(List<HivePartition> partitions) {
+        long start = System.currentTimeMillis();
+        List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
+        partitions.stream().forEach(p -> keys.add(new FileCacheKey(p.getPath(), p.getInputFormat())));
+
+        Stream<FileCacheKey> stream;
+        if (partitions.size() < MIN_BATCH_FETCH_PARTITION_NUM) {
+            stream = keys.stream();
+        } else {
+            stream = keys.parallelStream();
         }
+        List<ImmutableList<InputSplit>> fileLists = stream.map(k -> {
+            try {
+                return fileCache.get(k);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        }).collect(Collectors.toList());
+        List<InputSplit> retFiles = Lists.newArrayListWithExpectedSize(
+                fileLists.stream().mapToInt(l -> l.size()).sum());
+        fileLists.stream().forEach(l -> retFiles.addAll(l));
+        LOG.debug("get #{} files by #{} partitions in catalog {} cost: {} ms",
+                retFiles.size(), partitions.size(), catalog.getName(), (System.currentTimeMillis() - start));
+        return retFiles;
     }
 
-    public ImmutableList<InputSplit> getFiles(String location, String inputFormat) {
-        FileCacheKey key = new FileCacheKey(location, inputFormat);
-        try {
-            return fileCache.get(key);
-        } catch (ExecutionException e) {
-            throw new CacheException("failed to get files for %s in catalog %s", e, key, catalog.getName());
+    public List<HivePartition> getAllPartitions(String dbName, String name, List<List<String>> partitionValuesList) {
+        long start = System.currentTimeMillis();
+        List<PartitionCacheKey> keys = Lists.newArrayListWithExpectedSize(partitionValuesList.size());
+        partitionValuesList.stream().forEach(p -> keys.add(new PartitionCacheKey(dbName, name, p)));
+
+        Stream<PartitionCacheKey> stream;
+        if (partitionValuesList.size() < MIN_BATCH_FETCH_PARTITION_NUM) {
+            stream = keys.stream();
+        } else {
+            stream = keys.parallelStream();
         }
+        List<HivePartition> partitions = stream.map(k -> {
+            try {
+                return partitionCache.get(k);
+            } catch (ExecutionException e) {
+                throw new CacheException("failed to get partition for %s in catalog %s", e, k, catalog.getName());
+            }
+        }).collect(Collectors.toList());
+        LOG.debug("get #{} partitions in catalog {} cost: {} ms", partitions.size(), catalog.getName(),
+                (System.currentTimeMillis() - start));
+        return partitions;
     }
 
     public void invalidateCache(String dbName, String tblName) {

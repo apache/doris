@@ -101,6 +101,15 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    public List<Partition> getPartitionsByFilter(String dbName, String tblName, String filter) {
+        try (CachedClient client = getClient()) {
+            return client.client.listPartitionsByFilter(dbName, tblName, filter, MAX_LIST_PARTITION_NUM);
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get partition by filter for table %s in db %s", e, tblName,
+                    dbName);
+        }
+    }
+
     public Table getTable(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             return client.client.getTable(dbName, tblName);
