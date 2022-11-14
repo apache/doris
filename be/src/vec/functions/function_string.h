@@ -112,12 +112,6 @@ struct StringOP {
         chars.insert(string_value.data(), string_value.data() + string_value.size());
         offsets[index] = chars.size();
     }
-
-    static void push_value_string1(const std::string_view& string_value, int index,
-                                  ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
-        chars.insert(string_value.data(), string_value.data() + string_value.size());
-        offsets[index] = chars.size();
-    }
 };
 
 struct SubstringUtil {
@@ -1543,7 +1537,6 @@ private:
 };
 
 
-
 class FunctionSplitByString : public IFunction {
 
 /**
@@ -1557,24 +1550,43 @@ private:
     void getOffsetsAndLen(const std::string& s, const std::string& c, std::vector<size_t>& v_offset, std::vector<size_t>& v_charlen) {
 	    v_offset.clear();
 	    v_charlen.clear();
-	    string::size_type pos1 = 0;
-	    string::size_type pos2;
-	    while (true) {
-		    while (pos1 < s.size()-c.size() && s.find(c, pos1) == pos1) {
-			    pos1 += c.size();
-		    }
-		    pos2 = s.find(c, pos1);
-		    if (string::npos != pos2) {
-			    v_offset.push_back(pos1);
-			    v_charlen.push_back(pos2 - pos1);
-			    pos1 = pos2 + c.size();
-		    }
-		    else {
-			    v_offset.push_back(pos1);
-			    v_charlen.push_back(s.size() - pos1);
-			    return;
-		    }
-	    }
+	    // string::size_type pos1 = 0;
+	    // string::size_type pos2;
+        if(c.size() == 0) {
+            for(int i=0; i<s.size(); i++) {
+                v_offset.push_back(i);
+                v_charlen.push_back(1);
+            }
+            return;
+        } else{
+            // while (true) {
+		    //     while (pos1 < s.size()-c.size() && s.find(c, pos1) == pos1) {
+			//         pos1 += c.size();
+		    //     }
+		    //     pos2 = s.find(c, pos1);
+            //     if (pos1 == s.size()-c.size() && pos1 == pos2) {
+			//         return;
+		    //     }
+		    //     if (string::npos != pos2) {
+			//         v_offset.push_back(pos1);
+			//         v_charlen.push_back(pos2 - pos1);
+			//         pos1 = pos2 + c.size();
+		    //     }
+		    //     else{
+			//         v_offset.push_back(pos1);
+			//         v_charlen.push_back(s.size() - pos1);
+			//         return;
+		    //     }
+            // }
+            string::size_type pos1 = 0, pos2 = s.find(c);
+	        while (string::npos != pos2)
+	        {
+		        v_offset.push_back(pos1);
+		        v_charlen.push_back(pos2 - pos1);
+		        pos1 = pos2 + c.size();
+		        pos2 = s.find(c, pos1);
+	        }
+	    }	    
 }
 public:
     static constexpr auto name = "split_by_string";
@@ -1665,49 +1677,24 @@ private:
                 }
                 continue;
             }
-
-            if (delimiter.size() == 0) {
-                //If there is no delimiter, the entire string is printed
+            vector<size_t> v_len;
+            vector<size_t> v_offset;
+            getOffsetsAndLen(str, delimiter, v_offset, v_len);   
+            for(int j=0; j<v_len.size(); j++) {
                 const size_t old_size = column_string_chars.size();
-                const size_t new_size = old_size + str.size();
-                const size_t str_size = str.size();
+                const size_t new_size = old_size + v_len[j];
                 column_string_chars.resize(new_size);
-                if (str_size > 0) {
-                    memcpy(column_string_chars.data() + old_size, str_ref.data, str_ref.size);
-                }
+                memcpy(column_string_chars.data() + old_size, str_ref.data + v_offset[j], v_len[j]);
                 if (src_null_map) {
                     (*dest_nested_null_map).push_back(false);
                 }
-                string_pos += str_size;
+                string_pos += v_len[j];
                 dest_pos++;
                 column_string_offsets.push_back(string_pos);
-            } else {
-                vector<size_t> v_len;
-                vector<size_t> v_offset;
-                getOffsetsAndLen(str, delimiter, v_offset, v_len);
-                 for(int j=0; j<v_len.size(); j++) {
-                    LOG(WARNING) << "v_len[]:" << v_len[j];
-                    LOG(WARNING) << "v_offset[]" << v_offset[j];
-                 }                
-                for(int j=0; j<v_len.size(); j++) {
-                    const size_t old_size = column_string_chars.size();
-                    const size_t new_size = old_size + v_len[j];
-                    column_string_chars.resize(new_size);
-                    LOG(WARNING) << v_len[j];
-                    LOG(WARNING) << v_offset[j];
-                    memcpy(column_string_chars.data() + old_size, str_ref.data + v_offset[j], v_len[j]);
-                    if (src_null_map) {
-                        (*dest_nested_null_map).push_back(false);
-                    }
-                    string_pos += v_len[j];
-                    dest_pos++;
-                    column_string_offsets.push_back(string_pos);
-                }
             }
-            dest_offsets.push_back(dest_pos);
         }
+        dest_offsets.push_back(dest_pos);
     }
-
 };
 
 
