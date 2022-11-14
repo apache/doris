@@ -65,6 +65,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.CatalogIf;
 /**
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
  * clauses.
@@ -316,8 +318,10 @@ public class SelectStmt extends QueryStmt {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
-                DatabaseIf db = analyzer.getEnv().getCatalogMgr()
-                        .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
+                String ctl=tblRef.getName().getCtl();
+                CatalogMgr mrg= analyzer.getEnv().getCatalogMgr();
+                CatalogIf  cif= mrg.getCatalogOrAnalysisException(ctl);
+                DatabaseIf db = cif.getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
                 if (expandView && (table instanceof View)) {

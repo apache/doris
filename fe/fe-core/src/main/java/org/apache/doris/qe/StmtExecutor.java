@@ -1395,7 +1395,9 @@ public class StmtExecutor implements ProfileWriter {
     // Process a select statement.
     private void handleInsertStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
-        context.getMysqlChannel().reset();
+        if(context.getMysqlChannel()!=null){
+            context.getMysqlChannel().reset();
+        }
         // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
@@ -1477,7 +1479,8 @@ public class StmtExecutor implements ProfileWriter {
                     }
                 }
 
-                if (insertStmt.getTargetTable().getType() != TableType.OLAP) {
+                TableType tblType = insertStmt.getTargetTable().getType();
+                if (tblType != TableType.OLAP && tblType != TableType.MATERIALIZED_VIEW) {
                     // no need to add load job.
                     // MySQL table is already being inserted.
                     context.getState().setOk(loadedRows, filteredRows, null);
