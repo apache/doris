@@ -14,7 +14,10 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-demo.demo1
-demo.demo2
-demo.demo3
-demo2.demo
+####################################################################
+# The tables is used to define doris olap tables
+####################################################################
+doris.t_cickp_charge_connector
+doris.t_cickp_charge_equipment
+doris.p_inspection_task
+doris.p_inspection_result_record
