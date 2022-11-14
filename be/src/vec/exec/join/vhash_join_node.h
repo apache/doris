@@ -24,7 +24,7 @@
 #include "join_op.h"
 #include "process_hash_table_probe.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vjoin_node_base.h"
 
 namespace doris {
@@ -40,6 +40,26 @@ template <typename RowRefListType>
 struct SerializedHashTableContext {
     using Mapped = RowRefListType;
     using HashTable = HashMap<StringRef, Mapped>;
+    using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
+    using Iter = typename HashTable::iterator;
+
+    HashTable hash_table;
+    HashTable* hash_table_ptr = &hash_table;
+    Iter iter;
+    bool inited = false;
+
+    void init_once() {
+        if (!inited) {
+            inited = true;
+            iter = hash_table.begin();
+        }
+    }
+};
+
+template <typename RowRefListType>
+struct PartitionedSerializedHashTableContext {
+    using Mapped = RowRefListType;
+    using HashTable = PartitionedHashMap<StringRef, Mapped>;
     using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
     using Iter = typename HashTable::iterator;
 
@@ -102,6 +122,40 @@ using I128HashTableContext = PrimaryTypeHashTableContext<UInt128, RowRefListType
 template <typename RowRefListType>
 using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType>;
 
+// T should be UInt32 UInt64 UInt128
+template <class T, typename RowRefListType>
+struct PartitionedPrimaryTypeHashTableContext {
+    using Mapped = RowRefListType;
+    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
+    using State =
+            ColumnsHashing::HashMethodOneNumber<typename HashTable::value_type, Mapped, T, false>;
+    using Iter = typename HashTable::iterator;
+
+    HashTable hash_table;
+    HashTable* hash_table_ptr = &hash_table;
+    Iter iter;
+    bool inited = false;
+
+    void init_once() {
+        if (!inited) {
+            inited = true;
+            iter = hash_table.begin();
+        }
+    }
+};
+template <typename RowRefListType>
+using I32PartitionedHashTableContext =
+        PartitionedPrimaryTypeHashTableContext<UInt32, RowRefListType>;
+template <typename RowRefListType>
+using I64PartitionedHashTableContext =
+        PartitionedPrimaryTypeHashTableContext<UInt64, RowRefListType>;
+template <typename RowRefListType>
+using I128PartitionedHashTableContext =
+        PartitionedPrimaryTypeHashTableContext<UInt128, RowRefListType>;
+template <typename RowRefListType>
+using I256PartitionedHashTableContext =
+        PartitionedPrimaryTypeHashTableContext<UInt256, RowRefListType>;
+
 template <class T, bool has_null, typename RowRefListType>
 struct FixedKeyHashTableContext {
     using Mapped = RowRefListType;
@@ -132,6 +186,39 @@ using I128FixedKeyHashTableContext = FixedKeyHashTableContext<UInt128, has_null,
 template <bool has_null, typename RowRefListType>
 using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null, RowRefListType>;
 
+template <class T, bool has_null, typename RowRefListType>
+struct PartitionedFixedKeyHashTableContext {
+    using Mapped = RowRefListType;
+    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
+    using State = ColumnsHashing::HashMethodKeysFixed<typename HashTable::value_type, T, Mapped,
+                                                      has_null, false>;
+    using Iter = typename HashTable::iterator;
+
+    HashTable hash_table;
+    HashTable* hash_table_ptr = &hash_table;
+    Iter iter;
+    bool inited = false;
+
+    void init_once() {
+        if (!inited) {
+            inited = true;
+            iter = hash_table.begin();
+        }
+    }
+};
+
+template <bool has_null, typename RowRefListType>
+using I64PartitionedFixedKeyHashTableContext =
+        PartitionedFixedKeyHashTableContext<UInt64, has_null, RowRefListType>;
+
+template <bool has_null, typename RowRefListType>
+using I128PartitionedFixedKeyHashTableContext =
+        PartitionedFixedKeyHashTableContext<UInt128, has_null, RowRefListType>;
+
+template <bool has_null, typename RowRefListType>
+using I256PartitionedFixedKeyHashTableContext =
+        PartitionedFixedKeyHashTableContext<UInt256, has_null, RowRefListType>;
+
 using HashTableVariants = std::variant<
         std::monostate, SerializedHashTableContext<RowRefList>, I8HashTableContext<RowRefList>,
         I16HashTableContext<RowRefList>, I32HashTableContext<RowRefList>,
@@ -161,7 +248,41 @@ using HashTableVariants = std::variant<
         I128FixedKeyHashTableContext<true, RowRefListWithFlags>,
         I128FixedKeyHashTableContext<false, RowRefListWithFlags>,
         I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I256FixedKeyHashTableContext<false, RowRefListWithFlags>>;
+        I256FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        // two levle hash table
+        PartitionedSerializedHashTableContext<RowRefList>,
+        I32PartitionedHashTableContext<RowRefList>, I64PartitionedHashTableContext<RowRefList>,
+        I128PartitionedHashTableContext<RowRefList>, I256PartitionedHashTableContext<RowRefList>,
+        I64PartitionedFixedKeyHashTableContext<true, RowRefList>,
+        I64PartitionedFixedKeyHashTableContext<false, RowRefList>,
+        I128PartitionedFixedKeyHashTableContext<true, RowRefList>,
+        I128PartitionedFixedKeyHashTableContext<false, RowRefList>,
+        I256PartitionedFixedKeyHashTableContext<true, RowRefList>,
+        I256PartitionedFixedKeyHashTableContext<false, RowRefList>,
+        // RowRefListWithFlag
+        PartitionedSerializedHashTableContext<RowRefListWithFlag>,
+        I32PartitionedHashTableContext<RowRefListWithFlag>,
+        I64PartitionedHashTableContext<RowRefListWithFlag>,
+        I128PartitionedHashTableContext<RowRefListWithFlag>,
+        I256PartitionedHashTableContext<RowRefListWithFlag>,
+        I64PartitionedFixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I64PartitionedFixedKeyHashTableContext<false, RowRefListWithFlag>,
+        I128PartitionedFixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I128PartitionedFixedKeyHashTableContext<false, RowRefListWithFlag>,
+        I256PartitionedFixedKeyHashTableContext<true, RowRefListWithFlag>,
+        I256PartitionedFixedKeyHashTableContext<false, RowRefListWithFlag>,
+        // RowRefListWithFlags
+        PartitionedSerializedHashTableContext<RowRefListWithFlags>,
+        I32PartitionedHashTableContext<RowRefListWithFlags>,
+        I64PartitionedHashTableContext<RowRefListWithFlags>,
+        I128PartitionedHashTableContext<RowRefListWithFlags>,
+        I256PartitionedHashTableContext<RowRefListWithFlags>,
+        I64PartitionedFixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I64PartitionedFixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I128PartitionedFixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I128PartitionedFixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I256PartitionedFixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I256PartitionedFixedKeyHashTableContext<false, RowRefListWithFlags>>;
 
 class VExprContext;
 class HashJoinNode;
@@ -192,6 +313,8 @@ public:
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
+    void add_hash_buckets_info(const std::string& info);
+    void add_hash_buckets_filled_info(const std::string& info);
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
@@ -221,6 +344,7 @@ private:
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;
+    RuntimeProfile::Counter* _build_buckets_fill_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _search_hashtable_timer;
@@ -235,6 +359,9 @@ private:
 
     std::unique_ptr<Arena> _arena;
     std::unique_ptr<HashTableVariants> _hash_table_variants;
+    bool _is_first_build_block = true;
+    bool _is_convertable_to_partitioned = true;
+    std::unique_ptr<HashTableVariants> _partitioned_hash_table_variants;
 
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 

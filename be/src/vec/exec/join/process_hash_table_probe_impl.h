@@ -732,54 +732,97 @@ struct ExtractType<T(U)> {
             ExtractType<void(T)>::Type & hash_table_ctx, MutableBlock & mutable_block,        \
             Block * output_block, bool* eos)
 
-#define INSTANTIATION_FOR(JoinOpType)                                                      \
-    template struct ProcessHashTableProbe<JoinOpType>;                                     \
-                                                                                           \
-    template void ProcessHashTableProbe<JoinOpType>::build_side_output_column<false>(      \
-            MutableColumns & mcol, int column_offset, int column_length,                   \
-            const std::vector<bool>& output_slot_flags, int size);                         \
-    template void ProcessHashTableProbe<JoinOpType>::build_side_output_column<true>(       \
-            MutableColumns & mcol, int column_offset, int column_length,                   \
-            const std::vector<bool>& output_slot_flags, int size);                         \
-                                                                                           \
-    INSTANTIATION(JoinOpType, (SerializedHashTableContext<RowRefList>));                   \
-    INSTANTIATION(JoinOpType, (I8HashTableContext<RowRefList>));                           \
-    INSTANTIATION(JoinOpType, (I16HashTableContext<RowRefList>));                          \
-    INSTANTIATION(JoinOpType, (I32HashTableContext<RowRefList>));                          \
-    INSTANTIATION(JoinOpType, (I64HashTableContext<RowRefList>));                          \
-    INSTANTIATION(JoinOpType, (I128HashTableContext<RowRefList>));                         \
-    INSTANTIATION(JoinOpType, (I256HashTableContext<RowRefList>));                         \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true, RowRefList>));            \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false, RowRefList>));           \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true, RowRefList>));           \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false, RowRefList>));          \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true, RowRefList>));           \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false, RowRefList>));          \
-    INSTANTIATION(JoinOpType, (SerializedHashTableContext<RowRefListWithFlag>));           \
-    INSTANTIATION(JoinOpType, (I8HashTableContext<RowRefListWithFlag>));                   \
-    INSTANTIATION(JoinOpType, (I16HashTableContext<RowRefListWithFlag>));                  \
-    INSTANTIATION(JoinOpType, (I32HashTableContext<RowRefListWithFlag>));                  \
-    INSTANTIATION(JoinOpType, (I64HashTableContext<RowRefListWithFlag>));                  \
-    INSTANTIATION(JoinOpType, (I128HashTableContext<RowRefListWithFlag>));                 \
-    INSTANTIATION(JoinOpType, (I256HashTableContext<RowRefListWithFlag>));                 \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true, RowRefListWithFlag>));    \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false, RowRefListWithFlag>));   \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true, RowRefListWithFlag>));   \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false, RowRefListWithFlag>));  \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true, RowRefListWithFlag>));   \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false, RowRefListWithFlag>));  \
-    INSTANTIATION(JoinOpType, (SerializedHashTableContext<RowRefListWithFlags>));          \
-    INSTANTIATION(JoinOpType, (I8HashTableContext<RowRefListWithFlags>));                  \
-    INSTANTIATION(JoinOpType, (I16HashTableContext<RowRefListWithFlags>));                 \
-    INSTANTIATION(JoinOpType, (I32HashTableContext<RowRefListWithFlags>));                 \
-    INSTANTIATION(JoinOpType, (I64HashTableContext<RowRefListWithFlags>));                 \
-    INSTANTIATION(JoinOpType, (I128HashTableContext<RowRefListWithFlags>));                \
-    INSTANTIATION(JoinOpType, (I256HashTableContext<RowRefListWithFlags>));                \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true, RowRefListWithFlags>));   \
-    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false, RowRefListWithFlags>));  \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true, RowRefListWithFlags>));  \
-    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false, RowRefListWithFlags>)); \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true, RowRefListWithFlags>));  \
-    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false, RowRefListWithFlags>))
+#define INSTANTIATION_FOR(JoinOpType)                                                              \
+    template struct ProcessHashTableProbe<JoinOpType>;                                             \
+                                                                                                   \
+    template void ProcessHashTableProbe<JoinOpType>::build_side_output_column<false>(              \
+            MutableColumns & mcol, int column_offset, int column_length,                           \
+            const std::vector<bool>& output_slot_flags, int size);                                 \
+    template void ProcessHashTableProbe<JoinOpType>::build_side_output_column<true>(               \
+            MutableColumns & mcol, int column_offset, int column_length,                           \
+            const std::vector<bool>& output_slot_flags, int size);                                 \
+                                                                                                   \
+    INSTANTIATION(JoinOpType, (SerializedHashTableContext<RowRefList>));                           \
+    INSTANTIATION(JoinOpType, (I8HashTableContext<RowRefList>));                                   \
+    INSTANTIATION(JoinOpType, (I16HashTableContext<RowRefList>));                                  \
+    INSTANTIATION(JoinOpType, (I32HashTableContext<RowRefList>));                                  \
+    INSTANTIATION(JoinOpType, (I64HashTableContext<RowRefList>));                                  \
+    INSTANTIATION(JoinOpType, (I128HashTableContext<RowRefList>));                                 \
+    INSTANTIATION(JoinOpType, (I256HashTableContext<RowRefList>));                                 \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true, RowRefList>));                    \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false, RowRefList>));                   \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true, RowRefList>));                   \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false, RowRefList>));                  \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true, RowRefList>));                   \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false, RowRefList>));                  \
+    INSTANTIATION(JoinOpType, (SerializedHashTableContext<RowRefListWithFlag>));                   \
+    INSTANTIATION(JoinOpType, (I8HashTableContext<RowRefListWithFlag>));                           \
+    INSTANTIATION(JoinOpType, (I16HashTableContext<RowRefListWithFlag>));                          \
+    INSTANTIATION(JoinOpType, (I32HashTableContext<RowRefListWithFlag>));                          \
+    INSTANTIATION(JoinOpType, (I64HashTableContext<RowRefListWithFlag>));                          \
+    INSTANTIATION(JoinOpType, (I128HashTableContext<RowRefListWithFlag>));                         \
+    INSTANTIATION(JoinOpType, (I256HashTableContext<RowRefListWithFlag>));                         \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true, RowRefListWithFlag>));            \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false, RowRefListWithFlag>));           \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true, RowRefListWithFlag>));           \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false, RowRefListWithFlag>));          \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true, RowRefListWithFlag>));           \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false, RowRefListWithFlag>));          \
+    INSTANTIATION(JoinOpType, (SerializedHashTableContext<RowRefListWithFlags>));                  \
+    INSTANTIATION(JoinOpType, (I8HashTableContext<RowRefListWithFlags>));                          \
+    INSTANTIATION(JoinOpType, (I16HashTableContext<RowRefListWithFlags>));                         \
+    INSTANTIATION(JoinOpType, (I32HashTableContext<RowRefListWithFlags>));                         \
+    INSTANTIATION(JoinOpType, (I64HashTableContext<RowRefListWithFlags>));                         \
+    INSTANTIATION(JoinOpType, (I128HashTableContext<RowRefListWithFlags>));                        \
+    INSTANTIATION(JoinOpType, (I256HashTableContext<RowRefListWithFlags>));                        \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<true, RowRefListWithFlags>));           \
+    INSTANTIATION(JoinOpType, (I64FixedKeyHashTableContext<false, RowRefListWithFlags>));          \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<true, RowRefListWithFlags>));          \
+    INSTANTIATION(JoinOpType, (I128FixedKeyHashTableContext<false, RowRefListWithFlags>));         \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<true, RowRefListWithFlags>));          \
+    INSTANTIATION(JoinOpType, (I256FixedKeyHashTableContext<false, RowRefListWithFlags>));         \
+    INSTANTIATION(JoinOpType, (PartitionedSerializedHashTableContext<RowRefList>));                \
+    INSTANTIATION(JoinOpType, (I32PartitionedHashTableContext<RowRefList>));                       \
+    INSTANTIATION(JoinOpType, (I64PartitionedHashTableContext<RowRefList>));                       \
+    INSTANTIATION(JoinOpType, (I128PartitionedHashTableContext<RowRefList>));                      \
+    INSTANTIATION(JoinOpType, (I256PartitionedHashTableContext<RowRefList>));                      \
+    INSTANTIATION(JoinOpType, (I64PartitionedFixedKeyHashTableContext<true, RowRefList>));         \
+    INSTANTIATION(JoinOpType, (I64PartitionedFixedKeyHashTableContext<false, RowRefList>));        \
+    INSTANTIATION(JoinOpType, (I128PartitionedFixedKeyHashTableContext<true, RowRefList>));        \
+    INSTANTIATION(JoinOpType, (I128PartitionedFixedKeyHashTableContext<false, RowRefList>));       \
+    INSTANTIATION(JoinOpType, (I256PartitionedFixedKeyHashTableContext<true, RowRefList>));        \
+    INSTANTIATION(JoinOpType, (I256PartitionedFixedKeyHashTableContext<false, RowRefList>));       \
+    INSTANTIATION(JoinOpType, (PartitionedSerializedHashTableContext<RowRefListWithFlag>));        \
+    INSTANTIATION(JoinOpType, (I32PartitionedHashTableContext<RowRefListWithFlag>));               \
+    INSTANTIATION(JoinOpType, (I64PartitionedHashTableContext<RowRefListWithFlag>));               \
+    INSTANTIATION(JoinOpType, (I128PartitionedHashTableContext<RowRefListWithFlag>));              \
+    INSTANTIATION(JoinOpType, (I256PartitionedHashTableContext<RowRefListWithFlag>));              \
+    INSTANTIATION(JoinOpType, (I64PartitionedFixedKeyHashTableContext<true, RowRefListWithFlag>)); \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I64PartitionedFixedKeyHashTableContext<false, RowRefListWithFlag>));            \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I128PartitionedFixedKeyHashTableContext<true, RowRefListWithFlag>));            \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I128PartitionedFixedKeyHashTableContext<false, RowRefListWithFlag>));           \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I256PartitionedFixedKeyHashTableContext<true, RowRefListWithFlag>));            \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I256PartitionedFixedKeyHashTableContext<false, RowRefListWithFlag>));           \
+    INSTANTIATION(JoinOpType, (PartitionedSerializedHashTableContext<RowRefListWithFlags>));       \
+    INSTANTIATION(JoinOpType, (I32PartitionedHashTableContext<RowRefListWithFlags>));              \
+    INSTANTIATION(JoinOpType, (I64PartitionedHashTableContext<RowRefListWithFlags>));              \
+    INSTANTIATION(JoinOpType, (I128PartitionedHashTableContext<RowRefListWithFlags>));             \
+    INSTANTIATION(JoinOpType, (I256PartitionedHashTableContext<RowRefListWithFlags>));             \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I64PartitionedFixedKeyHashTableContext<true, RowRefListWithFlags>));            \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I64PartitionedFixedKeyHashTableContext<false, RowRefListWithFlags>));           \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I128PartitionedFixedKeyHashTableContext<true, RowRefListWithFlags>));           \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I128PartitionedFixedKeyHashTableContext<false, RowRefListWithFlags>));          \
+    INSTANTIATION(JoinOpType,                                                                      \
+                  (I256PartitionedFixedKeyHashTableContext<true, RowRefListWithFlags>));           \
+    INSTANTIATION(JoinOpType, (I256PartitionedFixedKeyHashTableContext<false, RowRefListWithFlags>))
 
 } // namespace doris::vectorized

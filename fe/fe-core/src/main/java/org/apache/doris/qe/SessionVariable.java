@@ -225,6 +225,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INTERNAL_SESSION = "internal_session";
 
+    public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -589,6 +591,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
 
+    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
+    public int partitionedHashJoinRowsThreshold = 8388608;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -597,6 +603,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
+        this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
     }
 
     public String getBlockEncryptionMode() {
@@ -1179,6 +1186,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fragmentTransmissionCompressionCodec = codec;
     }
 
+    public int getPartitionedHashJoinRowsThreshold() {
+        return partitionedHashJoinRowsThreshold;
+    }
+
+    public void setPartitionedHashJoinRowsThreshold(int threshold) {
+        this.partitionedHashJoinRowsThreshold = threshold;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -1231,6 +1246,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 
         tResult.setSkipDeletePredicate(skipDeletePredicate);
+
+        tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
 
         return tResult;
     }

@@ -431,7 +431,7 @@ protected:
     friend class Reader;
 
     template <typename, typename, typename, typename, typename, typename, size_t>
-    friend class TwoLevelHashTable;
+    friend class PartitionedHashTable;
 
     template <typename SubMaps>
     friend class StringHashTable;
@@ -1072,6 +1072,12 @@ public:
 
     size_t size() const { return m_size; }
 
+    std::vector<size_t> sizes() const {
+        std::vector<size_t> sizes;
+        sizes.push_back(m_size);
+        return sizes;
+    }
+
     bool empty() const { return 0 == m_size; }
 
     float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
@@ -1111,6 +1117,12 @@ public:
     size_t get_buffer_size_in_bytes() const { return grower.buf_size() * sizeof(Cell); }
 
     size_t get_buffer_size_in_cells() const { return grower.buf_size(); }
+
+    std::vector<size_t> get_buffer_sizes_in_cells() const {
+        std::vector<size_t> sizes;
+        sizes.push_back(get_buffer_size_in_cells());
+        return sizes;
+    }
 
     bool add_elem_size_overflow(size_t add_size) const {
         return grower.overflow(add_size + m_size);
