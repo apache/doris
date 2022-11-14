@@ -19,11 +19,14 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 
+import com.codahale.metrics.Histogram;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
 
 public class MetricsTest {
 
@@ -52,5 +55,17 @@ public class MetricsTest {
                 Assert.fail();
             }
         }
+    }
+
+    @Test
+    public void testDBMetrics() {
+        MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd("test_db").update(10L);
+        StringBuilder sb = new StringBuilder();
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
+        for (Map.Entry<String, Histogram> entry : histograms.entrySet()) {
+            visitor.visitHistogram(sb, MetricVisitor.FE_PREFIX, entry.getKey(), entry.getValue());
+        }
+        Assert.assertTrue(sb.toString().contains("# TYPE doris_fe_query_latency_ms summary"));
     }
 }
