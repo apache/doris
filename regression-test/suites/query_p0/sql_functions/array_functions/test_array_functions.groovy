@@ -105,4 +105,6 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_range(k1) from ${tableName2} ORDER BY k1"
     qt_select "SELECT k1, array_range(k1,k2) from ${tableName2} ORDER BY k1"
     qt_select "SELECT k1, array_range(k1,k2,k3) from ${tableName2} ORDER BY k1"
+    qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
+    
 }
