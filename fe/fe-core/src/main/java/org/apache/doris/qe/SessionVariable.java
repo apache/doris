@@ -222,8 +222,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
 
-    public static final String ENABLE_NEREIDS_EVENT = "enable_nereids_event";
-
     public static final String NEREIDS_EVENT_MODE = "nereids_event_mode";
 
     public static final String INTERNAL_SESSION = "internal_session";
@@ -592,11 +590,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_EVENT)
-    public boolean enableNereidsEvent = false;
-
     @VariableMgr.VarAttr(name = NEREIDS_EVENT_MODE)
     public String nereidsEventMode = "all";
+
+    public void setEnableNereidsTrace(boolean enableNereidsTrace) {
+        this.enableNereidsTrace = enableNereidsTrace;
+    }
 
     public String getNereidsEventMode() {
         return nereidsEventMode;
@@ -604,14 +603,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNereidsEventMode(String nereidsEventMode) {
         this.nereidsEventMode = nereidsEventMode;
-    }
-
-    public boolean isEnableNereidsEvent() {
-        return enableNereidsEvent;
-    }
-
-    public void setEnableNereidsEvent(boolean enableNereidsEvent) {
-        this.enableNereidsEvent = enableNereidsEvent;
     }
 
     public String getBlockEncryptionMode() {

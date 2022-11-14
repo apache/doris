@@ -32,6 +32,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * event channel
@@ -43,7 +44,7 @@ public class EventChannel {
     private final Map<Class<? extends Event>, List<EventConsumer>> consumers = Maps.newHashMap();
     private final Map<Class<? extends Event>, EventEnhancer> enhancers = Maps.newHashMap();
     private final BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
-    private boolean isStop = false;
+    private final AtomicBoolean isStop = new AtomicBoolean(false);
     private Thread thread;
 
     public void add(Event e) {
@@ -63,7 +64,9 @@ public class EventChannel {
 
     public EventChannel setConnectContext(ConnectContext context) {
         Preconditions.checkArgument(Objects.nonNull(context));
-        eventSwitch = new EventSwitchParser().parse(context.getSessionVariable().nereidsEventMode);
+        if (context.getSessionVariable().isEnableNereidsTrace()) {
+            eventSwitch = new EventSwitchParser().parse(context.getSessionVariable().getNereidsEventMode());
+        }
         return this;
     }
 
@@ -78,7 +81,7 @@ public class EventChannel {
     private class Worker implements Runnable {
         @Override
         public void run() {
-            while (!isStop) {
+            while (!isStop.get() || !queue.isEmpty()) {
                 try {
                     Event e = queue.poll();
                     if (e == null) {
@@ -112,7 +115,7 @@ public class EventChannel {
      * stop channel
      */
     public void stop() {
-        isStop = true;
+        isStop.set(true);
         if (thread != null) {
             try {
                 thread.join();

@@ -20,20 +20,18 @@ package org.apache.doris.nereids.metrics;
 /**
  * consumer
  */
-public class EventConsumer {
+public abstract class EventConsumer {
     private final Class<? extends Event> targetClass;
 
     protected EventConsumer(Class<? extends Event> targetClass) {
         this.targetClass = targetClass;
     }
 
-    public void consume(Event event) {
-    }
+    public abstract void consume(Event event);
 
     public Class<? extends Event> getTargetClass() {
         return targetClass;
     }
 
-    public void close() {
-    }
+    public abstract void close();
 }

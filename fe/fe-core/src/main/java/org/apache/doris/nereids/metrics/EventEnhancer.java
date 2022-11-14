@@ -20,7 +20,7 @@ package org.apache.doris.nereids.metrics;
 /**
  * event enhancer
  */
-public class EventEnhancer {
+public abstract class EventEnhancer {
     private final Class<? extends Event> targetClass;
 
     public EventEnhancer(Class<? extends Event> targetClass) {
@@ -31,6 +31,5 @@ public class EventEnhancer {
         return targetClass;
     }
 
-    public void enhance(Event e) {
-    }
+    public abstract void enhance(Event e);
 }
