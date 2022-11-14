@@ -59,7 +59,7 @@ public class ApplyRuleJob extends Job {
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
-            String traceBefore = enableTrace ? getTraceLog(rule) : null;
+            String traceBefore = enableTrace ? getMemoTraceLog() : null;
             context.onInvokeRule(rule.getRuleType());
 
             boolean changed = false;
@@ -82,7 +82,7 @@ public class ApplyRuleJob extends Job {
                 }
             }
             if (changed && enableTrace) {
-                String traceAfter = getTraceLog(rule);
+                String traceAfter = getMemoTraceLog();
                 printTraceLog(rule, traceBefore, traceAfter);
             }
         }

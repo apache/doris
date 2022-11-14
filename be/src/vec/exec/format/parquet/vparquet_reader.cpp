@@ -196,7 +196,9 @@ void ParquetReader::_init_lazy_read() {
                     visit_slot(child);
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                visit_slot(in_predicate->children()[0]);
+                if (in_predicate->children().size() > 0) {
+                    visit_slot(in_predicate->children()[0]);
+                }
             } else {
                 for (VExpr* child : filter_impl->children()) {
                     visit_slot(child);

@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -79,8 +80,10 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -88,6 +91,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -108,6 +113,8 @@ import java.util.stream.Stream;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
+    private static final Logger LOG = LoggerFactory.getLogger(PhysicalPlanTranslator.class);
+
     /**
      * Translate Nereids Physical Plan tree to Stale Planner PlanFragment tree.
      *
@@ -351,6 +358,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             dataPartition = new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs);
         }
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, dataPartition);
+        context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, PlanTranslatorContext context) {
+        List<Slot> slots = tvfRelation.getLogicalProperties().getOutput();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getTable(), context);
+
+        TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
+        ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        scanNode.finalizeForNereids();
+        context.addScanNode(scanNode);
+
+        // set label for explain
+        for (Slot slot : slots) {
+            String tableColumnName = "_table_valued_function_" + tvfRelation.getFunction().getName()
+                    + "." + slots.get(0).getName();
+            context.findSlotRef(slot.getExprId()).setLabel(tableColumnName);
+        }
+
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);
         context.addPlanFragment(planFragment);
         return planFragment;
     }
@@ -1059,6 +1088,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setChild(0, leftFragment.getPlanRoot());
         hashJoinNode.setChild(1, rightFragment.getPlanRoot());
         leftFragment.setPlanRoot(hashJoinNode);
+        rightFragment.getTargetRuntimeFilterIds().stream().forEach(leftFragment::setTargetRuntimeFilterIds);
+        rightFragment.getBuilderRuntimeFilterIds().stream().forEach(leftFragment::setBuilderRuntimeFilterIds);
         context.removePlanFragment(rightFragment);
         leftFragment.setHasColocatePlanNode(true);
         return leftFragment;

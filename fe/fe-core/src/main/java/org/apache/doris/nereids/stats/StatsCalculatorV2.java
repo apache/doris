@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -150,6 +152,11 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
     }
 
     @Override
+    public StatsDeriveResult visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
+        return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return computeProject(project);
     }
@@ -194,6 +201,11 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
     @Override
     public StatsDeriveResult visitPhysicalOlapScan(PhysicalOlapScan olapScan, Void context) {
         return computeScan(olapScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, Void context) {
+        return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
     }
 
     @Override
@@ -319,6 +331,7 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
         StatsDeriveResult childStats = groupExpression.childStatistics(0);
         Map<Id, ColumnStatistic> childSlotToColumnStats = childStats.getSlotIdToColumnStats();
         double resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
+                .map(Slot::getExprId)
                 .filter(childSlotToColumnStats::containsKey).map(childSlotToColumnStats::get).map(s -> s.ndv)
                 .reduce(1d, (a, b) -> a * b);
         if (resultSetCount <= 0) {

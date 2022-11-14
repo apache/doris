@@ -101,7 +101,7 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
         return visitor.visitScalarFunction(this, context);
     }
 
-    private final FunctionSignature computePrecisionForDatetimeV2(
+    private FunctionSignature computePrecisionForDatetimeV2(
             FunctionSignature signature, List<Expression> arguments) {
 
         // fill for arguments type
@@ -125,7 +125,7 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
         return signature;
     }
 
-    private final FunctionSignature upgradeDateOrDateTimeToV2(
+    private FunctionSignature upgradeDateOrDateTimeToV2(
             FunctionSignature signature, List<Expression> arguments) {
         DataType returnType = signature.returnType;
         Type type = returnType.toCatalogDataType();
@@ -137,7 +137,7 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
     }
 
     @Developing
-    private final FunctionSignature computePrecisionForDecimal(
+    private FunctionSignature computePrecisionForDecimal(
             FunctionSignature signature, List<Expression> arguments) {
         if (signature.returnType instanceof DecimalV3Type || signature.returnType instanceof DecimalV2Type) {
             if (this instanceof DecimalSamePrecision) {
@@ -157,7 +157,7 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
         return signature;
     }
 
-    private final FunctionSignature upgradeDecimalV2ToV3(
+    private FunctionSignature upgradeDecimalV2ToV3(
             FunctionSignature signature, List<Expression> arguments) {
         DataType returnType = signature.returnType;
         Type type = returnType.toCatalogDataType();
@@ -168,7 +168,7 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
         return signature;
     }
 
-    private final FunctionSignature dynamicComputePropertiesOfArray(
+    private FunctionSignature dynamicComputePropertiesOfArray(
             FunctionSignature signature, List<Expression> arguments) {
         if (!(signature.returnType instanceof ArrayType)) {
             return signature;

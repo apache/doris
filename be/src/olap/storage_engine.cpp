@@ -107,8 +107,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
           _mem_tracker(std::make_shared<MemTracker>("StorageEngine")),
-          _segcompaction_mem_tracker(std::make_unique<MemTracker>("SegCompaction")),
-          _segment_meta_mem_tracker(std::make_unique<MemTracker>("SegmentMeta")),
+          _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
+          _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -146,13 +146,14 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    _s_instance = nullptr;
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     for (auto data_dir : data_dirs) {
         threads.emplace_back([this, data_dir] {
-            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
             auto res = data_dir->load();
             if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
@@ -198,7 +199,7 @@ Status StorageEngine::_init_store_map() {
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
         threads.emplace_back([this, store, &error_msg_lock, &error_msg]() {
-            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
             auto st = store->init();
             if (!st.ok()) {
                 {

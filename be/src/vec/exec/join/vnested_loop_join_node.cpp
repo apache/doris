@@ -39,7 +39,8 @@ VNestedLoopJoinNode::VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnod
           _cur_probe_row_visited_flags(false),
           _matched_rows_done(false),
           _left_block_pos(0),
-          _left_side_eos(false) {}
+          _left_side_eos(false),
+          _old_version_flag(!tnode.__isset.nested_loop_join_node) {}
 
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::INNER_JOIN ||
@@ -65,7 +66,7 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
 
     _num_probe_side_columns = child(0)->row_desc().num_materialized_slots();
     _num_build_side_columns = child(1)->row_desc().num_materialized_slots();
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _intermediate_row_desc));
+    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     _construct_mutable_join_block();
     return Status::OK();
 }

@@ -32,8 +32,8 @@ import java.util.Map;
 public class RangePartitionDesc extends PartitionDesc {
 
     public RangePartitionDesc(List<String> partitionColNames,
-                              List<SinglePartitionDesc> singlePartitionDescs) {
-        super(partitionColNames, singlePartitionDescs);
+                              List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        super(partitionColNames, allPartitionDescs);
         type = org.apache.doris.catalog.PartitionType.RANGE;
     }
 

@@ -55,7 +55,7 @@ public class Greatest extends ScalarFunction
             FunctionSignature.ret(LargeIntType.INSTANCE).varArgs(LargeIntType.INSTANCE),
             FunctionSignature.ret(FloatType.INSTANCE).varArgs(FloatType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).varArgs(DoubleType.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.MAX).varArgs(DecimalV2Type.MAX),
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateTimeType.INSTANCE).varArgs(DateTimeType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.INSTANCE).varArgs(DateTimeV2Type.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),

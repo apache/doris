@@ -49,14 +49,12 @@ void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details
     }
 }
 
-void ThreadMemTrackerMgr::exceeded(const std::string& failed_msg) {
+void ThreadMemTrackerMgr::exceeded() {
     if (_cb_func != nullptr) {
         _cb_func();
     }
-    auto cancel_msg = _limiter_tracker_raw->mem_limit_exceeded(
-            fmt::format("execute:<{}>", last_consumer_tracker()), failed_msg);
     if (is_attach_query()) {
-        exceeded_cancel_task(cancel_msg);
+        exceeded_cancel_task(_exceed_mem_limit_msg);
     }
     _check_limit = false; // Make sure it will only be canceled once
 }

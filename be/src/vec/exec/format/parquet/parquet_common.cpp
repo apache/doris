@@ -141,6 +141,13 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
                 }
                 is_null = !is_null;
             }
+        } else {
+            for (auto& run_length : run_length_null_map) {
+                if (is_null) {
+                    _num_nulls += run_length;
+                }
+                is_null = !is_null;
+            }
         }
     }
 }

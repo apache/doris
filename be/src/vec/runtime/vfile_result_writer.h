@@ -91,7 +91,7 @@ private:
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.
     // But this cannot solve the problem of a row of data that is too large.
-    // For example: bitmap_to_string() may return large volumn of data.
+    // For example: bitmap_to_string() may return large volume of data.
     // And the speed is relative low, in my test, is about 6.5MB/s.
     std::stringstream _plain_text_outstream;
     static const size_t OUTSTREAM_BUFFER_SIZE_BYTES;

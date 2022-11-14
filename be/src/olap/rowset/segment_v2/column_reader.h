@@ -28,6 +28,7 @@
 #include "io/fs/file_reader.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
+#include "olap/iterators.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
@@ -75,6 +76,7 @@ struct ColumnIteratorOptions {
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    IOContext io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

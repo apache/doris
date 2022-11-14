@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
+import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
@@ -57,10 +58,9 @@ import java.util.OptionalLong;
  */
 public class IcebergScanProvider extends HiveScanProvider {
 
-    public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-
-    public IcebergScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
-        super(hmsTable, desc);
+    public IcebergScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
+            Map<String, ColumnRange> columnNameToRange) {
+        super(hmsTable, desc, columnNameToRange);
     }
 
     public static void setIcebergParams(ExternalFileScanNode.ParamCreateContext context, IcebergSplit icebergSplit) {

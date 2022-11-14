@@ -36,8 +36,6 @@ under the License.
 ### example
 
 ```
-输入字符串
-
 mysql> select uuid();
 +--------------------------------------+
 | uuid()                               |

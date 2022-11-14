@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -189,5 +190,11 @@ public class EsExternalCatalog extends ExternalCatalog {
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
         setProperties(this.catalogProperty.getProperties());
+    }
+
+    @Override
+    public List<Column> getSchema(String dbName, String tblName) {
+        makeSureInitialized();
+        return EsUtil.genColumnsFromEs(getEsRestClient(), tblName, null);
     }
 }

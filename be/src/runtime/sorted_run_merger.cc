@@ -129,7 +129,7 @@ public:
         *done = false;
         _pull_task_thread =
                 std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task,
-                            this, thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker());
+                            this, thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker());
 
         RETURN_IF_ERROR(next(nullptr, done));
         return Status::OK();

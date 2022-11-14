@@ -189,7 +189,8 @@ public class ConnectProcessor {
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
-            } else if (ctx.getState().getStateType() == MysqlStateType.OK) {
+            } else if (ctx.getState().getStateType() == MysqlStateType.OK
+                    || ctx.getState().getStateType() == MysqlStateType.EOF) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                 MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd(ctx.getDatabase()).update(elapseMs);

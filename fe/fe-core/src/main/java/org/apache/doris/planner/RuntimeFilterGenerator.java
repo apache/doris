@@ -162,7 +162,7 @@ public final class RuntimeFilterGenerator {
         Preconditions.checkState(runtimeFilterType >= 0, "runtimeFilterType not expected");
         Preconditions.checkState(runtimeFilterType <= Arrays.stream(TRuntimeFilterType.values())
                 .mapToInt(TRuntimeFilterType::getValue).sum(), "runtimeFilterType not expected");
-        if (ConnectContext.get().getSessionVariable().enableRemoveNoConjunctsRuntimeFilterPolicy) {
+        if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
             filterGenerator.findAllTuplesHavingConjuncts(plan);
         }
         filterGenerator.generateFilters(plan);

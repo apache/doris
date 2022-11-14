@@ -218,7 +218,7 @@ public class CostCalculator {
                     * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
             if (buildStats.getWidth() >= 2) {
                 //penalty for right deep tree
-                penalty += Math.abs(leftRowCount - rightRowCount);
+                penalty += rightRowCount;
             }
 
             if (physicalHashJoin.getJoinType().isCrossJoin()) {

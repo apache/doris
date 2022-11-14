@@ -1174,9 +1174,13 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctx
 Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExpr*>* push_vexprs) {
     DCHECK(is_consumer());
     if (!_is_ignored) {
+        _set_push_down();
+        _profile->add_info_string("Info", _format_status());
         return _wrapper->get_push_vexprs(push_vexprs, _state, _vprobe_ctx);
+    } else {
+        _profile->add_info_string("Info", _format_status());
+        return Status::OK();
     }
-    return Status::OK();
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<ExprContext*>* push_expr_ctxs,
@@ -1206,6 +1210,7 @@ Status IRuntimeFilter::get_prepared_context(std::vector<ExprContext*>* push_expr
 
 Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*>* vexprs,
                                            const RowDescriptor& desc) {
+    _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
     }
@@ -1225,13 +1230,13 @@ bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
     SCOPED_TIMER(_await_time_cost);
     int64_t wait_times_ms = _state->runtime_filter_wait_time_ms();
+    std::unique_lock<std::mutex> lock(_inner_mutex);
     if (!_is_ready) {
         int64_t ms_since_registration = MonotonicMillis() - registration_time_;
         int64_t ms_remaining = wait_times_ms - ms_since_registration;
         if (ms_remaining <= 0) {
             return _is_ready;
         }
-        std::unique_lock<std::mutex> lock(_inner_mutex);
         return _inner_cv.wait_for(lock, std::chrono::milliseconds(ms_remaining),
                                   [this] { return this->_is_ready; });
     }
@@ -1240,9 +1245,9 @@ bool IRuntimeFilter::await() {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+    std::unique_lock<std::mutex> lock(_inner_mutex);
     _is_ready = true;
     _inner_cv.notify_all();
-    _effect_timer.reset();
 
     if (_wrapper->get_real_type() == RuntimeFilterType::IN_FILTER) {
         _profile->add_info_string("InFilterSize", std::to_string(_wrapper->get_in_filter_size()));
@@ -1365,15 +1370,11 @@ Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, Obje
 
 void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     DCHECK(parent_profile != nullptr);
-    _profile.reset(new RuntimeProfile("RuntimeFilter:" + ::doris::to_string(_runtime_filter_type)));
+    _profile.reset(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                                  ::doris::to_string(_runtime_filter_type))));
     parent_profile->add_child(_profile.get(), true, nullptr);
-    _profile->add_info_string("Ignored", _is_ignored ? "true" : "false");
-
-    _effect_time_cost = ADD_TIMER(_profile, "EffectTimeCost");
     _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
-    _effect_timer.reset(new ScopedTimer<MonotonicStopWatch>(_effect_time_cost));
-    _effect_timer->start();
-
+    _profile->add_info_string("Info", _format_status());
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }

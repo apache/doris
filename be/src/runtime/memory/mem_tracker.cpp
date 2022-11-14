@@ -62,10 +62,9 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTra
         _parent_label = parent->label();
         _parent_group_num = parent->group_num();
     } else {
-        DCHECK(thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
-        _parent_label = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->label();
-        _parent_group_num =
-                thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->group_num();
+        DCHECK(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
+        _parent_label = thread_context()->thread_mem_tracker()->label();
+        _parent_group_num = thread_context()->thread_mem_tracker()->group_num();
     }
     {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
@@ -106,7 +105,7 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
 
 std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
     return fmt::format("MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)",
-                       snapshot.label, snapshot.type, print_bytes(snapshot.cur_consumption),
+                       snapshot.label, snapshot.parent_label, print_bytes(snapshot.cur_consumption),
                        snapshot.cur_consumption, print_bytes(snapshot.peak_consumption),
                        snapshot.peak_consumption);
 }

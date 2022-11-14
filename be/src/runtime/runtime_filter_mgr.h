@@ -168,7 +168,7 @@ public:
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                       RuntimeState* state);
     // thread safe
-    // increate a reference count
+    // increase a reference count
     // if a query-id is not exist
     // Status.not_ok will be returned and a empty ptr will returned by *handle
     Status acquire(UniqueId query_id, std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle);
