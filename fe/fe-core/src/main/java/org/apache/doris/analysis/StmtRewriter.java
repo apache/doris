@@ -743,7 +743,7 @@ public class StmtRewriter {
             }
             // Indicate that the CROSS JOIN may add a new visible tuple to stmt's
             // select list (if the latter contains an unqualified star item '*')
-            return updateSelectList;
+            return true;
         }
 
         // We have a valid equi-join conjunct.
