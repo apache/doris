@@ -259,17 +259,20 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public ValueDesc union(ValueDesc other) {
-            if (other instanceof RangeValue) {
-                RangeValue o = (RangeValue) other;
-                if (range.isConnected(o.range)) {
-                    RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.or(expr, other.expr));
-                    rangeValue.range = range.span(o.range);
-                    return rangeValue;
-                } else {
+            try {
+                if (other instanceof RangeValue) {
+                    RangeValue o = (RangeValue) other;
+                    if (range.isConnected(o.range)) {
+                        RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.or(expr, other.expr));
+                        rangeValue.range = range.span(o.range);
+                        return rangeValue;
+                    }
                     return EMPTY;
                 }
+                return union(this, (DiscreteValue) other);
+            } catch (Exception e) {
+                return EMPTY;
             }
-            return union(this, (DiscreteValue) other);
         }
 
         @Override
@@ -277,17 +280,20 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             if (this.equals(FALSE) || other.equals(FALSE)) {
                 return FALSE;
             }
-            if (other instanceof RangeValue) {
-                RangeValue o = (RangeValue) other;
-                if (range.isConnected(o.range)) {
-                    RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.and(expr, other.expr));
-                    rangeValue.range = range.intersection(o.range);
-                    return rangeValue;
-                } else {
+            try {
+                if (other instanceof RangeValue) {
+                    RangeValue o = (RangeValue) other;
+                    if (range.isConnected(o.range)) {
+                        RangeValue rangeValue = new RangeValue(reference, ExpressionUtils.and(expr, other.expr));
+                        rangeValue.range = range.intersection(o.range);
+                        return rangeValue;
+                    }
                     return FALSE;
                 }
+                return intersect(this, (DiscreteValue) other);
+            } catch (Exception e) {
+                return EMPTY;
             }
-            return intersect(this, (DiscreteValue) other);
         }
 
         @Override
@@ -326,14 +332,18 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public ValueDesc union(ValueDesc other) {
-            if (other instanceof DiscreteValue) {
-                DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.or(expr, other.expr),
-                        Sets.newHashSet());
-                discreteValue.values.addAll(((DiscreteValue) other).values);
-                discreteValue.values.addAll(this.values);
-                return discreteValue;
+            try {
+                if (other instanceof DiscreteValue) {
+                    DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.or(expr, other.expr),
+                            Sets.newHashSet());
+                    discreteValue.values.addAll(((DiscreteValue) other).values);
+                    discreteValue.values.addAll(this.values);
+                    return discreteValue;
+                }
+                return union((RangeValue) other, this);
+            } catch (Exception e) {
+                return EMPTY;
             }
-            return union((RangeValue) other, this);
         }
 
         @Override
@@ -341,14 +351,18 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             if (this.equals(FALSE) || other.equals(FALSE)) {
                 return FALSE;
             }
-            if (other instanceof DiscreteValue) {
-                DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.and(expr, other.expr),
-                        Sets.newHashSet());
-                discreteValue.values.addAll(((DiscreteValue) other).values);
-                discreteValue.values.retainAll(this.values);
-                return discreteValue.values.isEmpty() ? FALSE : discreteValue;
+            try {
+                if (other instanceof DiscreteValue) {
+                    DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.and(expr, other.expr),
+                            Sets.newHashSet());
+                    discreteValue.values.addAll(((DiscreteValue) other).values);
+                    discreteValue.values.retainAll(this.values);
+                    return discreteValue.values.isEmpty() ? FALSE : discreteValue;
+                }
+                return intersect((RangeValue) other, this);
+            } catch (Exception e) {
+                return EMPTY;
             }
-            return intersect((RangeValue) other, this);
         }
 
         @Override
