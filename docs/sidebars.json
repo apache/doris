@@ -463,6 +463,7 @@
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_from_string",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_to_string",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_to_array",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_from_array",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_empty",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_or",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_and",

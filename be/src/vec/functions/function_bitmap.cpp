@@ -21,9 +21,12 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
@@ -175,6 +178,8 @@ struct ToBitmapWithCheck {
 };
 
 struct BitmapFromString {
+    using ArgumentType = DataTypeString;
+
     static constexpr auto name = "bitmap_from_string";
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
@@ -194,6 +199,42 @@ struct BitmapFromString {
             }
             res.emplace_back(bits);
             bits.clear();
+        }
+        return Status::OK();
+    }
+};
+
+struct BitmapFromArray {
+    using ArgumentType = DataTypeArray;
+    static constexpr auto name = "bitmap_from_array";
+
+    template <typename ColumnType>
+    static Status vector(const ColumnArray::Offsets64& offset_column_data,
+                         const IColumn& nested_column, const NullMap& nested_null_map,
+                         std::vector<BitmapValue>& res, NullMap& null_map) {
+        const auto& nested_column_data = static_cast<const ColumnType&>(nested_column).get_data();
+        auto size = offset_column_data.size();
+        res.reserve(size);
+        std::vector<uint64_t> bits;
+        for (size_t i = 0; i < size; ++i) {
+            auto curr_offset = offset_column_data[i];
+            auto prev_offset = offset_column_data[i - 1];
+            for (auto j = prev_offset; j < curr_offset; ++j) {
+                auto data = nested_column_data[j];
+                // invaild value
+                if (UNLIKELY(data < 0) || UNLIKELY(nested_null_map[j])) {
+                    res.emplace_back();
+                    null_map[i] = 1;
+                    break;
+                } else {
+                    bits.push_back(data);
+                }
+            }
+            //input is valid value
+            if (!null_map[i]) {
+                res.emplace_back(bits);
+                bits.clear();
+            }
         }
         return Status::OK();
     }
@@ -227,12 +268,39 @@ public:
 
         ColumnPtr argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const ColumnString* str_column = check_and_get_column<ColumnString>(argument_column.get());
-        const ColumnString::Chars& data = str_column->get_chars();
-        const ColumnString::Offsets& offsets = str_column->get_offsets();
-
-        Impl::vector(data, offsets, res, null_map);
-
+        if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeString>) {
+            const auto& str_column = static_cast<const ColumnString&>(*argument_column);
+            const ColumnString::Chars& data = str_column.get_chars();
+            const ColumnString::Offsets& offsets = str_column.get_offsets();
+            Impl::vector(data, offsets, res, null_map);
+        } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
+            auto argument_type = remove_nullable(
+                    assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
+                            .get_nested_type());
+            const auto& array_column = static_cast<const ColumnArray&>(*argument_column);
+            const auto& offset_column_data = array_column.get_offsets();
+            const auto& nested_nullable_column =
+                    static_cast<const ColumnNullable&>(array_column.get_data());
+            const auto& nested_column = nested_nullable_column.get_nested_column();
+            const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
+            if (check_column<ColumnInt8>(nested_column)) {
+                Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
+                                                  nested_null_map, res, null_map);
+            } else if (check_column<ColumnInt16>(nested_column)) {
+                Impl::template vector<ColumnInt16>(offset_column_data, nested_column,
+                                                   nested_null_map, res, null_map);
+            } else if (check_column<ColumnInt32>(nested_column)) {
+                Impl::template vector<ColumnInt32>(offset_column_data, nested_column,
+                                                   nested_null_map, res, null_map);
+            } else if (check_column<ColumnInt64>(nested_column)) {
+                Impl::template vector<ColumnInt64>(offset_column_data, nested_column,
+                                                   nested_null_map, res, null_map);
+            }
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
+        }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
         return Status::OK();
@@ -695,6 +763,7 @@ using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
 
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
+using FunctionBitmapFromArray = FunctionBitmapAlwaysNull<BitmapFromArray>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
 using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;
 
@@ -724,6 +793,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToBitmap>();
     factory.register_function<FunctionToBitmapWithCheck>();
     factory.register_function<FunctionBitmapFromString>();
+    factory.register_function<FunctionBitmapFromArray>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();
     factory.register_function<FunctionBitmapCount>();
