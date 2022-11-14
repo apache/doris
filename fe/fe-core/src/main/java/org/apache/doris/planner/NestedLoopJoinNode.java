@@ -55,7 +55,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     private static final Logger LOG = LogManager.getLogger(NestedLoopJoinNode.class);
 
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
-        super(id, "NESTED LOOP JOIN", StatisticalType.CROSS_JOIN_NODE, outer, inner, innerRef);
+        super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, outer, inner, innerRef);
         tupleIds.addAll(outer.getTupleIds());
         tupleIds.addAll(inner.getTupleIds());
     }
@@ -98,7 +98,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, List<TupleId> tupleIds,
             JoinOperator joinOperator, List<Expr> srcToOutputList, TupleDescriptor intermediateTuple,
             TupleDescriptor outputTuple) {
-        super(id, "NESTED LOOP JOIN", StatisticalType.CROSS_JOIN_NODE, joinOperator);
+        super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, joinOperator);
         this.tupleIds.addAll(tupleIds);
         children.add(outer);
         children.add(inner);
