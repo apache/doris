@@ -33,6 +33,10 @@ class RowBlockV2;
 class Schema;
 class ColumnPredicate;
 
+struct IOContext {
+    ReaderType reader_type;
+};
+
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -90,6 +94,8 @@ public:
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
+
+    IOContext io_ctx;
 };
 
 // Used to read data in RowBlockV2 one by one

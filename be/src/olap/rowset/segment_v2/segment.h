@@ -28,6 +28,7 @@
 #include "io/fs/file_system.h"
 #include "olap/iterators.h"
 #include "olap/primary_key_index.h"
+#include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
