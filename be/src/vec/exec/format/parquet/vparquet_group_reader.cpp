@@ -189,9 +189,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     if (pre_read_rows != lazy_read_rows) {
         return Status::Corruption("Can't read the same number of rows when doing lazy read");
     }
-    if (pre_eof ^ lazy_eof) {
-        return Status::Corruption("Eof error when doing lazy read");
-    }
+    // pre_eof ^ lazy_eof
+    // we set pre_read_rows as batch_size for lazy read columns, so pre_eof != lazy_eof
 
     // filter data in predicate columns, and remove filter column
     if (select_vector.has_filter()) {

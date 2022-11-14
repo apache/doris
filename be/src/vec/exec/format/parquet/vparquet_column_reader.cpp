@@ -364,9 +364,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
                 NullMap& map_data_column = *map_data_ptr;
                 auto origin_size = map_data_column.size();
                 map_data_column.resize(origin_size + scan_rows);
-                for (int i = offset_index; i < offset_index + scan_rows; ++i) {
+                for (int i = 0; i < scan_rows; ++i) {
                     map_data_column[origin_size + i] =
-                            (UInt8)(definitions[element_offsets[i]] == _NULL_ARRAY);
+                            (UInt8)(definitions[element_offsets[offset_index + i]] == _NULL_ARRAY);
                 }
             } else {
                 for (int i = offset_index; i < offset_index + scan_rows; ++i) {
