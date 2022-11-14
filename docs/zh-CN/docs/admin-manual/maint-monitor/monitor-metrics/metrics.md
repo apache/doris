@@ -143,6 +143,11 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_txn_replica_num`|| Num| 指定DB正在执行的事务打开的副本数。如 {db="test"} 表示DB test 当前正在执行的事务打开的副本数 |该数值可以观测某个DB是否打开了过多的副本，可能会影响其他事务执行| P0 |
 |`doris_fe_thrift_rpc_total`|| Num| FE thrift接口各个方法接收的RPC请求次数。如 {method="report"} 表示 report 方法接收的RPC请求次数 |该数值可以观测某个thrift rpc方法的负载| |
 |`doris_fe_thrift_rpc_latency_ms`|| 毫秒| FE thrift接口各个方法接收的RPC请求耗时。如 {method="report"} 表示 report 方法接收的RPC请求耗时 |该数值可以观测某个thrift rpc方法的负载| |
+|`doris_fe_external_schema_cache` | {catalog="hive"} | Num | 指定 External Catalog 对应的 schema cache 的数量 |||
+|`doris_fe_hive_meta_cache` | {catalog="hive"} | Num | |||
+| | `{type="partition_value"}` | Num | 指定 External Hive Metastore Catalog 对应的 partition value cache 的数量 |||
+| | `{type="partition"}` | Num | 指定 External Hive Metastore Catalog 对应的 partition cache 的数量 |||
+| | `{type="file"}` | Num | 指定 External Hive Metastore Catalog 对应的 file cache 的数量 |||
 
 ### JVM 监控
 
