@@ -85,8 +85,8 @@ public class PhysicalProperties {
         if (this.hashCode() != that.hashCode()) {
             return false;
         }
-        return orderSpec.equals(that.orderSpec)
-                && distributionSpec.equals(that.distributionSpec);
+        return orderSpec.satisfy(that.orderSpec)
+                && distributionSpec.satisfy(that.distributionSpec);
     }
 
     @Override
