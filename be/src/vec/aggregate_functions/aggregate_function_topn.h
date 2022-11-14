@@ -46,6 +46,16 @@ struct AggregateFunctionTopNData {
         capacity = (uint64_t)top_num * space_expand_rate;
     }
 
+    void add(const StringRef& value, const UInt64& increment = 1) {
+        std::string data = value.to_string();
+        auto it = counter_map.find(data);
+        if (it != counter_map.end()) {
+            it->second = it->second + increment;
+        } else {
+            counter_map.insert({data, increment});
+        }
+    }
+
     void add(const T& value, const UInt64& increment = 1) {
         auto it = counter_map.find(value);
         if (it != counter_map.end()) {
@@ -176,31 +186,20 @@ struct AggregateFunctionTopNData {
     phmap::flat_hash_map<T, uint64_t> counter_map;
 };
 
-struct StringDataImplTopN {
-    using DataType = DataTypeString;
-    static std::string to_string(const IColumn& column, size_t row_num) {
-        StringRef ref =
-                static_cast<const typename DataType::ColumnType&>(column).get_data_at(row_num);
-        return std::string(ref.data, ref.size);
-    }
-};
-
-template <typename DataHelper>
 struct AggregateFunctionTopNImplInt {
     static void add(AggregateFunctionTopNData<std::string>& __restrict place,
                     const IColumn** columns, size_t row_num) {
         place.set_paramenters(static_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
-        place.add(DataHelper::to_string(*columns[0], row_num));
+        place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
     }
 };
 
-template <typename DataHelper>
 struct AggregateFunctionTopNImplIntInt {
     static void add(AggregateFunctionTopNData<std::string>& __restrict place,
                     const IColumn** columns, size_t row_num) {
         place.set_paramenters(static_cast<const ColumnInt32*>(columns[1])->get_element(row_num),
                               static_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
-        place.add(DataHelper::to_string(*columns[0], row_num));
+        place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
     }
 };
 
@@ -221,8 +220,7 @@ struct AggregateFunctionTopNImplArray {
                     static_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
         }
         if constexpr (std::is_same_v<T, std::string>) {
-            StringRef ref = static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num);
-            place.add(std::string(ref.data, ref.size));
+            place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
         } else {
             T val = static_cast<const ColVecType&>(*columns[0]).get_data()[row_num];
             place.add(val);
@@ -247,9 +245,8 @@ struct AggregateFunctionTopNImplWeight {
                     static_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
         }
         if constexpr (std::is_same_v<T, std::string>) {
-            StringRef ref = static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num);
             auto weight = static_cast<const ColumnVector<Int64>&>(*columns[1]).get_data()[row_num];
-            place.add(std::string(ref.data, ref.size), weight);
+            place.add(static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num), weight);
         } else {
             T val = static_cast<const ColVecType&>(*columns[0]).get_data()[row_num];
             auto weight = static_cast<const ColumnVector<Int64>&>(*columns[1]).get_data()[row_num];

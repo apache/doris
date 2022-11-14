@@ -27,12 +27,10 @@ AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const bool result_is_nullable) {
     if (argument_types.size() == 2) {
         return AggregateFunctionPtr(
-                new AggregateFunctionTopN<AggregateFunctionTopNImplInt<StringDataImplTopN>>(
-                        argument_types));
+                new AggregateFunctionTopN<AggregateFunctionTopNImplInt>(argument_types));
     } else if (argument_types.size() == 3) {
         return AggregateFunctionPtr(
-                new AggregateFunctionTopN<AggregateFunctionTopNImplIntInt<StringDataImplTopN>>(
-                        argument_types));
+                new AggregateFunctionTopN<AggregateFunctionTopNImplIntInt>(argument_types));
     }
 
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
