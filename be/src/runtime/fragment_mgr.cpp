@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <sstream>
+#include <execinfo.h>
 
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
@@ -497,6 +498,22 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     auto scope = opentelemetry::trace::Scope {span};
     span->SetAttribute("query_id", print_id(exec_state->query_id()));
     span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
+
+    // int nptrs;
+    // #define SIZE 100
+    // void *buffer[100];
+
+    // nptrs = backtrace(buffer, SIZE);
+    // printf("backtrace() returned %d addresses\n", nptrs);
+
+    // backtrace_symbols_fd(buffer, nptrs, STDOUT_FILENO);
+
+    // for (int i = 0; i <= 100; i++) {
+    //     LOG(WARNING) << boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+    // }
+
+    // auto st = Status::OLAPInternalError(OLAP_ERR_TOO_MANY_SEGMENTS);
+    // LOG(WARNING) << st.to_string();
 
     // these two are used to output query_id when be cored dump.
     doris::signal::query_id_hi = exec_state->query_id().hi;

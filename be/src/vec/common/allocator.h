@@ -104,10 +104,8 @@ static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 
 #define RETURN_BAD_ALLOC(err)                                              \
     do {                                                                   \
-        LOG(ERROR) << err;                                                 \
-        if (doris::enable_thread_cache_bad_alloc) throw std::bad_alloc {}; \
-        doris::MemTrackerLimiter::print_log_process_usage(err);            \
-        return nullptr;                                                    \
+        if (!doris::enable_thread_cache_bad_alloc) doris::MemTrackerLimiter::print_log_process_usage(err);            \
+        throw std::bad_alloc {};                                           \
     } while (0)
 
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
@@ -181,8 +179,8 @@ public:
             if (0 != munmap(buf, size)) {
                 auto err = fmt::format("Allocator: Cannot munmap {}.", size);
                 LOG(ERROR) << err;
-                if (doris::enable_thread_cache_bad_alloc) throw std::bad_alloc {};
-                doris::MemTrackerLimiter::print_log_process_usage(err);
+                if (!doris::enable_thread_cache_bad_alloc) doris::MemTrackerLimiter::print_log_process_usage(err);
+                throw std::bad_alloc {};
             } else {
                 RELEASE_THREAD_MEM_TRACKER(size);
             }

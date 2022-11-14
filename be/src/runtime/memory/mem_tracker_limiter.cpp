@@ -23,6 +23,7 @@
 
 #include "gutil/once.h"
 #include "runtime/runtime_state.h"
+#include "util/stack_util.h"
 #include "runtime/thread_context.h"
 #include "util/pretty_printer.h"
 #include "util/string_util.h"
@@ -167,9 +168,11 @@ std::string MemTrackerLimiter::log_usage(MemTracker::Snapshot snapshot) {
 }
 
 void MemTrackerLimiter::print_log_usage(const std::string& msg) {
-    std::string detail = msg;
-    detail += "\n    " + MemTrackerLimiter::process_mem_log_str();
     if (_enable_print_log_usage) {
+        _enable_print_log_usage = false;
+        std::string detail = msg;
+        detail += "\n    " + MemTrackerLimiter::process_mem_log_str();
+        detail += "\n" + get_stack_trace();
         detail += "\n    " + log_usage();
         std::string child_trackers_usage;
         std::vector<MemTracker::Snapshot> snapshots;
@@ -179,30 +182,28 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
         }
         if (!child_trackers_usage.empty()) detail += child_trackers_usage;
 
-        // TODO: memory leak by calling `boost::stacktrace` in tcmalloc hook,
-        // test whether overwriting malloc/free is the same problem in jemalloc/tcmalloc.
-        // detail += "\n" + boost::stacktrace::to_string(boost::stacktrace::stacktrace());
         LOG(WARNING) << detail;
-        _enable_print_log_usage = false;
     }
 }
 
-void MemTrackerLimiter::print_log_process_usage(const std::string& msg) {
-    MemTrackerLimiter::_enable_print_log_process_usage = false;
-    std::string detail = msg;
-    detail += "\n    " + MemTrackerLimiter::process_mem_log_str();
-    std::vector<MemTracker::Snapshot> snapshots;
-    MemTrackerLimiter::make_process_snapshots(&snapshots);
-    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
-    for (const auto& snapshot : snapshots) {
-        if (snapshot.parent_label == "") {
-            detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
-        } else {
-            detail += "\n    " + MemTracker::log_usage(snapshot);
+void MemTrackerLimiter::print_log_process_usage(const std::string& msg, bool with_stacktrace) {
+    if (MemTrackerLimiter::_enable_print_log_process_usage) {
+        MemTrackerLimiter::_enable_print_log_process_usage = false;
+        std::string detail = msg;
+        detail += "\n    " + MemTrackerLimiter::process_mem_log_str();
+        if (with_stacktrace) detail += "\n" + get_stack_trace();
+        std::vector<MemTracker::Snapshot> snapshots;
+        MemTrackerLimiter::make_process_snapshots(&snapshots);
+        MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
+        for (const auto& snapshot : snapshots) {
+            if (snapshot.parent_label == "") {
+                detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
+            } else {
+                detail += "\n    " + MemTracker::log_usage(snapshot);
+            }
         }
+        LOG(WARNING) << detail;
     }
-    LOG(WARNING) << detail;
-    // LOG(WARNING) << boost::stacktrace::to_string(boost::stacktrace::stacktrace()); // TODO
 }
 
 std::string MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
