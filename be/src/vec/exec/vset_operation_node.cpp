@@ -46,8 +46,8 @@ struct HashTableBuild {
         KeyGetter key_getter(_build_raw_ptrs, _operation_node->_build_key_sz, nullptr);
 
         for (size_t k = 0; k < _rows; ++k) {
-            auto emplace_result =
-                    key_getter.emplace_key(hash_table_ctx.hash_table, k, *(_operation_node->_arena));
+            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
+                                                         *(_operation_node->_arena));
 
             if (k + 1 < _rows) {
                 key_getter.prefetch(hash_table_ctx.hash_table, k + 1, *(_operation_node->_arena));

@@ -669,7 +669,8 @@ Status AggregationNode::_execute_without_key(Block* block) {
     SCOPED_TIMER(_build_timer);
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         _aggregate_evaluators[i]->execute_single_add(
-                block, _agg_data->without_key + _offsets_of_aggregate_states[i], _agg_arena_pool.get());
+                block, _agg_data->without_key + _offsets_of_aggregate_states[i],
+                _agg_arena_pool.get());
     }
     return Status::OK();
 }
@@ -839,7 +840,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 
                 auto creator_for_null_key = [this](auto& mapped) {
                     mapped = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
-                                                           _align_aggregate_states);
+                                                            _align_aggregate_states);
                     _create_agg_status(mapped);
                 };
 
@@ -1028,7 +1029,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
                                 SCOPED_TIMER(_serialize_data_timer);
                                 _aggregate_evaluators[i]->streaming_agg_serialize(
-                                        in_block, value_buffer_writers[i], rows, _agg_arena_pool.get());
+                                        in_block, value_buffer_writers[i], rows,
+                                        _agg_arena_pool.get());
                             }
                         }
 

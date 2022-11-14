@@ -938,11 +938,11 @@ void HashJoinNode::_hash_table_init() {
                             _hash_table_variants
                                     ->emplace<I64FixedKeyHashTableContext<false, RowRefListType>>();
                         } else if (key_byte_size <= sizeof(UInt128)) {
-                            _hash_table_variants
-                                    ->emplace<I128FixedKeyHashTableContext<false, RowRefListType>>();
+                            _hash_table_variants->emplace<
+                                    I128FixedKeyHashTableContext<false, RowRefListType>>();
                         } else {
-                            _hash_table_variants
-                                    ->emplace<I256FixedKeyHashTableContext<false, RowRefListType>>();
+                            _hash_table_variants->emplace<
+                                    I256FixedKeyHashTableContext<false, RowRefListType>>();
                         }
                     }
                 } else {

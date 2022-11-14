@@ -882,7 +882,8 @@ private:
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add_selected(
-                        block, _offsets_of_aggregate_states[i], _places.data(), _agg_arena_pool.get());
+                        block, _offsets_of_aggregate_states[i], _places.data(),
+                        _agg_arena_pool.get());
             }
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
@@ -1004,9 +1005,9 @@ private:
                                                                       rows);
 
                 } else {
-                    _aggregate_evaluators[i]->execute_batch_add(block,
-                                                                _offsets_of_aggregate_states[i],
-                                                                _places.data(), _agg_arena_pool.get());
+                    _aggregate_evaluators[i]->execute_batch_add(
+                            block, _offsets_of_aggregate_states[i], _places.data(),
+                            _agg_arena_pool.get());
                 }
             }
 

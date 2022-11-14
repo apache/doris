@@ -185,8 +185,8 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-    _fn_place_ptr =
-            _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states, _align_aggregate_states);
+    _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
+                                                   _align_aggregate_states);
     _create_agg_status();
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
