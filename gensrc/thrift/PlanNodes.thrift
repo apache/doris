@@ -266,6 +266,7 @@ struct TIcebergDeleteFileDesc {
 
 struct TIcebergFileDesc {
     1: optional i32 format_version;
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
     2: optional i32 content;
     3: optional list<TIcebergDeleteFileDesc> delete_files;
 }

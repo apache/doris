@@ -84,7 +84,7 @@ Status RowGroupReader::init(const FieldDescriptor& schema,
 
 void RowGroupReader::set_row_ranges(const std::vector<doris::vectorized::RowRange>& row_ranges) {
     for (auto& read_col : _read_columns) {
-        _column_readers[read_col._file_slot_name]->add_row_ranges(&row_ranges);
+        _column_readers[read_col._file_slot_name]->set_row_ranges(&row_ranges);
     }
 }
 

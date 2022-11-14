@@ -59,7 +59,6 @@ private:
     std::queue<GenericReader*> _delete_file_readers;
     GenericReader* _cur_delete_file_reader;
     PositionDeleteParams _position_delete_params;
-    //    int64_t _read_rows = 0;
 };
 
 } // namespace doris::vectorized

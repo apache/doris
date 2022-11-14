@@ -25,6 +25,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TIcebergDeleteFileDesc;
+import org.apache.doris.thrift.TIcebergFileDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -40,7 +43,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.types.Conversions;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -48,14 +50,54 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * A file scan provider for iceberg.
  */
 public class IcebergScanProvider extends HiveScanProvider {
 
+    public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
+
     public IcebergScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
         super(hmsTable, desc);
+    }
+
+    public static void setIcebergParams(ExternalFileScanNode.ParamCreateContext context, IcebergSplit icebergSplit) {
+        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+        tableFormatFileDesc.setTableFormatType(icebergSplit.getTableFormatType().value());
+        TIcebergFileDesc fileDesc = new TIcebergFileDesc();
+        int formatVersion = icebergSplit.getFormatVersion();
+        fileDesc.setFormatVersion(formatVersion);
+        if (formatVersion < IcebergScanProvider.MIN_DELETE_FILE_SUPPORT_VERSION) {
+            fileDesc.setContent(FileContent.DATA.id());
+        } else {
+            for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
+                TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
+                deleteFileDesc.setPath(filter.getDeleteFilePath());
+                if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
+                    fileDesc.setContent(FileContent.POSITION_DELETES.id());
+                    IcebergDeleteFileFilter.PositionDelete positionDelete =
+                        (IcebergDeleteFileFilter.PositionDelete) filter;
+                    OptionalLong lowerBound = positionDelete.getPositionLowerBound();
+                    OptionalLong upperBound = positionDelete.getPositionUpperBound();
+                    if (lowerBound.isPresent()) {
+                        deleteFileDesc.setPositionLowerBound(lowerBound.getAsLong());
+                    }
+                    if (upperBound.isPresent()) {
+                        deleteFileDesc.setPositionUpperBound(upperBound.getAsLong());
+                    }
+                } else {
+                    fileDesc.setContent(FileContent.EQUALITY_DELETES.id());
+                    IcebergDeleteFileFilter.EqualityDelete equalityDelete =
+                        (IcebergDeleteFileFilter.EqualityDelete) filter;
+                    deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
+                }
+                fileDesc.addToDeleteFiles(deleteFileDesc);
+            }
+        }
+        tableFormatFileDesc.setIcebergParams(fileDesc);
+        context.params.setTableFormatParams(tableFormatFileDesc);
     }
 
     @Override
@@ -75,7 +117,7 @@ public class IcebergScanProvider extends HiveScanProvider {
     }
 
     @Override
-    public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
+    public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);

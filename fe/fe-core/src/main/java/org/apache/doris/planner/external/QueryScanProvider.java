@@ -31,25 +31,20 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
-import org.apache.doris.thrift.TIcebergDeleteFileDesc;
-import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Joiner;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputSplit;
-import org.apache.iceberg.FileContent;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
 
 public abstract class QueryScanProvider implements FileScanProviderIf {
     public static final Logger LOG = LogManager.getLogger(QueryScanProvider.class);
@@ -82,45 +77,11 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 context.params.setFileAttributes(getFileAttributes());
             }
 
+            if (inputSplit instanceof IcebergSplit) {
+                IcebergScanProvider.setIcebergParams(context, (IcebergSplit) inputSplit);
+            }
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
-            if (inputSplit instanceof IcebergSplit) {
-                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
-                IcebergSplit icebergSplit = (IcebergSplit) inputSplit;
-                tableFormatFileDesc.setTableFormatType(icebergSplit.getTableFormatType().value());
-                TIcebergFileDesc fileDesc = new TIcebergFileDesc();
-                int formatVersion = icebergSplit.getFormatVersion();
-                fileDesc.setFormatVersion(formatVersion);
-                if (formatVersion < 2) {
-                    fileDesc.setContent(FileContent.DATA.id());
-                } else {
-                    for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
-                        TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
-                        deleteFileDesc.setPath(filter.getDeleteFilePath());
-                        if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
-                            fileDesc.setContent(FileContent.POSITION_DELETES.id());
-                            IcebergDeleteFileFilter.PositionDelete positionDelete =
-                                    (IcebergDeleteFileFilter.PositionDelete) filter;
-                            OptionalLong lowerBound = positionDelete.getPositionLowerBound();
-                            OptionalLong upperBound = positionDelete.getPositionUpperBound();
-                            if (lowerBound.isPresent()) {
-                                deleteFileDesc.setPositionLowerBound(lowerBound.getAsLong());
-                            }
-                            if (upperBound.isPresent()) {
-                                deleteFileDesc.setPositionUpperBound(upperBound.getAsLong());
-                            }
-                        } else {
-                            fileDesc.setContent(FileContent.EQUALITY_DELETES.id());
-                            IcebergDeleteFileFilter.EqualityDelete equalityDelete =
-                                    (IcebergDeleteFileFilter.EqualityDelete) filter;
-                            deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
-                        }
-                        fileDesc.addToDeleteFiles(deleteFileDesc);
-                    }
-                }
-                tableFormatFileDesc.setIcebergParams(fileDesc);
-                context.params.setTableFormatParams(tableFormatFileDesc);
-            }
             if (locationType == TFileType.FILE_HDFS) {
                 THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(locationProperties);
                 tHdfsParams.setFsName(fsName);

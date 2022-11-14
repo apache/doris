@@ -313,16 +313,6 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
 }
 
 void ParquetReader::merge_delete_row_ranges(const std::vector<RowRange>& delete_row_ranges) {
-    //    std::vector<RowRange> group_delete_row_ranges;
-    //    for (auto& range : _delete_row_ranges) {
-    //        // TODO: reduce ranges of the following group
-    //        const auto& row_group_index = _current_group_reader->index();
-    //        if (range.last_row < row_group_index.first_row
-    //            || range.first_row > row_group_index.last_row) {
-    //            continue;
-    //        }
-    //        group_delete_row_ranges.emplace_back(range);
-    //    }
     if (_row_ranges.empty()) {
         return;
     }

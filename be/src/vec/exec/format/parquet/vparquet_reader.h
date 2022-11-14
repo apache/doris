@@ -62,7 +62,7 @@ public:
     void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
     Status init_reader(const std::vector<std::string>& column_names,
-                       const bool& filter_groups = true) {
+                       bool filter_groups = true) {
         // without predicate
         return init_reader(column_names, nullptr, nullptr, filter_groups);
     }
@@ -70,7 +70,7 @@ public:
     Status init_reader(
             const std::vector<std::string>& column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx, const bool& filter_groups = true);
+            VExprContext* vconjunct_ctx, bool filter_groups = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 

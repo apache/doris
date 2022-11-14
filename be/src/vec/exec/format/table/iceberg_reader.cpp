@@ -27,6 +27,7 @@
 namespace doris::vectorized {
 
 const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
+const std:string ICEBERG_ROW_POS = "pos";
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     Status status = _file_format_reader->get_next_block(block, read_rows, eof);
@@ -77,7 +78,7 @@ void IcebergTableReader::filter_rows() {
             }
         }
         if (read_rows != 0) {
-            auto& pos_type_column = block.get_by_name("pos");
+            auto& pos_type_column = block.get_by_name(ICEBERG_ROW_POS);
             ColumnPtr pos_column = pos_type_column.column;
             using ColumnType = typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnType;
             if (pos_type_column.type->is_nullable()) {

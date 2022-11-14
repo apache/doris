@@ -111,7 +111,7 @@ public:
                          size_t max_buf_size);
     void init_column_metadata(const tparquet::ColumnChunk& chunk);
     void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
-    void add_row_ranges(const std::vector<RowRange>* row_ranges) { _row_ranges = row_ranges; };
+    void set_row_ranges(const std::vector<RowRange>* row_ranges) { _row_ranges = row_ranges; };
     Statistics statistics() {
         return Statistics(_stream_reader->statistics(), _chunk_reader->statistics(),
                           _decode_null_map_time);
