@@ -206,6 +206,7 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
 
 Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
     if (seg_id == _num_segcompacted) {
+        ++_num_segcompacted;
         return Status::OK();
     }
 
