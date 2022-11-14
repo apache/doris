@@ -99,7 +99,7 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         ctx = new ConnectContext();
         ctx.setDatabase(job.getDbName());
         ctx.setQualifiedUser(task.getUser());
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(job.getCreateUser(), "%"));
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(job.getUser(), "%"));
         ctx.getState().reset();
         UUID taskId = UUID.fromString(task.getTaskId());
         TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
@@ -113,7 +113,7 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         processor.process(taskContext);
         QueryState queryState = ctx.getState();
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
-            task.setErrorMessage(queryState.getErrorMessage());
+            task.setMessage(queryState.getErrorMessage());
             int errorCode = -1;
             if (queryState.getErrorCode() != null) {
                 errorCode = queryState.getErrorCode().getCode();
@@ -143,7 +143,7 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
             task.setCreateTime(createTime);
         }
         task.setMvName(job.getMvName());
-        task.setUser(job.getCreateUser());
+        task.setUser(job.getUser());
         task.setDbName(job.getDbName());
         task.setQuery(job.getQuery());
         task.setExpireTime(MTMVUtils.getNowTimeStamp() + Config.scheduler_mtmv_task_expired);

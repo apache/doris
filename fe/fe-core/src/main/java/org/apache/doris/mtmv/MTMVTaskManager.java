@@ -361,7 +361,7 @@ public class MTMVTaskManager {
                     getRunningTaskMap().put(jobId, pendingTask);
                 }
             } else if (toStatus == TaskState.FAILED) {
-                status.setErrorMessage(changeTask.getErrorMessage());
+                status.setMessage(changeTask.getErrorMessage());
                 status.setErrorCode(changeTask.getErrorCode());
                 status.setState(TaskState.FAILED);
                 addHistory(status);
@@ -377,7 +377,7 @@ public class MTMVTaskManager {
             MTMVTask status = runningTask.getTask();
             if (status.getTaskId().equals(changeTask.getTaskId())) {
                 if (toStatus == TaskState.FAILED) {
-                    status.setErrorMessage(changeTask.getErrorMessage());
+                    status.setMessage(changeTask.getErrorMessage());
                     status.setErrorCode(changeTask.getErrorCode());
                 }
                 status.setState(toStatus);
@@ -425,7 +425,7 @@ public class MTMVTaskManager {
                 Queue<MTMVTaskExecutor> tasks = getPendingTaskMap().get(pendingIter.next());
                 while (!tasks.isEmpty()) {
                     MTMVTaskExecutor taskExecutor = tasks.poll();
-                    taskExecutor.getTask().setErrorMessage("Fe abort the task");
+                    taskExecutor.getTask().setMessage("Fe abort the task");
                     taskExecutor.getTask().setErrorCode(-1);
                     taskExecutor.getTask().setState(TaskState.FAILED);
                     addHistory(taskExecutor.getTask());
@@ -437,7 +437,7 @@ public class MTMVTaskManager {
             Iterator<Long> runningIter = getRunningTaskMap().keySet().iterator();
             while (runningIter.hasNext()) {
                 MTMVTaskExecutor taskExecutor = getRunningTaskMap().get(runningIter.next());
-                taskExecutor.getTask().setErrorMessage("Fe abort the task");
+                taskExecutor.getTask().setMessage("Fe abort the task");
                 taskExecutor.getTask().setErrorCode(-1);
                 taskExecutor.getTask().setState(TaskState.FAILED);
                 taskExecutor.getTask().setFinishTime(MTMVUtils.getNowTimeStamp());

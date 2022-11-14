@@ -61,11 +61,11 @@ public class MTMVTask implements Writable, Comparable {
     @SerializedName("user")
     private String user;
 
+    @SerializedName("message")
+    private String message;
+
     @SerializedName("errorCode")
     private int errorCode;
-
-    @SerializedName("errorMessage")
-    private String errorMessage;
 
     @SerializedName("expireTime")
     private long expireTime;
@@ -142,7 +142,7 @@ public class MTMVTask implements Writable, Comparable {
     }
 
     public String getQuery() {
-        return query;
+        return query == null ? "" : query;
     }
 
     public void setQuery(String query) {
@@ -157,12 +157,12 @@ public class MTMVTask implements Writable, Comparable {
         this.errorCode = errorCode;
     }
 
-    public String getErrorMessage() {
-        return errorMessage == null ? "" : errorMessage;
+    public String getMessage() {
+        return message == null ? "" : message;
     }
 
-    public void setErrorMessage(String errorMessage) {
-        this.errorMessage = errorMessage;
+    public void setMessage(String message) {
+        this.message = message;
     }
 
     public long getExpireTime() {
@@ -204,15 +204,15 @@ public class MTMVTask implements Writable, Comparable {
             new ImmutableList.Builder<String>()
                     .add("TaskId")
                     .add("JobName")
-                    .add("dbName")
+                    .add("DBName")
                     .add("MVName")
                     .add("Query")
                     .add("User")
                     .add("Priority")
                     .add("RetryTimes")
                     .add("State")
+                    .add("Message")
                     .add("ErrorCode")
-                    .add("ErrorMessage")
                     .add("CreateTime")
                     .add("ExpireTime")
                     .add("FinishTime")
@@ -229,8 +229,8 @@ public class MTMVTask implements Writable, Comparable {
         list.add(Integer.toString(getPriority()));
         list.add(Integer.toString(getRetryTimes()));
         list.add(getState().toString());
+        list.add(getMessage().length() > 10240 ? getMessage().substring(0, 10240) : getMessage());
         list.add(Integer.toString(getErrorCode()));
-        list.add(getErrorMessage().length() > 10240 ? getErrorMessage().substring(0, 10240) : getErrorMessage());
         list.add(MTMVUtils.getTimeString(getCreateTime()));
         list.add(MTMVUtils.getTimeString(getExpireTime()));
         list.add(MTMVUtils.getTimeString(getFinishTime()));

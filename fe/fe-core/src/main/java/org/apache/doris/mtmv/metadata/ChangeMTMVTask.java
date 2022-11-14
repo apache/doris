@@ -60,7 +60,7 @@ public class ChangeMTMVTask implements Writable {
         this.finishTime = task.getFinishTime();
         if (toStatus == TaskState.FAILED) {
             errorCode = task.getErrorCode();
-            errorMessage = task.getErrorMessage();
+            errorMessage = task.getMessage();
         }
     }
 

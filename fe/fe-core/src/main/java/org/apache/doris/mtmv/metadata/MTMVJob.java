@@ -77,8 +77,8 @@ public class MTMVJob implements Writable, Comparable {
     private long expireTime = -1;
 
     // set default to ROOT is for compatibility
-    @SerializedName("createUser")
-    private String createUser = "root";
+    @SerializedName("user")
+    private String user = "root";
 
     @SerializedName("retryPolicy")
     private TaskRetryPolicy retryPolicy = TaskRetryPolicy.NEVER;
@@ -167,7 +167,7 @@ public class MTMVJob implements Writable, Comparable {
     }
 
     public String getQuery() {
-        return query;
+        return query == null ? "" : query;
     }
 
     public void setQuery(String query) {
@@ -190,12 +190,12 @@ public class MTMVJob implements Writable, Comparable {
         this.expireTime = expireTime;
     }
 
-    public String getCreateUser() {
-        return createUser;
+    public String getUser() {
+        return user;
     }
 
-    public void setCreateUser(String createUser) {
-        this.createUser = createUser;
+    public void setUser(String user) {
+        this.user = user;
     }
 
     public TaskRetryPolicy getRetryPolicy() {
@@ -273,7 +273,7 @@ public class MTMVJob implements Writable, Comparable {
                     .add("DBName")
                     .add("MVName")
                     .add("Query")
-                    .add("CreateUser")
+                    .add("User")
                     .add("RetryPolicy")
                     .add("State")
                     .add("CreateTime")
@@ -290,7 +290,7 @@ public class MTMVJob implements Writable, Comparable {
         list.add(getDbName());
         list.add(getMvName());
         list.add(getQuery().length() > 10240 ? getQuery().substring(0, 10240) : getQuery());
-        list.add(getCreateUser());
+        list.add(getUser());
         list.add(getRetryPolicy().toString());
         list.add(getState().toString());
         list.add(MTMVUtils.getTimeString(getCreateTime()));
