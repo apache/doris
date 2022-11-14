@@ -112,7 +112,6 @@ public class JdbcScanNode extends ScanNode {
         return limit != -1 && conjuncts.isEmpty();
     }
 
-    @SuppressWarnings({"checkstyle:Indentation", "checkstyle:WhitespaceAround"})
     private String getJdbcQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
 
