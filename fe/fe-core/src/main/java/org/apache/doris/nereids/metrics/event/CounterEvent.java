@@ -31,7 +31,7 @@ import java.util.Map;
  * counter event
  */
 public class CounterEvent extends Event {
-    private static final Map<CounterType, Long> counterMap = Maps.newHashMap();
+    private static final Map<CounterType, Long> COUNTER_MAP = Maps.newHashMap();
     private final CounterType counterType;
     private final Group group;
     private final GroupExpression groupExpression;
@@ -43,7 +43,6 @@ public class CounterEvent extends Event {
     public CounterEvent(long stateId, CounterType counterType, Group group,
             GroupExpression groupExpression, Plan plan) {
         super(stateId);
-        counterMap.compute(counterType, (t, l) -> l == null ? 1L : l + 1);
         this.counterType = counterType;
         this.group = group;
         this.groupExpression = groupExpression;
@@ -53,7 +52,7 @@ public class CounterEvent extends Event {
     @Override
     public String toString() {
         return "CounterEvent{"
-                + "count=" + counterMap.get(counterType)
+                + "count=" + COUNTER_MAP.get(counterType)
                 + ", counterType=" + counterType
                 + ", group=" + group
                 + ", groupExpression=" + groupExpression
@@ -61,7 +60,15 @@ public class CounterEvent extends Event {
                 + '}';
     }
 
+    public static void updateCounter(CounterType counterType) {
+        COUNTER_MAP.compute(counterType, (t, l) -> l == null ? 1L : l + 1);
+    }
+
     public static void clearCounter() {
-        counterMap.clear();
+        COUNTER_MAP.clear();
+    }
+
+    public CounterType getCounterType() {
+        return counterType;
     }
 }

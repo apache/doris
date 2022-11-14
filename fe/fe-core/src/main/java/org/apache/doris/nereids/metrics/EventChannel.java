@@ -41,7 +41,7 @@ public class EventChannel {
     private static final EventChannel DEFAULT_CHANNEL = new EventChannel();
     private Set<Class<? extends Event>> eventSwitch = new HashSet<>();
     private final Map<Class<? extends Event>, List<EventConsumer>> consumers = Maps.newHashMap();
-    private final Map<Class<? extends Event>, List<EventFilter>> filters = Maps.newHashMap();
+    private final Map<Class<? extends Event>, EventEnhancer> enhancers = Maps.newHashMap();
     private final BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
     private boolean isStop = false;
     private Thread thread;
@@ -50,25 +50,14 @@ public class EventChannel {
         queue.add(e);
     }
 
-    private Event filter(Event e) {
-        for (EventFilter filter : filters.get(e.getClass())) {
-            e = filter.checkEvent(e);
-            if (e == null) {
-                return null;
-            }
-        }
-        return e;
-    }
-
     public EventChannel addConsumers(List<EventConsumer> consumers) {
         consumers.forEach(consumer -> this.consumers
                 .computeIfAbsent(consumer.getTargetClass(), k -> Lists.newArrayList()).add(consumer));
         return this;
     }
 
-    public EventChannel addFilters(List<EventFilter> filters) {
-        filters.forEach(filter -> this.filters
-                .computeIfAbsent(filter.getTargetClass(), k -> Lists.newArrayList()).add(filter));
+    public EventChannel addEnhancers(List<EventEnhancer> enhancers) {
+        enhancers.forEach(enhancer -> this.enhancers.putIfAbsent(enhancer.getTargetClass(), enhancer));
         return this;
     }
 
@@ -91,15 +80,18 @@ public class EventChannel {
         public void run() {
             while (!isStop) {
                 try {
-                    Event e = filter(queue.poll());
+                    Event e = queue.poll();
                     if (e == null) {
                         continue;
                     }
                     for (EventConsumer consumer : consumers.get(e.getClass())) {
+                        if (enhancers.containsKey(e.getClass())) {
+                            enhancers.get(e.getClass()).enhance(e);
+                        }
                         consumer.consume(e.clone());
                     }
-                } catch (Exception e) {
-                    LOG.warn("encounter exception when push event: ", e);
+                } catch (Exception exception) {
+                    LOG.warn("encounter exception when push event: ", exception);
                 }
             }
             for (List<EventConsumer> consumerList : consumers.values()) {

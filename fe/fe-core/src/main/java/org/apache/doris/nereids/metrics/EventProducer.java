@@ -33,6 +33,7 @@ public class EventProducer {
 
     public EventProducer(Class<? extends Event> eventClass, List<EventFilter> filters, EventChannel channel) {
         this.channel = channel;
+        Preconditions.checkArgument(filters.stream().allMatch(f -> f.getTargetClass().equals(eventClass)));
         this.filters = filters;
         this.eventClass = eventClass;
     }

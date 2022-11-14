@@ -20,7 +20,6 @@ package org.apache.doris.nereids.metrics;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
-import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -36,13 +35,6 @@ import java.util.List;
 public class EventTest extends TestWithFeService {
     private EventChannel channel;
     private List<EventProducer> producers;
-    private final List<Event> events = ImmutableList.of(
-            new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null),
-            new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE),
-            new EnforcerEvent(null, null, null, null),
-            new GroupMergeEvent(null, null, null),
-            new StatsStateEvent(null, null)
-    );
 
     private final StringBuilder builder = new StringBuilder();
     private final PrintStream printStream = new PrintStream(new OutputStream() {
@@ -56,18 +48,28 @@ public class EventTest extends TestWithFeService {
     public void runBeforeAll() {
         connectContext.getSessionVariable().setEnableNereidsEvent(true);
         connectContext.getSessionVariable().setNereidsEventMode("counter, transform");
-        channel = new EventChannel().addConsumers(ImmutableList.of(
+        channel = new EventChannel()
+                .addConsumers(ImmutableList.of(
                         new PrintConsumer(CounterEvent.class, printStream),
                         new PrintConsumer(TransformEvent.class, printStream),
                         new PrintConsumer(EnforcerEvent.class, printStream),
-                        new PrintConsumer(GroupMergeEvent.class, printStream)));
+                        new PrintConsumer(GroupMergeEvent.class, printStream)))
+                .addEnhancers(ImmutableList.of(
+                        new EventEnhancer(CounterEvent.class) {
+                            @Override
+                            public void enhance(Event e) {
+                                CounterEvent.updateCounter(((CounterEvent) e).getCounterType());
+                            }
+                        }
+                ))
+                .setConnectContext(connectContext);
         channel.start();
         producers = ImmutableList.of(
-                new EventProducer(TransformEvent.class, ImmutableList.of(
+                new EventProducer(CounterEvent.class, ImmutableList.of(
                         new EventFilter(CounterEvent.class),
                         new EventFilter(CounterEvent.class)),
                         channel),
-                new EventProducer(CounterEvent.class, ImmutableList.of(
+                new EventProducer(TransformEvent.class, ImmutableList.of(
                         new EventFilter(TransformEvent.class) {
                             @Override
                             public Event checkEvent(Event event) {
@@ -81,23 +83,21 @@ public class EventTest extends TestWithFeService {
     public void runAfterAll() {
         channel.stop();
         Assertions.assertEquals(
-                "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
-                        + "CounterEvent{count=0, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
-                        + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
-                        + "CounterEvent{count=0, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
-                        + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
-                        + "CounterEvent{count=0, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
-                        + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
-                        + "CounterEvent{count=0, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
-                        + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
-                        + "CounterEvent{count=0, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n",
+                        "CounterEvent{count=1, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                        + "CounterEvent{count=2, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                        + "CounterEvent{count=3, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                        + "CounterEvent{count=4, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                        + "CounterEvent{count=5, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n",
                 builder.toString());
+        CounterEvent.clearCounter();
     }
 
     @Test
     public void testEvent() {
         for (int i = 0; i < 10; ++i) {
-            producers.get(i % 2).log(events.get((i + 1) % 2));
+            producers.get(i % 2).log(i % 2 == 0
+                    ? new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
+                    : new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
         }
     }
 }
