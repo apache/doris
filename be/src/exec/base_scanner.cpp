@@ -235,7 +235,7 @@ Status BaseScanner::fill_missing_columns(Tuple* tuple, MemPool* mem_pool) {
 
     const TupleDescriptor* src_tuple_desc =
             _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
-        if (src_tuple_desc == nullptr) {
+    if (src_tuple_desc == nullptr) {
         return Status::InternalError("Unknown source tuple descriptor, tuple_id={}",
                                      _params.src_tuple_id);
     }

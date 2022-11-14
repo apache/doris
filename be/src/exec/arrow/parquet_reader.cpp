@@ -19,12 +19,12 @@
 #include <arrow/array.h>
 #include <arrow/status.h>
 #include <arrow/type_fwd.h>
+#include <parquet/arrow/schema.h>
 #include <time.h>
 
 #include <algorithm>
 #include <cinttypes>
 #include <mutex>
-#include <parquet/arrow/schema.h>
 #include <thread>
 
 #include "common/logging.h"
@@ -123,14 +123,14 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
 }
 
 Status ParquetReaderWrap::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
+                                      std::unordered_set<std::string>* missing_cols) {
     auto schema_desc = _file_metadata->schema();
-    std::shared_ptr<::arrow::Schema> arrow_schema= nullptr;
+    std::shared_ptr<::arrow::Schema> arrow_schema = nullptr;
     parquet::arrow::FromParquetSchema(schema_desc, &arrow_schema);
 
     for (size_t i = 0; i < arrow_schema->num_fields(); ++i) {
-        std::string schema_name =
-                _case_sensitive ? arrow_schema->field(i)->name() : to_lower(arrow_schema->field(i)->name());
+        std::string schema_name = _case_sensitive ? arrow_schema->field(i)->name()
+                                                  : to_lower(arrow_schema->field(i)->name());
         TypeDescriptor type;
         RETURN_IF_ERROR(
                 vectorized::arrow_type_to_doris_type(arrow_schema->field(i)->type()->id(), &type));

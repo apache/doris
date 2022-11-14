@@ -439,7 +439,7 @@ Status ORCScanner::open_next_reader() {
 void ORCScanner::build_name_id_map() {
     _map_column_to_id.clear();
     std::vector<std::string> columns;
-     const orc::Type& type = _reader->getType();
+    const orc::Type& type = _reader->getType();
     build_name_id_map_impl(columns, &type);
 }
 
@@ -469,7 +469,7 @@ std::string ORCScanner::dot_column_path(const std::vector<std::string>& columns)
               std::ostream_iterator<std::string>(columnStream, "."));
     std::string columnPath = columnStream.str();
     return columnPath.substr(0, columnPath.length() - 1);
-}   
+}
 
 void ORCScanner::close() {
     BaseScanner::close();

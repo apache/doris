@@ -176,9 +176,7 @@ Status VArrowScanner::_fill_missing_columns(Block* block) {
         if (it->second == nullptr) {
             //fill with null
             auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                    (*std::move(block->get_by_name(slot_desc->col_name()).column))
-                            .mutate()
-                            .get());
+                    (*std::move(block->get_by_name(slot_desc->col_name()).column)).mutate().get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -215,14 +213,13 @@ Status VArrowScanner::_init_src_block() {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot_desc->col_name());
         if (it == _name_to_col_type.end()) {
-            data_type =
-                    DataTypeFactory::instance().create_data_type(slot_desc->type(), slot_desc->is_nullable());
+            data_type = DataTypeFactory::instance().create_data_type(slot_desc->type(),
+                                                                     slot_desc->is_nullable());
         } else {
             auto* array = _batch->GetColumnByName(slot_desc->col_name()).get();
-            data_type =
-                    DataTypeFactory::instance().create_data_type(array->type().get(), true);
+            data_type = DataTypeFactory::instance().create_data_type(array->type().get(), true);
         }
-        
+
         if (data_type == nullptr) {
             return Status::NotSupported(
                     fmt::format("Not support arrow type:{}", slot_desc->col_name()));
