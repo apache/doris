@@ -124,6 +124,7 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
@@ -450,6 +451,8 @@ public class Env {
 
     private final StatisticsCache statisticsCache;
 
+    private ExternalMetaCacheMgr extMetaCacheMgr;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -513,6 +516,10 @@ public class Env {
 
     public MTMVJobManager getMTMVJobManager() {
         return mtmvJobManager;
+    }
+
+    public ExternalMetaCacheMgr getExtMetaCacheMgr() {
+        return extMetaCacheMgr;
     }
 
     public CatalogIf getCurrentCatalog() {
@@ -646,6 +653,7 @@ public class Env {
         this.mtmvJobManager = new MTMVJobManager();
         this.analysisJobScheduler = new AnalysisJobScheduler();
         this.statisticsCache = new StatisticsCache();
+        this.extMetaCacheMgr = new ExternalMetaCacheMgr();
     }
 
     public static void destroyCheckpoint() {

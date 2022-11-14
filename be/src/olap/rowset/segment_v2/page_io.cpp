@@ -137,8 +137,8 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
     {
         SCOPED_RAW_TIMER(&opts.stats->io_ns);
         size_t bytes_read = 0;
-        RETURN_IF_ERROR(
-                opts.file_reader->read_at(opts.page_pointer.offset, page_slice, &bytes_read));
+        RETURN_IF_ERROR(opts.file_reader->read_at(opts.page_pointer.offset, page_slice, opts.io_ctx,
+                                                  &bytes_read));
         DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
     }

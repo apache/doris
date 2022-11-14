@@ -61,6 +61,8 @@ class BindSlotReferenceTest {
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
-        Assertions.assertEquals("id is ambiguous: id#8, id#12.", exception.getMessage());
+        Assertions.assertTrue(exception.getMessage().contains("id is ambiguous: "));
+        Assertions.assertTrue(exception.getMessage().contains("id#4"));
+        Assertions.assertTrue(exception.getMessage().contains("id#0"));
     }
 }

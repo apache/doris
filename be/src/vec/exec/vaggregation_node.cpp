@@ -478,6 +478,7 @@ Status AggregationNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(_executor.execute(&block));
         _executor.update_memusage();
     }
+    _children[0]->close(state);
 
     return Status::OK();
 }

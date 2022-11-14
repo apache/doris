@@ -87,8 +87,13 @@ public class ColumnStatistic {
     public static ColumnStatistic fromResultRow(ResultRow resultRow) {
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            columnStatisticBuilder.setCount(Double.parseDouble(resultRow.getColumnValue("count")));
-            columnStatisticBuilder.setNdv(Double.parseDouble(resultRow.getColumnValue("ndv")));
+            double count = Double.parseDouble(resultRow.getColumnValue("count"));
+            columnStatisticBuilder.setCount(count);
+            double ndv = Double.parseDouble(resultRow.getColumnValue("ndv"));
+            if (0.99 * count < ndv && ndv < 1.01 * count) {
+                ndv = count;
+            }
+            columnStatisticBuilder.setNdv(ndv);
             columnStatisticBuilder.setNumNulls(Double.parseDouble(resultRow.getColumnValue("null_count")));
             columnStatisticBuilder.setDataSize(Double
                     .parseDouble(resultRow.getColumnValue("data_size_in_bytes")));
@@ -108,8 +113,10 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
             columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            columnStatisticBuilder.setSelectivity(1.0);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
             return ColumnStatistic.UNKNOWN;
         }
@@ -118,7 +125,7 @@ public class ColumnStatistic {
     public ColumnStatistic copy() {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).build();
+                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).setSelectivity(selectivity).build();
     }
 
     public ColumnStatistic multiply(double d) {
@@ -132,6 +139,7 @@ public class ColumnStatistic {
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
+                .setSelectivity(selectivity)
                 .build();
     }
 

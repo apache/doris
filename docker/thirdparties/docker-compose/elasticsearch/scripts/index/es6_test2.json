@@ -1,0 +1,33 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "aliases": {
+    "test2": {}
+  },
+  "mappings": {
+    "doc": {
+      "properties": {
+        "test1": {
+          "type": "keyword"
+        },
+        "test2": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "test3": {
+          "type": "double"
+        },
+        "test4": {
+          "type": "date"
+        }
+      }
+    }
+  }
+}

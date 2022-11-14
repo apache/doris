@@ -207,7 +207,6 @@ void MemTrackerLimiter::print_log_process_usage(const std::string& msg) {
 
 std::string MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
                                                   const std::string& limit_exceeded_errmsg) {
-    DCHECK(_limit != -1);
     STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     std::string detail = fmt::format(
             "Memory limit exceeded:<consuming tracker:<{}>, {}>, executing msg:<{}>. backend {} "

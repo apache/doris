@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class HyperGraphTest {
@@ -54,8 +55,7 @@ public class HyperGraphTest {
                 + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN3 [label=\"1.00\",arrowhead=none]\n"
                 + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN4 [label=\"1.00\",arrowhead=none]\n"
                 + "}\n";
-        assert dottyGraph.equals(target) : dottyGraph;
-
+        Assertions.assertEquals(dottyGraph, target);
     }
 
     @Test
@@ -89,6 +89,6 @@ public class HyperGraphTest {
                 + "LOGICAL_OLAP_SCAN1 -> LOGICAL_OLAP_SCAN2 [label=\"1.00\",arrowhead=none]\n"
                 + "LOGICAL_OLAP_SCAN2 -> LOGICAL_OLAP_SCAN3 [label=\"1.00\",arrowhead=none]\n"
                 + "}\n";
-        assert dottyGraph.equals(target) : dottyGraph;
+        Assertions.assertEquals(dottyGraph, target);
     }
 }
