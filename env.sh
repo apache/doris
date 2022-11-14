@@ -166,7 +166,7 @@ if [[ -z "${DORIS_GCC_HOME}" ]]; then
     export DORIS_GCC_HOME
 fi
 
-if [[ ! -f "${DORIS_GCC_HOME}/bin/gcc" ]];then
+if [[ ! -f "${DORIS_GCC_HOME}/bin/gcc" ]]; then
     echo "Error: wrong directory DORIS_GCC_HOME=${DORIS_GCC_HOME}"
     exit 1
 fi
