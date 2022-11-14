@@ -331,6 +331,7 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
         StatsDeriveResult childStats = groupExpression.childStatistics(0);
         Map<Id, ColumnStatistic> childSlotToColumnStats = childStats.getSlotIdToColumnStats();
         double resultSetCount = groupByExpressions.stream().flatMap(expr -> expr.getInputSlots().stream())
+                .map(Slot::getExprId)
                 .filter(childSlotToColumnStats::containsKey).map(childSlotToColumnStats::get).map(s -> s.ndv)
                 .reduce(1d, (a, b) -> a * b);
         if (resultSetCount <= 0) {
