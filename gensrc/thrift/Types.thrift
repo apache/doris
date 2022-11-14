@@ -553,7 +553,8 @@ enum TOdbcTableType {
     POSTGRESQL,
     SQLSERVER,
     REDIS,
-    MONGODB
+    MONGODB,
+    CLICKHOUSE
 }
 
 enum TKeysType {
