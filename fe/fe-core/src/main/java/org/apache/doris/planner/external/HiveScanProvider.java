@@ -76,10 +76,11 @@ public class HiveScanProvider extends HMSTableScanProvider {
     private static final String DEFAULT_LINE_DELIMITER = "\n";
 
     protected HMSExternalTable hmsTable;
-
     protected final TupleDescriptor desc;
-
     protected Map<String, ColumnRange> columnNameToRange;
+
+    protected int totalPartitionNum = 0;
+    protected int readPartitionNum = 0;
 
     public HiveScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
             Map<String, ColumnRange> columnNameToRange) {
@@ -152,12 +153,14 @@ public class HiveScanProvider extends HMSTableScanProvider {
             if (hivePartitionValues != null) {
                 // 2. prune partitions by expr
                 Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+                this.totalPartitionNum = idToPartitionItem.size();
                 ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
                         hmsTable.getPartitionColumns(), columnNameToRange,
                         hivePartitionValues.getUidToPartitionRange(),
                         hivePartitionValues.getRangeToId(),
                         hivePartitionValues.getSingleColumnRangeMap());
                 Collection<Long> filteredPartitionIds = pruner.prune();
+                this.readPartitionNum = filteredPartitionIds.size();
                 LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
                         hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
 
@@ -177,6 +180,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
                 HivePartition dummyPartition = new HivePartition(hmsTable.getRemoteTable().getSd().getInputFormat(),
                         hmsTable.getRemoteTable().getSd().getLocation(), null);
                 getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles);
+                this.totalPartitionNum = 1;
+                this.readPartitionNum = 1;
             }
             LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
                     allFiles.size(), hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
@@ -209,6 +214,14 @@ public class HiveScanProvider extends HMSTableScanProvider {
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
+    }
+
+    public int getTotalPartitionNum() {
+        return totalPartitionNum;
+    }
+
+    public int getReadPartitionNum() {
+        return readPartitionNum;
     }
 
     @Override

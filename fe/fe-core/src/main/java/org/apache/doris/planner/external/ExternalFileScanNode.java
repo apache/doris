@@ -121,6 +121,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
     // For explain
     private long inputSplitsNum = 0;
     private long totalFileSize = 0;
+    private long totalPartitionNum = 0;
+    private long readPartitionNum = 0;
 
     /**
      * External file scan node for:
@@ -302,6 +304,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
+            if (scanProvider instanceof HiveScanProvider) {
+                this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
+                this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
+            }
         }
     }
 
@@ -524,6 +530,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         output.append(prefix).append("inputSplitNum=").append(inputSplitsNum).append(", totalFileSize=")
                 .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
+        output.append(prefix).append("partition=").append(readPartitionNum).append("/").append(totalPartitionNum)
+                .append("\n");
 
         output.append(prefix);
         if (cardinality > 0) {
