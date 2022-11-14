@@ -193,9 +193,11 @@ class TestAction implements SuiteAction {
     }
 
     void sql(String sql, boolean setRandomParallel = true) {
-        if (setRandomParallel && (! sql.contains('SET_VAR')) && sql.containsIgnoreCase('select')) {
-            def num = rd.nextInt(16)
-            def replace_str = 'select /*+SET_VAR(parallel_fragment_exec_instance_num=' + num.toString() + ')*/'
+        if (setRandomParallel && (! sql.contains('SET_VAR')) &&  sqlStr.strip().startsWithIgnoreCase('select')) {
+            def num = rd.nextInt(16) + 1
+            def ths = [8, 1000000]
+            def th = ths[num % 2]
+            def replace_str = 'select /*+SET_VAR(parallel_fragment_exec_instance_num=' + num.toString() + ', partitioned_hash_join_rows_threshold=' + th.toString() + ')*/'
             if(sql.contains('SELECT')) {
                 sql = sql.replaceFirst('SELECT', replace_str)
             }
@@ -203,6 +205,7 @@ class TestAction implements SuiteAction {
                 sql = sql.replaceFirst('select', replace_str)
             }
         }
+        log.info(sql)
         this.sql = sql
     }
 

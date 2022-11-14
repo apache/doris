@@ -224,6 +224,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String INTERNAL_SESSION = "internal_session";
 
+    public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -587,6 +589,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
+
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
+    public int partitionedHashJoinRowsThreshold = 8388608; 
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;

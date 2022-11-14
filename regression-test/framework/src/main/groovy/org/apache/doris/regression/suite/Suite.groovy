@@ -46,6 +46,7 @@ import java.util.stream.LongStream
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
 import java.io.File
+import java.util.Random
 
 @Slf4j
 class Suite implements GroovyInterceptable {
@@ -59,11 +60,13 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+    private Random rd
 
     Suite(String name, String group, SuiteContext context) {
         this.name = name
         this.group = group
         this.context = context
+        this.rd = new Random()
     }
 
     String getConf(String key, String defaultValue = null) {
@@ -191,6 +194,19 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
+        if ((! sqlStr.contains('SET_VAR')) && sqlStr.strip().startsWithIgnoreCase('select')) {
+            def num = rd.nextInt(16) + 1
+            def ths = [8, 1000000]
+            def th = ths[num % 2]
+            def replace_str = 'select /*+SET_VAR(parallel_fragment_exec_instance_num=' + num.toString() + ', partitioned_hash_join_rows_threshold=' + th.toString() + ')*/'
+            if(sqlStr.contains('SELECT')) {
+                sqlStr = sqlStr.replaceFirst('SELECT', replace_str)
+            }
+            else if (sqlStr.contains('select')) {
+                sqlStr = sqlStr.replaceFirst('select', replace_str)
+            }
+        }
+        log.info(sqlStr)
         def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
