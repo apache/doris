@@ -223,7 +223,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         if (_mem_table->is_flush()) {
             auto s = _flush_memtable_async();
             _reset_mem_table();
-            if (OLAP_UNLIKELY(!s.ok())) {
+            if (UNLIKELY(!s.ok())) {
                 return s;
             }
         }
@@ -255,7 +255,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
                 << ", load id: " << print_id(_req.load_id);
     auto s = _flush_memtable_async();
     _reset_mem_table();
-    if (OLAP_UNLIKELY(!s.ok())) {
+    if (UNLIKELY(!s.ok())) {
         return s;
     }
 
@@ -343,10 +343,15 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             << "delta writer is supposed be to initialized before close_wait() being called";
 
     if (_is_cancelled) {
+        LOG(WARNING) << "already canceled, tablet " << tablet_id();
         return _cancel_status;
     }
     // return error if previous flush failed
-    RETURN_NOT_OK(_flush_token->wait());
+    auto st = _flush_token->wait();
+    if (OLAP_UNLIKELY(st != OLAP_SUCCESS)) {
+        LOG(WARNING) << "previous flush failed tablet " << _tablet->tablet_id();
+        return st;
+    }
 
     _mem_table.reset();
 
