@@ -1090,7 +1090,7 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
 
-            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer);
+            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, false);
 
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
                 ArrayList<Expr> tempExprs = new ArrayList<>(groupingExprs);
@@ -1960,7 +1960,7 @@ public class SelectStmt extends QueryStmt {
         }
         // substitute group by
         if (groupByClause != null) {
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer);
+            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, false);
         }
         // substitute having
         if (havingClause != null) {

@@ -34,7 +34,7 @@ namespace doris::vectorized {
 
 template <TimeUnit unit, typename Arg, typename DateValueType, typename ResultDateValueType,
           typename ResultType>
-inline ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
+extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     auto ts_value = binary_cast<Arg, DateValueType>(t);
     TimeInterval interval(unit, delta, false);
     if constexpr (std::is_same_v<VecDateTimeValue, DateValueType> ||

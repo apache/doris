@@ -20,7 +20,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "common/status.h"
-#include "olap/bloom_filter_predicate.h"
+#include "exprs/hybrid_set.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
@@ -431,6 +431,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         // These conditions is passed from OlapScannode, but not set column unique id here, so that set it here because it
         // is too complicated to modify related interface
         TCondition tmp_cond = condition;
+
         auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
@@ -450,6 +451,10 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
     }
 
+    for (const auto& filter : read_params.in_filters) {
+        _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
+
     // Function filter push down to storage engine
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
@@ -463,9 +468,19 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = _tablet_schema->column(index);
-    return BloomFilterColumnPredicateFactory::create_column_predicate(
-            index, bloom_filter.second, column.type(),
-            _reader_context.runtime_state->be_exec_version());
+    return create_column_predicate(index, bloom_filter.second, column.type(),
+                                   _reader_context.runtime_state->be_exec_version(), &column);
+}
+
+ColumnPredicate* TabletReader::_parse_to_predicate(
+        const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter) {
+    int32_t index = _tablet_schema->field_index(in_filter.first);
+    if (index < 0) {
+        return nullptr;
+    }
+    const TabletColumn& column = _tablet_schema->column(index);
+    return create_column_predicate(index, in_filter.second, column.type(),
+                                   _reader_context.runtime_state->be_exec_version(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {

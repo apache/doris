@@ -94,7 +94,7 @@ CONF_Int32(download_worker_count, "1");
 CONF_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 CONF_Int32(release_snapshot_worker_count, "5");
-// the interval time(seconds) for agent report tasks signatrue to FE
+// the interval time(seconds) for agent report tasks signature to FE
 CONF_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for refresh storage policy from FE
 CONF_mInt32(storage_refresh_storage_policy_task_interval_seconds, "5");
@@ -486,7 +486,7 @@ CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 // soft limit which can trigger the memtable flush for the load channel who
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
-CONF_Int32(load_process_soft_mem_limit_percent, "50");
+CONF_Int32(load_process_soft_mem_limit_percent, "80");
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -635,7 +635,7 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 CONF_Bool(enable_tcmalloc_hook, "true");
 
 // Print more detailed logs, more detailed records, etc.
-CONF_Bool(memory_debug, "false");
+CONF_mBool(memory_debug, "false");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
@@ -822,10 +822,6 @@ CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
-// If set to true, the new scan node framework will be used.
-// This config should be removed when the new scan node is ready.
-CONF_Bool(enable_new_scan_node, "true");
-
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
@@ -853,6 +849,9 @@ CONF_Int32(segcompaction_threshold_segment_num, "10");
 CONF_Int32(segcompaction_small_threshold, "1048576");
 
 CONF_String(jvm_max_heap_size, "1024M");
+
+// enable java udf and jdbc scannode
+CONF_Bool(enable_java_support, "true");
 
 #ifdef BE_TEST
 // test s3

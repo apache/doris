@@ -22,7 +22,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_javaudf_case") {
-    def tableName = "test_javaudf_dateWindowRollup"
+    def tableName = "test_javaudf_datecasetest"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
@@ -50,18 +50,18 @@ suite("test_javaudf_case") {
             throw new IllegalStateException("""${jarPath} doesn't exist! """)
         }
 
-        sql """ CREATE FUNCTION java_udf_dateWindowRollup_test(date,int,int) RETURNS String PROPERTIES (
+        sql """ CREATE FUNCTION java_udf_dateCase_test(date,int,int) RETURNS String PROPERTIES (
             "file"="file://${jarPath}",
-            "symbol"="org.apache.doris.udf.DateWindowRollup",
+            "symbol"="org.apache.doris.udf.DateCaseTest",
             "type"="JAVA_UDF"
         ); """
 
-        qt_select """ SELECT java_udf_dateWindowRollup_test("2022-10-24",-7,0) as result; """
-        qt_select """ SELECT java_udf_dateWindowRollup_test(null,-7,0) as result ; """
-        qt_select """ SELECT starttime,java_udf_dateWindowRollup_test(starttime,start,end) as sum FROM ${tableName} order by starttime; """
+        qt_select """ SELECT java_udf_dateCase_test("2022-10-24",-7,0) as result; """
+        qt_select """ SELECT java_udf_dateCase_test(null,-7,0) as result ; """
+        qt_select """ SELECT starttime,java_udf_dateCase_test(starttime,start,end) as sum FROM ${tableName} order by starttime; """
         
 
-        sql """ DROP FUNCTION java_udf_dateWindowRollup_test(date,int,int); """
+        sql """ DROP FUNCTION java_udf_dateCase_test(date,int,int); """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

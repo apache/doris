@@ -25,6 +25,7 @@
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
@@ -159,7 +160,7 @@ Status DeltaWriter::write(Tuple* tuple) {
     if (_is_cancelled) {
         // The writer may be cancelled at any time by other thread.
         // just return ERROR if writer is cancelled.
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
+        return _cancel_status;
     }
 
     _mem_table->insert(tuple);
@@ -184,7 +185,7 @@ Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row
     }
 
     if (_is_cancelled) {
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
+        return _cancel_status;
     }
 
     for (const auto& row_idx : row_idxs) {
@@ -212,7 +213,7 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
 
     if (_is_cancelled) {
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
+        return _cancel_status;
     }
 
     _mem_table->insert(block, row_idxs);
@@ -246,7 +247,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     }
 
     if (_is_cancelled) {
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
+        return _cancel_status;
     }
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
@@ -273,7 +274,7 @@ Status DeltaWriter::wait_flush() {
         return Status::OK();
     }
     if (_is_cancelled) {
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
+        return _cancel_status;
     }
     RETURN_NOT_OK(_flush_token->wait());
     return Status::OK();
@@ -283,12 +284,23 @@ void DeltaWriter::_reset_mem_table() {
     if (_tablet->enable_unique_key_merge_on_write() && _delete_bitmap == nullptr) {
         _delete_bitmap.reset(new DeleteBitmap(_tablet->tablet_id()));
     }
+#ifndef BE_TEST
+    auto mem_table_insert_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()),
+            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+    auto mem_table_flush_tracker = std::make_shared<MemTracker>(
+            fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
+                        std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()),
+            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+#else
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()));
     auto mem_table_flush_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()));
+#endif
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         _mem_table_tracker.push_back(mem_table_insert_tracker);
@@ -312,7 +324,7 @@ Status DeltaWriter::close() {
     }
 
     if (_is_cancelled) {
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
+        return _cancel_status;
     }
 
     auto s = _flush_memtable_async();
@@ -331,7 +343,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             << "delta writer is supposed be to initialized before close_wait() being called";
 
     if (_is_cancelled) {
-        return Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED);
+        return _cancel_status;
     }
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
@@ -388,6 +400,10 @@ void DeltaWriter::add_finished_slave_replicas(
 }
 
 Status DeltaWriter::cancel() {
+    return cancel_with_status(Status::Cancelled("already cancelled"));
+}
+
+Status DeltaWriter::cancel_with_status(const Status& st) {
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init || _is_cancelled) {
         return Status::OK();
@@ -398,6 +414,7 @@ Status DeltaWriter::cancel() {
         _flush_token->cancel();
     }
     _is_cancelled = true;
+    _cancel_status = st;
     return Status::OK();
 }
 

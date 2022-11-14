@@ -273,6 +273,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.file_reader = _file_reader.get();
+            iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -385,6 +386,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
+            iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -697,7 +699,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     return Status::OK();
 }
 
-/* ---------------------- for vecterization implementation  ---------------------- */
+/* ---------------------- for vectorization implementation  ---------------------- */
 
 /**
  *  For storage layer data type, can be measured from two perspectives:
@@ -1135,7 +1137,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // step 1: evaluate vectorization predicate
         selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
 
-        // step 2: evaluate short ciruit predicate
+        // step 2: evaluate short circuit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
@@ -1229,6 +1231,8 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
         ColumnPredicate* predicate) {
     auto& column = _current_return_columns[predicate->column_id()];
     auto* col_ptr = column.get();
+    column->set_rowset_segment_id({_segment->rowset_id(), _segment->id()});
+
     if (PredicateTypeTraits::is_range(predicate->type())) {
         col_ptr->convert_dict_codes_if_necessary();
     } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {

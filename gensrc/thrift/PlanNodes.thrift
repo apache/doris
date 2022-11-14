@@ -453,6 +453,13 @@ struct TCsvScanNode {
   10:optional map<string, TMiniLoadEtlFunction> column_function_mapping
 }
 
+struct TSchemaTableStructure {
+  1: optional string column_name
+  2: optional Types.TPrimitiveType type
+  3: optional i64 len
+  4: optional bool is_null;
+}
+
 struct TSchemaScanNode {
   1: required Types.TTupleId tuple_id
 
@@ -467,6 +474,7 @@ struct TSchemaScanNode {
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
   12: optional bool show_hidden_cloumns = false
+  13: optional list<TSchemaTableStructure> table_structure
 }
 
 struct TMetaScanNode {
@@ -571,6 +579,18 @@ struct THashJoinNode {
   8: optional Types.TTupleId voutput_tuple_id
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
+
+  10: optional bool is_broadcast_join;
+}
+
+struct TNestedLoopJoinNode {
+  1: required TJoinOp join_op
+  // TODO: remove 2 and 3 in the version after the version include projection on ExecNode
+  2: optional list<Exprs.TExpr> srcExprList
+
+  3: optional Types.TTupleId voutput_tuple_id
+
+  4: optional list<Types.TTupleId> vintermediate_tuple_id_list
 }
 
 struct TMergeJoinNode {
@@ -964,6 +984,7 @@ struct TPlanNode {
   // file scan node
   44: optional TFileScanNode file_scan_node
   45: optional TJdbcScanNode jdbc_scan_node
+  46: optional TNestedLoopJoinNode nested_loop_join_node
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

@@ -33,7 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -203,13 +203,13 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite(new Cast(new VarcharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
 
         // decimal literal
-        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new IntegerLiteral(1), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new IntegerLiteral(1), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new BigIntLiteral(1L), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new BigIntLiteral(1L), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
     }
 }

@@ -19,11 +19,17 @@
 
 #include <charconv>
 
+#include "exprs/bloomfilter_predicate.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/tablet_schema.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "util/date_func.h"
 #include "util/string_util.h"
 
@@ -283,6 +289,68 @@ inline ColumnPredicate* parse_to_predicate(TabletSchemaSPtr tablet_schema,
         create = create_comparison_predicate<PredicateType::GE>;
     }
     return create(column, index, condition.condition_values[0], opposite, mem_pool);
+}
+
+#define APPLY_FOR_PRIMTYPE(M) \
+    M(TYPE_TINYINT)           \
+    M(TYPE_SMALLINT)          \
+    M(TYPE_INT)               \
+    M(TYPE_BIGINT)            \
+    M(TYPE_LARGEINT)          \
+    M(TYPE_FLOAT)             \
+    M(TYPE_DOUBLE)            \
+    M(TYPE_CHAR)              \
+    M(TYPE_DATE)              \
+    M(TYPE_DATETIME)          \
+    M(TYPE_DATEV2)            \
+    M(TYPE_DATETIMEV2)        \
+    M(TYPE_VARCHAR)           \
+    M(TYPE_STRING)            \
+    M(TYPE_DECIMAL32)         \
+    M(TYPE_DECIMAL64)         \
+    M(TYPE_DECIMAL128)
+
+template <PrimitiveType PT>
+inline ColumnPredicate* create_olap_column_predicate(
+        uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, int be_exec_version,
+        const TabletColumn* column = nullptr) {
+    std::shared_ptr<BloomFilterFuncBase> filter_olap;
+    filter_olap.reset(create_bloom_filter(PT));
+    filter_olap->light_copy(filter.get());
+    return new BloomFilterColumnPredicate<PT>(column_id, filter, be_exec_version);
+}
+
+template <PrimitiveType PT>
+inline ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
+                                                     const std::shared_ptr<HybridSetBase>& filter,
+                                                     int be_exec_version,
+                                                     const TabletColumn* column = nullptr) {
+    return new InListPredicateBase<PT, PredicateType::IN_LIST>(column_id, filter, column->length());
+}
+
+template <typename T>
+inline ColumnPredicate* create_column_predicate(uint32_t column_id,
+                                                const std::shared_ptr<T>& filter, FieldType type,
+                                                int be_exec_version,
+                                                const TabletColumn* column = nullptr) {
+    switch (type) {
+#define M(NAME)                                                                                \
+    case OLAP_FIELD_##NAME: {                                                                  \
+        return create_olap_column_predicate<NAME>(column_id, filter, be_exec_version, column); \
+    }
+        APPLY_FOR_PRIMTYPE(M)
+#undef M
+    case OLAP_FIELD_TYPE_DECIMAL: {
+        return create_olap_column_predicate<TYPE_DECIMALV2>(column_id, filter, be_exec_version,
+                                                            column);
+    }
+    case OLAP_FIELD_TYPE_BOOL: {
+        return create_olap_column_predicate<TYPE_BOOLEAN>(column_id, filter, be_exec_version,
+                                                          column);
+    }
+    default:
+        return nullptr;
+    }
 }
 
 } //namespace doris

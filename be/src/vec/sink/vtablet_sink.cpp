@@ -68,6 +68,12 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request.set_eos(false);
 
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
+    // The node channel will send _batch_size rows of data each rpc. When the
+    // number of tablets is large, the number of data rows received by each
+    // tablet is small, TabletsChannel need to traverse each tablet for import.
+    // so the import performance is poor. Therefore, we set _batch_size to
+    // a relatively large value to improve the import performance.
+    _batch_size = std::max(_batch_size, 8192);
 
     return Status::OK();
 }
@@ -247,7 +253,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 
 void VNodeChannel::try_send_block(RuntimeState* state) {
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {
@@ -355,7 +361,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         _add_block_closure->cntl.http_request().set_content_type("application/json");
 
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, NULL,
                                                              &_add_block_closure->result,
                                                              _add_block_closure);
@@ -363,7 +369,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
                                            &_add_block_closure->result, _add_block_closure);
         }

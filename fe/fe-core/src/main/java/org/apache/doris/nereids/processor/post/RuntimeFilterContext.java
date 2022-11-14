@@ -19,9 +19,11 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -32,15 +34,15 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.jetbrains.annotations.NotNull;
+import com.google.common.collect.Sets;
 
-import java.util.Arrays;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * runtime filter context used at post process and translation.
@@ -52,6 +54,8 @@ public class RuntimeFilterContext {
     // exprId of target to runtime filter.
     private final Map<ExprId, List<RuntimeFilter>> targetExprIdToFilter = Maps.newHashMap();
 
+    private final Map<Plan, List<ExprId>> joinToTargetExprId = Maps.newHashMap();
+
     // olap scan node that contains target of a runtime filter.
     private final Map<RelationId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
 
@@ -62,11 +66,14 @@ public class RuntimeFilterContext {
 
     private final Map<PhysicalHashJoin, List<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
 
-    // Alias's child to itself.
-    private final Map<Slot, NamedExpression> aliasChildToSelf = Maps.newHashMap();
+    // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
+    // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
+    // you can see disjoint set data structure to learn the processing detailed.
+    private final Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = Maps.newHashMap();
 
     private final Map<Slot, OlapScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
+    private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
     private final SessionVariable sessionVariable;
 
     private final FilterSizeLimits limits;
@@ -86,36 +93,39 @@ public class RuntimeFilterContext {
         return limits;
     }
 
-    public void setTargetExprIdToFilters(ExprId id, RuntimeFilter... filters) {
-        Preconditions.checkArgument(Arrays.stream(filters)
-                .allMatch(filter -> filter.getTargetExpr().getExprId() == id));
-        this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList())
-                .addAll(Arrays.asList(filters));
+    public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
+        Preconditions.checkArgument(filter.getTargetExpr().getExprId() == id);
+        this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
     }
 
-    public List<RuntimeFilter> getFiltersByTargetExprId(ExprId id) {
-        return targetExprIdToFilter.get(id);
+    /**
+     * remove rf from builderNode to target
+     *
+     * @param targetId rf target
+     * @param builderNode rf src
+     */
+    public void removeFilter(ExprId targetId, PhysicalHashJoin builderNode) {
+        List<RuntimeFilter> filters = targetExprIdToFilter.get(targetId);
+        if (filters != null) {
+            Iterator<RuntimeFilter> iter = filters.iterator();
+            while (iter.hasNext()) {
+                if (iter.next().getBuilderNode().equals(builderNode)) {
+                    iter.remove();
+                }
+            }
+        }
     }
 
-    public void removeFilters(ExprId id) {
-        targetExprIdToFilter.remove(id);
-    }
-
-    public void setTargetsOnScanNode(RelationId id, Slot... slots) {
-        this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList())
-                .addAll(Arrays.asList(slots));
-    }
-
-    public <K, V> void setKVInNormalMap(@NotNull Map<K, V> map, K key, V value) {
-        map.put(key, value);
+    public void setTargetsOnScanNode(RelationId id, Slot slot) {
+        this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList()).add(slot);
     }
 
     public Map<ExprId, SlotRef> getExprIdToOlapScanNodeSlotRef() {
         return exprIdToOlapScanNodeSlotRef;
     }
 
-    public Map<Slot, NamedExpression> getAliasChildToSelf() {
-        return aliasChildToSelf;
+    public Map<NamedExpression, Pair<RelationId, NamedExpression>> getAliasTransferMap() {
+        return aliasTransferMap;
     }
 
     public Map<Slot, OlapScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
@@ -143,14 +153,6 @@ public class RuntimeFilterContext {
         return legacyFilters;
     }
 
-    public void setLegacyFilter(org.apache.doris.planner.RuntimeFilter filter) {
-        this.legacyFilters.add(filter);
-    }
-
-    public <K, V> boolean checkExistKey(@NotNull Map<K, V> map, K key) {
-        return map.containsKey(key);
-    }
-
     /**
      * get nereids runtime filters
      * @return nereids runtime filters
@@ -166,27 +168,28 @@ public class RuntimeFilterContext {
         return filters;
     }
 
-    /**
-     * get the slot list of the same olap scan node of the input slot.
-     * @param slot slot
-     * @return slot list
-     */
-    public List<NamedExpression> getSlotListOfTheSameSlotAtOlapScanNode(Slot slot) {
-        ImmutableList.Builder<NamedExpression> builder = ImmutableList.builder();
-        NamedExpression expr = slot;
-        do {
-            builder.add(expr);
-            expr = aliasChildToSelf.get(expr.toSlot());
-        } while (expr != null);
-        return builder.build();
-    }
-
     public void setTargetNullCount() {
         targetNullCount++;
+    }
+
+    public void addEffectiveSrcNode(Plan node) {
+        effectiveSrcNodes.add(node);
+    }
+
+    public boolean isEffectiveSrcNode(Plan node) {
+        return effectiveSrcNodes.contains(node);
     }
 
     @VisibleForTesting
     public int getTargetNullCount() {
         return targetNullCount;
+    }
+
+    public void addJoinToTargetMap(PhysicalHashJoin join, ExprId exprId) {
+        joinToTargetExprId.computeIfAbsent(join, k -> Lists.newArrayList()).add(exprId);
+    }
+
+    public List<ExprId> getTargetExprIdByFilterJoin(PhysicalHashJoin join) {
+        return joinToTargetExprId.get(join);
     }
 }

@@ -62,9 +62,6 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
-                // TODO: handle otherJoinCondition
-                .when(topJoin -> topJoin.getOtherJoinConjuncts().isEmpty())
-                .when(topJoin -> topJoin.left().child().getOtherJoinConjuncts().isEmpty())
                 .then(topJoin -> {
 
                     /* ********** init ********** */
@@ -88,15 +85,24 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     Set<ExprId> bExprIdSet = getExprIdSetForB(bottomJoin.right(), newRightProjects);
 
                     /* ********** split HashConjuncts ********** */
-                    Map<Boolean, List<Expression>> splitOn = splitHashConjunctsWithAlias(
-                            topJoin.getHashJoinConjuncts(), bottomJoin, bExprIdSet);
-                    List<Expression> newTopHashJoinConjuncts = splitOn.get(true);
-                    List<Expression> newBottomHashJoinConjuncts = splitOn.get(false);
+                    Map<Boolean, List<Expression>> splitHashJoinConjuncts = splitConjunctsWithAlias(
+                            topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), bExprIdSet);
+                    List<Expression> newTopHashJoinConjuncts = splitHashJoinConjuncts.get(true);
+                    List<Expression> newBottomHashJoinConjuncts = splitHashJoinConjuncts.get(false);
+                    Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
+                            "LAsscom newTopHashJoinConjuncts join can't empty");
                     if (newBottomHashJoinConjuncts.size() == 0) {
                         return null;
                     }
 
-                    /* ********** replace HashConjuncts by projects ********** */
+                    /* ********** split OtherConjuncts ********** */
+                    Map<Boolean, List<Expression>> splitOtherJoinConjuncts = splitConjunctsWithAlias(
+                            topJoin.getOtherJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                            bExprIdSet);
+                    List<Expression> newTopOtherJoinConjuncts = splitOtherJoinConjuncts.get(true);
+                    List<Expression> newBottomOtherJoinConjuncts = splitOtherJoinConjuncts.get(false);
+
+                    /* ********** replace Conjuncts by projects ********** */
                     Map<Slot, Slot> inputToOutput = new HashMap<>();
                     Map<Slot, Slot> outputToInput = new HashMap<>();
                     for (NamedExpression expr : projects) {
@@ -111,14 +117,21 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                         }
                     }
                     // replace hashJoinConjuncts
-                    newBottomHashJoinConjuncts = JoinUtils.replaceHashConjuncts(
+                    newBottomHashJoinConjuncts = JoinUtils.replaceJoinConjuncts(
                             newBottomHashJoinConjuncts, outputToInput);
-                    newTopHashJoinConjuncts = JoinUtils.replaceHashConjuncts(
+                    newTopHashJoinConjuncts = JoinUtils.replaceJoinConjuncts(
                             newTopHashJoinConjuncts, inputToOutput);
 
-                    // Add all slots used by hashOnCondition when projects not empty.
-                    // TODO: Does nonHashOnCondition also need to be considered.
-                    Map<Boolean, Set<Slot>> abOnUsedSlots = newTopHashJoinConjuncts.stream()
+                    // replace otherJoinConjuncts
+                    newBottomOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
+                            newBottomOtherJoinConjuncts, outputToInput);
+                    newTopOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
+                            newTopOtherJoinConjuncts, inputToOutput);
+
+                    // Add all slots used by OnCondition when projects not empty.
+                    Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
+                                    newTopHashJoinConjuncts.stream(),
+                                    newTopOtherJoinConjuncts.stream())
                             .flatMap(onExpr -> {
                                 Set<Slot> usedSlotRefs = onExpr.collect(SlotReference.class::isInstance);
                                 return usedSlotRefs.stream();
@@ -138,7 +151,8 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     /* ********** new Plan ********** */
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            newBottomHashJoinConjuncts, a, c, bottomJoin.getJoinReorderContext());
+                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
+                            a, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
@@ -154,7 +168,8 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                            newTopHashJoinConjuncts, left, right, topJoin.getJoinReorderContext());
+                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts,
+                            left, right, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     if (topJoin.getLogicalProperties().equals(newTopJoin.getLogicalProperties())) {
@@ -172,15 +187,17 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
     }
 
     /**
-     * Split HashCondition into two part.
+     * Split Condition into two part.
+     * True: contains B.
+     * False: just contains A C.
      */
-    public static Map<Boolean, List<Expression>> splitHashConjunctsWithAlias(List<Expression> topHashConjuncts,
-            LogicalJoin<GroupPlan, GroupPlan> bottomJoin, Set<ExprId> bExprIdSet) {
+    public static Map<Boolean, List<Expression>> splitConjunctsWithAlias(List<Expression> topConjuncts,
+            List<Expression> bottomConjuncts, Set<ExprId> bExprIdSet) {
         // top: (A B)(error) (A C) (B C) (A B C)
-        // Split topJoin hashCondition to two part according to include B.
-        Map<Boolean, List<Expression>> splitOn = topHashConjuncts.stream()
+        // Split topJoin Condition to two part according to include B.
+        Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
                 .collect(Collectors.partitioningBy(topHashOn -> {
-                    Set<Slot> usedSlots = topHashOn.collect(Slot.class::isInstance);
+                    Set<Slot> usedSlots = topHashOn.getInputSlots();
                     Set<ExprId> usedSlotsId = usedSlots.stream().map(NamedExpression::getExprId)
                             .collect(Collectors.toSet());
 
@@ -191,9 +208,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
         // * include B, include (A B C) or (A B)
         // we add it into newTopJoin HashJoinConjuncts.
         List<Expression> newTopHashJoinConjuncts = splitOn.get(true);
-        newTopHashJoinConjuncts.addAll(bottomJoin.getHashJoinConjuncts());
-        Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
-                "LAsscom newTopHashJoinConjuncts join can't empty");
+        newTopHashJoinConjuncts.addAll(bottomConjuncts);
 
         return splitOn;
     }

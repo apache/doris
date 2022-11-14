@@ -107,7 +107,7 @@ void FileCacheManager::_gc_unused_file_caches(std::list<FileCachePtr>& result) {
             for (Path seg_file : seg_file_paths) {
                 std::string seg_filename = seg_file.native();
                 // check if it is a dir name
-                if (ends_with(seg_filename, ".dat")) {
+                if (ends_with(seg_filename, ".dat") || ends_with(seg_filename, "clone")) {
                     continue;
                 }
                 // skip file cache already in memory

@@ -910,15 +910,12 @@ Tuple* PartitionedAggregationNode::ConstructIntermediateTuple(
             << "to allocate $1 bytes for intermediate tuple. "
             << "Backend: " << BackendOptions::get_localhost() << ", "
             << "fragment: " << print_id(state_->fragment_instance_id()) << " "
-            << "Used: "
-            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->consumption()
-            << ", Limit: "
-            << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->limit() << ". "
+            << "Used: " << thread_context()->thread_mem_tracker()->consumption()
+            << ", Limit: " << thread_context()->thread_mem_tracker()->limit() << ". "
             << "You can change the limit by session variable exec_mem_limit.";
         string details = Substitute(str.str(), _id, tuple_data_size);
-        *status = thread_context()
-                          ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()
-                          ->mem_limit_exceeded(state_, details, tuple_data_size);
+        *status = thread_context()->thread_mem_tracker()->fragment_mem_limit_exceeded(
+                state_, details, tuple_data_size);
         return nullptr;
     }
     memset(tuple_data, 0, fixed_size);

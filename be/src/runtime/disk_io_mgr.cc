@@ -347,7 +347,8 @@ DiskIoMgr::~DiskIoMgr() {
 }
 
 Status DiskIoMgr::init(const int64_t mem_limit) {
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(mem_limit, "DiskIO");
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "DiskIO",
+                                                       mem_limit);
 
     for (int i = 0; i < _disk_queues.size(); ++i) {
         _disk_queues[i] = new DiskQueue(i);
@@ -954,7 +955,6 @@ void DiskIoMgr::work_loop(DiskQueue* disk_queue) {
     //   3. Perform the read or write as specified.
     // Cancellation checking needs to happen in both steps 1 and 3.
 
-    thread_context()->_thread_mem_tracker_mgr->set_check_attach(false);
     while (!_shut_down) {
         RequestContext* worker_context = nullptr;
         ;

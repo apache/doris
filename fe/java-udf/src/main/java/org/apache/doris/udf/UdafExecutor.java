@@ -232,6 +232,9 @@ public class UdafExecutor {
     private boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
         if (obj == null) {
             // If result is null, return true directly when row == 0 as we have already inserted default value.
+            if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) == -1) {
+                throw new UdfRuntimeException("UDAF failed to store null data to not null column");
+            }
             return true;
         }
         if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) != -1) {
@@ -332,12 +335,11 @@ public class UdafExecutor {
             }
             case CHAR:
             case VARCHAR:
-            case STRING:
+            case STRING: {
                 long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
                 byte[] bytes = ((String) obj).getBytes(StandardCharsets.UTF_8);
-
                 long offset = Integer.toUnsignedLong(
-                        UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row));
+                        UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * (row - 1)));
                 if (offset + bytes.length > bufferSize) {
                     return false;
                 }
@@ -347,6 +349,7 @@ public class UdafExecutor {
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
                         UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - bytes.length, bytes.length);
                 return true;
+            }
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);
         }
@@ -394,25 +397,25 @@ public class UdafExecutor {
                 case DATE: {
                     long data = UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
-                    inputObjects[i] = UdfUtils.convertDateToJavaDate(data, argClass[i]);
+                    inputObjects[i] = UdfUtils.convertDateToJavaDate(data, argClass[i + 1]);
                     break;
                 }
                 case DATETIME: {
                     long data = UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
-                    inputObjects[i] = UdfUtils.convertDateTimeToJavaDateTime(data, argClass[i]);
+                    inputObjects[i] = UdfUtils.convertDateTimeToJavaDateTime(data, argClass[i + 1]);
                     break;
                 }
                 case DATEV2: {
                     int data = UdfUtils.UNSAFE.getInt(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 4L * row);
-                    inputObjects[i] = UdfUtils.convertDateV2ToJavaDate(data, argClass[i]);
+                    inputObjects[i] = UdfUtils.convertDateV2ToJavaDate(data, argClass[i + 1]);
                     break;
                 }
                 case DATETIMEV2: {
                     long data = UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + 8L * row);
-                    inputObjects[i] = UdfUtils.convertDateTimeV2ToJavaDateTime(data, argClass[i]);
+                    inputObjects[i] = UdfUtils.convertDateTimeV2ToJavaDateTime(data, argClass[i + 1]);
                     break;
                 }
                 case LARGEINT: {
@@ -436,21 +439,22 @@ public class UdafExecutor {
                 }
                 case CHAR:
                 case VARCHAR:
-                case STRING:
+                case STRING: {
                     long offset = Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i))
                                     + 4L * row));
-                    long numBytes = row == 0 ? offset - 1 : offset - Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
+                    long numBytes = row == 0 ? offset : offset - Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
                             UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * (row
-                                    - 1))) - 1;
+                                    - 1)));
                     long base = row == 0 ? UdfUtils.UNSAFE.getLong(null,
                             UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
                             : UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + offset
-                                    - numBytes - 1;
+                                    - numBytes;
                     byte[] bytes = new byte[(int) numBytes];
                     UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
                     inputObjects[i] = new String(bytes, StandardCharsets.UTF_8);
                     break;
+                }
                 default:
                     throw new UdfRuntimeException("Unsupported argument type: " + argTypes[i]);
             }

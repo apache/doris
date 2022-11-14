@@ -96,7 +96,7 @@ public:
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         cntl.Reset();
     }
 
@@ -124,7 +124,7 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         cntl.Reset();
         cid = cntl.call_id();
     }
@@ -260,7 +260,7 @@ protected:
     std::string _load_info;
     std::string _name;
 
-    std::unique_ptr<MemTracker> _node_channel_tracker;
+    std::shared_ptr<MemTracker> _node_channel_tracker;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
@@ -466,7 +466,7 @@ protected:
 
     bool _is_vectorized = false;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
     const RowDescriptor& _input_row_desc;

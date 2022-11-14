@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -91,7 +92,10 @@ import java.util.stream.Collectors;
  */
 public class HiveMetaStoreClientHelper {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreClientHelper.class);
+
+    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
+    public static final String DLF_TYPE = "dlf";
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
 
@@ -142,16 +146,12 @@ public class HiveMetaStoreClientHelper {
     public static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
-        return getClient(hiveConf);
-    }
-
-    public static IMetaStoreClient getClient(HiveConf hiveConf) throws DdlException {
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                 String.valueOf(Config.hive_metastore_client_timeout_second));
         IMetaStoreClient metaStoreClient = null;
         String type = hiveConf.get(HIVE_METASTORE_TYPE);
         try {
-            if (type.equalsIgnoreCase("dlf")) {
+            if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
                 metaStoreClient = new ProxyMetaStoreClient(hiveConf);
             } else {
@@ -162,33 +162,6 @@ public class HiveMetaStoreClientHelper {
             throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
         }
         return metaStoreClient;
-    }
-
-    /**
-     * Check to see if the specified table exists in the specified database.
-     *
-     * @param client HiveMetaStoreClient
-     * @param dbName the specified database name
-     * @param tblName the specified table name
-     * @return TRUE if specified.tableName exists, FALSE otherwise.
-     * @throws DdlException
-     */
-    public static boolean tableExists(IMetaStoreClient client, String dbName, String tblName) throws DdlException {
-        try {
-            return client.tableExists(dbName, tblName);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-        } finally {
-            dropClient(client);
-        }
-    }
-
-    /**
-     * close connection to meta store
-     */
-    public static void dropClient(IMetaStoreClient client) {
-        client.close();
     }
 
     /**
@@ -401,6 +374,7 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Get hive table with dbName and tableName.
+     * Only for Hudi.
      *
      * @param dbName database name
      * @param tableName table name
@@ -408,6 +382,7 @@ public class HiveMetaStoreClientHelper {
      * @return HiveTable
      * @throws DdlException when get table from hive metastore failed.
      */
+    @Deprecated
     public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
         IMetaStoreClient client = getClient(metaStoreUris);
         Table table;
@@ -420,26 +395,6 @@ public class HiveMetaStoreClientHelper {
             client.close();
         }
         return table;
-    }
-
-    /**
-     * Get table schema.
-     *
-     * @param dbName Database name.
-     * @param tableName Table name.
-     * @param metaStoreUris Hive metastore uri.
-     */
-    public static List<FieldSchema> getSchema(String dbName, String tableName, String metaStoreUris)
-            throws DdlException {
-        IMetaStoreClient client = getClient(metaStoreUris);
-        try {
-            return client.getSchema(dbName, tableName);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
-        } finally {
-            client.close();
-        }
     }
 
     /**
@@ -816,7 +771,7 @@ public class HiveMetaStoreClientHelper {
                 return Type.DOUBLE;
             case "string":
             case "binary":
-                return Type.STRING;
+                return ScalarType.createStringType();
             default:
                 break;
         }
@@ -926,6 +881,39 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return output.toString();
+    }
+
+    public static Map<String, String> getPropertiesForDLF(String catalogName, HiveConf hiveConf) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get properties from hive-site.xml for catalog {}: {}", catalogName, hiveConf.getAllProperties());
+        }
+        Map<String, String> res = Maps.newHashMap();
+        String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
+        if (!"dlf".equalsIgnoreCase(metastoreType)) {
+            return res;
+        }
+
+        // get following properties from hive-site.xml
+        // 1. region and endpoint. eg: cn-beijing
+        String region = hiveConf.get("dlf.catalog.region");
+        if (!Strings.isNullOrEmpty(region)) {
+            res.put(HiveTable.AWS_REGION, "oss-" + region);
+            res.put(HiveTable.S3_ENDPOINT, "http://oss-" + region + ".aliyuncs.com");
+        }
+
+        // 2. ak and sk
+        String ak = hiveConf.get("dlf.catalog.accessKeyId");
+        String sk = hiveConf.get("dlf.catalog.accessKeySecret");
+        if (!Strings.isNullOrEmpty(ak)) {
+            res.put(HiveTable.S3_AK, ak);
+        }
+        if (!Strings.isNullOrEmpty(sk)) {
+            res.put(HiveTable.S3_SK, sk);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("get properties for oss in hive-site.xml for catalog {}: {}", catalogName, res);
+        }
+        return res;
     }
 }
 

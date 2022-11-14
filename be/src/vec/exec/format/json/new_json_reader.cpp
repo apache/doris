@@ -49,12 +49,31 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _scanner_eof(scanner_eof) {
-    _file_format_type = _params.format_type;
-
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
 }
+
+NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                             const TFileRangeDesc& range,
+                             const std::vector<SlotDescriptor*>& file_slot_descs)
+        : _vhandle_json_callback(nullptr),
+          _state(nullptr),
+          _profile(profile),
+          _params(params),
+          _range(range),
+          _file_slot_descs(file_slot_descs),
+          _file_reader(nullptr),
+          _file_reader_s(nullptr),
+          _real_file_reader(nullptr),
+          _line_reader(nullptr),
+          _reader_eof(false),
+          _skip_first_line(false),
+          _next_row(0),
+          _total_rows(0),
+          _value_allocator(_value_buffer, sizeof(_value_buffer)),
+          _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
+          _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator) {}
 
 Status NewJsonReader::init_reader() {
     RETURN_IF_ERROR(_get_range_params());
@@ -116,6 +135,113 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, TypeDescriptor
                                   std::unordered_set<std::string>* missing_cols) {
     for (auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
+    }
+    return Status::OK();
+}
+
+Status NewJsonReader::get_parsered_schema(std::vector<std::string>* col_names,
+                                          std::vector<TypeDescriptor>* col_types) {
+    RETURN_IF_ERROR(_get_range_params());
+
+    RETURN_IF_ERROR(_open_file_reader());
+    if (_read_json_by_line) {
+        RETURN_IF_ERROR(_open_line_reader());
+    }
+
+    // generate _parsed_jsonpaths and _parsed_json_root
+    RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+
+    bool eof = false;
+    const uint8_t* json_str = nullptr;
+    std::unique_ptr<uint8_t[]> json_str_ptr;
+    size_t size = 0;
+    if (_line_reader != nullptr) {
+        RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, &eof));
+    } else {
+        int64_t length = 0;
+        RETURN_IF_ERROR(_real_file_reader->read_one_message(&json_str_ptr, &length));
+        json_str = json_str_ptr.get();
+        size = length;
+        if (length == 0) {
+            eof = true;
+        }
+    }
+
+    if (size == 0 || eof) {
+        return Status::EndOfFile("Empty file.");
+    }
+
+    // clear memory here.
+    _value_allocator.Clear();
+    _parse_allocator.Clear();
+    bool has_parse_error = false;
+
+    // parse jsondata to JsonDoc
+    // As the issue: https://github.com/Tencent/rapidjson/issues/1458
+    // Now, rapidjson only support uint64_t, So lagreint load cause bug. We use kParseNumbersAsStringsFlag.
+    if (_num_as_string) {
+        has_parse_error =
+                _origin_json_doc.Parse<rapidjson::kParseNumbersAsStringsFlag>((char*)json_str, size)
+                        .HasParseError();
+    } else {
+        has_parse_error = _origin_json_doc.Parse((char*)json_str, size).HasParseError();
+    }
+
+    if (has_parse_error) {
+        return Status::DataQualityError(
+                "Parse json data for JsonDoc failed. code: {}, error info: {}",
+                _origin_json_doc.GetParseError(),
+                rapidjson::GetParseError_En(_origin_json_doc.GetParseError()));
+    }
+
+    // set json root
+    if (_parsed_json_root.size() != 0) {
+        _json_doc = JsonFunctions::get_json_object_from_parsed_json(
+                _parsed_json_root, &_origin_json_doc, _origin_json_doc.GetAllocator());
+        if (_json_doc == nullptr) {
+            return Status::DataQualityError("JSON Root not found.");
+        }
+    } else {
+        _json_doc = &_origin_json_doc;
+    }
+
+    if (_json_doc->IsArray() && !_strip_outer_array) {
+        return Status::DataQualityError(
+                "JSON data is array-object, `strip_outer_array` must be TRUE.");
+    } else if (!_json_doc->IsArray() && _strip_outer_array) {
+        return Status::DataQualityError(
+                "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
+    }
+
+    rapidjson::Value* objectValue = nullptr;
+    if (_json_doc->IsArray()) {
+        if (_json_doc->Size() == 0) {
+            // may be passing an empty json, such as "[]"
+            return Status::InternalError("Empty first json line");
+        }
+        objectValue = &(*_json_doc)[0];
+    } else {
+        objectValue = _json_doc;
+    }
+
+    // use jsonpaths to col_names
+    if (_parsed_jsonpaths.size() > 0) {
+        for (size_t i = 0; i < _parsed_jsonpaths.size(); ++i) {
+            size_t len = _parsed_jsonpaths[i].size();
+            if (len == 0) {
+                return Status::InvalidArgument("It's invalid jsonpaths.");
+            }
+            std::string key = _parsed_jsonpaths[i][len - 1].key;
+            col_names->emplace_back(key);
+            col_types->emplace_back(TypeDescriptor::create_string_type());
+        }
+        return Status::OK();
+    }
+
+    for (int i = 0; i < objectValue->MemberCount(); ++i) {
+        auto it = objectValue->MemberBegin() + i;
+        col_names->emplace_back(it->name.GetString());
+        col_types->emplace_back(TypeDescriptor::create_string_type());
     }
     return Status::OK();
 }
@@ -374,7 +500,7 @@ Status NewJsonReader::_parse_json(bool* is_empty_row, bool* eof) {
 
 // read one json string from line reader or file reader and parse it to json doc.
 // return Status::DataQualityError() if data has quality error.
-// return other error if encounter other problemes.
+// return other error if encounter other problems.
 // return Status::OK() if parse succeed or reach EOF.
 Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message
@@ -494,7 +620,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
 // for simple format json
 // set valid to true and return OK if succeed.
 // set valid to false and return OK if we met an invalid row.
-// return other status if encounter other problmes.
+// return other status if encounter other problems.
 Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue,
                                         std::vector<MutableColumnPtr>& columns,
                                         const std::vector<SlotDescriptor*>& slot_descs,

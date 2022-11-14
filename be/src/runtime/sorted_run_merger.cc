@@ -129,7 +129,7 @@ public:
         *done = false;
         _pull_task_thread =
                 std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task,
-                            this, thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker());
+                            this, thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker());
 
         RETURN_IF_ERROR(next(nullptr, done));
         return Status::OK();
@@ -183,7 +183,7 @@ private:
     std::condition_variable _batch_prepared_cv;
 
     void process_sorted_run_task(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-        SCOPED_ATTACH_TASK(mem_tracker, ThreadContext::TaskType::QUERY);
+        SCOPED_ATTACH_TASK(mem_tracker);
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {
             _batch_prepared_cv.wait(lock, [this]() { return !_backup_ready.load(); });

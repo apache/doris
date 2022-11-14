@@ -523,7 +523,7 @@ void CollectionValue::deep_copy_collection(CollectionValue* shallow_copied_cv,
     } else {
         cv->set_null_signs(nullptr);
     }
-    // copy and assgin data
+    // copy and assign data
     memory_copy(coll_data + nulls_size, cv->data(), coll_byte_size);
     cv->set_data(coll_data + nulls_size);
 
@@ -546,7 +546,7 @@ void CollectionValue::deserialize_collection(CollectionValue* cv, const char* tu
         new (cv) CollectionValue(cv->length());
         return;
     }
-    // assgin data and null_sign pointer position in tuple_data
+    // assign data and null_sign pointer position in tuple_data
     int64_t data_offset = convert_to<int64_t>(cv->data());
     cv->set_data(convert_to<char*>(tuple_data + data_offset));
     if (cv->has_null()) {

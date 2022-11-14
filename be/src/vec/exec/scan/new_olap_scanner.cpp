@@ -38,6 +38,7 @@ Status NewOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
         const std::vector<FunctionFilter>& function_filters) {
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
@@ -104,7 +105,7 @@ Status NewOlapScanner::prepare(
 
             // Initialize tablet_reader_params
             RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters,
-                                                       function_filters));
+                                                       in_filters, function_filters));
         }
     }
 
@@ -130,6 +131,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     bool single_version =
@@ -162,9 +164,10 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
-    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt)
+    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
         _tablet_reader_params.push_down_agg_type_opt =
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
+    }
     _tablet_reader_params.version = Version(0, _version);
 
     // Condition
@@ -175,9 +178,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.bloom_filters,
                             _tablet_reader_params.bloom_filters.begin()));
 
+    std::copy(in_filters.cbegin(), in_filters.cend(),
+              std::inserter(_tablet_reader_params.in_filters,
+                            _tablet_reader_params.in_filters.begin()));
+
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
+
     if (!_state->skip_delete_predicate()) {
         auto& delete_preds = _tablet->delete_predicates();
         std::copy(delete_preds.cbegin(), delete_preds.cend(),
@@ -267,7 +275,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     olap_scan_node.sort_info.is_asc_order.size();
         }
     }
-
     return Status::OK();
 }
 

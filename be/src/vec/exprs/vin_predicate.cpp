@@ -51,7 +51,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
     }
 
-    // contruct the proper function_name
+    // construct the proper function_name
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
     _function = SimpleFunctionFactory::instance().get_function(real_function_name,

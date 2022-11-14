@@ -27,6 +27,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 
 import java.util.List;
+import java.util.Map;
 
 public abstract class TableValuedFunctionIf {
     private FunctionGenTable table = null;
@@ -40,7 +41,8 @@ public abstract class TableValuedFunctionIf {
     }
 
     // All table functions should be registered here
-    public static TableValuedFunctionIf getTableFunction(String funcName, List<String> params) throws UserException {
+    public static TableValuedFunctionIf getTableFunction(String funcName, Map<String, String> params)
+                                                        throws UserException {
         switch (funcName.toLowerCase()) {
             case NumbersTableValuedFunction.NAME:
                 return new NumbersTableValuedFunction(params);

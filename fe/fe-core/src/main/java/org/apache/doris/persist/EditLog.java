@@ -45,7 +45,6 @@ import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -951,8 +950,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
-                    final InitTableLog log = (InitTableLog) journal.getData();
-                    env.getCatalogMgr().replayInitExternalTable(log);
+                    // Do nothing.
                     break;
                 }
                 default: {
@@ -1624,10 +1622,6 @@ public class EditLog {
 
     public void logRefreshExternalTable(ExternalObjectLog log) {
         logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
-    }
-
-    public void logInitExternalTable(InitTableLog log) {
-        logEdit(OperationType.OP_INIT_EXTERNAL_TABLE, log);
     }
 
     public Journal getJournal() {

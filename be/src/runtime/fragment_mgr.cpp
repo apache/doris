@@ -240,7 +240,13 @@ Status FragmentExecState::execute() {
     }
 #ifndef BE_TEST
     if (_executor.runtime_state()->is_cancelled()) {
-        return Status::Cancelled("cancelled before execution");
+        Status status = Status::Cancelled("cancelled before execution");
+        _executor.runtime_state()
+                ->get_query_fragments_ctx()
+                ->get_shared_hash_table_controller()
+                ->release_ref_count_if_need(_executor.runtime_state()->fragment_instance_id(),
+                                            status);
+        return status;
     }
 #endif
     int64_t duration_ns = 0;
@@ -248,10 +254,18 @@ Status FragmentExecState::execute() {
         SCOPED_RAW_TIMER(&duration_ns);
         CgroupsMgr::apply_system_cgroup();
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
-        WARN_IF_ERROR(_executor.open(), strings::Substitute("Got error while opening fragment $0",
-                                                            print_id(_fragment_instance_id)));
+        Status status = _executor.open();
+        WARN_IF_ERROR(status, strings::Substitute("Got error while opening fragment $0",
+                                                  print_id(_fragment_instance_id)));
 
         _executor.close();
+        if (!status.ok()) {
+            _executor.runtime_state()
+                    ->get_query_fragments_ctx()
+                    ->get_shared_hash_table_controller()
+                    ->release_ref_count_if_need(_executor.runtime_state()->fragment_instance_id(),
+                                                status);
+        }
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
     DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
@@ -640,6 +654,30 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         fragments_ctx->timeout_second = params.query_options.query_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 
+        bool has_query_mem_tracker =
+                params.query_options.__isset.mem_limit && (params.query_options.mem_limit > 0);
+        int64_t bytes_limit = has_query_mem_tracker ? params.query_options.mem_limit : -1;
+        if (bytes_limit > MemInfo::mem_limit()) {
+            VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+                        << " exceeds process memory limit of "
+                        << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
+                        << ". Using process memory limit instead";
+            bytes_limit = MemInfo::mem_limit();
+        }
+        if (params.query_options.query_type == TQueryType::SELECT) {
+            fragments_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                    MemTrackerLimiter::Type::QUERY,
+                    fmt::format("Query#Id={}", print_id(fragments_ctx->query_id)), bytes_limit);
+        } else if (params.query_options.query_type == TQueryType::LOAD) {
+            fragments_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                    MemTrackerLimiter::Type::LOAD,
+                    fmt::format("Load#Id={}", print_id(fragments_ctx->query_id)), bytes_limit);
+        }
+        if (params.query_options.__isset.is_report_success &&
+            params.query_options.is_report_success) {
+            fragments_ctx->query_mem_tracker->enable_print_log_usage();
+        }
+
         {
             // Find _fragments_ctx_map again, in case some other request has already
             // create the query fragments context.
@@ -647,6 +685,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             auto search = _fragments_ctx_map.find(params.params.query_id);
             if (search == _fragments_ctx_map.end()) {
                 _fragments_ctx_map.insert(std::make_pair(fragments_ctx->query_id, fragments_ctx));
+                LOG(INFO) << "Register query/load memory tracker, query/load id: "
+                          << print_id(fragments_ctx->query_id)
+                          << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
             } else {
                 // Already has a query fragmentscontext, use it
                 fragments_ctx = search->second;
@@ -669,6 +710,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         RETURN_IF_ERROR(exec_state->prepare(params));
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+
+    _setup_shared_hashtable_for_broadcast_join(params, exec_state->executor()->runtime_state(),
+                                               fragments_ctx.get());
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     _runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state());
@@ -737,6 +781,26 @@ void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
     }
     fragments_ctx->set_thread_token(concurrency, is_serial);
 #endif
+}
+
+void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
+                                                             RuntimeState* state,
+                                                             QueryFragmentsCtx* fragments_ctx) {
+    if (!params.__isset.fragment || !params.fragment.__isset.plan ||
+        params.fragment.plan.nodes.empty()) {
+        return;
+    }
+
+    for (auto& node : params.fragment.plan.nodes) {
+        if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
+            !node.hash_join_node.__isset.is_broadcast_join ||
+            !node.hash_join_node.is_broadcast_join) {
+            continue;
+        }
+
+        std::lock_guard<std::mutex> lock(_lock_for_shared_hash_table);
+        fragments_ctx->get_shared_hash_table_controller()->acquire_ref_count(state, node.node_id);
+    }
 }
 
 bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
