@@ -206,7 +206,6 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
 
     StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-
     // Parse the raw-text data. Translate the text string to internal format.
     switch (slot_desc->type().type) {
     case TYPE_HLL: {
@@ -314,6 +313,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
             size_t size = nullable_column->get_null_map_data().size();
             doris::vectorized::NullMap& null_map_data = nullable_column->get_null_map_data();
             null_map_data[size - 1] = 1;
+            nullable_column->get_nested_column().insert_default();
         }
         return false;
     }

@@ -164,6 +164,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
         switch (type) {
             case QUERY:
+                // prepare for partition prune
+                computeColumnFilter();
                 if (this.desc.getTable() instanceof HMSExternalTable) {
                     HMSExternalTable hmsTable = (HMSExternalTable) this.desc.getTable();
                     initHMSExternalTable(hmsTable);
@@ -199,13 +201,13 @@ public class ExternalFileScanNode extends ExternalScanNode {
         FileScanProviderIf scanProvider;
         switch (hmsTable.getDlaType()) {
             case HUDI:
-                scanProvider = new HudiScanProvider(hmsTable, desc);
+                scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                scanProvider = new IcebergScanProvider(hmsTable, desc);
+                scanProvider = new IcebergScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case HIVE:
-                scanProvider = new HiveScanProvider(hmsTable, desc);
+                scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             default:
                 throw new UserException("Unknown table type: " + hmsTable.getDlaType());
@@ -511,9 +513,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        StringBuilder output = new StringBuilder(prefix);
-        // output.append(fileTable.getExplainString(prefix));
-
+        StringBuilder output = new StringBuilder();
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }

@@ -243,6 +243,7 @@ public class OperationType {
     public static final short OP_REFRESH_EXTERNAL_DB = 326;
     public static final short OP_INIT_EXTERNAL_DB = 327;
     public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
+    @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
     // scheduler job and task 330-350
