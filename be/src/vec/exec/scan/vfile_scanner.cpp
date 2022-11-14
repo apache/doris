@@ -489,7 +489,6 @@ Status VFileScanner::_get_next_reader() {
                 IcebergTableReader* iceberg_reader = new IcebergTableReader(
                         (GenericReader*)parquet_reader, _profile, _state, _params);
                 iceberg_reader->init_row_filters();
-                iceberg_reader->filter_rows();
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
                 _cur_reader.reset((GenericReader*)parquet_reader);

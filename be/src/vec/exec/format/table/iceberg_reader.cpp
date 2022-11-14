@@ -27,22 +27,10 @@
 namespace doris::vectorized {
 
 const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
-const std:string ICEBERG_ROW_POS = "pos";
+const std::string ICEBERG_ROW_POS = "pos";
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    Status status = _file_format_reader->get_next_block(block, read_rows, eof);
-    //    _read_rows += read_rows;
-    //    filter delete row here
-    //    filter_rows()
-
-    // todo: align the delete file and range start
-    //    compare _read_rows
-    //    _position_delete_params.low_bound_index
-    //    _position_delete_params.upper_bound_index
-
-    //    compare _read_rows and delete_range start, delete_range end
-
-    return status;
+    return _file_format_reader->get_next_block(block, read_rows, eof);
 }
 
 Status IcebergTableReader::get_columns(
@@ -73,8 +61,8 @@ void IcebergTableReader::filter_rows() {
         Status st = _cur_delete_file_reader->get_next_block(&block, &read_rows, &eof);
         if (!st.ok() || eof) {
             if (!_delete_file_readers.empty()) {
-                _cur_delete_file_reader = _delete_file_readers.front();
-                _delete_file_readers.pop();
+                _cur_delete_file_reader = std::move(_delete_file_readers.front());
+                _delete_file_readers.pop_front();
             }
         }
         if (read_rows != 0) {
@@ -122,7 +110,7 @@ void IcebergTableReader::filter_rows() {
             }
         }
     }
-    auto* parquet_reader = ((ParquetReader*)_file_format_reader);
+    ParquetReader* parquet_reader = (ParquetReader*)(_file_format_reader.get());
     parquet_reader->merge_delete_row_ranges(delete_row_ranges);
 }
 
@@ -157,22 +145,23 @@ Status IcebergTableReader::init_row_filters() {
                     names.emplace_back(field->name);
                 }
                 Status d_st = delete_reader->init_reader(names, false);
-                _delete_file_readers.push((GenericReader*)delete_reader);
+                _delete_file_readers.emplace_back((GenericReader*)delete_reader);
 
-                ParquetReader* parquet_reader = (ParquetReader*)_file_format_reader;
+                ParquetReader* parquet_reader = (ParquetReader*)(_file_format_reader.get());
                 FileMetaData* file_metadata = nullptr;
                 RETURN_IF_ERROR(parquet_reader->file_metadata(&file_metadata));
                 _position_delete_params.total_file_rows = file_metadata->to_thrift().num_rows;
             }
             if (!_delete_file_readers.empty()) {
-                _cur_delete_file_reader = _delete_file_readers.front();
-                _delete_file_readers.pop();
+                _cur_delete_file_reader = std::move(_delete_file_readers.front());
+                _delete_file_readers.pop_front();
             } else {
                 _cur_delete_file_reader = nullptr;
             }
         }
     }
     // todo: equality delete
+    filter_rows();
     return Status::OK();
 }
 

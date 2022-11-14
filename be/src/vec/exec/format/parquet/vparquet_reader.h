@@ -61,8 +61,7 @@ public:
     // for test
     void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
-    Status init_reader(const std::vector<std::string>& column_names,
-                       bool filter_groups = true) {
+    Status init_reader(const std::vector<std::string>& column_names, bool filter_groups = true) {
         // without predicate
         return init_reader(column_names, nullptr, nullptr, filter_groups);
     }

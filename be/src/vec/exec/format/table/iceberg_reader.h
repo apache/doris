@@ -56,8 +56,8 @@ private:
     RuntimeState* _state;
     const TFileScanRangeParams& _params;
     std::vector<const FieldSchema*> _column_schemas;
-    std::queue<GenericReader*> _delete_file_readers;
-    GenericReader* _cur_delete_file_reader;
+    std::deque<std::unique_ptr<GenericReader>> _delete_file_readers;
+    std::unique_ptr<GenericReader> _cur_delete_file_reader;
     PositionDeleteParams _position_delete_params;
 };
 

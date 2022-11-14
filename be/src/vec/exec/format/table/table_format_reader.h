@@ -40,8 +40,8 @@ public:
     virtual void filter_rows() = 0;
 
 protected:
-    std::string _table_format;          // hudi, iceberg
-    GenericReader* _file_format_reader; // parquet, orc
+    std::string _table_format;                          // hudi, iceberg
+    std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
 };
 
 } // namespace doris::vectorized

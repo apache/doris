@@ -58,6 +58,8 @@ import java.util.OptionalLong;
  */
 public class IcebergScanProvider extends HiveScanProvider {
 
+    private static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
+
     public IcebergScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
             Map<String, ColumnRange> columnNameToRange) {
         super(hmsTable, desc, columnNameToRange);
@@ -69,7 +71,7 @@ public class IcebergScanProvider extends HiveScanProvider {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
-        if (formatVersion < IcebergScanProvider.MIN_DELETE_FILE_SUPPORT_VERSION) {
+        if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
@@ -78,7 +80,7 @@ public class IcebergScanProvider extends HiveScanProvider {
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     fileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
-                        (IcebergDeleteFileFilter.PositionDelete) filter;
+                            (IcebergDeleteFileFilter.PositionDelete) filter;
                     OptionalLong lowerBound = positionDelete.getPositionLowerBound();
                     OptionalLong upperBound = positionDelete.getPositionUpperBound();
                     if (lowerBound.isPresent()) {
@@ -90,7 +92,7 @@ public class IcebergScanProvider extends HiveScanProvider {
                 } else {
                     fileDesc.setContent(FileContent.EQUALITY_DELETES.id());
                     IcebergDeleteFileFilter.EqualityDelete equalityDelete =
-                        (IcebergDeleteFileFilter.EqualityDelete) filter;
+                            (IcebergDeleteFileFilter.EqualityDelete) filter;
                     deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
                 }
                 fileDesc.addToDeleteFiles(deleteFileDesc);
