@@ -40,9 +40,9 @@ import java.util.List;
 import java.util.Optional;
 
 public class HyperGraphBuilder {
-    List<Integer> rowCounts = new ArrayList<>();
-    HashMap<BitSet, LogicalPlan> plans = new HashMap<>();
-    HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
+    private List<Integer> rowCounts = new ArrayList<>();
+    private HashMap<BitSet, LogicalPlan> plans = new HashMap<>();
+    private HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
 
     public HyperGraph build() {
         assert plans.size() == 1 : "there are cross join";
