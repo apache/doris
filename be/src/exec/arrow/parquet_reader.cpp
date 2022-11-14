@@ -126,7 +126,12 @@ Status ParquetReaderWrap::get_columns(std::unordered_map<std::string, TypeDescri
                                       std::unordered_set<std::string>* missing_cols) {
     auto schema_desc = _file_metadata->schema();
     std::shared_ptr<::arrow::Schema> arrow_schema = nullptr;
-    parquet::arrow::FromParquetSchema(schema_desc, &arrow_schema);
+
+    auto st = parquet::arrow::FromParquetSchema(schema_desc, &arrow_schema);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to create arrow schema, errmsg=" << st.ToString();
+        return Status::InternalError("failed to create arrow schema");
+    }
 
     for (size_t i = 0; i < arrow_schema->num_fields(); ++i) {
         std::string schema_name = _case_sensitive ? arrow_schema->field(i)->name()
