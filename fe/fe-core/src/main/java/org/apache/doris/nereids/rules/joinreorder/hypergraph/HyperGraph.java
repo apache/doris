@@ -155,7 +155,7 @@ public class HyperGraph {
             BitSet right = new BitSet();
             right.set(rightIndex);
             edge.addRightNode(right);
-            edge.getReferenceNodes().forEach(index -> nodes.get(index).attachEdge(edge));
+            edge.getReferenceNodes().stream().forEach(index -> nodes.get(index).attachEdge(edge));
             edges.add(edge);
         }
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
@@ -184,12 +184,12 @@ public class HyperGraph {
         BitSet removeNodes = new BitSet();
         removeNodes.or(oldNodes);
         removeNodes.andNot(newNodes);
-        removeNodes.forEach(index -> nodes.get(index).removeEdge(edge));
+        removeNodes.stream().forEach(index -> nodes.get(index).removeEdge(edge));
 
         BitSet addedNodes = new BitSet();
         addedNodes.or(newNodes);
         addedNodes.andNot(oldNodes);
-        addedNodes.forEach(index -> nodes.get(index).attachEdge(edge));
+        addedNodes.stream().forEach(index -> nodes.get(index).attachEdge(edge));
     }
 
     /**
@@ -244,13 +244,13 @@ public class HyperGraph {
 
                 int finalI = i;
                 String finalLeftLabel = leftLabel;
-                edge.getLeft().forEach(nodeIndex -> {
+                edge.getLeft().stream().forEach(nodeIndex -> {
                     builder.append(String.format("%s -> e%d [arrowhead=none, label=\"%s\"]\n",
                             graphvisNodes.get(nodeIndex), finalI, finalLeftLabel));
                 });
 
                 String finalRightLabel = rightLabel;
-                edge.getRight().forEach(nodeIndex -> {
+                edge.getRight().stream().forEach(nodeIndex -> {
                     builder.append(String.format("%s -> e%d [arrowhead=none, label=\"%s\"]\n",
                             graphvisNodes.get(nodeIndex), finalI, finalRightLabel));
                 });
