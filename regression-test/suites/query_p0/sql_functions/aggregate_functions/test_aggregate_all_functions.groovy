@@ -473,5 +473,7 @@ suite("test_aggregate_all_functions") {
 
     qt_select45 """select * from ${tableName_12} order by id,level"""
 
-    qt_select45 """select * from ${tableName_12} where id>=5 and id <=5 and level >10  order by id,level;"""
+    qt_select46 """select * from ${tableName_12} where id>=5 and id <=5 and level >10  order by id,level;"""
+
+    qt_select47 """select count(*) from ${tableName_12}"""
 }
