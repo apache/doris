@@ -538,17 +538,6 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         end_scan_keys.back().add_value(
                 cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
         return true;
-    } else if (is_low_value_mininum() && is_high_value_maximum()) {
-        // Do not split the range of whole range. TODO: figure out why the code
-        // execute here
-        begin_scan_keys.emplace_back();
-        begin_scan_keys.back().add_value(
-                cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
-                contain_null());
-        end_scan_keys.emplace_back();
-        end_scan_keys.back().add_value(
-                cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
-        return true;
     } else {
         CppType min_value = get_range_min_value();
         CppType max_value = get_range_max_value();
