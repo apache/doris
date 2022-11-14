@@ -112,6 +112,7 @@ public class JdbcScanNode extends ScanNode {
         return limit != -1 && conjuncts.isEmpty();
     }
 
+    @SuppressWarnings({"checkstyle:Indentation", "checkstyle:WhitespaceAround"})
     private String getJdbcQueryStr() {
         StringBuilder sql = new StringBuilder("SELECT ");
 
@@ -139,7 +140,7 @@ public class JdbcScanNode extends ScanNode {
                 && (jdbcType == TOdbcTableType.MYSQL
                 || jdbcType == TOdbcTableType.POSTGRESQL
                 || jdbcType == TOdbcTableType.MONGODB
-                || jdbcType == TOdbcTableType.CLICKHOUSE)){
+                || jdbcType == TOdbcTableType.CLICKHOUSE)) {
             sql.append(" LIMIT ").append(limit);
         }
 
