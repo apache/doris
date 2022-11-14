@@ -66,8 +66,7 @@ public:
         auto& dest_offsets = dest_column_ptr->get_offsets();
         DCHECK(dest_nested_column != nullptr);
 
-        auto res_val = _execute(*src_nested_column, src_offsets, *dest_nested_column,
-                                        dest_offsets);
+        auto res_val = _execute(*src_nested_column, src_offsets, *dest_nested_column, dest_offsets);
         if (!res_val) {
             return Status::RuntimeError(
                     fmt::format("execute failed or unsupported types for function {}({})",
@@ -80,8 +79,7 @@ public:
 
 private:
     bool _execute(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets) {
-
+                  IColumn& dest_column, ColumnArray::Offsets64& dest_offsets) {
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
         ColumnArray::Offset64 src_pos = 0;
         ColumnArray::Offset64 dest_pos = 0;
@@ -107,7 +105,6 @@ private:
         }
         return true;
     }
-
 };
 
 } // namespace doris::vectorized
