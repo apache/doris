@@ -600,7 +600,7 @@ public class BrokerScanNode extends LoadScanNode {
     }
 
     protected void setDefaultValueExprs(Table tableRef, ParamCreateContext context) throws UserException {
-        Preconditions.checkNotNull(tableRef);+
+        Preconditions.checkNotNull(tableRef);
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
         for (Column column : tableRef.getBaseSchema()) {
