@@ -154,8 +154,12 @@ public class HiveScanProvider extends HMSTableScanProvider {
                 Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
                 ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
                         hmsTable.getPartitionColumns(), columnNameToRange,
-                        hivePartitionValues.getUidToPartitionRange(), hivePartitionValues.getRangeToId());
+                        hivePartitionValues.getUidToPartitionRange(),
+                        hivePartitionValues.getRangeToId(),
+                        hivePartitionValues.getSingleColumnRangeMap());
                 Collection<Long> filteredPartitionIds = pruner.prune();
+                LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
+                        hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
 
                 // 3. get partitions from cache
                 List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(filteredPartitionIds.size());

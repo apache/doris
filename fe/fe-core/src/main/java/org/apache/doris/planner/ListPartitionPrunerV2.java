@@ -69,8 +69,9 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
             List<Column> partitionColumns,
             Map<String, ColumnRange> columnNameToRange,
             Map<UniqueId, Range<PartitionKey>> uidToPartitionRange,
-            Map<Range<PartitionKey>, UniqueId> rangeToId) {
-        super(idToPartitionItem, partitionColumns, columnNameToRange);
+            Map<Range<PartitionKey>, UniqueId> rangeToId,
+            RangeMap<ColumnBound, UniqueId> singleColumnRangeMap) {
+        super(idToPartitionItem, partitionColumns, columnNameToRange, singleColumnRangeMap);
         this.uidToPartitionRange = uidToPartitionRange;
         this.rangeToId = rangeToId;
     }
@@ -91,11 +92,13 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
     }
 
     @Override
-    RangeMap<ColumnBound, UniqueId> getCandidateRangeMap() {
-        return getCandidateRangeMap(idToPartitionItem);
+    void genSingleColumnRangeMap() {
+        if (singleColumnRangeMap == null) {
+            singleColumnRangeMap = genSingleColumnRangeMap(idToPartitionItem);
+        }
     }
 
-    public static RangeMap<ColumnBound, UniqueId> getCandidateRangeMap(Map<Long, PartitionItem> idToPartitionItem) {
+    public static RangeMap<ColumnBound, UniqueId> genSingleColumnRangeMap(Map<Long, PartitionItem> idToPartitionItem) {
         RangeMap<ColumnBound, UniqueId> candidate = TreeRangeMap.create();
         idToPartitionItem.forEach((id, item) -> {
             List<PartitionKey> keys = item.getItems();
@@ -136,6 +139,7 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
     @Override
     Collection<Long> pruneMultipleColumnPartition(
             Map<Column, FinalFilters> columnToFilters) throws AnalysisException {
+        Preconditions.checkNotNull(uidToPartitionRange);
         Preconditions.checkNotNull(rangeToId);
         return doPruneMultiple(columnToFilters, rangeToId, 0);
     }
