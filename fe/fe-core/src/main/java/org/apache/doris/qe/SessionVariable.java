@@ -591,7 +591,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean internalSession = false;
 
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
-    public int partitionedHashJoinRowsThreshold = 8388608; 
+    public int partitionedHashJoinRowsThreshold = 8388608;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
