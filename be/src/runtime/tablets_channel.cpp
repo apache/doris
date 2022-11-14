@@ -95,6 +95,8 @@ Status TabletsChannel::close(
         return _close_status;
     }
     if (_closed_senders.Get(sender_id)) {
+        LOG(INFO) << "double close tablets channel: " << _key << ", sender id: " << sender_id
+                  << ", backend id: " << backend_id;
         // Double close from one sender, just return OK
         *finished = (_num_remaining_senders == 0);
         return _close_status;
@@ -130,12 +132,16 @@ Status TabletsChannel::close(
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
+                LOG(INFO) << "cancel tablet writer successfully, tablet_id=" << it.first
+                          << ", transaction_id=" << _txn_id;
             }
         }
 
         _write_single_replica = write_single_replica;
 
         // 2. wait delta writers and build the tablet vector
+        std::stringstream ss;
+        ss << "[";
         for (auto writer : need_wait_writers) {
             PSlaveTabletNodes slave_nodes;
             if (write_single_replica) {
@@ -185,10 +191,14 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
             tablet_info->set_tablet_id(writer->tablet_id());
             tablet_info->set_schema_hash(writer->schema_hash());
         }
+        LOG(WARNING) << "couldn't find broken tablet " << writer->tablet_id() << " transaction_id "
+                     << _txn_id;
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
         tablet_error->set_msg(st.get_error_msg());
+        LOG(WARNING) << "close wait failed tablet " << writer->tablet_id() << " transaction_id "
+                     << _txn_id << "err msg " << st;
     }
 }
 
@@ -443,6 +453,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         int64_t tablet_id = request.tablet_ids(i);
         if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
             // skip broken tablets
+            LOG(INFO) << "skip broken tablet tablet=" << tablet_id;
             continue;
         }
         auto it = tablet_to_rowidxs.find(tablet_id);
