@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cooldown;
+package org.apache.doris.alter;
 
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.util.MasterDaemon;

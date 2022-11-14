@@ -61,7 +61,7 @@ public abstract class AlterJobV2 implements Writable {
     public enum JobType {
         // Must not remove it or change the order, because catalog depend on it to traverse the image
         // and load meta data
-        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND
+        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND, SEND_COOLDOWN_CONF
     }
 
     @SerializedName(value = "type")
