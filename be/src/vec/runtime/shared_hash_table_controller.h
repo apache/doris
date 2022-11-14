@@ -71,6 +71,15 @@ public:
     void put_hash_table(SharedHashTableEntry&& entry, int my_node_id);
     Status wait_for_closable(RuntimeState* state, int my_node_id);
 
+    // Single-thread operation
+    void set_short_circuit_for_null_in_probe_side(bool short_circuit_for_null_in_probe_side) {
+        _short_circuit_for_null_in_probe_side = short_circuit_for_null_in_probe_side;
+    }
+
+    bool short_circuit_for_null_in_probe_side() const {
+        return _short_circuit_for_null_in_probe_side;
+    }
+
 private:
     // If the fragment instance was supposed to build hash table, but it didn't build.
     // To avoid deadlocking other fragment instances,
@@ -83,6 +92,7 @@ private:
     std::map<int /*node id*/, TUniqueId /*fragment id*/> _builder_fragment_ids;
     std::map<int /*node id*/, SharedHashTableEntry> _hash_table_entries;
     std::map<int /*node id*/, std::vector<TUniqueId>> _ref_fragments;
+    bool _short_circuit_for_null_in_probe_side;
 };
 
 } // namespace vectorized
