@@ -216,7 +216,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         create_rowset_writer_context(10047, tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_EQ(Status::OK(), s);
 
         RowCursor input_row;
@@ -322,7 +322,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         create_rowset_writer_context(10048, tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_EQ(Status::OK(), s);
 
         RowCursor input_row;
