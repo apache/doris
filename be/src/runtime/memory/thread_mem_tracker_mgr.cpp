@@ -59,36 +59,4 @@ void ThreadMemTrackerMgr::exceeded() {
     _check_limit = false; // Make sure it will only be canceled once
 }
 
-// void ThreadMemTrackerMgr::log_backtrace() {
-//     // int size = 0;
-//     // void *buffer[BACKTRACE_SIZE];
-//     // size = backtrace(buffer, BACKTRACE_SIZE);
-    
-//     // std::string log_path = std::string(getenv("DORIS_HOME")) + "/log/be.INFO";
-//     // auto fp_closer = [](FILE* fp) { fclose(fp); };
-//     // std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(log_path.c_str(), "a"), fp_closer);
-//     // if (fp == nullptr) {
-//     //     LOG(WARNING) << "open file failed, file=" << log_path;
-//     // }
-
-//     // backtrace_symbols_fd(buffer, size, fileno(fp.get()));
-
-//     // LOG(WARNING) << boost::stacktrace::to_string(boost::stacktrace::stacktrace());
-
-//     // auto res = fwrite(buffer, length, 1, fp.get());
-//     // if (res != 1) {
-//     //     LOG(WARNING) << "fail to write data to file, file=" << local_path
-//     //                 << ", error=" << ferror(fp.get());
-//     //     status = Status::InternalError("fail to write data when download");
-//     //     return false;
-//     // }
-
-//     // FILE* file = fopen(filename, "w");
-//     // EXPECT_TRUE(file != nullptr);
-//     // fwrite(data, 1, strlen(data), file);
-//     // fclose(file);
-    
-//     // backtrace_symbols_fd(buffer, size, STDOUT_FILENO);
-// }
-
 } // namespace doris

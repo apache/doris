@@ -457,10 +457,7 @@ void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
     NodeStatistics* node_statistics =
             _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    LOG(INFO) << "PlanFragmentExecutor::_collect_node_statistics() "
-              << _runtime_state->query_mem_tracker()->peak_consumption();
     node_statistics->add_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
-    _query_statistics->calculate_max_peak_memory_bytes();
 }
 
 void PlanFragmentExecutor::report_profile() {

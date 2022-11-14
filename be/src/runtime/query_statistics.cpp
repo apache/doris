@@ -71,14 +71,12 @@ void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
 }
 
 int64_t QueryStatistics::calculate_max_peak_memory_bytes() {
+    int64_t max_peak_memory_bytes = 0;
     for (auto iter = _nodes_statistics_map.begin(); iter != _nodes_statistics_map.end(); ++iter) {
         if (max_peak_memory_bytes < iter->second->peak_memory_bytes) {
             max_peak_memory_bytes = iter->second->peak_memory_bytes;
         }
-        LOG(INFO) << "QueryStatistics::calculate_max_peak_memory_bytes1111 "
-                  << iter->second->peak_memory_bytes;
     }
-    LOG(INFO) << "QueryStatistics::calculate_max_peak_memory_bytes2222 " << max_peak_memory_bytes;
     return max_peak_memory_bytes;
 }
 

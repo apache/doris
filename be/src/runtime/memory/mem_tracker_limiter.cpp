@@ -23,9 +23,9 @@
 
 #include "gutil/once.h"
 #include "runtime/runtime_state.h"
-#include "util/stack_util.h"
 #include "runtime/thread_context.h"
 #include "util/pretty_printer.h"
+#include "util/stack_util.h"
 #include "util/string_util.h"
 
 namespace doris {

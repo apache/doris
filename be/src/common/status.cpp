@@ -7,8 +7,8 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include "util/stack_util.h"
 #include "gen_cpp/types.pb.h" // for PStatus
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -62,25 +62,6 @@ Status::Status(const PStatus& s) {
         }
     }
 }
-
-    // // no boost, reason
-    // static std::string get_backtrace() {
-    //     int size = 0;
-    //     void *buffer[BACKTRACE_SIZE];
-    //     char **_backtrace;
-
-    //     size = backtrace(buffer, BACKTRACE_SIZE);
-    //     _backtrace = backtrace_symbols(buffer, size);
-
-    //     std::string backtrace_str = "";
-    //     for (int j = 0; j < size; j++) {
-    //         backtrace_str += _backtrace[j];
-    //         backtrace_str += "\n";
-    //     }
-    // free(_backtrace);
-    // return backtrace_str;
-    //     // backtrace_symbols_fd(buffer, nptrs, STDOUT_FILENO);
-    // }
 
 Status Status::ConstructErrorStatus(int16_t precise_code) {
 // This will print all error status's stack, it maybe too many, but it is just used for debug

@@ -494,10 +494,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    // for (int i = 0; i <= 1000; i++) {
-    //     LOG(WARNING) << boost::stacktrace::to_string(boost::stacktrace::stacktrace());
-    // }
-
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
