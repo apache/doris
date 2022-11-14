@@ -49,7 +49,7 @@ public class InternalSchemaInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
-    public static boolean forTest = false;
+    public static boolean forTest = true;
 
     /**
      * If internal table creation failed, will retry after below seconds.
