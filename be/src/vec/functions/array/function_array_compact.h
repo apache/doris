@@ -99,8 +99,7 @@ private:
 
                 // For the rest of elements, insert if the element is different from the previous.
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column,
-                                                                   1))) {
+                    if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column, 1))) {
                         dest_column.insert_from(src_column, src_pos);
                         ++dest_pos;
                     }
@@ -146,32 +145,25 @@ private:
         bool res = false;
         WhichDataType which(remove_nullable(nested_type));
         if (which.is_uint8()) {
-            res = _execute_number<ColumnUInt8>(src_column, src_offsets, dest_column, dest_offsets
-                                               );
+            res = _execute_number<ColumnUInt8>(src_column, src_offsets, dest_column, dest_offsets);
         } else if (which.is_int8()) {
-            res = _execute_number<ColumnInt8>(src_column, src_offsets, dest_column, dest_offsets
-                                              );
+            res = _execute_number<ColumnInt8>(src_column, src_offsets, dest_column, dest_offsets);
         } else if (which.is_int16()) {
-            res = _execute_number<ColumnInt16>(src_column, src_offsets, dest_column, dest_offsets
-                                               );
+            res = _execute_number<ColumnInt16>(src_column, src_offsets, dest_column, dest_offsets);
         } else if (which.is_int32()) {
-            res = _execute_number<ColumnInt32>(src_column, src_offsets, dest_column, dest_offsets
-                                              );
+            res = _execute_number<ColumnInt32>(src_column, src_offsets, dest_column, dest_offsets);
         } else if (which.is_int64()) {
-            res = _execute_number<ColumnInt64>(src_column, src_offsets, dest_column, dest_offsets
-                                               );
+            res = _execute_number<ColumnInt64>(src_column, src_offsets, dest_column, dest_offsets);
         } else if (which.is_int128()) {
-            res = _execute_number<ColumnInt128>(src_column, src_offsets, dest_column, dest_offsets
-                                                );
+            res = _execute_number<ColumnInt128>(src_column, src_offsets, dest_column, dest_offsets);
         } else if (which.is_float32()) {
-            res = _execute_number<ColumnFloat32>(src_column, src_offsets, dest_column, dest_offsets
-                                                 );
+            res = _execute_number<ColumnFloat32>(src_column, src_offsets, dest_column,
+                                                 dest_offsets);
         } else if (which.is_float64()) {
-            res = _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column, dest_offsets
-                                                 );
+            res = _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column,
+                                                 dest_offsets);
         } else if (which.is_date()) {
-            res = _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets
-                                              );
+            res = _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets);
         } else if (which.is_date_time()) {
             res = _execute_number<ColumnDateTime>(src_column, src_offsets, dest_column,
                                                   dest_offsets);
