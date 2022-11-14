@@ -38,11 +38,11 @@ This is an easy-to-use tool to help mysql users on using doris.
     └── sync_to_doris.sh
 ```
 
-### configurations
+## configurations
 
 All configuration files are in the conf directory.
 
-#### env.conf
+### env.conf
 Fill in your doris and mysql information here.
 ```text
 # doris env
@@ -59,7 +59,7 @@ mysql_username=<your_mysql_username>
 mysql_password=<your_mysql_password>
 ```
 
-#### mysql_tables
+### mysql_tables
 Fill in the mysql table here, in the form of `database.table`.
 ```text
 db1.table1
@@ -67,7 +67,7 @@ db1.table2
 db2.table3
 ```
 
-#### doris_tables
+### doris_tables
 Fill in the doris olap table here, in the form of `database.table`.
 ```text
 doris_db.table1
@@ -75,7 +75,7 @@ doris_db.table2
 doris_db.table3
 ```
 
-#### doris_external_tables
+### doris_external_tables
 Fill in the doris external table here, in the form of `database.table`.
 ```text
 doris_db.e_table1
@@ -83,7 +83,7 @@ doris_db.e_table2
 doris_db.e_table3
 ```
 
-### How to use
+## How to use
 bin/run.sh is the startup shell script and this is options for the script:
 ```shell
 Usage: run.sh [option]
@@ -95,7 +95,7 @@ Usage: run.sh [option]
     -h, --help: show usage
 ```
 
-#### 1. Create doris odbc external table
+### 1. Create doris odbc external table
 use like this: 
 ```shell
 sh bin/run.sh --create-external-table
@@ -106,7 +106,7 @@ sh bin/run.sh -e
 ```
 then doris odbc external table has been created, and the table creation statement is generated in `result/mysql/e_mysql_to_doris.sql` file.
 
-#### 2. Create doris olap table
+### 2. Create doris olap table
 use like this:
 ```shell
 sh bin/run.sh --create-olap-table
@@ -117,7 +117,9 @@ sh bin/run.sh -o
 ```
 then doris odbc olap table has been created, and the table creation statement is generated in `result/mysql/mysql_to_doris.sql` file.
 
-#### 2. Create doris olap table and sync data from odbc external table
+### 3. Create doris olap table and sync data from odbc external table
+The premise is that you have created the external table, if not, please create it first.
+
 use like this:
 ```shell
 sh bin/run.sh --create-olap-table --insert-data
@@ -128,11 +130,17 @@ sh bin/run.sh -o -i
 ```
 then doris odbc olap table has been created, and the table creation statement is generated in `result/mysql/mysql_to_doris.sql` file, and the insert statement is generated in `result/mysql/sync_to_doris.sql` file.
 
-The premise is that you have created the external table, if not, please create it first.
-
 If you want to delete external table after data sync finished, add `--drop-external-table` or `-d` option.
+use like this:
+```shell
+sh bin/run.sh --create-olap-table --insert-data --drop-external-table
+```
+or
+```shell
+sh bin/run.sh -o -i -d
+```
 
-#### 3. Create doris external table and sync schema change automatically
+### 4. Create doris external table and sync schema change automatically
 use like this:
 ```shell
 sh bin/run.sh --auto-external-table
