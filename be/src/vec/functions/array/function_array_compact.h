@@ -66,24 +66,8 @@ public:
         auto& dest_offsets = dest_column_ptr->get_offsets();
         DCHECK(dest_nested_column != nullptr);
 
-        const NullMapType* src_null_map = nullptr;
-        if (src_nested_column->is_nullable()) {
-            const ColumnNullable* src_nested_nullable_col =
-                    check_and_get_column<ColumnNullable>(*src_nested_column);
-            src_nested_column = src_nested_nullable_col->get_nested_column_ptr();
-            src_null_map = &src_nested_nullable_col->get_null_map_column().get_data();
-        }
-
-        NullMapType* dest_null_map = nullptr;
-        if (dest_nested_column->is_nullable()) {
-            ColumnNullable* dest_nested_nullable_col =
-                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
-            dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
-            dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data();
-        }
-
         auto res_val = _execute_by_type(*src_nested_column, src_offsets, *dest_nested_column,
-                                        dest_offsets, src_null_map, dest_null_map, nested_type);
+                                        dest_offsets, nested_type);
         if (!res_val) {
             return Status::RuntimeError(
                     fmt::format("execute failed or unsupported types for function {}({})",
@@ -97,17 +81,8 @@ public:
 private:
     template <typename ColumnType>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) {
+                         IColumn& dest_column, ColumnArray::Offsets64& dest_offsets) {
         using NestType = typename ColumnType::value_type;
-        const ColumnType* src_data_concrete = reinterpret_cast<const ColumnType*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
-        const PaddedPODArray<NestType>& src_datas = src_data_concrete->get_data();
-
-        ColumnType& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
-        PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
 
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
         ColumnArray::Offset64 src_pos = 0;
@@ -117,33 +92,16 @@ private:
             auto src_offset = src_offsets[i];
             if (src_pos < src_offset) {
                 // Insert first element
-                if (src_null_map && (*src_null_map)[src_pos]) {
-                    DCHECK(dest_null_map != nullptr);
-                    (*dest_null_map).push_back(true);
-                    dest_datas.push_back(NestType());
-                } else {
-                    dest_datas.push_back(src_datas[src_pos]);
-                    if (dest_null_map) {
-                        (*dest_null_map).push_back(false);
-                    }
-                }
+                dest_column.insert_from(src_column, src_pos);
+
                 ++src_pos;
                 ++dest_pos;
 
                 // For the rest of elements, insert if the element is different from the previous.
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos] &&
-                        !((*src_null_map)[src_pos - 1])) {
-                        DCHECK(dest_null_map != nullptr);
-                        (*dest_null_map).push_back(true);
-                        dest_datas.push_back(NestType());
-                        ++dest_pos;
-                    } else if (0 != (src_data_concrete->compare_at(src_pos - 1, src_pos, src_column,
+                    if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column,
                                                                    1))) {
-                        dest_datas.push_back(src_datas[src_pos]);
-                        if (dest_null_map) {
-                            (*dest_null_map).push_back(false);
-                        }
+                        dest_column.insert_from(src_column, src_pos);
                         ++dest_pos;
                     }
                 }
@@ -154,8 +112,7 @@ private:
     }
 
     bool _execute_generic(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                          const NullMapType* src_null_map, NullMapType* dest_null_map) {
+                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets) {
         dest_column.reserve(src_column.size());
 
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
@@ -166,32 +123,14 @@ private:
             auto src_offset = src_offsets[i];
             if (src_pos < src_offset) {
                 // Insert first element
-                if (src_null_map && (*src_null_map)[src_pos]) {
-                    DCHECK(dest_null_map != nullptr);
-                    dest_column.insert_from(src_column, src_pos);
-                    (*dest_null_map).push_back(true);
-                } else {
-                    dest_column.insert_from(src_column, src_pos);
-                    if (dest_null_map) {
-                        (*dest_null_map).push_back(false);
-                    }
-                }
+                dest_column.insert_from(src_column, src_pos);
                 ++src_pos;
                 ++dest_pos;
 
                 // For the rest of elements, insert if the element is different from the previous.
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos] &&
-                        (!(*src_null_map)[src_pos - 1])) {
-                        DCHECK(dest_null_map != nullptr);
+                    if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column, 1))) {
                         dest_column.insert_from(src_column, src_pos);
-                        (*dest_null_map).push_back(true);
-                        ++dest_pos;
-                    } else if (0 != (src_column.compare_at(src_pos - 1, src_pos, src_column, 1))) {
-                        dest_column.insert_from(src_column, src_pos);
-                        if (dest_null_map) {
-                            (*dest_null_map).push_back(false);
-                        }
                         ++dest_pos;
                     }
                 }
@@ -203,46 +142,44 @@ private:
 
     bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
                           IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                          const NullMapType* src_null_map, NullMapType* dest_null_map,
                           DataTypePtr& nested_type) {
         bool res = false;
         WhichDataType which(remove_nullable(nested_type));
         if (which.is_uint8()) {
-            res = _execute_number<ColumnUInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
+            res = _execute_number<ColumnUInt8>(src_column, src_offsets, dest_column, dest_offsets
+                                               );
         } else if (which.is_int8()) {
-            res = _execute_number<ColumnInt8>(src_column, src_offsets, dest_column, dest_offsets,
-                                              src_null_map, dest_null_map);
+            res = _execute_number<ColumnInt8>(src_column, src_offsets, dest_column, dest_offsets
+                                              );
         } else if (which.is_int16()) {
-            res = _execute_number<ColumnInt16>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
+            res = _execute_number<ColumnInt16>(src_column, src_offsets, dest_column, dest_offsets
+                                               );
         } else if (which.is_int32()) {
-            res = _execute_number<ColumnInt32>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
+            res = _execute_number<ColumnInt32>(src_column, src_offsets, dest_column, dest_offsets
+                                              );
         } else if (which.is_int64()) {
-            res = _execute_number<ColumnInt64>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
+            res = _execute_number<ColumnInt64>(src_column, src_offsets, dest_column, dest_offsets
+                                               );
         } else if (which.is_int128()) {
-            res = _execute_number<ColumnInt128>(src_column, src_offsets, dest_column, dest_offsets,
-                                                src_null_map, dest_null_map);
+            res = _execute_number<ColumnInt128>(src_column, src_offsets, dest_column, dest_offsets
+                                                );
         } else if (which.is_float32()) {
-            res = _execute_number<ColumnFloat32>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
+            res = _execute_number<ColumnFloat32>(src_column, src_offsets, dest_column, dest_offsets
+                                                 );
         } else if (which.is_float64()) {
-            res = _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column, dest_offsets,
-                                                 src_null_map, dest_null_map);
+            res = _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column, dest_offsets
+                                                 );
         } else if (which.is_date()) {
-            res = _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets,
-                                              src_null_map, dest_null_map);
+            res = _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets
+                                              );
         } else if (which.is_date_time()) {
             res = _execute_number<ColumnDateTime>(src_column, src_offsets, dest_column,
-                                                  dest_offsets, src_null_map, dest_null_map);
+                                                  dest_offsets);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
-                                                    dest_offsets, src_null_map, dest_null_map);
+                                                    dest_offsets);
         } else {
-            res = _execute_generic(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
-                                   dest_null_map);
+            res = _execute_generic(src_column, src_offsets, dest_column, dest_offsets);
         }
         return res;
     }
