@@ -422,12 +422,14 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
             if constexpr (SetProbeSideFlag) {
                 _cur_probe_row_visited_flags |= simd::contain_byte<uint8>(filter_data, size, 1);
             }
+#define CLEAR_BLOCK                                                  \
+    for (size_t i = 0; i < column_to_keep; ++i) {                    \
+        block->get_by_position(i).column->assume_mutable()->clear(); \
+    }
             if (materialize) {
                 Block::filter_block_internal(block, filter, column_to_keep);
             } else {
-                for (size_t i = 0; i < column_to_keep; ++i) {
-                    block->get_by_position(i).column->assume_mutable()->clear();
-                }
+                CLEAR_BLOCK
             }
         } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
             bool ret = const_column->get_bool(0);
@@ -454,9 +456,7 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
                     _cur_probe_row_visited_flags |= ret;
                 }
                 if (!materialize) {
-                    for (size_t i = 0; i < column_to_keep; ++i) {
-                        block->get_by_position(i).column->assume_mutable()->clear();
-                    }
+                    CLEAR_BLOCK
                 }
             }
         } else {
@@ -487,13 +487,11 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
             if (materialize) {
                 Block::filter_block_internal(block, filter, column_to_keep);
             } else {
-                for (size_t i = 0; i < column_to_keep; ++i) {
-                    block->get_by_position(i).column->assume_mutable()->clear();
-                }
+                CLEAR_BLOCK
             }
         }
-        Block::erase_useless_column(block, column_to_keep);
     }
+#undef CLEAR_BLOCK
     return Status::OK();
 }
 
