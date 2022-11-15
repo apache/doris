@@ -238,7 +238,7 @@ public class NereidsParserTest extends ParserTestBase {
                 + "explain graph select `AD``D` from t1 where a = 1;");
         Assertions.assertTrue(stmtList.size() == 2);
         Assertions.assertTrue("select `AD``D` from t1 where a = 1".equals(stmtList.get(0)));
-        Assertions.assertTrue("explain graph select `AD``D` from t1 where a = 1".equals(stmtList.size()));
+        Assertions.assertTrue("explain graph select `AD``D` from t1 where a = 1".equals(stmtList.get(1)));
     }
 
 }

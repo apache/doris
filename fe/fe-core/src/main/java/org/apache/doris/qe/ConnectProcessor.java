@@ -176,6 +176,7 @@ public class ConnectProcessor {
         SpanContext spanContext = Span.fromContext(Context.current()).getSpanContext();
 
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString()).setQueryTime(elapseMs)
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
@@ -253,110 +254,111 @@ public class ConnectProcessor {
                 .setTimestamp(System.currentTimeMillis())
                 .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setSqlHash(ctx.getSqlHash());
 
-        List<String> origSingleStmtList = null;
-        boolean usingOrigSingleStmt = false;
-        StatementBase parsedStmt = null;
-        int currentIdx = 0;
+        Exception nereidsParseException = null;
+        List<StatementBase> stmts = null;
 
-        try {
-            List<StatementBase> stmts = null;
-            Exception nereidsParseException = null;
-
-            if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
-                try {
-                    stmts = new NereidsParser().parseSQL(originStmt);
-                } catch (Exception e) {
-                    // TODO: We should catch all exception here until we support all query syntax.
-                    nereidsParseException = e;
-                    LOG.info(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt);
-                }
+        if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
+            try {
+                stmts = new NereidsParser().parseSQL(originStmt);
+            } catch (Exception e) {
+                // TODO: We should catch all exception here until we support all query syntax.
+                nereidsParseException = e;
+                LOG.info(" Fallback to stale planner."
+                        + " Nereids cannot process this statement: \"{}\".", originStmt);
             }
-            // stmts == null when Nereids cannot planner this query or Nereids is disabled.
-            if (stmts == null) {
+        }
+
+        // stmts == null when Nereids cannot planner this query or Nereids is disabled.
+        if (stmts == null) {
+            try {
                 stmts = parse(originStmt);
+            } catch (Throwable throwable) {
+                // Parse sql failed, audit it and return
+                handleQueryException(throwable, originStmt, null, null);
+                return;
+            }
+        }
+
+        List<String> origSingleStmtList = null;
+        // if stmts.size() > 1, split originStmt to multi singleStmts
+        if (stmts.size() > 1) {
+            try {
+                origSingleStmtList = new NereidsParser().parseMultiStmts(originStmt);
+            } catch (Exception ignore) {
+                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
+            }
+        }
+
+        for (int i = 0; i < stmts.size(); ++i) {
+            boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
+
+            ctx.getState().reset();
+            if (i > 0) {
+                ctx.resetReturnRows();
             }
 
-            // if stmts.size() > 1, we should split originStmt to multi singleStmts
-            if (stmts.size() > 1) {
-                try {
-                    origSingleStmtList = new NereidsParser().parseMultiStmts(originStmt);
-                } catch (Exception ignore) {
-                    LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
-                }
+            StatementBase parsedStmt = stmts.get(i);
+            if (parsedStmt instanceof SelectStmt && nereidsParseException != null
+                    && ctx.getSessionVariable().isEnableNereidsPlanner()
+                    && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                Exception exception = new Exception(
+                        String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
+                        parsedStmt.toSql()), nereidsParseException);
+                // An exception occurs, audit it and return
+                handleQueryException(exception, auditStmt, null, null);
+                return;
             }
-            usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
 
-            for (; currentIdx < stmts.size(); ++currentIdx) {
-                ctx.getState().reset();
-                if (currentIdx > 0) {
-                    ctx.resetReturnRows();
+            parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+            parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            executor = new StmtExecutor(ctx, parsedStmt);
+            ctx.setExecutor(executor);
+            try {
+                executor.execute();
+                if (i != stmts.size() - 1) {
+                    ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+                    finalizeCommand();
                 }
-                parsedStmt = stmts.get(currentIdx);
-                if (parsedStmt instanceof SelectStmt && nereidsParseException != null
-                        && ctx.getSessionVariable().isEnableNereidsPlanner()
-                        && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                    throw new Exception(String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
-                                parsedStmt.toSql()), nereidsParseException);
-                }
-                parsedStmt.setOrigStmt(new OriginStatement(originStmt, currentIdx));
-                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-                executor = new StmtExecutor(ctx, parsedStmt);
-                ctx.setExecutor(executor);
-
-                try {
-                    executor.execute();
-                    if (currentIdx != stmts.size() - 1) {
-                        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                        finalizeCommand();
-                    }
-                } finally {
-                    executor.addProfileToSpan();
-                }
-
-                // audit one by one
-                // we can't place auditAfterExec in finally block above cause we don't know the final state of ctx
-                auditAfterExec(usingOrigSingleStmt ? origSingleStmtList.get(currentIdx) : originStmt,
-                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
-
+                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+            } catch (Throwable throwable) {
+                handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
+                        executor.getQueryStatisticsForAuditLog());
+                // execute failed, skip remaining stmts
+                return;
+            } finally {
+                executor.addProfileToSpan();
             }
-        } catch (IOException e) {
+        }
+
+    }
+
+    // Use a handler for exception to avoid big try catch block which is very hard to understand
+    private void handleQueryException(Throwable throwable, String origStmt,
+                                      StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+        if (throwable instanceof IOException) {
             // Client failed.
-            LOG.warn("Process one query failed because IOException: ", e);
+            LOG.warn("Process one query failed because IOException: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
-        } catch (UserException e) {
-            LOG.warn("Process one query failed because.", e);
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } else if (throwable instanceof UserException) {
+            LOG.warn("Process one query failed because.", throwable);
+            ctx.getState().setError(((UserException) throwable).getMysqlErrorCode(), throwable.getMessage());
             // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
-        } catch (Throwable e) {
+        } else {
             // Catch all throwable.
             // If reach here, maybe palo bug.
-            LOG.warn("Process one query failed because unknown reason: ", e);
+            LOG.warn("Process one query failed because unknown reason: ", throwable);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+                    throwable.getClass().getSimpleName() + ", msg: " + throwable.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         }
-
-        // ignore ANALYSIS_ERR (don't know why but just stay the same behavior)
-        if (ctx.getState().getStateType() == MysqlStateType.ERR
-                && QueryState.ErrType.ANALYSIS_ERR != ctx.getState().getErrType()) {
-            if (executor != null) {
-                // executor execute stmt failed
-                auditAfterExec(usingOrigSingleStmt ? origSingleStmtList.get(currentIdx) : originStmt,
-                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
-            } else {
-                // nereids anaylze sql failed and fall-back disabled
-                auditAfterExec(originStmt, null, null);
-            }
-        }
-
+        auditAfterExec(origStmt, parsedStmt, statistics);
     }
 
     // analyze the origin stmt and return multi-statements

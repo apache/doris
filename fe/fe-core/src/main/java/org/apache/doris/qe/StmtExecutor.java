@@ -421,8 +421,11 @@ public class StmtExecutor implements ProfileWriter {
 
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
-
         context.setQueryId(queryId);
+        // set isQuery first otherwise this state will be lost if some error occurs
+        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
+            context.getState().setIsQuery(true);
+        }
 
         try {
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
@@ -478,7 +481,6 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
-                context.getState().setIsQuery(true);
                 if (!parsedStmt.isExplain()) {
                     // sql/sqlHash block
                     try {
