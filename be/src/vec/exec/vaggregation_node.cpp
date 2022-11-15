@@ -291,6 +291,12 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
 }
 
 Status AggregationNode::prepare_profile(RuntimeState* state) {
+    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    runtime_profile()->add_child(memory_usage, false, nullptr);
+    _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
+    _serialize_key_arena_memory_usage =
+            memory_usage->AddHighWaterMarkCounter("SerializeKeyArena", TUnit::BYTES);
+
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
@@ -327,9 +333,8 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
-        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
-                                                          _mem_pool.get(), intermediate_slot_desc,
-                                                          output_slot_desc));
+        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
+                state, child(0)->row_desc(), intermediate_slot_desc, output_slot_desc));
     }
 
     // set profile timer to evaluators
@@ -443,6 +448,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
 }
 
 Status AggregationNode::prepare(RuntimeState* state) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+
     RETURN_IF_ERROR(ExecNode::prepare(state));
     RETURN_IF_ERROR(prepare_profile(state));
     return Status::OK();
@@ -510,7 +518,6 @@ Status AggregationNode::do_pre_agg(vectorized::Block* input_block,
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_is_streaming_preagg) {
         bool child_eos = false;
@@ -522,12 +529,16 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                     _children[0]->get_next_after_projects(state, &_preagg_block, &child_eos),
                     _children[0]->get_next_span(), child_eos);
         } while (_preagg_block.rows() == 0 && !child_eos);
-        if (_preagg_block.rows() != 0) {
-            RETURN_IF_ERROR(do_pre_agg(&_preagg_block, block));
-        } else {
-            RETURN_IF_ERROR(pull(state, block, eos));
+        {
+            SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+            if (_preagg_block.rows() != 0) {
+                RETURN_IF_ERROR(do_pre_agg(&_preagg_block, block));
+            } else {
+                RETURN_IF_ERROR(pull(state, block, eos));
+            }
         }
     } else {
+        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(pull(state, block, eos));
     }
     return Status::OK();
@@ -742,7 +753,9 @@ Status AggregationNode::_merge_without_key(Block* block) {
 }
 
 void AggregationNode::_update_memusage_without_key() {
-    mem_tracker_held()->consume(_agg_arena_pool->size() - _mem_usage_record.used_in_arena);
+    auto arena_memory_usage = _agg_arena_pool->size() - _mem_usage_record.used_in_arena;
+    mem_tracker_held()->consume(arena_memory_usage);
+    _serialize_key_arena_memory_usage->add(arena_memory_usage);
     _mem_usage_record.used_in_arena = _agg_arena_pool->size();
 }
 
@@ -1347,12 +1360,18 @@ void AggregationNode::_update_memusage_with_serialized_key() {
     std::visit(
             [&](auto&& agg_method) -> void {
                 auto& data = agg_method.data;
-                mem_tracker_held()->consume(_agg_arena_pool->size() -
-                                            _mem_usage_record.used_in_arena);
+                auto arena_memory_usage = _agg_arena_pool->size() +
+                                          _aggregate_data_container->memory_usage() -
+                                          _mem_usage_record.used_in_arena;
+                mem_tracker_held()->consume(arena_memory_usage);
                 mem_tracker_held()->consume(data.get_buffer_size_in_bytes() -
                                             _mem_usage_record.used_in_state);
+                _serialize_key_arena_memory_usage->add(arena_memory_usage);
+                COUNTER_UPDATE(_hash_table_memory_usage,
+                               data.get_buffer_size_in_bytes() - _mem_usage_record.used_in_state);
                 _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
-                _mem_usage_record.used_in_arena = _agg_arena_pool->size();
+                _mem_usage_record.used_in_arena =
+                        _agg_arena_pool->size() + _aggregate_data_container->memory_usage();
             },
             _agg_data->_aggregated_method_variant);
 }
