@@ -18,6 +18,7 @@
 package org.apache.doris.task;
 
 import org.apache.doris.thrift.TCooldownType;
+import org.apache.doris.thrift.TPushCooldownConfReq;
 import org.apache.doris.thrift.TTaskType;
 
 import org.apache.logging.log4j.LogManager;
@@ -40,6 +41,7 @@ public class PushCooldownConfTask extends AgentTask {
     public TPushCooldownConfReq toThrift() {
         TPushCooldownConfReq pushCooldownConfReq = new TPushCooldownConfReq();
         pushCooldownConfReq.setTabletId(tabletId);
+        pushCooldownConfReq.setCooldownType(cooldownType);
 
         return pushCooldownConfReq;
     }

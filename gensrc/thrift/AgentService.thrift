@@ -355,7 +355,8 @@ struct TPluginMetaInfo {
 
 struct TPushCooldownConfReq {
     1: required Types.TTabletId tablet_id
-    2: optional TCooldownType cooldownType
+    2: required Types.TReplicaId replica_id
+    3: optional TCooldownType cooldownType
 }
 
 struct TAgentTaskRequest {
