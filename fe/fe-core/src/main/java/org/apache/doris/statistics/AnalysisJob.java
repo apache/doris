@@ -124,7 +124,8 @@ public class AnalysisJob {
             + "     FROM ${internalDB}.${columnStatTbl}"
             + "     WHERE ${internalDB}.${columnStatTbl}.db_id = '${dbId}' AND "
             + "     ${internalDB}.${columnStatTbl}.tbl_id='${tblId}' AND "
-            + "      ${internalDB}.${columnStatTbl}.col_id='${colId}'"
+            + "     ${internalDB}.${columnStatTbl}.col_id='${colId}' AND "
+            + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n"
             + "     (SELECT NDV(${colName}) AS ndv FROM `${dbName}`.`${tblName}`) t2\n";
 
