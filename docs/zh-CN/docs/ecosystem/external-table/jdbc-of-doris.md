@@ -238,7 +238,7 @@ PROPERTIES (
 |  DECIMAL   | DECIMAL  |
 
 **注意：**
-- 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`\`,需要自己用`split_part`函数处理
+- 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理
 - 对于ClickHouse的Geo类型Point,无法进行匹配
 
 ## Q&A

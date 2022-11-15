@@ -239,7 +239,7 @@ There are different data types among different databases. Here is a list of the 
 |  DECIMAL   | DECIMAL  |
 
 **Note:**
-- For some specific types in ClickHouse, For example, UUID,IPv4,IPv6, and Enum8 can be matched with Doris's Varchar/String type. However, in the display of IPv4 and IPv6, an extra '\' is displayed before the data, which needs to be processed by the 'split_part' function
+- For some specific types in ClickHouse, For example, UUID,IPv4,IPv6, and Enum8 can be matched with Doris's Varchar/String type. However, in the display of IPv4 and IPv6, an extra `/` is displayed before the data, which needs to be processed by the `split_part` function
 - For the Geo type Point of ClickHouse, the match cannot be made
 
 ## Q&A
