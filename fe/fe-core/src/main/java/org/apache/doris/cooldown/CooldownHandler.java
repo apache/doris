@@ -47,6 +47,7 @@ public class CooldownHandler extends MasterDaemon {
     public void handleSyncCooldownType(Map<Long, Replica> replicaCooldownMap) {
 
     }
+
     private void syncCooldownConf() {
 
     }

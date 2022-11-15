@@ -20,7 +20,14 @@ package org.apache.doris.cooldown;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -238,7 +245,7 @@ public class CooldownJob implements Writable {
 
     private void setCooldownType(TCooldownType cooldownType) throws CooldownException {
         Database db = Env.getCurrentInternalCatalog()
-            .getDbOrException(dbId, s -> new CooldownException("Database " + s + " does not exist"));
+                .getDbOrException(dbId, s -> new CooldownException("Database " + s + " does not exist"));
         OlapTable tbl;
         try {
             tbl = (OlapTable) db.getTableOrMetaException(tableId, TableIf.TableType.OLAP);

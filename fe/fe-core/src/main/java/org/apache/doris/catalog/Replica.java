@@ -17,10 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.thrift.TCooldownType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
