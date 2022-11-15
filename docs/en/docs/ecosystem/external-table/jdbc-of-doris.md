@@ -244,9 +244,9 @@ There are different data types among different databases. Here is a list of the 
 
 ## Q&A
 
-1. Besides mysql, Oracle, PostgreSQL, and SQL Server support more databases
+1. Besides mysql, Oracle, PostgreSQL, SQL Server and ClickHouse support more databases
 
-At present, Doris only adapts to MySQL, Oracle, SQL Server, and PostgreSQL.  And planning to adapt other databases. In principle, any database that supports JDBC access can be accessed through the JDBC facade. If you need to access other appearances, you are welcome to modify the code and contribute to Doris.
+At present, Doris only adapts to MySQL, Oracle, PostgreSQL, SQL Server and ClickHouse.  And planning to adapt other databases. In principle, any database that supports JDBC access can be accessed through the JDBC facade. If you need to access other appearances, you are welcome to modify the code and contribute to Doris.
 
 2. Read the Emoji expression on the surface of MySQL, and there is garbled code
 
