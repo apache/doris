@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class GraphSimplifierTest {
@@ -163,7 +162,32 @@ public class GraphSimplifierTest {
                 totalTime / times));
     }
 
-    @Disabled
+    @Test
+    void testComplexQuery() {
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init(6, 2, 1, 3, 5, 4)
+                .addEdge(JoinType.INNER_JOIN, 3, 4)
+                .addEdge(JoinType.INNER_JOIN, 3, 5)
+                .addEdge(JoinType.INNER_JOIN, 2, 3)
+                .addEdge(JoinType.INNER_JOIN, 2, 5)
+                .addEdge(JoinType.INNER_JOIN, 2, 4)
+                .addEdge(JoinType.INNER_JOIN, 1, 5)
+                .addEdge(JoinType.INNER_JOIN, 1, 4)
+                .addEdge(JoinType.INNER_JOIN, 0, 2)
+                .build();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.initFirstStep();
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        for (int count : counter.getAllCount().values()) {
+            Assertions.assertTrue(count < 1000);
+        }
+        Assertions.assertTrue(graphSimplifier.isTotalOrder());
+    }
+
     @Test
     void testComplexQuery() {
         HyperGraph hyperGraph = new HyperGraphBuilder()
