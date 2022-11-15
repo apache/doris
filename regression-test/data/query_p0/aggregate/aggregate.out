@@ -110,6 +110,15 @@ TESTING	AGAIN
 18000
 26988
 
+-- !aggregate32 --
+['sample', 'again', 'Sample']
+
+-- !aggregate33 --
+65.73903964620426
+
+-- !aggregate34 --
+[100, 5000, 5899.2]
+
 -- !aggregate --
 \N	other	98.52
 12	other	12.25

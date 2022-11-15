@@ -1,7 +1,7 @@
 ---
 {
-    "title": "TOPN_ARRAY",
-    "language": "en"
+    "title": "TOPN_WEIGHTED",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,38 +24,37 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## TOPN_ARRAY
+## TOPN_WEIGHTED
 ### description
 #### Syntax
 
-`ARRAY<T> topn_array(expr, INT top_num[, INT space_expand_rate])`
+`ARRAY<T> topn_weighted(expr, BigInt weight, INT top_num[, INT space_expand_rate])`
 
-The topn function uses the Space-Saving algorithm to calculate the top_num frequent items in expr, 
-and return an array about the top n nums, which is an approximation
+该topn_weighted函数使用Space-Saving算法计算，取expr中权重和为前top_num个数组成的结果，该结果为近似值
 
-The space_expand_rate parameter is optional and is used to set the number of counters used in the Space-Saving algorithm
+space_expand_rate参数是可选项，该值用来设置Space-Saving算法中使用的counter个数
 ```
 counter numbers = top_num * space_expand_rate
 ```
-The higher value of space_expand_rate, the more accurate result will be. The default value is 50
+space_expand_rate的值越大，结果越准确，默认值为50
 
 ### example
 ```
-mysql> select topn_array(k3,3) from baseall;
-+--------------------------+
-| topn_array(`k3`, 3)      |
-+--------------------------+
-| [3021, 2147483647, 5014] |
-+--------------------------+
+mysql> select topn_weighted(k5,k1,3) from baseall;
++------------------------------+
+| topn_weighted(`k5`, `k1`, 3) |
++------------------------------+
+| [0, 243.325, 100.001]        |
++------------------------------+
 1 row in set (0.02 sec)
 
-mysql> select topn_array(k3,3,100) from baseall;
-+--------------------------+
-| topn_array(`k3`, 3, 100) |
-+--------------------------+
-| [3021, 2147483647, 5014] |
-+--------------------------+
+mysql> select topn_weighted(k5,k1,3,100) from baseall;
++-----------------------------------+
+| topn_weighted(`k5`, `k1`, 3, 100) |
++-----------------------------------+
+| [0, 243.325, 100.001]             |
++-----------------------------------+
 1 row in set (0.02 sec)
 ```
 ### keywords
-TOPN, TOPN_ARRAY
+TOPN, TOPN_WEIGHTED

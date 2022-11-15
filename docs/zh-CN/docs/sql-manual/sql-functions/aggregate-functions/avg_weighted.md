@@ -1,7 +1,7 @@
 ---
 {
-    "title": "TOPN_ARRAY",
-    "language": "en"
+    "title": "AVG_WEIGHTED",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,38 +24,27 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## TOPN_ARRAY
+## AVG_WEIGHTED
 ### description
 #### Syntax
 
-`ARRAY<T> topn_array(expr, INT top_num[, INT space_expand_rate])`
+` double avg_weighted(x, weight)`
 
-The topn function uses the Space-Saving algorithm to calculate the top_num frequent items in expr, 
-and return an array about the top n nums, which is an approximation
+计算加权算术平均值, 即返回结果为: 所有对应数值和权重的乘积相累加，除总的权重和。
+如果所有的权重和等于0, 将返回NaN。
 
-The space_expand_rate parameter is optional and is used to set the number of counters used in the Space-Saving algorithm
-```
-counter numbers = top_num * space_expand_rate
-```
-The higher value of space_expand_rate, the more accurate result will be. The default value is 50
 
 ### example
+
 ```
-mysql> select topn_array(k3,3) from baseall;
+mysql> select avg_weighted(k2,k1) from baseall;
 +--------------------------+
-| topn_array(`k3`, 3)      |
+| avg_weighted(`k2`, `k1`) |
 +--------------------------+
-| [3021, 2147483647, 5014] |
+|                  495.675 |
 +--------------------------+
 1 row in set (0.02 sec)
 
-mysql> select topn_array(k3,3,100) from baseall;
-+--------------------------+
-| topn_array(`k3`, 3, 100) |
-+--------------------------+
-| [3021, 2147483647, 5014] |
-+--------------------------+
-1 row in set (0.02 sec)
 ```
 ### keywords
-TOPN, TOPN_ARRAY
+AVG_WEIGHTED
