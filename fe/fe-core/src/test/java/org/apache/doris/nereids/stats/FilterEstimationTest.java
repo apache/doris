@@ -71,7 +71,9 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(or);
         Assertions.assertTrue(
-                Precision.equals((0.5 * 0.1 + 0.1 - 0.5 * 0.1 * 0.1) * 1000, expected.getRowCount(), 0.01));
+                Precision.equals((0.5 * 0.1 + FilterEstimation.DEFAULT_EQUALITY_COMPARISON_SELECTIVITY
+                        - 0.5 * 0.1 * FilterEstimation.DEFAULT_EQUALITY_COMPARISON_SELECTIVITY) * 1000,
+                        expected.getRowCount(), 0.01));
     }
 
     // a > 500 and b < 100 or a > c
@@ -323,5 +325,173 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult estimated = filterEstimation.estimate(not);
         Assertions.assertEquals(1000 * 7.0 / 10.0, estimated.getRowCount());
+    }
+
+    //c>100
+    // a is primary-key, a.ndv is reduced
+    // b is normal, b.ndv is not changed
+    // c.selectivity is still 1, but its range becomes half
+    @Test
+    public void test12() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        IntegerLiteral i100 = new IntegerLiteral(100);
+        GreaterThan ge = new GreaterThan(c, i100);
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+                .setNdv(1000)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(10000)
+                .setMaxValue(1000)
+                .setSelectivity(1.0);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500)
+                .setSelectivity(1.0);
+        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(200)
+                .setSelectivity(1.0);
+        slotToColumnStat.put(a.getExprId(), builderA.build());
+        slotToColumnStat.put(b.getExprId(), builderB.build());
+        slotToColumnStat.put(c.getExprId(), builderC.build());
+        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        FilterEstimation filterEstimation = new FilterEstimation(stat);
+        StatsDeriveResult estimated = filterEstimation.estimate(ge);
+        ColumnStatistic statsA = estimated.getColumnStatsBySlotId(a.getExprId());
+        Assertions.assertEquals(500, statsA.ndv);
+        Assertions.assertEquals(0.5, statsA.selectivity);
+        ColumnStatistic statsB = estimated.getColumnStatsBySlotId(b.getExprId());
+        Assertions.assertEquals(100, statsB.ndv);
+        Assertions.assertEquals(1.0, statsB.selectivity);
+        ColumnStatistic statsC = estimated.getColumnStatsBySlotId(c.getExprId());
+        Assertions.assertEquals(50, statsC.ndv);
+        Assertions.assertEquals(100, statsC.minValue);
+        Assertions.assertEquals(200, statsC.maxValue);
+        Assertions.assertEquals(1.0, statsC.selectivity);
+    }
+
+    // 20>c>10, c in (0,40)
+    // a primary key, a.ndv reduced by 1/4, a.selectivity=0.25
+    // b normal field, b.ndv not changed, b.selectivity=1.0
+    // c.ndv = 10/40 * c.ndv, c.selectivity=1
+    @Test
+    public void test13() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        IntegerLiteral i10 = new IntegerLiteral(10);
+        IntegerLiteral i20 = new IntegerLiteral(20);
+        GreaterThan ge1 = new GreaterThan(c, i10);
+        //GreaterThan ge2 = new GreaterThan(i20, c);
+        LessThan le1 = new LessThan(c, i20);
+        And and = new And(ge1, le1);
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(100)
+                .setSelectivity(1.0);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
+                .setNdv(20)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500)
+                .setSelectivity(1.0);
+        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
+                .setNdv(40)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(40)
+                .setSelectivity(1.0);
+        slotToColumnStat.put(a.getExprId(), builderA.build());
+        slotToColumnStat.put(b.getExprId(), builderB.build());
+        slotToColumnStat.put(c.getExprId(), builderC.build());
+        StatsDeriveResult stat = new StatsDeriveResult(100, slotToColumnStat);
+        FilterEstimation filterEstimation = new FilterEstimation(stat);
+        StatsDeriveResult estimated = filterEstimation.estimate(and);
+        Assertions.assertEquals(25, estimated.getRowCount());
+        ColumnStatistic statsA = estimated.getColumnStatsBySlotId(a.getExprId());
+        Assertions.assertEquals(25, statsA.ndv);
+        //Assertions.assertEquals(0.25, statsA.selectivity);
+        Assertions.assertEquals(0, statsA.minValue);
+        Assertions.assertEquals(100, statsA.maxValue);
+
+        ColumnStatistic statsB = estimated.getColumnStatsBySlotId(b.getExprId());
+        Assertions.assertEquals(20, statsB.ndv);
+        Assertions.assertEquals(0, statsB.minValue);
+        Assertions.assertEquals(500, statsB.maxValue);
+        Assertions.assertEquals(1.0, statsB.selectivity);
+
+        ColumnStatistic statsC = estimated.getColumnStatsBySlotId(c.getExprId());
+        Assertions.assertEquals(10, statsC.ndv);
+        Assertions.assertEquals(10, statsC.minValue);
+        Assertions.assertEquals(20, statsC.maxValue);
+        Assertions.assertEquals(1.0, statsC.selectivity);
+    }
+
+
+    // c in (0,200) filter:c > 300
+    // after filter
+    // c.selectivity=a.selectivity=b.selectivity = 0
+    // c.ndv=a.ndv=b.ndv=0
+    @Test
+    public void test14() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        IntegerLiteral i300 = new IntegerLiteral(300);
+        GreaterThan ge = new GreaterThan(c, i300);
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builderA = new ColumnStatisticBuilder()
+                .setNdv(1000)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(10000)
+                .setMaxValue(1000)
+                .setSelectivity(1.0);
+        ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500)
+                .setSelectivity(1.0);
+        ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(200)
+                .setSelectivity(1.0);
+        slotToColumnStat.put(a.getExprId(), builderA.build());
+        slotToColumnStat.put(b.getExprId(), builderB.build());
+        slotToColumnStat.put(c.getExprId(), builderC.build());
+        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        FilterEstimation filterEstimation = new FilterEstimation(stat);
+        StatsDeriveResult estimated = filterEstimation.estimate(ge);
+        ColumnStatistic statsA = estimated.getColumnStatsBySlotId(a.getExprId());
+        Assertions.assertEquals(0, statsA.ndv);
+        Assertions.assertEquals(0, statsA.selectivity);
+        ColumnStatistic statsB = estimated.getColumnStatsBySlotId(b.getExprId());
+        Assertions.assertEquals(0, statsB.ndv);
+        Assertions.assertEquals(1.0, statsB.selectivity);
+        ColumnStatistic statsC = estimated.getColumnStatsBySlotId(c.getExprId());
+        Assertions.assertEquals(0, statsC.ndv);
+        Assertions.assertEquals(300, statsC.minValue);
+        Assertions.assertEquals(300, statsC.maxValue);
+        Assertions.assertEquals(1.0, statsC.selectivity);
     }
 }

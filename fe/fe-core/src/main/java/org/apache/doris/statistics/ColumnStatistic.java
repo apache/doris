@@ -62,6 +62,18 @@ public class ColumnStatistic {
     public final double avgSizeByte;
     public final double minValue;
     public final double maxValue;
+    /*
+    selectivity of Column T1.A:
+    if T1.A = T2.B is the inner join condition, for a given `b` in B, b in
+    intersection of range(A) and range(B), selectivity means the probability that
+    the equation can be satisfied.
+    We take tpch as example.
+    l_orderkey = o_orderkey and o_orderstatus='o'
+        there are 3 distinct o_orderstatus in orders table. filter o_orderstatus='o' reduces orders table by 1/3
+        because o_orderkey is primary key, thus the o_orderkey.selectivity = 1/3,
+        and after join(l_orderkey = o_orderkey), lineitem is reduced by 1/3.
+        But after filter, other columns' selectivity is still 1.0
+     */
     public final double selectivity;
 
     // For display only.
@@ -166,15 +178,16 @@ public class ColumnStatistic {
     public ColumnStatistic updateBySelectivity(double selectivity, double rowCount) {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
         if (ColumnStat.isAlmostUnique(ndv, rowCount)) {
-            builder.setSelectivity(selectivity);
+            builder.setSelectivity(this.selectivity * selectivity);
             builder.setNdv(ndv * selectivity);
         }
         builder.setNumNulls((long) Math.ceil(numNulls * selectivity));
-        if (ndv > rowCount) {
-            builder.setNdv(rowCount);
+        Double rowsAfterFilter = rowCount * selectivity;
+        if (ndv > rowsAfterFilter) {
+            builder.setNdv(rowsAfterFilter);
         }
-        if (numNulls > rowCount) {
-            builder.setNumNulls(rowCount);
+        if (numNulls > rowsAfterFilter) {
+            builder.setNumNulls(rowsAfterFilter);
         }
         return builder.build();
     }
