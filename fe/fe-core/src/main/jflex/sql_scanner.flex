@@ -464,6 +464,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("work", new Integer(SqlParserSymbols.KW_WORK));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
+        keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
    }
     
   // map from token id to token description
