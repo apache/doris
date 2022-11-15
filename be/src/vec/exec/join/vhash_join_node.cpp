@@ -657,6 +657,9 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                               if (!ret.status.ok()) {
                                   return ret.status;
                               }
+                              _short_circuit_for_null_in_probe_side =
+                                      _shared_hashtable_controller
+                                              ->short_circuit_for_null_in_probe_side();
                               arg.hash_table_ptr =
                                       reinterpret_cast<HashTableType*>(ret.hash_table_ptr);
                               _build_blocks = *ret.blocks;
@@ -677,6 +680,9 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                                       runtime_filter_build_process(this);
                               auto ret = runtime_filter_build_process(state, arg);
                               if (_shared_hashtable_controller) {
+                                  _shared_hashtable_controller
+                                          ->set_short_circuit_for_null_in_probe_side(
+                                                  _short_circuit_for_null_in_probe_side);
                                   SharedHashTableEntry entry(ret, arg.hash_table_ptr,
                                                              &_build_blocks, _runtime_filter_slots);
                                   _shared_hashtable_controller->put_hash_table(std::move(entry),
