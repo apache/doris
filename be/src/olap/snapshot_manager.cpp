@@ -266,7 +266,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     context.segments_overlap = rowset_meta->segments_overlap();
 
     std::unique_ptr<RowsetWriter> rs_writer;
-    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &rs_writer));
+    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, false, &rs_writer));
 
     res = rs_writer->add_rowset(org_rowset);
     if (!res.ok()) {
