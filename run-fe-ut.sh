@@ -29,8 +29,8 @@ usage() {
     echo "
 Usage: $0 <options>
   Optional options:
-     --clean    clean and build ut
-     --run    build and run ut
+     --coverage           build and run coverage statistic
+     --run                build and run ut
 
   Eg.
     $0                      build and run ut
