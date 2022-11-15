@@ -233,8 +233,7 @@ public class GraphSimplifier {
         // The join may have redundant table, e.g., t1,t2 join t3 join t2,t4
         // Therefore, the cost is not accurate
         Preconditions.checkArgument(
-                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3),
-                String.format("(%s join %s) join %s is not cached", bitSet1, bitSet2, bitSet3));
+                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3));
         LogicalJoin leftPlan = simulateJoin(cachePlan.get(bitSet1), edge1.getJoin(), cachePlan.get(bitSet2));
         LogicalJoin join = simulateJoin(leftPlan, edge2.getJoin(), cachePlan.get(bitSet3));
         Edge edge = new Edge(join, -1);
@@ -250,8 +249,7 @@ public class GraphSimplifier {
 
     Edge threeRightJoin(BitSet bitSet1, Edge edge1, BitSet bitSet2, Edge edge2, BitSet bitSet3) {
         Preconditions.checkArgument(
-                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3),
-                String.format("%s join (%s join %s) is not cached", bitSet1, bitSet2, bitSet3));
+                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3));
         // plan1 edge1 (plan2 edge2 plan3)
         LogicalJoin rightPlan = simulateJoin(cachePlan.get(bitSet2), edge2.getJoin(), cachePlan.get(bitSet3));
         LogicalJoin join = simulateJoin(cachePlan.get(bitSet1), edge1.getJoin(), rightPlan);
