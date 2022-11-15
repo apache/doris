@@ -211,6 +211,7 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
+    _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
@@ -806,6 +807,7 @@ std::string ExecNode::get_name() {
 }
 
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+    SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
@@ -833,8 +835,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 }
 
 Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    // delete the UNLIKELY after support new optimizers
-    if (UNLIKELY(_output_row_descriptor)) {
+    if (_output_row_descriptor) {
         _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
         auto status = get_next(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
