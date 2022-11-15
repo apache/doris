@@ -39,8 +39,8 @@ public class CircleDetector {
     List<Integer> nodes = new ArrayList<>();
     // stored the dependency of each node
     List<BitSet> directedEdges = new ArrayList<>();
+    // the nodes are after than this node
     List<BitSet> subNodes = new ArrayList<>();
-    // whether the node has been visited in dfs
 
     CircleDetector(int size) {
         for (int i = 0; i < size; i++) {
@@ -67,9 +67,10 @@ public class CircleDetector {
         int order1 = orders.get(node1);
         int order2 = orders.get(node2);
         if (order1 >= order2) {
-            shift(order2, order1 + 1, subNodes.get(order2));
+            shift(order2, order1 + 1, subNodes.get(node2));
         }
         for (BitSet nodes : subNodes) {
+            // add all subNodes which contains node1 into subNodes of node2.
             if (Bitmap.get(nodes, node1)) {
                 Bitmap.or(nodes, subNodes.get(node2));
             }

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,6 +35,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.PriorityQueue;
+import java.util.Stack;
+import javax.annotation.Nullable;
 
 /**
  * GraphSimplifier is used to simplify HyperGraph {@link HyperGraph}
@@ -41,6 +44,8 @@ import java.util.PriorityQueue;
 public class GraphSimplifier {
     // Note that each index in the graph simplifier is the half of the actual index
     private final int edgeSize;
+    // Detect the circle when order join
+    private CircleDetector circleDetector;
     // This is used for cache the intermediate results when calculate the benefit
     // Note that we store it for the after. Because if we put B after A (t1 Join_A t2 Join_B t3),
     // B is changed. Therefore, Any step that involves B need to be recalculated.
@@ -48,12 +53,13 @@ public class GraphSimplifier {
     private PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
     // The graph we are simplifying
     private HyperGraph graph;
-    // Detect the circle when order join
-    private CircleDetector circleDetector;
     // It cached the plan in simplification. we don't store it in hyper graph,
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
     private HashMap<BitSet, Plan> cachePlan = new HashMap<>();
+
+    private Stack<SimplificationStep> appliedSteps = new Stack<SimplificationStep>();
+    private Stack<SimplificationStep> unAppliedSteps = new Stack<SimplificationStep>();
 
     GraphSimplifier(HyperGraph graph) {
         this.graph = graph;
@@ -79,6 +85,30 @@ public class GraphSimplifier {
     }
 
     /**
+     * Check whether all edge has been ordered
+     *
+     * @return if true, all edges has a total order
+     */
+    public boolean isTotalOrder() {
+        for (int i = 0; i < edgeSize; i++) {
+            for (int j = i + 1; j < edgeSize; j++) {
+                Edge edge1 = graph.getEdge(i);
+                Edge edge2 = graph.getEdge(j);
+                List<BitSet> superset = new ArrayList<>();
+                tryGetSuperset(edge1.getLeft(), edge2.getLeft(), superset);
+                tryGetSuperset(edge1.getLeft(), edge2.getRight(), superset);
+                tryGetSuperset(edge1.getRight(), edge2.getLeft(), superset);
+                tryGetSuperset(edge1.getRight(), edge2.getRight(), superset);
+                if (!circleDetector.checkCircleWithEdge(i, j) && !circleDetector.checkCircleWithEdge(j, i)
+                        && !edge2.isSub(edge1) && !edge1.isSub(edge2) && !superset.isEmpty()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
      * This function will repeatedly apply simplification steps util the number of csg-cmp pair
      * is under the limit.
      * In hyper graph, counting the csg-cmp pair is more expensive than the apply simplification step, therefore
@@ -87,10 +117,45 @@ public class GraphSimplifier {
      * @param limit the limit number of the csg-cmp pair
      */
     public boolean simplifyGraph(int limit) {
-        // Now we only support simplify graph until the hyperGraph only contains one plan
-        Preconditions.checkArgument(limit == 1);
-        while (applySimplificationStep()) {
+        Preconditions.checkArgument(limit >= 1);
+        initFirstStep();
+        int lowerBound = 0;
+        int upperBound = 1;
+
+        // Try to probe the largest number of steps to satisfy the limit
+        int numApplySteps = 0;
+        Counter counter = new Counter(limit);
+        SubgraphEnumerator enumerator = new SubgraphEnumerator(counter, graph);
+        while (true) {
+            while (numApplySteps < upperBound) {
+                if (!applySimplificationStep()) {
+                    // If we have done all steps but still has more sub graphs
+                    // Just return
+                    if (!enumerator.enumerate()) {
+                        return false;
+                    }
+                    break;
+                }
+                numApplySteps += 1;
+            }
+            if (numApplySteps < upperBound || enumerator.enumerate()) {
+                break;
+            }
+            upperBound *= 2;
         }
+
+        // Try to search the lowest number of steps to satisfy the limit
+        upperBound = numApplySteps + 1;
+        while (lowerBound < upperBound) {
+            int mid = lowerBound + (upperBound - lowerBound) / 2;
+            applyStepsWithNum(mid);
+            if (enumerator.enumerate()) {
+                upperBound = mid;
+            } else {
+                lowerBound = mid + 1;
+            }
+        }
+        applyStepsWithNum(upperBound);
         return true;
     }
 
@@ -100,26 +165,57 @@ public class GraphSimplifier {
      * @return If there is no other steps, return false.
      */
     public boolean applySimplificationStep() {
-        if (priorityQueue.isEmpty()) {
+        SimplificationStep bestStep = fetchSimplificationStep();
+        if (bestStep == null) {
             return false;
         }
-        BestSimplification bestSimplification = priorityQueue.poll();
-        bestSimplification.isInQueue = false;
-        SimplificationStep bestStep = bestSimplification.getStep();
-        while (!circleDetector.tryAddDirectedEdge(bestStep.beforeIndex, bestStep.afterIndex)) {
-            if (priorityQueue.isEmpty()) {
-                return false;
-            }
-            bestSimplification = priorityQueue.poll();
-            bestSimplification.isInQueue = false;
-            bestStep = bestSimplification.getStep();
-        }
+        appliedSteps.push(bestStep);
         Preconditions.checkArgument(
                 cachePlan.containsKey(bestStep.newLeft) && cachePlan.containsKey(bestStep.newRight),
                 String.format("%s - %s", bestStep.newLeft, bestStep.newRight));
         graph.modifyEdge(bestStep.afterIndex, bestStep.newLeft, bestStep.newRight);
         processNeighbors(bestStep.afterIndex, 0, edgeSize);
         return true;
+    }
+
+    private boolean unApplySimplificationStep() {
+        Preconditions.checkArgument(appliedSteps.size() > 0);
+        SimplificationStep bestStep = appliedSteps.pop();
+        unAppliedSteps.push(bestStep);
+        graph.modifyEdge(bestStep.afterIndex, bestStep.oldLeft, bestStep.oldRight);
+        return true;
+    }
+
+    private @Nullable SimplificationStep fetchSimplificationStep() {
+        if (!unAppliedSteps.isEmpty()) {
+            return unAppliedSteps.pop();
+        }
+        if (priorityQueue.isEmpty()) {
+            return null;
+        }
+        BestSimplification bestSimplification = priorityQueue.poll();
+        bestSimplification.isInQueue = false;
+        SimplificationStep bestStep = bestSimplification.getStep();
+        while (bestSimplification.bestNeighbor == -1 || !circleDetector.tryAddDirectedEdge(bestStep.beforeIndex,
+                bestStep.afterIndex)) {
+            if (priorityQueue.isEmpty()) {
+                return null;
+            }
+            bestSimplification = priorityQueue.poll();
+            bestSimplification.isInQueue = false;
+            processNeighbors(bestStep.afterIndex, 0, edgeSize);
+            bestStep = bestSimplification.getStep();
+        }
+        return bestStep;
+    }
+
+    private void applyStepsWithNum(int num) {
+        while (appliedSteps.size() < num) {
+            applySimplificationStep();
+        }
+        while (appliedSteps.size() > num) {
+            unApplySimplificationStep();
+        }
     }
 
     /**
@@ -148,11 +244,11 @@ public class GraphSimplifier {
         }
 
         // Go through the neighbors with higher index, we only need to recalculate all related steps
+        BestSimplification bestSimplification = simplifications.get(edgeIndex1);
+        bestSimplification.bestNeighbor = -1;
         for (int edgeIndex2 = Integer.max(beginIndex, edgeIndex1 + 1); edgeIndex2 < endIndex; edgeIndex2 += 1) {
-            BestSimplification bestSimplification = simplifications.get(edgeIndex1);
             Optional<SimplificationStep> optionalStep = makeSimplificationStep(edgeIndex1, edgeIndex2);
             if (optionalStep.isPresent()) {
-                bestSimplification.bestNeighbor = -1;
                 trySetSimplificationStep(optionalStep.get(), bestSimplification, edgeIndex1, edgeIndex2);
             }
         }
@@ -160,7 +256,8 @@ public class GraphSimplifier {
 
     private boolean trySetSimplificationStep(SimplificationStep step, BestSimplification bestSimplification,
             int index, int neighborIndex) {
-        if (bestSimplification.bestNeighbor == -1 || bestSimplification.getBenefit() <= step.getBenefit()) {
+        if (bestSimplification.bestNeighbor == -1 || bestSimplification.isInQueue == false
+                || bestSimplification.getBenefit() <= step.getBenefit()) {
             bestSimplification.bestNeighbor = neighborIndex;
             bestSimplification.setStep(step);
             updatePriorityQueue(index);
@@ -284,14 +381,14 @@ public class GraphSimplifier {
             }
             // choose edge1Before2
             step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2, edge1Before2.getLeft(),
-                    edge1Before2.getRight());
+                    edge1Before2.getRight(), graph.getEdge(edgeIndex2).getLeft(), graph.getEdge(edgeIndex2).getRight());
         } else {
             if (cost2Before1 != 0) {
                 benefit = cost1Before2 / cost2Before1;
             }
             // choose edge2Before1
             step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.getLeft(),
-                    edge2Before1.getRight());
+                    edge2Before1.getRight(), graph.getEdge(edgeIndex1).getLeft(), graph.getEdge(edgeIndex1).getRight());
         }
         return step;
     }
@@ -360,11 +457,16 @@ public class GraphSimplifier {
         int afterIndex;
         BitSet newLeft;
         BitSet newRight;
+        BitSet oldLeft;
+        BitSet oldRight;
 
-        SimplificationStep(double benefit, int beforeIndex, int afterIndex, BitSet newLeft, BitSet newRight) {
+        SimplificationStep(double benefit, int beforeIndex, int afterIndex, BitSet newLeft, BitSet newRight,
+                BitSet oldLeft, BitSet oldRight) {
             this.afterIndex = afterIndex;
             this.beforeIndex = beforeIndex;
             this.benefit = benefit;
+            this.oldLeft = oldLeft;
+            this.oldRight = oldRight;
             this.newLeft = newLeft;
             this.newRight = newRight;
         }
@@ -381,7 +483,7 @@ public class GraphSimplifier {
 
         @Override
         public String toString() {
-            return String.format("%d -> %d %.2f : %s-%s", beforeIndex, afterIndex, benefit, newLeft, newRight);
+            return String.format("%d -> %d", beforeIndex, afterIndex);
         }
     }
 

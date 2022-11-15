@@ -65,7 +65,11 @@ public class Node {
             throw new RuntimeException(String.format("There is no simple Edge <%d - %s>", index, nodes));
         } else if (Bitmap.isOverlap(complexNeighborhood, nodes)) {
             for (Edge edge : complexEdges) {
-                if (Bitmap.isSubset(edge.getLeft(), nodes) || Bitmap.isSubset(edge.getRight(), nodes)) {
+                // TODO: Right now we check all edges. But due to the simple cmp, we can only check that the edge with
+                // one side that equal to this node
+                if ((Bitmap.isSubset(edge.getLeft(), nodes) && Bitmap.isSubset(edge.getRight(),
+                        Bitmap.newBitmap(index))) || (Bitmap.isSubset(edge.getRight(), nodes) && Bitmap.isSubset(
+                        edge.getLeft(), Bitmap.newBitmap(index)))) {
                     return edge;
                 }
             }
@@ -137,6 +141,10 @@ public class Node {
      * by graph simplifier.
      */
     public void splitEdges() {
+        simpleEdges.clear();
+        Bitmap.clear(simpleNeighborhood);
+        complexEdges.clear();
+        Bitmap.clear(complexNeighborhood);
         for (Edge edge : edges) {
             if (edge.isSimple()) {
                 simpleEdges.add(edge);
