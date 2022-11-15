@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.thrift.TCooldownType;
 import org.apache.doris.thrift.TTaskType;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

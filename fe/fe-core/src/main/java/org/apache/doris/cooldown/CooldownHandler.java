@@ -19,6 +19,7 @@ package org.apache.doris.cooldown;
 
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.util.MasterDaemon;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

@@ -17,8 +17,6 @@
 
 package org.apache.doris.cooldown;
 
-import com.google.common.base.Preconditions;
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -37,6 +35,9 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TCooldownType;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
