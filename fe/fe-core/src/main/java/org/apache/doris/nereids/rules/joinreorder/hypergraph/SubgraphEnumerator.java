@@ -46,6 +46,7 @@ public class SubgraphEnumerator {
      * @return whether the hyperGraph is enumerated successfully
      */
     public boolean enumerate() {
+        receiver.reset();
         List<Node> nodes = hyperGraph.getNodes();
         // Init all nodes in Receiver
         for (Node node : nodes) {
@@ -59,32 +60,38 @@ public class SubgraphEnumerator {
         for (int i = size - 2; i >= 0; i--) {
             BitSet csg = Bitmap.newBitmap(i);
             Bitmap.unset(forbiddenNodes, i);
-            emitCsg(csg);
-            enumerateCsgRec(csg, Bitmap.newBitmap(forbiddenNodes));
+            if (!emitCsg(csg) || !enumerateCsgRec(csg, Bitmap.newBitmap(forbiddenNodes))) {
+                return false;
+            }
         }
         return true;
     }
 
     // The general purpose of EnumerateCsgRec is to extend a given set csg, which
     // induces a connected subgraph of G to a larger set with the same property.
-    private void enumerateCsgRec(BitSet csg, BitSet forbiddenNodes) {
+    private boolean enumerateCsgRec(BitSet csg, BitSet forbiddenNodes) {
         BitSet neighborhood = calcNeighborhood(csg, forbiddenNodes);
         SubsetIterator subsetIterator = Bitmap.getSubsetIterator(neighborhood);
         for (BitSet subset : subsetIterator) {
             BitSet newCsg = Bitmap.newBitmapUnion(csg, subset);
             if (receiver.contain(newCsg)) {
-                emitCsg(newCsg);
+                if (!emitCsg(newCsg)) {
+                    return false;
+                }
             }
         }
         Bitmap.or(forbiddenNodes, neighborhood);
         subsetIterator.reset();
         for (BitSet subset : subsetIterator) {
             BitSet newCsg = Bitmap.newBitmapUnion(csg, subset);
-            enumerateCsgRec(newCsg, Bitmap.newBitmap(forbiddenNodes));
+            if (!enumerateCsgRec(newCsg, Bitmap.newBitmap(forbiddenNodes))) {
+                return false;
+            }
         }
+        return true;
     }
 
-    private void enumerateCmpRec(BitSet csg, BitSet cmp, BitSet forbiddenNodes) {
+    private boolean enumerateCmpRec(BitSet csg, BitSet cmp, BitSet forbiddenNodes) {
         BitSet neighborhood = calcNeighborhood(cmp, forbiddenNodes);
         SubsetIterator subsetIterator = new SubsetIterator(neighborhood);
         for (BitSet subset : subsetIterator) {
@@ -96,7 +103,9 @@ public class SubgraphEnumerator {
                 for (Edge edge : hyperGraph.getEdges()) {
                     if (Bitmap.isSubset(edge.getLeft(), csg) && Bitmap.isSubset(edge.getRight(), newCmp) || (
                             Bitmap.isSubset(edge.getLeft(), newCmp) && Bitmap.isSubset(edge.getRight(), csg))) {
-                        receiver.emitCsgCmp(csg, newCmp, edge);
+                        if (!receiver.emitCsgCmp(csg, newCmp, edge)) {
+                            return false;
+                        }
                         break;
                     }
                 }
@@ -106,24 +115,30 @@ public class SubgraphEnumerator {
         subsetIterator.reset();
         for (BitSet subset : subsetIterator) {
             BitSet newCmp = Bitmap.newBitmapUnion(cmp, subset);
-            enumerateCmpRec(csg, newCmp, Bitmap.newBitmap(forbiddenNodes));
+            if (!enumerateCmpRec(csg, newCmp, Bitmap.newBitmap(forbiddenNodes))) {
+                return false;
+            }
         }
+        return true;
     }
 
     // EmitCsg takes as an argument a non-empty, proper subset csg of HyperGraph , which
     // induces a connected subgraph. It is then responsible to generate the seeds for
     // all cmp such that (csg, cmp) becomes a csg-cmp-pair.
-    private void emitCsg(BitSet csg) {
+    private boolean emitCsg(BitSet csg) {
         BitSet forbiddenNodes = Bitmap.newBitmapBetween(0, Bitmap.nextSetBit(csg, 0));
         Bitmap.or(forbiddenNodes, csg);
         BitSet neighborhoods = calcNeighborhood(csg, Bitmap.newBitmap(forbiddenNodes));
+
         for (int nodeIndex : Bitmap.getReverseIterator(neighborhoods)) {
             BitSet cmp = Bitmap.newBitmap(nodeIndex);
             // whether there is an edge between csg and cmp
             Node cmpNode = hyperGraph.getNode(nodeIndex);
             Edge edge = cmpNode.tryGetEdgeWith(csg);
             if (edge != null) {
-                receiver.emitCsgCmp(csg, cmp, edge);
+                if (!receiver.emitCsgCmp(csg, cmp, edge)) {
+                    return false;
+                }
             }
 
             // In order to avoid enumerate repeated cmp, e.g.,
@@ -138,8 +153,11 @@ public class SubgraphEnumerator {
             BitSet newForbiddenNodes = Bitmap.newBitmapBetween(0, nodeIndex + 1);
             Bitmap.and(newForbiddenNodes, neighborhoods);
             Bitmap.or(newForbiddenNodes, forbiddenNodes);
-            enumerateCmpRec(csg, cmp, newForbiddenNodes);
+            if (!enumerateCmpRec(csg, cmp, newForbiddenNodes)) {
+                return false;
+            }
         }
+        return true;
     }
 
     // This function is used to calculate neighborhoods of given subgraph.
@@ -163,9 +181,9 @@ public class SubgraphEnumerator {
         for (Edge edge : hyperGraph.getEdges()) {
             BitSet left = edge.getLeft();
             BitSet right = edge.getRight();
-            if (Bitmap.isSubset(left, subGraph) && !Bitmap.isOverlap(left, forbiddenNodes)) {
+            if (Bitmap.isSubset(left, subGraph) && !Bitmap.isOverlap(right, forbiddenNodes)) {
                 Bitmap.set(neighborhoods, right.nextSetBit(0));
-            } else if (Bitmap.isSubset(right, subGraph) && !Bitmap.isOverlap(right, forbiddenNodes)) {
+            } else if (Bitmap.isSubset(right, subGraph) && !Bitmap.isOverlap(left, forbiddenNodes)) {
                 Bitmap.set(neighborhoods, left.nextSetBit(0));
             }
         }

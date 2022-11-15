@@ -30,7 +30,16 @@ import java.util.HashMap;
  */
 public class Counter implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
+    private int limit;
     private HashMap<BitSet, Integer> counter = new HashMap<>();
+
+    public Counter() {
+        this.limit = Integer.MAX_VALUE;
+    }
+
+    public Counter(int limit) {
+        this.limit = limit;
+    }
 
     /**
      * Emit a new plan from bottom to top
@@ -51,7 +60,7 @@ public class Counter implements AbstractReceiver {
         } else {
             counter.put(bitSet, counter.get(bitSet) + counter.get(left) * counter.get(right));
         }
-        return true;
+        return counter.get(bitSet) < this.limit;
     }
 
     public void addPlan(BitSet bitSet, Plan plan) {
@@ -60,6 +69,10 @@ public class Counter implements AbstractReceiver {
 
     public boolean contain(BitSet bitSet) {
         return counter.containsKey(bitSet);
+    }
+
+    public void reset() {
+        this.counter.clear();
     }
 
     public Plan getBestPlan(BitSet bitSet) {

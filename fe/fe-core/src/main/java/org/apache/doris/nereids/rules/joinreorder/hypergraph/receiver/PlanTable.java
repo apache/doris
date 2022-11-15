@@ -21,14 +21,12 @@ import org.apache.doris.nereids.rules.joinreorder.hypergraph.Edge;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.BitSet;
-import java.util.HashMap;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
  */
 public class PlanTable implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
-    HashMap<BitSet, Integer> counter;
 
     /**
      * Emit a new plan from bottom to top
@@ -48,6 +46,11 @@ public class PlanTable implements AbstractReceiver {
 
     public boolean contain(BitSet bitSet) {
         throw new RuntimeException("PlanTable does not support contain()");
+    }
+
+    @Override
+    public void reset() {
+        throw new RuntimeException("PlanTable does not support reset()");
     }
 
     public Plan getBestPlan(BitSet bitSet) {

@@ -32,5 +32,7 @@ public interface AbstractReceiver {
 
     public boolean contain(BitSet bitSet);
 
+    public void reset();
+
     public Plan getBestPlan(BitSet bitSet);
 }
