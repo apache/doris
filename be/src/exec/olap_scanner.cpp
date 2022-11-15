@@ -210,14 +210,14 @@ Status OlapScanner::_init_tablet_reader_params(
             bool has_replace_col = false;
             for (auto col : _return_columns) {
                 if (_tablet->tablet_schema().column(col).aggregation() ==
-                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                    FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                     has_replace_col = true;
                     break;
                 }
             }
             if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
-                    has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                        sequence_col_idx) == _return_columns.end()) {
+                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                                             sequence_col_idx) == _return_columns.end()) {
                 _tablet_reader_params.return_columns.push_back(sequence_col_idx);
             }
         }
@@ -292,7 +292,11 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             // Use total_byte_size here, not tuple_pool's allocated bytes, because we preallocated tuple pool at beginning
             // its size maybe larger than threshold, so that scanner will break here and may dead loop.
             // Not need check num_rows > 0, because total_byte_size() == 0  if num_rows == 0.
-            if (batch->is_full() || batch->total_byte_size() >= raw_bytes_threshold ||
+            if (_avg_row_size == 0 && batch->num_rows() > 0) {
+                // total_byte_size() cost a lot of CPU time, so that compute avg row size here.
+                _avg_row_size = batch->total_byte_size() / batch->num_rows();
+            }
+            if (batch->is_full() || _avg_row_size * batch->num_rows() >= raw_bytes_threshold ||
                 raw_rows_read() >= raw_rows_threshold) {
                 _update_realtime_counter();
                 break;
