@@ -233,10 +233,10 @@ private:
 
     int64_t _mem_used;
 
-    Arena _arena;
-    HashTableVariants _hash_table_variants;
+    std::unique_ptr<Arena> _arena;
+    std::unique_ptr<HashTableVariants> _hash_table_variants;
 
-    HashTableCtxVariants _process_hashtable_ctx_variants;
+    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
     std::vector<Block> _build_blocks;
     Block _probe_block;
@@ -301,6 +301,8 @@ private:
     void _reset_tuple_is_null_column();
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
+
+    void _release_mem();
 
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
