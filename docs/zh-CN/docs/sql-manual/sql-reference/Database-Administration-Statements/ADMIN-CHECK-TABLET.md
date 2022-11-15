@@ -46,7 +46,7 @@ PROPERTIES("type" = "...");
 1. 必须指定 tablet id 列表以及 PROPERTIES 中的 type 属性。
 2. 目前 type 仅支持：
 
-    * consistency: 对tablet的副本数据一致性进行检查。该命令为异步命令，发送后，Doris 会开始执行对应 tablet 的一致性检查作业。最终的结果，将体现在 `SHOW PROC "/statistic";` 结果中的 InconsistentTabletNum 列。
+    * consistency: 对tablet的副本数据一致性进行检查。该命令为异步命令，发送后，Doris 会开始执行对应 tablet 的一致性检查作业。最终的结果，将体现在 `SHOW PROC "/cluster_health/tablet_health";` 结果中的 InconsistentTabletNum 列。
 
 ### Example
 
