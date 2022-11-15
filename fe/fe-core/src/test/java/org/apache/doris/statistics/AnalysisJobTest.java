@@ -18,11 +18,11 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.persist.AnalysisJobScheduler;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisJobInfo.JobType;
 import org.apache.doris.statistics.AnalysisJobInfo.ScheduleType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Expectations;

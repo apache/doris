@@ -18,15 +18,15 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.persist.AnalysisJobScheduler;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
 
@@ -42,11 +42,11 @@ public class AnalysisJob {
 
     private final AnalysisJobInfo info;
 
-    private CatalogIf catalog;
+    private CatalogIf<DatabaseIf> catalog;
 
-    private Database db;
+    private DatabaseIf<TableIf> db;
 
-    private Table tbl;
+    private TableIf tbl;
 
     private Column col;
 
@@ -65,7 +65,7 @@ public class AnalysisJob {
                     String.format("Catalog with name: %s not exists", info.dbName), System.currentTimeMillis());
             return;
         }
-        db = Env.getCurrentEnv().getInternalCatalog().getDb(info.dbName).orElse(null);
+        db = catalog.getDb(info.dbName).orElse(null);
         if (db == null) {
             analysisJobScheduler.updateJobStatus(info.jobId, JobState.FAILED,
                     String.format("DB with name %s not exists", info.dbName), System.currentTimeMillis());

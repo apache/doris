@@ -55,12 +55,14 @@ import java.util.Set;
 public class AlterColumnStatsStmt extends DdlStmt {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
+            .add(StatsType.ROW_COUNT)
             .add(ColumnStat.NDV)
             .add(ColumnStat.AVG_SIZE)
             .add(ColumnStat.MAX_SIZE)
             .add(ColumnStat.NUM_NULLS)
             .add(ColumnStat.MIN_VALUE)
             .add(ColumnStat.MAX_VALUE)
+            .add(StatsType.DATA_SIZE)
             .build();
 
     private final TableName tableName;
@@ -162,10 +164,6 @@ public class AlterColumnStatsStmt extends DdlStmt {
                 throw new AnalysisException("Partition does not exist: " + optional.get());
             }
             partitionNames.addAll(optPartitionNames.getPartitionNames());
-        } else {
-            if (!olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
-                throw new AnalysisException("For partitioned tables, partitions should be specified");
-            }
         }
     }
 
@@ -186,5 +184,9 @@ public class AlterColumnStatsStmt extends DdlStmt {
             sb.append(optPartitionNames.toSql());
         }
         return sb.toString();
+    }
+
+    public String getValue(StatsType statsType) {
+        return statsTypeToValue.get(statsType);
     }
 }
