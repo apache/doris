@@ -164,7 +164,7 @@ protected:
         create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_TRUE(s.ok());
 
         RowCursor input_row;
@@ -367,7 +367,7 @@ protected:
         RowsetWriterContext writer_context;
         create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
         std::unique_ptr<RowsetWriter> output_rs_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, &output_rs_writer);
+        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &output_rs_writer);
         EXPECT_TRUE(s.ok());
 
         // merge input rowset

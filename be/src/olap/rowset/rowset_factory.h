@@ -37,7 +37,7 @@ public:
     // create and init rowset writer.
     // return OLAP_SUCCESS and set `*output` to inited rowset writer.
     // return others if failed
-    static Status create_rowset_writer(const RowsetWriterContext& context,
+    static Status create_rowset_writer(const RowsetWriterContext& context, bool is_vertical,
                                        std::unique_ptr<RowsetWriter>* output);
 };
 

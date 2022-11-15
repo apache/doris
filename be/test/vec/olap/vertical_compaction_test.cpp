@@ -161,7 +161,7 @@ protected:
         RowsetId rowset_id;
         rowset_id.init(inc_id);
         rowset_writer_context->rowset_id = rowset_id;
-        rowset_writer_context->rowset_type = VERTICAL_BETA_ROWSET;
+        rowset_writer_context->rowset_type = BETA_ROWSET;
         rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
@@ -198,7 +198,7 @@ protected:
         create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        Status s = RowsetFactory::create_rowset_writer(writer_context, true, &rowset_writer);
         EXPECT_TRUE(s.ok());
 
         RowCursor input_row;
@@ -493,7 +493,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     RowsetWriterContext writer_context;
     create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
     EXPECT_TRUE(s.ok());
 
     // merge input rowset
@@ -601,7 +601,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     RowsetWriterContext writer_context;
     create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
     EXPECT_TRUE(s.ok());
 
     // merge input rowset
@@ -702,7 +702,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     RowsetWriterContext writer_context;
     create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
     EXPECT_TRUE(s.ok());
 
     // merge input rowset
@@ -797,7 +797,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     RowsetWriterContext writer_context;
     create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
     EXPECT_TRUE(s.ok());
 
     // merge input rowset

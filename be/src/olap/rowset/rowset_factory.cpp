@@ -32,25 +32,24 @@ Status RowsetFactory::create_rowset(TabletSchemaSPtr schema, const std::string& 
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID);
     }
-    if (rowset_meta->rowset_type() == BETA_ROWSET ||
-        rowset_meta->rowset_type() == VERTICAL_BETA_ROWSET) {
+    if (rowset_meta->rowset_type() == BETA_ROWSET) {
         rowset->reset(new BetaRowset(schema, tablet_path, rowset_meta));
         return (*rowset)->init();
     }
     return Status::OLAPInternalError(OLAP_ERR_ROWSET_TYPE_NOT_FOUND); // should never happen
 }
 
-Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context,
+Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context, bool is_vertical,
                                            std::unique_ptr<RowsetWriter>* output) {
     if (context.rowset_type == ALPHA_ROWSET) {
         return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID);
     }
     if (context.rowset_type == BETA_ROWSET) {
+        if (is_vertical) {
+            output->reset(new VerticalBetaRowsetWriter);
+            return (*output)->init(context);
+        }
         output->reset(new BetaRowsetWriter);
-        return (*output)->init(context);
-    }
-    if (context.rowset_type == VERTICAL_BETA_ROWSET) {
-        output->reset(new VerticalBetaRowsetWriter);
         return (*output)->init(context);
     }
     return Status::OLAPInternalError(OLAP_ERR_ROWSET_TYPE_NOT_FOUND);

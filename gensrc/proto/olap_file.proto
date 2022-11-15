@@ -34,7 +34,6 @@ message ZoneMap {
 enum RowsetTypePB {
     ALPHA_ROWSET = 0; // doris original column storage format
     BETA_ROWSET  = 1; // new column storage format
-    VERTICAL_BETA_ROWSET = 2; // vertical for compaction
 }
 
 enum RowsetStatePB {
