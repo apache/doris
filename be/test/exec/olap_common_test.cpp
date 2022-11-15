@@ -630,7 +630,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
         EXPECT_EQ(exact_range, true);
         scan_keys.get_key_range(&key_range);
         // contain null, [-128, 127]
-        EXPECT_EQ(key_range.size(), 256);
+        EXPECT_EQ(key_range.size(), 257);
         EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "-128");
         EXPECT_EQ(OlapScanKeys::to_print_key(key_range[254]->end_scan_range), "127");
 
