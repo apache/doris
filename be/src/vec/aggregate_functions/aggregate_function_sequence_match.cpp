@@ -35,9 +35,9 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
         LOG(WARNING) << "Aggregate function " + name + " requires at least 4 arguments.";
         return nullptr;
     }
-    if (arg_count - 2 > max_events) {
+    if (arg_count - 2 > MAX_EVENTS) {
         LOG(WARNING) << "Aggregate function " + name + " supports up to " +
-                                std::to_string(max_events) + " event arguments.";
+                                std::to_string(MAX_EVENTS) + " event arguments.";
         return nullptr;
     }
 
