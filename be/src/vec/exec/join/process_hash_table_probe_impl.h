@@ -675,8 +675,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             _tuple_is_null_left_flags->resize_fill(block_size, 1);
         }
         *eos = iter == hash_table_ctx.hash_table_ptr->end();
-        output_block->swap(
-                mutable_block.to_block(right_semi_anti_without_other ? right_col_idx : 0));
+        output_block->swap(mutable_block.to_block());
         return Status::OK();
     } else {
         LOG(FATAL) << "Invalid RowRefList";
