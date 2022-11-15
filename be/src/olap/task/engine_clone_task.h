@@ -53,7 +53,7 @@ private:
 
     Status _make_and_download_snapshots(DataDir& data_dir, const string& local_data_path, TBackend* src_host,
                             string* src_file_path, vector<string>* error_msgs,
-                            const vector<Version>* missing_versions, bool* allow_incremental_clone);
+                            const vector<Version>& missing_versions, bool* allow_incremental_clone);
 
     void _set_tablet_info(Status status, bool is_new_tablet);
 
@@ -63,7 +63,7 @@ private:
 
     Status _make_snapshot(const std::string& ip, int port, TTableId tablet_id,
                           TSchemaHash schema_hash, int timeout_s,
-                          const std::vector<Version>* missed_versions, std::string* snapshot_path,
+                          const std::vector<Version>& missed_versions, std::string* snapshot_path,
                           bool* allow_incremental_clone, int32_t* snapshot_version);
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
