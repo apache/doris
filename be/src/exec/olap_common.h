@@ -18,6 +18,7 @@
 #pragma once
 
 #include <boost/lexical_cast.hpp>
+#include <cstdint>
 #include <map>
 #include <sstream>
 #include <string>
@@ -529,7 +530,8 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
     begin_include = is_begin_include();
     end_include = is_end_include();
     bool is_empty_range = false;
-    if constexpr (reject_type) {
+
+    auto no_split = [&]() -> bool {
         begin_scan_keys.emplace_back();
         begin_scan_keys.back().add_value(
                 cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
@@ -538,6 +540,10 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         end_scan_keys.back().add_value(
                 cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
         return true;
+    };
+
+    if constexpr (reject_type) {
+        return no_split();
     } else {
         CppType min_value = get_range_min_value();
         CppType max_value = get_range_max_value();
@@ -580,6 +586,12 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
 
         int128_t range_size = is_fixed_value_convertible() ? (int128_t)max_value - min_value : 0;
         size_t step_size = range_size / max_scan_key_num;
+
+        constexpr size_t MAX_STEP_SIZE = 1 << 20;
+        // When the step size is too large, the range is easy to not really contain data.
+        if (step_size > MAX_STEP_SIZE) {
+            return no_split();
+        }
 
         auto current = min_value;
         if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
