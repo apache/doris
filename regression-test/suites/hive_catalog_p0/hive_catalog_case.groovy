@@ -74,7 +74,3 @@ suite("hive_catalog_case", "p0") {
         q01()
     }
 }
-
-
-
-
