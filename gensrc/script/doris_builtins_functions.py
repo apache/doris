@@ -2323,6 +2323,8 @@ visible_functions = [
      '', '', 'vec', ''],
     [['split_by_char'],'ARRAY_VARCHAR',['VARCHAR','VARCHAR'],
         '', '', '', 'vec', ''],
+    [['split_by_char'],'ARRAY_STRING',['STRING','STRING'],
+        '', '', '', 'vec', ''],
     [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions10split_partEPN9doris_udf15FunctionContextERKNS1_9StringValES6_RKNS1_6IntValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
