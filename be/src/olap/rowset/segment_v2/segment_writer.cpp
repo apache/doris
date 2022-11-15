@@ -282,6 +282,7 @@ std::string SegmentWriter::_encode_keys(
             } else {
                 encoded_keys.push_back(KEY_NULL_LAST_MARKER);
             }
+            ++cid;
             continue;
         }
         encoded_keys.push_back(KEY_NORMAL_MARKER);
