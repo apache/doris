@@ -652,10 +652,11 @@ struct ProcessHashTableProbe {
         hash_table_ctx.init_once();
         auto& mcol = mutable_block.mutable_columns();
 
+        bool right_semi_anti_without_other =
+                _join_node->_is_right_semi_anti && !_join_node->_have_other_join_conjunct;
+
         int right_col_idx =
-                (_join_node->_is_right_semi_anti && !_join_node->_have_other_join_conjunct)
-                        ? 0
-                        : _join_node->_left_table_data_types.size();
+                right_semi_anti_without_other ? 0 : _join_node->_left_table_data_types.size();
         int right_col_len = _join_node->_right_table_data_types.size();
 
         auto& iter = hash_table_ctx.iter;
@@ -680,9 +681,17 @@ struct ProcessHashTableProbe {
             }
         }
 
+
+        // just resize the left table column in case with other conjunct to make block size is not zero
+        if (_join_node->_is_right_semi_anti && _join_node->_have_other_join_conjunct) {
+            auto target_size = mcol[right_col_idx]->size();
+            for (int i = 0; i < right_col_idx; ++i) {
+                mcol[i]->resize(target_size);
+            }
+        }
+
         // right outer join / full join need insert data of left table
-        if constexpr (JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
-                      JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
+        if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
                       JoinOpType::value == TJoinOp::FULL_OUTER_JOIN) {
             for (int i = 0; i < right_col_idx; ++i) {
                 for (int j = 0; j < block_size; ++j) {
@@ -693,7 +702,7 @@ struct ProcessHashTableProbe {
         *eos = iter == hash_table_ctx.hash_table.end();
 
         output_block->swap(
-                mutable_block.to_block(_join_node->_is_right_semi_anti ? right_col_idx : 0));
+                mutable_block.to_block(right_semi_anti_without_other ? right_col_idx : 0));
         return Status::OK();
     }
 
@@ -734,6 +743,9 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}),
+          _intermediate_row_desc(
+                  descs, tnode.hash_join_node.vintermediate_tuple_id_list,
+                  std::vector<bool>(tnode.hash_join_node.vintermediate_tuple_id_list.size())),
           _output_row_desc(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}) {
     _runtime_filter_descs = tnode.runtime_filters;
     init_join_op();
@@ -861,7 +873,31 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status HashJoinNode::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(ExecNode::prepare(state));
+    RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::PREPARE));
+    DCHECK(_runtime_profile.get() != nullptr);
+    _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
+    _rows_returned_rate = runtime_profile()->add_derived_counter(
+            ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
+                               runtime_profile()->total_time_counter()),
+            "");
+    _mem_tracker = MemTracker::CreateTracker(_runtime_profile.get(), -1,
+                                             "ExecNode:" + _runtime_profile->name(),
+                                             state->instance_mem_tracker());
+    _expr_mem_tracker = MemTracker::CreateTracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
+                                                  _mem_tracker);
+    _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
+
+    if (_vconjunct_ctx_ptr) {
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _intermediate_row_desc, expr_mem_tracker()));
+    }
+    RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _intermediate_row_desc, expr_mem_tracker()));
+
+    // TODO(zc):
+    // AddExprCtxsToFree(_conjunct_ctxs);
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->prepare(state));
+    }
 
     // Build phase
     auto build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
@@ -896,10 +932,10 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     if (_vother_join_conjunct_ptr) {
         RETURN_IF_ERROR(
                 (*_vother_join_conjunct_ptr)
-                        ->prepare(state, _row_desc_for_other_join_conjunt, expr_mem_tracker()));
+                        ->prepare(state, _intermediate_row_desc, expr_mem_tracker()));
     }
 
-    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, _intermediate_row_desc, expr_mem_tracker()));
 
     // right table data types
     _right_table_data_types = VectorizedUtils::get_data_types(child(1)->row_desc());
@@ -1070,39 +1106,10 @@ void HashJoinNode::_prepare_probe_block() {
 }
 
 void HashJoinNode::_construct_mutable_join_block() {
-    const auto& mutable_block_desc =
-            _have_other_join_conjunct ? _row_desc_for_other_join_conjunt : _row_descriptor;
-
-    // TODO: Support Intermediate tuple in FE to delete the dispose the convert null operation
-    // here
-    auto [start_convert_null, end_convert_null] = std::pair {0, 0};
-
-    switch (_join_op) {
-    case TJoinOp::LEFT_OUTER_JOIN: {
-        start_convert_null = child(0)->row_desc().num_materialized_slots();
-        end_convert_null = child(0)->row_desc().num_materialized_slots() +
-                           child(1)->row_desc().num_materialized_slots();
-        break;
-    }
-    case TJoinOp::RIGHT_OUTER_JOIN: {
-        end_convert_null = child(0)->row_desc().num_materialized_slots();
-        break;
-    }
-    case TJoinOp::FULL_OUTER_JOIN: {
-        end_convert_null = child(0)->row_desc().num_materialized_slots() +
-                           child(1)->row_desc().num_materialized_slots();
-        break;
-    }
-    default:
-        break;
-    }
-
+    const auto& mutable_block_desc = _intermediate_row_desc;
     for (const auto tuple_desc : mutable_block_desc.tuple_descriptors()) {
         for (const auto slot_desc : tuple_desc->slots()) {
-            auto offset = _join_block.columns();
-            auto type_ptr = (offset >= start_convert_null && offset < end_convert_null)
-                                    ? make_nullable(slot_desc->get_data_type_ptr())
-                                    : slot_desc->get_data_type_ptr();
+            auto type_ptr = slot_desc->get_data_type_ptr();
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }
@@ -1443,14 +1450,10 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
     // we should repalce `insert_column_datas` by `insert_range_from`
 
     auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
-        auto [to_null, from_null] = std::pair {to->is_nullable(), from.is_nullable()};
-        if (to_null && !from_null) {
+        if (to->is_nullable() && !from.is_nullable()) {
             auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
             null_column.get_nested_column().insert_range_from(from, 0, rows);
             null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-        } else if (!to_null && from_null) {
-            const auto& null_column = reinterpret_cast<const ColumnNullable&>(from);
-            to->insert_range_from(null_column.get_nested_column(), 0, rows);
         } else {
             to->insert_range_from(from, 0, rows);
         }
@@ -1458,13 +1461,13 @@ Status HashJoinNode::_build_output_block(Block* origin_block, Block* output_bloc
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
-            DCHECK(mutable_columns.size() == origin_block->columns());
+            DCHECK(mutable_columns.size() == _output_row_desc.num_materialized_slots());
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 insert_column_datas(mutable_columns[i], *origin_block->get_by_position(i).column,
                                     rows);
             }
         } else {
-            DCHECK(mutable_columns.size() == _output_expr_ctxs.size());
+            DCHECK(mutable_columns.size() == _output_row_desc.num_materialized_slots());
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));

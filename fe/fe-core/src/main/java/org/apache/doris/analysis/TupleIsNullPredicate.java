@@ -27,7 +27,9 @@ import org.apache.doris.thrift.TTupleIsNullPredicate;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Internal expr that returns true if all of the given tuples are NULL, otherwise false.
@@ -36,7 +38,7 @@ import java.util.List;
  */
 public class TupleIsNullPredicate extends Predicate {
 
-    private final List<TupleId> tupleIds = Lists.newArrayList();
+    private List<TupleId> tupleIds = Lists.newArrayList();
 
     public TupleIsNullPredicate(List<TupleId> tupleIds) {
         Preconditions.checkState(tupleIds != null && !tupleIds.isEmpty());
@@ -182,6 +184,30 @@ public class TupleIsNullPredicate extends Predicate {
             expr.setChild(i, unwrapExpr(expr.getChild(i)));
         }
         return expr;
+    }
+
+
+    public static void substitueListForTupleIsNull(List<Expr> exprs,
+                                                   Map<List<TupleId>, TupleId> originToTargetTidMap) {
+        for (Expr expr : exprs) {
+            if (!(expr instanceof FunctionCallExpr)) {
+                continue;
+            }
+            if (expr.getChildren().size() != 3) {
+                continue;
+            }
+            if (!(expr.getChild(0) instanceof TupleIsNullPredicate)) {
+                continue;
+            }
+            TupleIsNullPredicate tupleIsNullPredicate = (TupleIsNullPredicate) expr.getChild(0);
+            TupleId targetTid = originToTargetTidMap.get(tupleIsNullPredicate.getTupleIds());
+            if (targetTid != null) {
+                tupleIsNullPredicate.replaceTupleIds(Arrays.asList(targetTid));
+            }
+        }
+    }
+    private void replaceTupleIds(List<TupleId> tupleIds) {
+        this.tupleIds = tupleIds;
     }
 
     @Override

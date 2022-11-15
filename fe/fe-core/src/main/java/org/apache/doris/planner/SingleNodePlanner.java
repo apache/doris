@@ -1378,9 +1378,9 @@ public class SingleNodePlanner {
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
                 unionNode.init(analyzer);
                 unionNode.setOutputSmap(inlineViewRef.getSmap());
+                unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
                 //set outputSmap to substitute literal in outputExpr
-                if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
-                    unionNode.setWithoutTupleIsNullOutputSmap(inlineViewRef.getSmap());
+                if (analyzer.isOuterJoined(inlineViewRef.getId())) {
                     List<Expr> nullableRhs = TupleIsNullPredicate
                             .wrapExprs(inlineViewRef.getSmap().getRhs(), unionNode.getTupleIds(), analyzer);
                     unionNode.setOutputSmap(new ExprSubstitutionMap(inlineViewRef.getSmap().getLhs(), nullableRhs));

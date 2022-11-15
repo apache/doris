@@ -70,7 +70,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LiteralUtils;
@@ -81,7 +80,6 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -612,24 +610,8 @@ public class StmtExecutor implements ProfileWriter {
                     } else {
                         resetAnalyzerAndStmt();
                     }
-                } catch (VecNotImplException e) {
-                    if (i == analyzeTimes) {
-                        throw e;
-                    } else {
-                        resetAnalyzerAndStmt();
-                        VectorizedUtil.switchToQueryNonVec();
-                    }
                 } catch (UserException e) {
-                    if (e.getCause() instanceof VecNotImplException) {
-                        if (i == analyzeTimes) {
-                            throw e;
-                        } else {
-                            resetAnalyzerAndStmt();
-                            VectorizedUtil.switchToQueryNonVec();
-                        }
-                    } else {
-                        throw e;
-                    }
+                    throw e;
                 } catch (Exception e) {
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());

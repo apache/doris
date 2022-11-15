@@ -241,6 +241,7 @@ private:
     std::vector<bool> _right_output_slot_flags;
     std::vector<bool> _right_check_slot_flags; // used for TupleIsNullPredicate to check
 
+    RowDescriptor _intermediate_row_desc;
     RowDescriptor _output_row_desc;
 
 private:
