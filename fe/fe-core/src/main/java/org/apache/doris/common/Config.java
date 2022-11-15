@@ -1785,14 +1785,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_mtmv_scheduler_framework = false;
 
+    /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
     @ConfField(mutable = true, masterOnly = true)
     public static int max_running_mtmv_scheduler_task_num = 100;
 
+    /* Max pending task num keep in pending poll, otherwise it reject the task submit*/
     @ConfField(mutable = true, masterOnly = true)
     public static int max_pending_mtmv_scheduler_task_num = 100;
 
+    /* Remove the completed mtmv job after this expired time. */
     @ConfField(mutable = true, masterOnly = true)
-    public static long scheduler_mtmv_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
+    public static long scheduler_mtmv_job_expired = 24 * 60 * 60L; // 1day
+
+    /* Remove the finished mtmv task after this expired time. */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
 
     /**
      * The candidate of the backend node for federation query such as hive table and es table query.

@@ -25,7 +25,10 @@ import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,10 +36,11 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class MTMVJob implements Writable {
+public class MTMVJob implements Writable, Comparable {
     @SerializedName("id")
     private long id;
 
@@ -60,6 +64,9 @@ public class MTMVJob implements Writable {
     @SerializedName("dbName")
     private String dbName;
 
+    @SerializedName("mvName")
+    private String mvName;
+
     @SerializedName("query")
     private String query;
 
@@ -70,8 +77,8 @@ public class MTMVJob implements Writable {
     private long expireTime = -1;
 
     // set default to ROOT is for compatibility
-    @SerializedName("createUser")
-    private String createUser = "root";
+    @SerializedName("user")
+    private String user = "root";
 
     @SerializedName("retryPolicy")
     private TaskRetryPolicy retryPolicy = TaskRetryPolicy.NEVER;
@@ -81,7 +88,7 @@ public class MTMVJob implements Writable {
 
     public MTMVJob(String name) {
         this.name = name;
-        this.createTime = System.currentTimeMillis();
+        this.createTime = MTMVUtils.getNowTimeStamp();
     }
 
     public static MTMVJob read(DataInput in) throws IOException {
@@ -151,8 +158,16 @@ public class MTMVJob implements Writable {
         this.dbName = dbName;
     }
 
+    public String getMvName() {
+        return mvName;
+    }
+
+    public void setMvName(String mvName) {
+        this.mvName = mvName;
+    }
+
     public String getQuery() {
-        return query;
+        return query == null ? "" : query;
     }
 
     public void setQuery(String query) {
@@ -175,12 +190,12 @@ public class MTMVJob implements Writable {
         this.expireTime = expireTime;
     }
 
-    public String getCreateUser() {
-        return createUser;
+    public String getUser() {
+        return user;
     }
 
-    public void setCreateUser(String createUser) {
-        this.createUser = createUser;
+    public void setUser(String user) {
+        this.user = user;
     }
 
     public TaskRetryPolicy getRetryPolicy() {
@@ -247,5 +262,45 @@ public class MTMVJob implements Writable {
             return " (START " + LocalDateTime.ofInstant(Instant.ofEpochSecond(startTime), ZoneId.systemDefault())
                     + " EVERY(" + period + " " + timeUnit + "))";
         }
+    }
+
+    public static final ImmutableList<String> SHOW_TITLE_NAMES =
+            new ImmutableList.Builder<String>()
+                    .add("Id")
+                    .add("Name")
+                    .add("TriggerMode")
+                    .add("Schedule")
+                    .add("DBName")
+                    .add("MVName")
+                    .add("Query")
+                    .add("User")
+                    .add("RetryPolicy")
+                    .add("State")
+                    .add("CreateTime")
+                    .add("ExpireTime")
+                    .add("LastModifyTime")
+                    .build();
+
+    public List<String> toStringRow() {
+        List<String> list = Lists.newArrayList();
+        list.add(Long.toString(getId()));
+        list.add(getName());
+        list.add(getTriggerMode().toString());
+        list.add(getSchedule() == null ? "NULL" : getSchedule().toString());
+        list.add(getDbName());
+        list.add(getMvName());
+        list.add(getQuery().length() > 10240 ? getQuery().substring(0, 10240) : getQuery());
+        list.add(getUser());
+        list.add(getRetryPolicy().toString());
+        list.add(getState().toString());
+        list.add(MTMVUtils.getTimeString(getCreateTime()));
+        list.add(MTMVUtils.getTimeString(getExpireTime()));
+        list.add(MTMVUtils.getTimeString(getLastModifyTime()));
+        return list;
+    }
+
+    @Override
+    public int compareTo(@NotNull Object o) {
+        return (int) (getCreateTime() - ((MTMVJob) o).getCreateTime());
     }
 }
