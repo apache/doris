@@ -120,7 +120,8 @@ enum THdfsCompression {
 enum TIndexType {
   BITMAP,
   INVERTED,
-  BLOOMFILTER
+  BLOOMFILTER,
+  NGRAM_BF
 }
 
 // Mapping from names defined by Avro to the enum.
