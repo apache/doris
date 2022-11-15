@@ -41,6 +41,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.cooldown.CooldownJob;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
@@ -1463,6 +1464,10 @@ public class EditLog {
 
     public void logAlterJob(AlterJobV2 alterJob) {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
+    }
+
+    public void logCooldownJob(CooldownJob cooldownJob) {
+        logEdit(OperationType.OP_SET_REPLICA_COOLDOWN_CONF, cooldownJob);
     }
 
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
