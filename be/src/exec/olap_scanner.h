@@ -143,6 +143,8 @@ protected:
     int64_t _raw_rows_read = 0;
     int64_t _compressed_bytes_read = 0;
     int64_t _avg_row_size = 0;
+    int64_t _first_batch_row_num = 0;
+    int64_t _first_batch_size = 0;
 
     size_t _batch_size = 0;
 

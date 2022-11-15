@@ -294,9 +294,16 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             // Not need check num_rows > 0, because total_byte_size() == 0  if num_rows == 0.
             if (_avg_row_size == 0 && batch->num_rows() > 0) {
                 // total_byte_size() cost a lot of CPU time, so that compute avg row size here.
-                _avg_row_size = batch->total_byte_size() / batch->num_rows();
+                _first_batch_row_num += batch->num_rows();
+                _first_batch_size += batch->total_byte_size();
+                // Accumulate many batches and then calculate avg row size to avoid there are only small number of rows
+                if (_first_batch_size > raw_bytes_threshold) {
+                    _avg_row_size = _first_batch_size / _first_batch_row_num;
+                }
             }
-            if (batch->is_full() || _avg_row_size * batch->num_rows() >= raw_bytes_threshold ||
+            int64_t batch_total_bytes = _avg_row_size > 0 ? _avg_row_size * batch->num_rows()
+                                                          : batch->total_byte_size();
+            if (batch->is_full() || batch_total_bytes >= raw_bytes_threshold ||
                 raw_rows_read() >= raw_rows_threshold) {
                 _update_realtime_counter();
                 break;
