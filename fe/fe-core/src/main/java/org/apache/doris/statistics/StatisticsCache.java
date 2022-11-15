@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
@@ -33,9 +32,9 @@ public class StatisticsCache {
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
 
     private final AsyncLoadingCache<StatisticsCacheKey, ColumnStatistic> cache = Caffeine.newBuilder()
-            .maximumSize(Config.statistics_cache_max_size)
-            .expireAfterAccess(Duration.ofHours(Config.statistics_cache_valid_duration_in_hours))
-            .refreshAfterWrite(Duration.ofHours(Config.statistics_cache_refresh_interval))
+            .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
+            .expireAfterAccess(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
+            .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
             .buildAsync(new StatisticsCacheLoader());
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
@@ -58,5 +57,9 @@ public class StatisticsCache {
     // TODO: finish this method.
     public void eraseExpiredCache(long tblId, String colName) {
         cache.synchronous().invalidate(new StatisticsCacheKey(tblId, colName));
+    }
+
+    public void updateCache(long tblId, String colName, ColumnStatistic statistic) {
+        cache.synchronous().put(new StatisticsCacheKey(tblId, colName), statistic);
     }
 }

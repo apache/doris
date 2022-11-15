@@ -685,7 +685,6 @@ public class OlapScanNode extends ScanNode {
 
                 // for CBO
                 if (!collectedStat && replica.getRowCount() != -1) {
-                    cardinality += replica.getRowCount();
                     totalBytes += replica.getDataSize();
                     collectedStat = true;
                 }

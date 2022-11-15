@@ -20,7 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.DropTableStatsStmt;
-import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -293,41 +292,6 @@ public class StatisticsManager {
                     // ignore no stats table
                 }
             }
-        }
-        return result;
-    }
-
-    /**
-     * Get the column statistics of a table. if specified partition name,
-     * get the column statistics of the partition.
-     *
-     * @param stmt statement
-     * @return column statistics for  a partition or table
-     * @throws AnalysisException statistics not exist
-     */
-    public List<List<String>> showColumnStatsList(ShowColumnStatsStmt stmt) throws AnalysisException {
-        TableName tableName = stmt.getTableName();
-        List<String> partitionNames = stmt.getPartitionNames();
-
-        // check meta
-        Table table = validateTableName(tableName);
-
-        // check priv
-        if (!Env.getCurrentEnv().getAuth()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
-
-        if (partitionNames.isEmpty()) {
-            return showColumnStats(table.getId());
-        }
-
-        List<List<String>> result = Lists.newArrayList();
-        for (String partitionName : partitionNames) {
-            validatePartitionName(table, partitionName);
-            result.addAll(showColumnStats(table.getId(), partitionName));
         }
         return result;
     }

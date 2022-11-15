@@ -15,15 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.persist;
+package org.apache.doris.statistics;
 
-import org.apache.doris.statistics.AnalysisJob;
-import org.apache.doris.statistics.AnalysisJobExecutor;
-import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 import org.apache.doris.statistics.AnalysisJobInfo.JobType;
-import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.statistics.StatisticsUtil;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
