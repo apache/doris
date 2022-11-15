@@ -53,6 +53,37 @@ public class MTMVTaskProcessor {
 
     void process(MTMVTaskContext context) throws Exception{
         LOG.info("run mv logic here");
+        test();
+        //insertIntoSelect();
+        //swapTable();
+        // ALTER TABLE t_fuck REPLACE WITH TABLE t_fuck_shadow PROPERTIES('swap' = 'true');  
+    }
+
+    public void test() throws Exception{
+        //LOG.info("run mv logic here test");
+
+        //source table 
+        // ConnectContext result1=execSQL("DROP MATERIALIZED VIEW  if exists multi_mv;");
+        // ConnectContext result2=execSQL("CREATE MATERIALIZED VIEW  multi_mv BUILD IMMEDIATE  REFRESH COMPLETE start with \"2022-10-27 19:35:00\" next  1 second KEY(username)  DISTRIBUTED BY HASH (username)  buckets 1 PROPERTIES ('replication_num' = '1') AS select t_user.username ,t_user.id from t_user;");
+        // ConnectContext result3=execSQL("insert into multi_mv select t_user.username ,t_user.id from t_user;");    
+
+        // //temp table 
+        // ConnectContext result4=execSQL("DROP MATERIALIZED VIEW  if exists multi_mv_shadow;");
+        // ConnectContext result5=execSQL("CREATE MATERIALIZED VIEW  multi_mv_shadow BUILD IMMEDIATE REFRESH COMPLETE start with \"2022-10-27 19:35:00\" next  1 second KEY(username)   DISTRIBUTED BY HASH (username)  buckets 1 PROPERTIES ('replication_num' = '1') AS select t_user.username ,t_user.id from t_user;");
+        // ConnectContext result6=execSQL("insert into multi_mv_shadow select t_user.username ,t_user.id from t_user;");  
+        // ConnectContext result7=execSQL("insert into multi_mv_shadow select t_user.username ,t_user.id from t_user;");
+
+        // //swap 
+        // ConnectContext result8=execSQL("ALTER TABLE multi_mv REPLACE WITH TABLE multi_mv_shadow PROPERTIES('swap' = 'true');"); 
+
+
+
+        //insertIntoSelect();
+        //swapTable();
+        // ALTER TABLE t_fuck REPLACE WITH TABLE t_fuck_shadow PROPERTIES('swap' = 'true');  
+    }
+
+    private ConnectContext execSQL(String originStmt)throws AnalysisException, DdlException{
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
@@ -64,16 +95,74 @@ public class MTMVTaskProcessor {
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
         ctx.getState().reset();
 
-        String originStmt = "insert into multi_mv_08 select t_user.username ,t_user.id from t_user;";
         List<StatementBase> stmts = null;
         StatementBase parsedStmt=null;
         stmts = parse(ctx, originStmt);
         parsedStmt = stmts.get(0);
         // Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
         // //parsedStmt.analyze(analyzer);
-        StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
-        ctx.setExecutor(executor);
-        executor.execute(); 
+        try {
+            StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
+            ctx.setExecutor(executor);
+            executor.execute(); 
+        }catch (Throwable e) {
+             LOG.info("execSQL,{},{}", originStmt, e);
+        }
+        LOG.info("execSQL:{},{},info:{},rows:{}",originStmt, ctx.getState(),ctx.getState().getInfoMessage(),ctx.getState().getAffectedRows());
+        return ctx;
+    }
+
+    void swapTable() throws AnalysisException, DdlException{
+        LOG.info("run mv logic here, start to swapTable");
+        String originStmt = "ALTER TABLE multi_mv_10 REPLACE WITH TABLE multi_mv_10_shadow PROPERTIES('swap' = 'true')";
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+
+        String fullDbName = ClusterNamespace
+                .getFullName(SystemInfoService.DEFAULT_CLUSTER, "test_db");
+        ctx.setDatabase(fullDbName);
+        ctx.setQualifiedUser("root");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
+        ctx.getState().reset();
+
+        List<StatementBase> stmts = null;
+        StatementBase parsedStmt=null;
+        stmts = parse(ctx, originStmt);
+        parsedStmt = stmts.get(0);
+        // Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+        // //parsedStmt.analyze(analyzer);
+        // StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
+        // ctx.setExecutor(executor);
+        // executor.execute(); 
+        LOG.info("swapTable:{},info:{},rows:{}", ctx.getState(),ctx.getState().getInfoMessage(),ctx.getState().getAffectedRows());
+    }
+
+    private void  insertIntoSelect() throws AnalysisException, DdlException {
+        LOG.info("run mv logic here, start to insertIntoSelect");
+        String originStmt = "insert into multi_mv_10 select t_user.username ,t_user.id from t_user;";
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+
+        String fullDbName = ClusterNamespace
+                .getFullName(SystemInfoService.DEFAULT_CLUSTER, "test_db");
+        ctx.setDatabase(fullDbName);
+        ctx.setQualifiedUser("root");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
+        ctx.getState().reset();
+
+        // String originStmt = "insert into multi_mv_08 select t_user.username ,t_user.id from t_user;";
+        // List<StatementBase> stmts = null;
+        // StatementBase parsedStmt=null;
+        // stmts = parse(ctx, originStmt);
+        // parsedStmt = stmts.get(0);
+        // // Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+        // // //parsedStmt.analyze(analyzer);
+        // StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
+        // ctx.setExecutor(executor);
+        // executor.execute(); 
+        LOG.info("mtmv execute state:{},info:{},rows:{}", ctx.getState(),ctx.getState().getInfoMessage(),ctx.getState().getAffectedRows());
     }
 
     private List<StatementBase> parse(ConnectContext ctx, String originStmt) throws AnalysisException, DdlException {
