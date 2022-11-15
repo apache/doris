@@ -56,11 +56,11 @@ public class SimplifyRangeTest {
         assertRewrite("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA > 5 or TA < 1", "TA > 5 or TA < 1");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
-        assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA > 5 or TA > 1 or TA < 10");
+        assertRewrite("TA > 5 or TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA > 1 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 and TA > 1 and TA < 10", "TA > 5 and TA < 10");
         assertRewrite("TA > 1 or TA < 1", "TA > 1 or TA < 1");
-        assertRewrite("TA > 1 or TA < 10", "TA > 1 or TA < 10");
+        assertRewrite("TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA < 10", "TA > 5 and TA < 10");
         assertRewrite("TA > 5 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 + 1 and TA > 10", "TA > 5 + 1 and TA > 10");
@@ -73,7 +73,7 @@ public class SimplifyRangeTest {
         assertRewrite("(TA > 10 or TA > 20) and (TB > 10 and TB > 20)", "TA > 10 and TB > 20");
         assertRewrite("((TB > 30 and TA > 40) and TA > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA > 40");
         assertRewrite("(TA > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA > 10 and TB > 10 or TB > 20");
-        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or ((TB > 20 or TB < 10) and TB > 10)");
+        assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
         assertRewrite("TA in (1,2,3) and TA > 10", "FALSE");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
         assertRewrite("TA in (1,2,3) and TA > 1", "TA in (2,3)");
@@ -82,8 +82,8 @@ public class SimplifyRangeTest {
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");
         assertRewrite("TA in (1,2,3) and TA < 1", "FALSE");
         assertRewrite("TA in (1,2,3) or TA < 1", "TA in (1,2,3) or TA < 1");
-        assertRewrite("TA in (1,2,3) or TA in (2,3,4)", "TA in (2,3,4,1)");
-        assertRewrite("TA in (1,2,3) or TA in (4,5,6)", "TA in (4,5,6,1,2,3)");
+        assertRewrite("TA in (1,2,3) or TA in (2,3,4)", "TA in (1,2,3,4)");
+        assertRewrite("TA in (1,2,3) or TA in (4,5,6)", "TA in (1,2,3,4,5,6)");
         assertRewrite("TA in (1,2,3) and TA in (4,5,6)", "FALSE");
         assertRewrite("TA in (1,2,3) and TA in (3,4,5)", "TA = 3");
         assertRewrite("TA + TB in (1,2,3) and TA + TB in (3,4,5)", "TA + TB = 3");
@@ -100,7 +100,7 @@ public class SimplifyRangeTest {
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
-        Assertions.assertEquals(rewrittenExpression, expectedExpression);
+        Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 
     private Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {

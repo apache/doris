@@ -37,12 +37,17 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.BoundType;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
@@ -71,14 +76,19 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return expr instanceof CompoundPredicate ? expr.accept(new RangeInference(), null).expr : expr;
+        if (expr instanceof CompoundPredicate) {
+            ValueDesc valueDesc = expr.accept(new RangeInference(), null);
+            Expression simplifiedExpr = valueDesc.toExpression();
+            return simplifiedExpr == null ? valueDesc.expr : simplifiedExpr;
+        }
+        return expr;
     }
 
     private static class RangeInference extends ExpressionVisitor<ValueDesc, Void> {
 
         @Override
         public ValueDesc visit(Expression expr, Void context) {
-            return ResultValue.of(expr);
+            return new UnknownValue(expr);
         }
 
         private ValueDesc buildRange(ComparisonPredicate predicate) {
@@ -88,7 +98,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             if (right.isLiteral() && right.getDataType().isNumericType()) {
                 return ValueDesc.range((ComparisonPredicate) rewrite);
             }
-            return ValueDesc.EMPTY;
+            return new UnknownValue(predicate);
         }
 
         @Override
@@ -123,63 +133,54 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                     && ExpressionUtils.matchNumericType(inPredicate.getOptions())) {
                 return ValueDesc.discrete(inPredicate);
             }
-            return ValueDesc.EMPTY;
+            return new UnknownValue(inPredicate);
         }
 
         @Override
         public ValueDesc visitAnd(And and, Void context) {
-            List<Expression> result = simplify(ExpressionUtils.extractConjunction(and), ValueDesc::intersect);
-            return ResultValue.of(ExpressionUtils.and(result));
+            return simplify(and, ExpressionUtils.extractConjunction(and), ValueDesc::intersect, ExpressionUtils::and);
         }
 
         @Override
         public ValueDesc visitOr(Or or, Void context) {
-            List<Expression> result = simplify(ExpressionUtils.extractDisjunction(or), ValueDesc::union);
-            return ResultValue.of(ExpressionUtils.or(result));
+            return simplify(or, ExpressionUtils.extractDisjunction(or), ValueDesc::union, ExpressionUtils::or);
         }
 
-        private List<Expression> simplify(List<Expression> predicates, BinaryOperator<ValueDesc> op) {
-            List<Expression> result = Lists.newArrayList();
-            List<ValueDesc> valueDescList = Lists.newArrayList();
+        private ValueDesc simplify(Expression originExpr, List<Expression> predicates,
+                BinaryOperator<ValueDesc> op, BinaryOperator<Expression> exprOp) {
 
+            List<ValueDesc> values = Lists.newArrayList();
             for (Expression predicate : predicates) {
                 ValueDesc value = predicate.accept(this, null);
-                // can not build `ValueDesc`, so does not handle `predicate`, skip it.
-                if (value.equals(ValueDesc.EMPTY)) {
-                    result.add(predicate);
-                } else if (value instanceof ResultValue) {
-                    // With simplified expression, it is possible to build `ValueDesc` as well
-                    ValueDesc o = value.expr.accept(this, null);
-                    if (o instanceof ResultValue) {
-                        result.add(o.expr);
-                    } else {
-                        valueDescList.add(o);
-                    }
-                } else {
-                    valueDescList.add(value);
-                }
+                values.add(value);
             }
-            // grouping according to `reference`, `ValueDesc` in the same group can perform intersect or union
-            valueDescList.stream()
-                    .collect(Collectors.groupingBy(p -> p.reference))
-                    .values()
-                    .forEach(v -> v.stream()
-                            .reduce(op)
-                            .ifPresent(desc -> {
-                                if (Objects.isNull(desc.toExpression())) {
-                                    result.addAll(v.stream().map(i -> i.expr).collect(Collectors.toList()));
-                                } else {
-                                    result.add(desc.toExpression());
-                                }
-                            })
-                    );
-            return result;
+
+            Map<Expression, List<ValueDesc>> groupByReference = predicates.stream()
+                    .map(predicate -> predicate.accept(this, null))
+                    .collect(Collectors.groupingBy(p -> p.reference, LinkedHashMap::new, Collectors.toList()));
+
+            List<ValueDesc> valuePerRefs = Lists.newArrayList();
+            for (Entry<Expression, List<ValueDesc>> referenceValues : groupByReference.entrySet()) {
+                List<ValueDesc> valuePerReference = referenceValues.getValue();
+
+                // merge per reference
+                ValueDesc simplifiedValue = valuePerReference.stream()
+                        .reduce(op)
+                        .get();
+
+                valuePerRefs.add(simplifiedValue);
+            }
+
+            if (valuePerRefs.size() == 1) {
+                return valuePerRefs.get(0);
+            }
+
+            // use UnknownValue to wrap different references
+            return new UnknownValue(valuePerRefs, originExpr, exprOp);
         }
     }
 
-    private static class ValueDesc {
-        public static final ValueDesc EMPTY = new ValueDesc(null, null);
-        public static final ValueDesc FALSE = new ValueDesc(BooleanLiteral.FALSE, BooleanLiteral.FALSE);
+    private static abstract class ValueDesc {
         Expression expr;
         Expression reference;
 
@@ -188,42 +189,37 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
             this.reference = reference;
         }
 
-        public ValueDesc union(ValueDesc other) {
-            throw new RuntimeException("not implements union()");
-        }
+        public abstract ValueDesc union(ValueDesc other);
 
-        public ValueDesc union(RangeValue range, DiscreteValue discrete) {
+        public static ValueDesc union(RangeValue range, DiscreteValue discrete, boolean reverseOrder) {
             long count = discrete.values.stream().filter(x -> range.range.test(x)).count();
             if (count == discrete.values.size()) {
                 return range;
             }
-            return EMPTY;
+            Expression originExpr = ExpressionUtils.or(range.expr, discrete.expr);
+            List<ValueDesc> sourceValues = reverseOrder
+                    ? ImmutableList.of(discrete, range)
+                    : ImmutableList.of(range, discrete);
+            return new UnknownValue(sourceValues, originExpr, ExpressionUtils::or);
         }
 
-        public ValueDesc intersect(ValueDesc other) {
-            throw new RuntimeException("not implements intersect()");
-        }
+        public abstract ValueDesc intersect(ValueDesc other);
 
-        public ValueDesc intersect(RangeValue range, DiscreteValue discrete) {
-            DiscreteValue result = new DiscreteValue(discrete.reference, discrete.expr, Sets.newHashSet());
+        public static ValueDesc intersect(RangeValue range, DiscreteValue discrete) {
+            DiscreteValue result = new DiscreteValue(discrete.reference, discrete.expr);
             discrete.values.stream().filter(x -> range.range.contains(x)).forEach(result.values::add);
             if (result.values.size() > 0) {
                 return result;
             }
-            return FALSE;
+            return new EmptyValue(range.reference, ExpressionUtils.and(range.expr, discrete.expr));
         }
 
-        public Expression toExpression() {
-            if (this.equals(FALSE)) {
-                return BooleanLiteral.FALSE;
-            }
-            return null;
-        }
+        public abstract Expression toExpression();
 
         public static ValueDesc range(ComparisonPredicate predicate) {
             Literal value = (Literal) predicate.right();
             if (predicate instanceof EqualTo) {
-                return new DiscreteValue(predicate.left(), predicate, Sets.newHashSet(value));
+                return new DiscreteValue(predicate.left(), predicate, value);
             }
             RangeValue rangeValue = new RangeValue(predicate.left(), predicate);
             if (predicate instanceof GreaterThanEqual) {
@@ -245,6 +241,28 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         }
     }
 
+    private static class EmptyValue extends ValueDesc {
+
+        public EmptyValue(Expression reference, Expression expr) {
+            super(reference, expr);
+        }
+
+        @Override
+        public ValueDesc union(ValueDesc other) {
+            return other;
+        }
+
+        @Override
+        public ValueDesc intersect(ValueDesc other) {
+            return this;
+        }
+
+        @Override
+        public Expression toExpression() {
+            return BooleanLiteral.FALSE;
+        }
+    }
+
     /**
      * use @see com.google.common.collect.Range to wrap `ComparisonPredicate`
      * for example:
@@ -259,6 +277,9 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
 
         @Override
         public ValueDesc union(ValueDesc other) {
+            if (other instanceof EmptyValue) {
+                return other.union(this);
+            }
             try {
                 if (other instanceof RangeValue) {
                     RangeValue o = (RangeValue) other;
@@ -267,18 +288,20 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                         rangeValue.range = range.span(o.range);
                         return rangeValue;
                     }
-                    return EMPTY;
+                    Expression originExpr = ExpressionUtils.or(expr, other.expr);
+                    return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::or);
                 }
-                return union(this, (DiscreteValue) other);
+                return union(this, (DiscreteValue) other, false);
             } catch (Exception e) {
-                return EMPTY;
+                Expression originExpr = ExpressionUtils.or(expr, other.expr);
+                return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::or);
             }
         }
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
-            if (this.equals(FALSE) || other.equals(FALSE)) {
-                return FALSE;
+            if (other instanceof EmptyValue) {
+                return other.intersect(this);
             }
             try {
                 if (other instanceof RangeValue) {
@@ -288,11 +311,12 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                         rangeValue.range = range.intersection(o.range);
                         return rangeValue;
                     }
-                    return FALSE;
+                    return new EmptyValue(reference, ExpressionUtils.and(expr, other.expr));
                 }
                 return intersect(this, (DiscreteValue) other);
             } catch (Exception e) {
-                return EMPTY;
+                Expression originExpr = ExpressionUtils.and(expr, other.expr);
+                return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::and);
             }
         }
 
@@ -313,7 +337,12 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                     result.add(new LessThan(reference, range.upperEndpoint()));
                 }
             }
-            return result.isEmpty() ? null : ExpressionUtils.and(result);
+            return result.isEmpty() ? BooleanLiteral.TRUE : ExpressionUtils.and(result);
+        }
+
+        @Override
+        public String toString() {
+            return range == null ? "UnknwonRange" : range.toString();
         }
     }
 
@@ -325,43 +354,54 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
     private static class DiscreteValue extends ValueDesc {
         Set<Literal> values;
 
-        public DiscreteValue(Expression reference, Expression expr, Set<Literal> values) {
+        public DiscreteValue(Expression reference, Expression expr, Literal... values) {
+            this(reference, expr, Arrays.asList(values));
+        }
+
+        public DiscreteValue(Expression reference, Expression expr, Collection<Literal> values) {
             super(reference, expr);
-            this.values = Sets.newLinkedHashSet(values);
+            this.values = Sets.newTreeSet(values);
         }
 
         @Override
         public ValueDesc union(ValueDesc other) {
+            if (other instanceof EmptyValue) {
+                return other.union(this);
+            }
             try {
                 if (other instanceof DiscreteValue) {
-                    DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.or(expr, other.expr),
-                            Sets.newHashSet());
+                    DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.or(expr, other.expr));
                     discreteValue.values.addAll(((DiscreteValue) other).values);
                     discreteValue.values.addAll(this.values);
                     return discreteValue;
                 }
-                return union((RangeValue) other, this);
+                return union((RangeValue) other, this, true);
             } catch (Exception e) {
-                return EMPTY;
+                Expression originExpr = ExpressionUtils.or(expr, other.expr);
+                return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::or);
             }
         }
 
         @Override
         public ValueDesc intersect(ValueDesc other) {
-            if (this.equals(FALSE) || other.equals(FALSE)) {
-                return FALSE;
+            if (other instanceof EmptyValue) {
+                return other.intersect(this);
             }
             try {
                 if (other instanceof DiscreteValue) {
-                    DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.and(expr, other.expr),
-                            Sets.newHashSet());
+                    DiscreteValue discreteValue = new DiscreteValue(reference, ExpressionUtils.and(expr, other.expr));
                     discreteValue.values.addAll(((DiscreteValue) other).values);
                     discreteValue.values.retainAll(this.values);
-                    return discreteValue.values.isEmpty() ? FALSE : discreteValue;
+                    if (discreteValue.values.isEmpty()) {
+                        return new EmptyValue(reference, ExpressionUtils.and(expr, other.expr));
+                    } else {
+                        return discreteValue;
+                    }
                 }
                 return intersect((RangeValue) other, this);
             } catch (Exception e) {
-                return EMPTY;
+                Expression originExpr = ExpressionUtils.and(expr, other.expr);
+                return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::and);
             }
         }
 
@@ -373,18 +413,54 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
                 return new InPredicate(reference, Lists.newArrayList(values));
             }
         }
+
+        @Override
+        public String toString() {
+            return values.toString();
+        }
     }
 
     /**
      * Represents processing result.
      */
-    private static class ResultValue extends ValueDesc {
-        public ResultValue(Expression reference, Expression expr) {
-            super(reference, expr);
+    private static class UnknownValue extends ValueDesc {
+        private final List<ValueDesc> sourceValues;
+        private final BinaryOperator<Expression> mergeExprOp;
+
+        private UnknownValue(Expression expr) {
+            super(expr, expr);
+            sourceValues = ImmutableList.of();
+            mergeExprOp = null;
         }
 
-        public static ValueDesc of(Expression result) {
-            return new ResultValue(result, result);
+        public UnknownValue(List<ValueDesc> sourceValues, Expression originExpr,
+                BinaryOperator<Expression> mergeExprOp) {
+            super(sourceValues.get(0).reference, originExpr);
+            this.sourceValues = ImmutableList.copyOf(sourceValues);
+            this.mergeExprOp = mergeExprOp;
+        }
+
+        @Override
+        public ValueDesc union(ValueDesc other) {
+            Expression originExpr = ExpressionUtils.or(expr, other.expr);
+            return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::or);
+        }
+
+        @Override
+        public ValueDesc intersect(ValueDesc other) {
+            Expression originExpr = ExpressionUtils.and(expr, other.expr);
+            return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::or);
+        }
+
+        @Override
+        public Expression toExpression() {
+            if (sourceValues.isEmpty()) {
+                return expr;
+            }
+            return sourceValues.stream()
+                    .map(ValueDesc::toExpression)
+                    .reduce(mergeExprOp)
+                    .get();
         }
     }
 }
