@@ -302,8 +302,8 @@ Parameter | Description
 **elasticsearch.username** | username for ES
 **elasticsearch.password** | password for the user
 **elasticsearch.doc_value_scan** | whether to enable ES/Lucene column storage to get the value of the query field, the default is false
-**elasticsearch.keyword_sniff** | Whether to detect the string type text.fields in ES to obtain additional not analyzed keyword field name multi-fields mechanism
-**elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected.
+**elasticsearch.keyword_sniff** | Whether to probe the string segmentation type text.fields in ES, query by keyword (the default is true, false matches the content after the segmentation)
+**elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected
 **elasticsearch.ssl** | Whether ES cluster enables https access mode, the current FE/BE implementation is to trust all
 
 ### Connect Aliyun Data Lake Formation

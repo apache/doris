@@ -614,7 +614,8 @@ struct AggregatedDataVariants {
     }
 };
 
-using AggregatedDataVariantsPtr = std::shared_ptr<AggregatedDataVariants>;
+using AggregatedDataVariantsUPtr = std::unique_ptr<AggregatedDataVariants>;
+using ArenaUPtr = std::unique_ptr<Arena>;
 
 struct AggregateDataContainer {
 public:
@@ -780,9 +781,9 @@ private:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
-    AggregatedDataVariants _agg_data;
+    AggregatedDataVariantsUPtr _agg_data;
 
-    Arena _agg_arena_pool;
+    ArenaUPtr _agg_arena_pool;
 
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _serialize_key_timer;
@@ -881,14 +882,15 @@ private:
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add_selected(
-                        block, _offsets_of_aggregate_states[i], _places.data(), &_agg_arena_pool);
+                        block, _offsets_of_aggregate_states[i], _places.data(),
+                        _agg_arena_pool.get());
             }
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                            _places.data(), &_agg_arena_pool);
+                                                            _places.data(), _agg_arena_pool.get());
             }
 
             if (_should_limit_output) {
@@ -948,16 +950,16 @@ private:
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
                                 _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                &_agg_arena_pool, rows);
+                                _agg_arena_pool.get(), rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec_selected(
                             _places.data(), _offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
+                            _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
 
                     _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
@@ -965,7 +967,7 @@ private:
                 } else {
                     _aggregate_evaluators[i]->execute_batch_add_selected(
                             block, _offsets_of_aggregate_states[i], _places.data(),
-                            &_agg_arena_pool);
+                            _agg_arena_pool.get());
                 }
             }
         } else {
@@ -988,24 +990,24 @@ private:
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
                                 _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                &_agg_arena_pool, rows);
+                                _agg_arena_pool.get(), rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec(
                             _places.data(), _offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
+                            _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
 
                     _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
 
                 } else {
-                    _aggregate_evaluators[i]->execute_batch_add(block,
-                                                                _offsets_of_aggregate_states[i],
-                                                                _places.data(), &_agg_arena_pool);
+                    _aggregate_evaluators[i]->execute_batch_add(
+                            block, _offsets_of_aggregate_states[i], _places.data(),
+                            _agg_arena_pool.get());
                 }
             }
 
@@ -1023,6 +1025,8 @@ private:
     void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns, size_t num_rows);
 
     void release_tracker();
+
+    void _release_mem();
 
     using vectorized_execute = std::function<Status(Block* block)>;
     using vectorized_pre_agg = std::function<Status(Block* in_block, Block* out_block)>;

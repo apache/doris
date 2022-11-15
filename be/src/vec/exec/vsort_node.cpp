@@ -100,7 +100,7 @@ Status VSortNode::open(RuntimeState* state) {
             }
         }
     } while (!eos);
-
+    child(0)->close(state);
     RETURN_IF_ERROR(_sorter->prepare_for_read());
     return Status::OK();
 }
@@ -130,6 +130,7 @@ Status VSortNode::close(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
     _vsort_exec_exprs.close(state);
+    _sorter = nullptr;
     return ExecNode::close(state);
 }
 

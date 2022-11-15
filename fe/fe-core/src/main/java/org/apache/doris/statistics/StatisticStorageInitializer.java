@@ -33,6 +33,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -57,7 +58,8 @@ public class StatisticStorageInitializer extends Thread {
         }
         while (true) {
             try {
-                Thread.currentThread().join(Config.statistics_table_creation_retry_interval_in_seconds * 1000L);
+                Thread.currentThread()
+                        .join(StatisticConstants.STATISTICS_TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
                 createDB();
                 createTbl();
                 break;
@@ -110,7 +112,8 @@ public class StatisticStorageInitializer extends Thread {
         KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS,
                 Lists.newArrayList("id"));
 
-        DistributionDesc distributionDesc = new HashDistributionDesc(Config.statistic_table_bucket_count,
+        DistributionDesc distributionDesc = new HashDistributionDesc(
+                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT,
                 Lists.newArrayList("id"));
         Map<String, String> properties = new HashMap<String, String>() {
             {
@@ -145,7 +148,8 @@ public class StatisticStorageInitializer extends Thread {
         KeysDesc keysDesc = new KeysDesc(KeysType.UNIQUE_KEYS,
                 Lists.newArrayList("job_id"));
 
-        DistributionDesc distributionDesc = new HashDistributionDesc(Config.statistic_table_bucket_count,
+        DistributionDesc distributionDesc = new HashDistributionDesc(
+                StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT,
                 Lists.newArrayList("job_id"));
         Map<String, String> properties = new HashMap<String, String>() {
             {

@@ -307,6 +307,7 @@ Status VScanNode::close(RuntimeState* state) {
     for (auto& ctx : _stale_vexpr_ctxs) {
         (*ctx)->close(state);
     }
+    _scanner_pool.clear();
 
     RETURN_IF_ERROR(ExecNode::close(state));
     return Status::OK();

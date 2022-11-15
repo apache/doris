@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import java.util.concurrent.TimeUnit;
+
 public class StatisticConstants {
     public static final String STATISTIC_DB_NAME = "__internal_schema";
 
@@ -27,4 +29,38 @@ public class StatisticConstants {
     public static final int MAX_NAME_LEN = 64;
 
     public static final int ID_LEN = 4096;
+
+    public static final int STATISTIC_PARALLEL_EXEC_INSTANCE_NUM = 1;
+
+    public static final int STATISTICS_CACHE_VALID_DURATION_IN_HOURS = 24 * 2;
+
+    public static final int STATISTICS_CACHE_REFRESH_INTERVAL = 24 * 2;
+
+    /**
+     * Bucket count fot column_statistics and analysis_job table.
+     */
+    public static final int STATISTIC_TABLE_BUCKET_COUNT = 7;
+
+    public static final long STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES = 2L * 1024 * 1024 * 1024;
+
+    /**
+     * Determine the execution interval for 'Statistics Table Cleaner' thread.
+     */
+    public static final int STATISTIC_CLEAN_INTERVAL_IN_HOURS = 24 * 2;
+
+    /**
+     * If statistics related table creation failed, will retry after below seconds.
+     */
+    public static final int STATISTICS_TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
+
+    /**
+     * The max cached item in `StatisticsCache`.
+     */
+    public static final long STATISTICS_RECORDS_CACHE_SIZE = 100000;
+
+    /**
+     * If analysys job execution time exceeds this time, it would be cancelled.
+     */
+    public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);
+
 }

@@ -21,10 +21,12 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileFormatType;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A file scan provider for hudi.
@@ -32,8 +34,9 @@ import java.util.List;
  */
 public class HudiScanProvider extends HiveScanProvider {
 
-    public HudiScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
-        super(hmsTable, desc);
+    public HudiScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
+            Map<String, ColumnRange> columnNameToRange) {
+        super(hmsTable, desc, columnNameToRange);
     }
 
     @Override

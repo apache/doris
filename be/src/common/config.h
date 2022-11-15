@@ -199,7 +199,7 @@ CONF_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 CONF_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
-CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
+CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
 // garbage sweep policy
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");

@@ -7,9 +7,8 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include <boost/stacktrace.hpp>
-
 #include "gen_cpp/types.pb.h" // for PStatus
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -64,18 +63,16 @@ Status::Status(const PStatus& s) {
     }
 }
 
-// Implement it here to remove the boost header file from status.h to reduce precompile time
 Status Status::ConstructErrorStatus(int16_t precise_code) {
 // This will print all error status's stack, it maybe too many, but it is just used for debug
 #ifdef PRINT_ALL_ERR_STATUS_STACKTRACE
     LOG(WARNING) << "Error occurred, error code = " << precise_code << ", with message: " << msg
-                 << "\n caused by:" << boost::stacktrace::stacktrace();
+                 << "\n caused by:" << get_stack_trace();
 #endif
     if (error_states[abs(precise_code)].stacktrace) {
         // Add stacktrace as part of message, could use LOG(WARN) << "" << status will print both
         // the error message and the stacktrace
-        return Status(TStatusCode::INTERNAL_ERROR,
-                      boost::stacktrace::to_string(boost::stacktrace::stacktrace()), precise_code);
+        return Status(TStatusCode::INTERNAL_ERROR, get_stack_trace(), precise_code);
     } else {
         return Status(TStatusCode::INTERNAL_ERROR, std::string_view(), precise_code);
     }

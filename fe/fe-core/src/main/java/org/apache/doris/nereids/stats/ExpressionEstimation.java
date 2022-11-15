@@ -205,6 +205,9 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitCount(Count count, StatsDeriveResult context) {
+        if (count.isStar()) {
+            return ColumnStatistic.DEFAULT;
+        }
         Expression child = count.child(0);
         ColumnStatistic columnStat = child.accept(this, context);
         if (columnStat == ColumnStatistic.UNKNOWN) {

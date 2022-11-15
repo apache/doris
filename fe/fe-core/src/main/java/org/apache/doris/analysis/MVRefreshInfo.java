@@ -77,15 +77,15 @@ public class MVRefreshInfo {
         return triggerInfo;
     }
 
-    enum RefreshMethod {
+    public enum RefreshMethod {
         COMPLETE, FAST, FORCE
-    }
-
-    enum RefreshTrigger {
-        DEMAND, COMMIT, INTERVAL
     }
 
     public enum BuildMode {
         IMMEDIATE, DEFERRED
+    }
+
+    public enum RefreshTrigger {
+        DEMAND, COMMIT, INTERVAL
     }
 }

@@ -199,14 +199,14 @@ public class ColumnDef {
         }
         FeNameFormat.checkColumnName(name);
 
-        // When string type length is not assigned, it need to be assigned to 1.
+        // When string type length is not assigned, it needs to be assigned to 1.
         if (typeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) typeDef.getType();
             if (targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet()) {
                 if (targetType.getPrimitiveType() != PrimitiveType.STRING) {
                     targetType.setLength(1);
                 } else {
-                    // alway set text length MAX_STRING_LENGTH
+                    // always set text length MAX_STRING_LENGTH
                     targetType.setLength(ScalarType.MAX_STRING_LENGTH);
                 }
             }

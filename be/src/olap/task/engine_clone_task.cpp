@@ -18,6 +18,7 @@
 #include "olap/task/engine_clone_task.h"
 
 #include <set>
+#include <system_error>
 
 #include "env/env.h"
 #include "gen_cpp/BackendService.h"
@@ -413,8 +414,14 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_file_path));
 
+            std::error_code ec;
             // Check file length
-            uint64_t local_file_size = std::filesystem::file_size(local_file_path);
+            uint64_t local_file_size = std::filesystem::file_size(local_file_path, ec);
+            if (ec) {
+                LOG(WARNING) << "download file error" << ec.message();
+                return Status::IOError("can't retrive file_size of {}, due to {}", local_file_path,
+                                       ec.message());
+            }
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
                              << ", remote_path=" << remote_file_url << ", file_size=" << file_size
