@@ -1194,9 +1194,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TInitExternalCtlMetaResult initExternalCtlMeta(TInitExternalCtlMetaRequest request) throws TException {
-        if (request.isSetCatalogId() && request.isSetDbId() && request.isSetTableId()) {
-            return initTable(request.catalogId, request.dbId, request.tableId);
-        } else if (request.isSetCatalogId() && request.isSetDbId()) {
+        if (request.isSetCatalogId() && request.isSetDbId()) {
             return initDb(request.catalogId, request.dbId);
         } else if (request.isSetCatalogId()) {
             return initCatalog(request.catalogId);
@@ -1230,34 +1228,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new TException("Only support forward ExternalDatabase init operation.");
         }
         ((ExternalDatabase) db).makeSureInitialized();
-        TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
-        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
-        result.setStatus("OK");
-        return result;
-    }
-
-    private TInitExternalCtlMetaResult initTable(long catalogId, long dbId, long tableId)
-            throws TException {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-        if (!(catalog instanceof ExternalCatalog)) {
-            throw new TException("Only support forward ExternalCatalog init operation.");
-        }
-        DatabaseIf db = catalog.getDbNullable(dbId);
-        if (db == null) {
-            throw new TException("database " + dbId + " is null");
-        }
-        if (!(db instanceof ExternalDatabase)) {
-            throw new TException("Only support forward ExternalDatabase init operation.");
-        }
-        TableIf table = db.getTableNullable(tableId);
-        if (table == null) {
-            throw new TException("table " + tableId + " is null");
-        }
-        if (!(table instanceof ExternalTable)) {
-            throw new TException("Only support forward ExternalTable init operation.");
-        }
-
-        ((ExternalTable) table).makeSureInitialized();
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setStatus("OK");

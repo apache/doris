@@ -43,7 +43,7 @@ public class MasterCatalogExecutor {
         waitTimeoutMs = ctx.getSessionVariable().getQueryTimeoutS() * 1000;
     }
 
-    public void forward(long catalogId, long dbId, long tableId) throws Exception {
+    public void forward(long catalogId, long dbId) throws Exception {
         if (!ctx.getEnv().isReady()) {
             throw new Exception("Current catalog is not ready, please wait for a while.");
         }
@@ -61,9 +61,6 @@ public class MasterCatalogExecutor {
         request.setCatalogId(catalogId);
         if (dbId != -1) {
             request.setDbId(dbId);
-        }
-        if (tableId != -1) {
-            request.setTableId(tableId);
         }
         boolean isReturnToPool = false;
         try {
