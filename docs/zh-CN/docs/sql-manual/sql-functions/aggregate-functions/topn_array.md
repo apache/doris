@@ -1,6 +1,6 @@
 ---
 {
-    "title": "topn_array",
+    "title": "TOPN_ARRAY",
     "language": "zh-CN"
 }
 ---
@@ -24,13 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## topn_array
+## TOPN_ARRAY
 ### description
 #### Syntax
 
 `ARRAY<T> topn_array(expr, INT top_num[, INT space_expand_rate])`
 
-该topn_array函数使用Space-Saving算法计算expr中的top_num个频繁项，结果为频繁项及其出现次数，该结果为近似值
+该topn_array函数使用Space-Saving算法计算expr中的top_num个频繁项，返回由前top_num个组成的数组，该结果为近似值
 
 space_expand_rate参数是可选项，该值用来设置Space-Saving算法中使用的counter个数
 ```
