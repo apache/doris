@@ -229,13 +229,15 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                     .tag("port", src.be_port)
                     .tag("tablet", _clone_req.tablet_id)
                     .tag("snapshot_path", *snapshot_path)
-                    .tag("signature", _signature);
+                    .tag("signature", _signature)
+                    .tag("missed_versions", missed_versions);
         } else {
             LOG_WARNING("failed to make snapshot in remote BE")
                     .tag("host", src.host)
                     .tag("port", src.be_port)
                     .tag("tablet", _clone_req.tablet_id)
                     .tag("signature", _signature)
+                    .tag("missed_versions", missed_versions)
                     .error(status);
             continue;
         }
