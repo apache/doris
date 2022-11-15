@@ -20,6 +20,7 @@ package com.alibaba.datax.plugin.writer.doriswriter;
 import com.alibaba.fastjson.JSON;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.http.HttpEntity;
+import org.apache.http.HttpHeaders;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -178,6 +179,8 @@ public class DorisStreamLoadObserver {
                 });
         try ( CloseableHttpClient httpclient = httpClientBuilder.build()) {
             HttpPut httpPut = new HttpPut(loadUrl);
+            httpPut.removeHeaders(HttpHeaders.CONTENT_LENGTH);
+            httpPut.removeHeaders(HttpHeaders.TRANSFER_ENCODING);
             List<String> cols = options.getColumns();
             if (null != cols && !cols.isEmpty() && Keys.StreamLoadFormat.CSV.equals(options.getStreamLoadFormat())) {
                 httpPut.setHeader("columns", String.join(",", cols.stream().map(f -> String.format("`%s`", f)).collect(Collectors.toList())));
@@ -189,9 +192,9 @@ public class DorisStreamLoadObserver {
             }
             httpPut.setHeader("Expect", "100-continue");
             httpPut.setHeader("label", label);
-            httpPut.setHeader("Content-Type", "application/x-www-form-urlencoded");
+            httpPut.setHeader("two_phase_commit", "false");
             httpPut.setHeader("Authorization", getBasicAuthHeader(options.getUsername(), options.getPassword()));
-            httpPut.setEntity(new ByteArrayEntity (data));
+            httpPut.setEntity(new ByteArrayEntity(data));
             httpPut.setConfig(RequestConfig.custom().setRedirectsEnabled(true).build());
             try ( CloseableHttpResponse resp = httpclient.execute(httpPut)) {
                 HttpEntity respEntity = getHttpEntity(resp);
