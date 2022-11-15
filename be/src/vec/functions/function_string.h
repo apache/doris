@@ -1379,11 +1379,12 @@ public:
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
 
-        ColumnPtr src_column = 
+        ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr delimiter_column =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        size_t delimiter_offset =check_and_get_column<ColumnString>(*delimiter_column)->get_offsets().back();
+        size_t delimiter_offset =
+                check_and_get_column<ColumnString>(*delimiter_column)->get_offsets().back();
         if (delimiter_offset > input_rows_count) {
             return Status::RuntimeError(
                     fmt::format("only supported one or zero character delimiter for function "
@@ -1403,8 +1404,7 @@ public:
         dest_offsets.reserve(0);
 
         NullMapType* dest_nested_null_map = nullptr;
-        ColumnNullable* dest_nullable_col =
-                reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
@@ -1430,7 +1430,6 @@ private:
         ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
 
         for (size_t i = 0; i < src_offsets_size; i++) {
-
             const auto delimiter = delimiter_column.get_data_at(i).to_string();
             const auto str = src_column_string->get_data_at(i).to_string();
             StringRef str_ref = src_column_string->get_data_at(i);
@@ -1448,7 +1447,7 @@ private:
                     column_string_chars.resize(new_size);
                     memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
                     (*dest_nested_null_map).push_back(false);
-                    string_pos ++;
+                    string_pos++;
                     dest_pos++;
                     column_string_offsets.push_back(string_pos);
                 }
