@@ -1779,7 +1779,7 @@ public class StmtExecutor implements ProfileWriter {
         if (!statisticsForAuditLog.hasScanRows()) {
             statisticsForAuditLog.setScanRows(0L);
         }
-        if (statisticsForAuditLog.hasReturnedRows()) {
+        if (!statisticsForAuditLog.hasReturnedRows()) {
             statisticsForAuditLog.setReturnedRows(0L);
         }
         if (!statisticsForAuditLog.hasCpuMs()) {

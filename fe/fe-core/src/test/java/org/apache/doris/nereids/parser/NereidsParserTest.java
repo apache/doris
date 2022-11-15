@@ -230,4 +230,15 @@ public class NereidsParserTest extends ParserTestBase {
                 .sum();
         Assertions.assertEquals(doubleCount, 1);
     }
+
+    @Test
+    public void testParseMultiStmt() {
+        NereidsParser parser = new NereidsParser();
+        List<String> stmtList = parser.parseMultiStmts("select `AD``D` from t1 where a = 1;"
+                + "explain graph select `AD``D` from t1 where a = 1;");
+        Assertions.assertTrue(stmtList.size() == 2);
+        Assertions.assertTrue("select `AD``D` from t1 where a = 1".equals(stmtList.get(0)));
+        Assertions.assertTrue("explain graph select `AD``D` from t1 where a = 1".equals(stmtList.size()));
+    }
+
 }

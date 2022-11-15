@@ -36,7 +36,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
@@ -61,7 +60,6 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.SpanKind;
@@ -171,6 +169,7 @@ public class ConnectProcessor {
     }
 
     private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+        origStmt = origStmt.replace("\n", " ");
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
@@ -256,17 +255,19 @@ public class ConnectProcessor {
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setSqlHash(ctx.getSqlHash());
+
+        List<String> origSingleStmtList = null;
+        boolean usingOrigSingleStmt = false;
         StatementBase parsedStmt = null;
-        List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
-        boolean alreadyAddedToAuditInfoList = false;
+        int currentIdx = 0;
+
         try {
             List<StatementBase> stmts = null;
             Exception nereidsParseException = null;
-            // ctx could be null in some unit tests
-            if (ctx != null && ctx.getSessionVariable().isEnableNereidsPlanner()) {
-                NereidsParser nereidsParser = new NereidsParser();
+
+            if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
                 try {
-                    stmts = nereidsParser.parseSQL(originStmt);
+                    stmts = new NereidsParser().parseSQL(originStmt);
                 } catch (Exception e) {
                     // TODO: We should catch all exception here until we support all query syntax.
                     nereidsParseException = e;
@@ -278,31 +279,49 @@ public class ConnectProcessor {
             if (stmts == null) {
                 stmts = parse(originStmt);
             }
-            for (int i = 0; i < stmts.size(); ++i) {
-                alreadyAddedToAuditInfoList = false;
+
+            // if stmts.size() > 1, we should split originStmt to multi singleStmts
+            if (stmts.size() > 1) {
+                try {
+                    origSingleStmtList = new NereidsParser().parseMultiStmts(originStmt);
+                } catch (Exception ignore) {
+                    LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
+                }
+            }
+            usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+
+            for (; currentIdx < stmts.size(); ++currentIdx) {
                 ctx.getState().reset();
-                if (i > 0) {
+                if (currentIdx > 0) {
                     ctx.resetReturnRows();
                 }
-                parsedStmt = stmts.get(i);
+                parsedStmt = stmts.get(currentIdx);
                 if (parsedStmt instanceof SelectStmt && nereidsParseException != null
                         && ctx.getSessionVariable().isEnableNereidsPlanner()
                         && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
                     throw new Exception(String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
                                 parsedStmt.toSql()), nereidsParseException);
                 }
-                parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+                parsedStmt.setOrigStmt(new OriginStatement(originStmt, currentIdx));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
                 ctx.setExecutor(executor);
-                executor.execute();
 
-                if (i != stmts.size() - 1) {
-                    ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                    finalizeCommand();
+                try {
+                    executor.execute();
+                    if (currentIdx != stmts.size() - 1) {
+                        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+                        finalizeCommand();
+                    }
+                } finally {
+                    executor.addProfileToSpan();
                 }
-                auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
-                alreadyAddedToAuditInfoList = true;
+
+                // audit one by one
+                // we can't place auditAfterExec in finally block above cause we don't know the final state of ctx
+                auditAfterExec(usingOrigSingleStmt ? origSingleStmtList.get(currentIdx) : originStmt,
+                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+
             }
         } catch (IOException e) {
             // Client failed.
@@ -311,7 +330,7 @@ public class ConnectProcessor {
         } catch (UserException e) {
             LOG.warn("Process one query failed because.", e);
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
+            // set it as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Throwable e) {
             // Catch all throwable.
@@ -325,23 +344,19 @@ public class ConnectProcessor {
             }
         }
 
-        // that means execute some statement failed
-        if (!alreadyAddedToAuditInfoList && executor != null) {
-            auditInfoList.add(Pair.of(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+        // ignore ANALYSIS_ERR (don't know why but just stay the same behavior)
+        if (ctx.getState().getStateType() == MysqlStateType.ERR
+                && QueryState.ErrType.ANALYSIS_ERR != ctx.getState().getErrType()) {
+            if (executor != null) {
+                // executor execute stmt failed
+                auditAfterExec(usingOrigSingleStmt ? origSingleStmtList.get(currentIdx) : originStmt,
+                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+            } else {
+                // nereids anaylze sql failed and fall-back disabled
+                auditAfterExec(originStmt, null, null);
+            }
         }
 
-        // audit after exec, analysis query would not be recorded
-        if (!auditInfoList.isEmpty()) {
-            for (Pair<StatementBase, Data.PQueryStatistics> audit : auditInfoList) {
-                auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
-            }
-        } else if (QueryState.ErrType.ANALYSIS_ERR != ctx.getState().getErrType()) {
-            // auditInfoList can be empty if we encounter error.
-            auditAfterExec(originStmt.replace("\n", " "), null, null);
-        }
-        if (executor != null) {
-            executor.addProfileToSpan();
-        }
     }
 
     // analyze the origin stmt and return multi-statements
