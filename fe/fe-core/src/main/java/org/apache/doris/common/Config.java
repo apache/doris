@@ -1916,5 +1916,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+
+    /**
+     * Set session variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean use_fuzzy_session_variable = false;
 }
 
