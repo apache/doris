@@ -20,8 +20,8 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/agent")
 
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/agent")
-  
-add_library(Agent STATIC
+
+set(AGENT_SOURCES
     agent_server.cpp
     heartbeat_server.cpp
     task_worker_pool.cpp
@@ -30,3 +30,10 @@ add_library(Agent STATIC
     topic_subscriber.cpp
     user_resource_listener.cpp
 )
+
+if (OS_MACOSX)
+    list(REMOVE_ITEM AGENT_SOURCES cgroups_mgr.cpp user_resource_listener.cpp)
+    list(APPEND AGENT_SOURCES cgroups_mgr_mac.cpp)
+endif()
+
+add_library(Agent STATIC ${AGENT_SOURCES})

@@ -133,6 +133,9 @@ set(HTTP_TEST_FILES
     # http/stream_load_test.cpp
     # http/metrics_action_test.cpp
 )
+set(IO_TEST_FILES
+    io/cache/remote_file_cache_test.cpp
+)
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
     olap/timestamped_version_tracker_test.cpp
@@ -201,6 +204,7 @@ set(OLAP_TEST_FILES
     olap/tablet_cooldown_test.cpp
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
+    olap/segcompaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -218,7 +222,6 @@ set(RUNTIME_TEST_FILES
     # runtime/tmp_file_mgr_test.cpp
     # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
-    # runtime/qsorter_test.cpp
     # runtime/buffered_block_mgr2_test.cpp
     # runtime/buffered_tuple_stream2_test.cpp
     # runtime/export_task_mgr_test.cpp
@@ -327,7 +330,10 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
+    vec/aggregate_functions/vec_retention_test.cpp
+    vec/aggregate_functions/vec_sequence_match_test.cpp
     vec/aggregate_functions/agg_min_max_by_test.cpp
+    vec/columns/column_decimal_test.cpp
     vec/core/block_test.cpp
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
@@ -356,8 +362,10 @@ set(VEC_TEST_FILES
     vec/function/function_like_test.cpp
     vec/function/function_arithmetic_test.cpp
     vec/function/function_json_test.cpp
+    vec/function/function_jsonb_test.cpp
     vec/function/function_geo_test.cpp
     vec/function/function_test_util.cpp
+    vec/function/function_url_test.cpp
     vec/function/table_function_test.cpp
     vec/runtime/vdata_stream_test.cpp
     vec/runtime/vdatetime_value_test.cpp
@@ -374,6 +382,7 @@ add_executable(doris_be_test
     ${GEO_TEST_FILES}
     ${GUTIL_TEST_FILES}
     ${HTTP_TEST_FILES}
+    ${IO_TEST_FILES}
     ${OLAP_TEST_FILES}
     ${RUNTIME_TEST_FILES}
     ${TESTUTIL_TEST_FILES}

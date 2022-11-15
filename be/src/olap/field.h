@@ -798,7 +798,9 @@ public:
                 [[fallthrough]];
             case OLAP_FIELD_TYPE_DECIMAL64:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL128: {
+            case OLAP_FIELD_TYPE_DECIMAL128:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
                 field->set_scale(column.frac());

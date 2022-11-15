@@ -34,7 +34,7 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
     register_function("hll_union", create_aggregate_function_HLL_union<false>);
 }
 
-// only replace funtion in load/reader do different agg operation.
+// only replace function in load/reader do different agg operation.
 // because Doris can ensure that the data is globally ordered in reader, but cannot in load
 // 1. reader, get the first value of input data.
 // 2. load, get the last value of input data.

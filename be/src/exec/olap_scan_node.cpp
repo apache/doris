@@ -191,7 +191,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    _scanner_mem_tracker = std::make_unique<MemTracker>("Scanners");
+    _scanner_mem_tracker = std::make_shared<MemTracker>("Scanners");
 
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
@@ -244,6 +244,9 @@ Status OlapScanNode::open(RuntimeState* state) {
         IRuntimeFilter* runtime_filter = nullptr;
         state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id, &runtime_filter);
         DCHECK(runtime_filter != nullptr);
+        if (auto bf = runtime_filter->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
+        }
         if (runtime_filter == nullptr) {
             continue;
         }
@@ -938,7 +941,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
             }
             OlapScanner* scanner =
                     new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                    _need_agg_finalize, *scan_range, _scanner_mem_tracker.get());
+                                    _need_agg_finalize, *scan_range, _scanner_mem_tracker);
             scanner->set_batch_size(_batch_size);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
@@ -1480,7 +1483,7 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1532,7 +1535,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             size_t thread_slot_num = 0;
             mem_consume = _scanner_mem_tracker->consumption();
             // check limit for total memory and _scan_row_batches memory
-            if (mem_consume < (state->instance_mem_tracker()->limit() * 6) / 10 &&
+            if (mem_consume < (state->query_mem_tracker()->limit() * 6) / 10 &&
                 _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {
@@ -1657,8 +1660,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    // SCOPED_ATTACH_TASK(_runtime_state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
     Thread::set_self_name("olap_scanner");
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;

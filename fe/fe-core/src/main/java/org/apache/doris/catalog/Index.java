@@ -17,72 +17,69 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
 
-import com.google.common.io.ByteStreams;
-import com.google.gson.TypeAdapter;
-import com.google.gson.annotations.JsonAdapter;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
-import org.apache.commons.codec.binary.Base64;
 
-import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
  * This class will used in olaptable
  */
 public class Index implements Writable {
+    public static final int INDEX_ID_INIT_VALUE = -1;
+
+    @SerializedName(value = "indexId")
+    private long indexId = -1; // -1 for compatibale
     @SerializedName(value = "indexName")
     private String indexName;
     @SerializedName(value = "columns")
     private List<String> columns;
     @SerializedName(value = "indexType")
     private IndexDef.IndexType indexType;
-    @SerializedName(value = "arguments")
-    @JsonAdapter(ExprListGsonAdapter.class)
-    private List<Expr> arguments;
+    @SerializedName(value = "properties")
+    private Map<String, String> properties;
     @SerializedName(value = "comment")
     private String comment;
 
-    public Index(String indexName, List<String> columns, IndexDef.IndexType indexType,
-                 List<Expr> arguments, String comment) {
+    public Index(long indexId, String indexName, List<String> columns,
+                 IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
+        this.indexId = indexId;
         this.indexName = indexName;
         this.columns = columns;
         this.indexType = indexType;
-        this.arguments = arguments;
+        this.properties = properties;
         this.comment = comment;
-    }
-
-    public Index(String indexName, List<String> columns, IndexDef.IndexType indexType, String comment) {
-        this(indexName, columns, indexType, new ArrayList<Expr>(), comment);
     }
 
     public Index() {
         this.indexName = null;
         this.columns = null;
         this.indexType = null;
-        this.arguments = null;
+        this.properties = null;
         this.comment = null;
+    }
+
+    public long getIndexId() {
+        return indexId;
+    }
+
+    public void setIndexId(long indexId) {
+        this.indexId = indexId;
     }
 
     public String getIndexName() {
@@ -109,12 +106,24 @@ public class Index implements Writable {
         this.indexType = indexType;
     }
 
-    public List<Expr> getArguments() {
-        return arguments;
+    public Map<String, String> getProperties() {
+        return properties;
     }
 
-    public void setArguments(List<Expr> arguments) {
-        this.arguments = arguments;
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public String getPropertiesString() {
+        if (properties == null || properties.isEmpty()) {
+            return "";
+        }
+
+        return "(" + new PrintableMap(properties, "=", true, false, ",").toString() + ")";
+    }
+
+    public String getInvertedIndexParser() {
+        return InvertedIndexUtil.getInvertedIndexParser(properties);
     }
 
     public String getComment() {
@@ -137,12 +146,12 @@ public class Index implements Writable {
 
     @Override
     public int hashCode() {
-        return 31 * (indexName.hashCode() + columns.hashCode() + indexType.hashCode() + Objects.hashCode(arguments));
+        return 31 * (indexName.hashCode() + columns.hashCode() + indexType.hashCode());
     }
 
     public Index clone() {
-        return new Index(indexName, new ArrayList<>(columns), indexType,
-            arguments == null ? null : new ArrayList<>(arguments), comment);
+        return new Index(indexId, indexName, new ArrayList<>(columns),
+                         indexType, new HashMap<>(properties), comment);
     }
 
     @Override
@@ -167,18 +176,9 @@ public class Index implements Writable {
         if (indexType != null) {
             sb.append(" USING ").append(indexType.toString());
         }
-        if (arguments != null && !arguments.isEmpty()) {
-            sb.append(" (");
-            first = true;
-            for (Expr argument : arguments) {
-                if (first) {
-                    first = false;
-                } else {
-                    sb.append(",");
-                }
-                sb.append(argument.toSql());
-            }
-            sb.append(")");
+        if (properties != null && properties.size() > 0) {
+            sb.append(" PROPERTIES");
+            sb.append(getPropertiesString());
         }
         if (comment != null) {
             sb.append(" COMMENT '" + comment + "'");
@@ -188,81 +188,13 @@ public class Index implements Writable {
 
     public TOlapTableIndex toThrift() {
         TOlapTableIndex tIndex = new TOlapTableIndex();
+        tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
         tIndex.setColumns(columns);
         tIndex.setIndexType(TIndexType.valueOf(indexType.toString()));
-        if (columns != null) {
-            tIndex.setComment(comment);
-        }
-        if (arguments != null) {
-            List<TExpr> tArguments = new ArrayList<>(arguments.size());
-            for (Expr argument : arguments) {
-                TExpr tArgument = argument.treeToThrift();
-                tArguments.add(tArgument);
-            }
-            tIndex.setArguments(tArguments);
+        if (properties != null) {
+            tIndex.setProperties(properties);
         }
         return tIndex;
-    }
-
-    public static class ExprListGsonAdapter extends TypeAdapter<List<Expr>> {
-        @Override
-        public void write(JsonWriter jsonWriter, List<Expr> exprs) throws IOException {
-            if (exprs == null) {
-                jsonWriter.nullValue();
-            } else {
-                ByteArrayOutputStream byteArray = new ByteArrayOutputStream();
-                DataOutput output = ByteStreams.newDataOutput(byteArray);
-                output.writeInt(exprs.size());
-                for (Expr expr : exprs) {
-                    Expr.writeTo(expr, output);
-                }
-                byte[] bytes = byteArray.toByteArray();
-                String base64 = Base64.encodeBase64String(bytes);
-                jsonWriter.value(base64);
-            }
-        }
-
-        @Override
-        public List<Expr> read(JsonReader jsonReader) throws IOException {
-            if (jsonReader.hasNext()) {
-                List<Expr> exprs = new ArrayList<>();
-                String base64 = jsonReader.nextString();
-                byte[] bytes = Base64.decodeBase64(base64);
-                DataInput in = ByteStreams.newDataInput(bytes);
-                int count = in.readInt();
-                for (int i = 0; i < count; i++) {
-                    exprs.add(Expr.readIn(in));
-                }
-                return exprs;
-            } else {
-                return null;
-            }
-        }
-    }
-
-    public static void checkConflict(Collection<Index> indices, Set<String> bloomFilters) throws AnalysisException {
-        indices = indices == null ? Collections.emptyList() : indices;
-        bloomFilters = bloomFilters == null ? Collections.emptySet() : bloomFilters;
-        Set<String> bfColumns = new HashSet<>();
-        for (Index index : indices) {
-            if (IndexDef.IndexType.NGRAM_BF == index.indexType) {
-                for (String column : index.getColumns()) {
-                    column = column.toLowerCase();
-                    if (bfColumns.contains(column)) {
-                        throw new AnalysisException(column + " already has ngram bloom filter index");
-                    }
-                    bfColumns.add(column);
-                }
-            }
-        }
-        for (String column : bloomFilters) {
-            column = column.toLowerCase();
-            if (bfColumns.contains(column)) {
-                throw new AnalysisException(column
-                                            + " should have only one ngram bloom filter index or bloom filter index");
-            }
-            bfColumns.add(column);
-        }
     }
 }

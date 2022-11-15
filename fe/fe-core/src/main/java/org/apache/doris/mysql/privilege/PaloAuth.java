@@ -1363,6 +1363,15 @@ public class PaloAuth implements Writable {
         }
     }
 
+    public long getQueryTimeout(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getQueryTimeout(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public long getMaxQueryInstances(String qualifiedUser) {
         readLock();
         try {
@@ -1403,15 +1412,6 @@ public class PaloAuth implements Writable {
         readLock();
         try {
             return propertyMgr.getExecMemLimit(qualifiedUser);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public long getLoadMemLimit(String qualifiedUser) {
-        readLock();
-        try {
-            return propertyMgr.getLoadMemLimit(qualifiedUser);
         } finally {
             readUnlock();
         }

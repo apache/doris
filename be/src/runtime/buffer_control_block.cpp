@@ -28,7 +28,11 @@ namespace doris {
 void GetResultBatchCtx::on_failure(const Status& status) {
     DCHECK(!status.ok()) << "status is ok, errmsg=" << status.get_error_msg();
     status.to_protobuf(result->mutable_status());
-    done->Run();
+    {
+        // call by result sink
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        done->Run();
+    }
     delete this;
 }
 
@@ -40,7 +44,10 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
-    done->Run();
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        done->Run();
+    }
     delete this;
 }
 
@@ -65,7 +72,10 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_eos(eos);
     }
     st.to_protobuf(result->mutable_status());
-    done->Run();
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        done->Run();
+    }
     delete this;
 }
 

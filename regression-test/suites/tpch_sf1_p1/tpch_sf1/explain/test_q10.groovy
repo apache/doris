@@ -87,13 +87,13 @@ suite("test_explain_tpch_sf_1_q10") {
 		explainStr.contains("vec output tuple id: 6") && 
 		explainStr.contains("output slot ids: 32 33 36 \n" + 
 				"  |  hash output slot ids: 2 3 9 ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_returnflag` = 'R'\n" + 
 				"     runtime filters: RF002[in_or_bloom] -> `l_orderkey`") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON") && 
-		explainStr.contains("TABLE: customer(customer), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON") && 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 14>") && 
-		explainStr.contains("TABLE: orders(orders), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `o_orderdate` >= '1993-10-01 00:00:00', `o_orderdate` < '1994-01-01 00:00:00'\n" + 
 				"     runtime filters: RF001[in_or_bloom] -> <slot 9>")
             

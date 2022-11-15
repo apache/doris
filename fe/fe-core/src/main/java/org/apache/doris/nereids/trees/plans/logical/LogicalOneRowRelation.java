@@ -40,7 +40,7 @@ import java.util.Optional;
  * e.g. select 100, 'value'
  */
 public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation {
-    private final List<NamedExpression> projects;
+    private final ImmutableList<NamedExpression> projects;
 
     public LogicalOneRowRelation(List<NamedExpression> projects) {
         this(projects, Optional.empty(), Optional.empty());

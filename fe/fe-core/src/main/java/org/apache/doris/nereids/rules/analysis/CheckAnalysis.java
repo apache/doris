@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -24,18 +25,27 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import org.apache.commons.lang.StringUtils;
+
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Check analysis rule to check semantic correct after analysis by Nereids.
  */
 public class CheckAnalysis extends OneAnalysisRuleFactory {
+
     @Override
     public Rule build() {
-        return any().then(this::checkExpressionInputTypes).toRule(RuleType.CHECK_ANALYSIS);
+        return any().then(plan -> {
+            checkBound(plan);
+            checkExpressionInputTypes(plan);
+            return null;
+        }).toRule(RuleType.CHECK_ANALYSIS);
     }
 
-    private Plan checkExpressionInputTypes(Plan plan) {
+    private void checkExpressionInputTypes(Plan plan) {
         final Optional<TypeCheckResult> firstFailed = plan.getExpressions().stream()
                 .map(Expression::checkInputDataTypes)
                 .filter(TypeCheckResult::failed)
@@ -44,6 +54,18 @@ public class CheckAnalysis extends OneAnalysisRuleFactory {
         if (firstFailed.isPresent()) {
             throw new AnalysisException(firstFailed.get().getMessage());
         }
-        return plan;
+    }
+
+    private void checkBound(Plan plan) {
+        Set<UnboundSlot> unboundSlots = plan.getExpressions().stream()
+                .<Set<UnboundSlot>>map(e -> e.collect(UnboundSlot.class::isInstance))
+                .flatMap(Set::stream)
+                .collect(Collectors.toSet());
+        if (!unboundSlots.isEmpty()) {
+            throw new AnalysisException(String.format("Cannot find column %s.",
+                    StringUtils.join(unboundSlots.stream()
+                            .map(UnboundSlot::toSql)
+                            .collect(Collectors.toSet()), ", ")));
+        }
     }
 }

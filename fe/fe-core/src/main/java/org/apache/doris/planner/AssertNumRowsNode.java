@@ -77,7 +77,7 @@ public class AssertNumRowsNode extends PlanNode {
             return "";
         }
         StringBuilder output = new StringBuilder()
-                .append(prefix + "assert number of rows: ")
+                .append(prefix).append("assert number of rows: ")
                 .append(assertion).append(" ").append(desiredNumOfRows).append("\n");
         return output.toString();
     }

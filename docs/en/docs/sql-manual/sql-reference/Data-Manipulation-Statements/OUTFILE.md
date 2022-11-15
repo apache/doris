@@ -58,7 +58,7 @@ illustrate:
 
     FORMAT AS CSV
 
-    Specifies the export format. Default is CSV.
+    Specifies the export format. Supported formats include CSV, PARQUET, CSV_WITH_NAMES, CSV_WITH_NAMES_AND_TYPES and ORC. Default is CSV.
 
 3. properties
 
@@ -206,7 +206,7 @@ illustrate:
    Verify on cos
 
           1. A path that does not exist will be automatically created
-             2. Access.key/secret.key/endpoint needs to be confirmed with cos students. Especially the value of endpoint does not need to fill in bucket_name.
+          2. Access.key/secret.key/endpoint needs to be confirmed with students of cos. Especially the value of endpoint does not need to fill in bucket_name.
 
 6. Use the s3 protocol to export to bos, and enable concurrent export.
 

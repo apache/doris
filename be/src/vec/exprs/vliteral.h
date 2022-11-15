@@ -18,7 +18,6 @@
 #pragma once
 
 #include "vec/columns/column.h"
-#include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -33,15 +32,10 @@ public:
             init(node);
         }
     };
-    virtual ~VLiteral() = default;
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) override;
-    virtual const std::string& expr_name() const override { return _expr_name; }
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VLiteral(*this));
-    }
-
-    virtual std::string debug_string() const override;
+    Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id) override;
+    const std::string& expr_name() const override { return _expr_name; }
+    VExpr* clone(doris::ObjectPool* pool) const override { return pool->add(new VLiteral(*this)); }
+    std::string debug_string() const override;
 
 protected:
     ColumnPtr _column_ptr;

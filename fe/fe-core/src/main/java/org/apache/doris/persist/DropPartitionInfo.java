@@ -38,17 +38,20 @@ public class DropPartitionInfo implements Writable {
     private boolean isTempPartition = false;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
+    @SerializedName(value = "recycleTime")
+    private long recycleTime = 0;
 
     private DropPartitionInfo() {
     }
 
     public DropPartitionInfo(Long dbId, Long tableId, String partitionName,
-            boolean isTempPartition, boolean forceDrop) {
+            boolean isTempPartition, boolean forceDrop, long recycleTime) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
+        this.recycleTime = recycleTime;
     }
 
     public Long getDbId() {
@@ -69,6 +72,10 @@ public class DropPartitionInfo implements Writable {
 
     public boolean isForceDrop() {
         return forceDrop;
+    }
+
+    public Long getRecycleTime() {
+        return  recycleTime;
     }
 
     @Deprecated
@@ -104,6 +111,7 @@ public class DropPartitionInfo implements Writable {
                 && (tableId.equals(info.tableId))
                 && (partitionName.equals(info.partitionName))
                 && (isTempPartition == info.isTempPartition)
-                && (forceDrop == info.forceDrop);
+                && (forceDrop == info.forceDrop)
+                && (recycleTime == info.recycleTime);
     }
 }

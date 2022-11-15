@@ -72,6 +72,8 @@
 
 #include <limits>
 
+// #include "util/string_parser.hpp"
+
 namespace doris {
 
 #pragma pack(push, 1)
@@ -347,6 +349,34 @@ public:
     bool isArray() const { return (type_ == JsonbType::T_Array); }
 
     JsonbType type() const { return type_; }
+
+    const char* typeName() const {
+        switch (type_) {
+        case JsonbType::T_Null:
+            return "null";
+        case JsonbType::T_True:
+        case JsonbType::T_False:
+            return "bool";
+        case JsonbType::T_Int8:
+        case JsonbType::T_Int16:
+        case JsonbType::T_Int32:
+            return "int";
+        case JsonbType::T_Int64:
+            return "bigint";
+        case JsonbType::T_Double:
+            return "double";
+        case JsonbType::T_String:
+            return "string";
+        case JsonbType::T_Binary:
+            return "binary";
+        case JsonbType::T_Object:
+            return "object";
+        case JsonbType::T_Array:
+            return "array";
+        default:
+            return "unknown";
+        }
+    }
 
     // size of the total packed bytes
     unsigned int numPackedBytes() const;
@@ -997,7 +1027,20 @@ inline const char* JsonbValue::getValuePtr() const {
 
 inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_len,
                                         const char* delim = ".", hDictFind handler = nullptr) {
-    if (!key_path || !kp_len) return nullptr;
+    if (!key_path) return nullptr;
+    if (kp_len == 0) return this;
+
+    // skip $ and . at beginning
+    if (kp_len > 0 && *key_path == '$') {
+        key_path++;
+        kp_len--;
+        if (kp_len > 0 && *key_path == '.') {
+            key_path++;
+            kp_len--;
+        }
+    }
+
+    if (kp_len == 0) return this;
 
     if (!delim) delim = "."; // default delimiter
 
@@ -1008,37 +1051,66 @@ inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_le
     while (pval && key_path < fence) {
         const char* key = key_path;
         unsigned int klen = 0;
-        // find the current key
-        for (; key_path != fence && *key_path != *delim; ++key_path, ++klen)
-            ;
-
-        if (!klen) return nullptr;
-
-        switch (pval->type_) {
-        case JsonbType::T_Object: {
-            pval = ((ObjectVal*)pval)->find(key, klen, handler);
-            break;
+        const char* left_bracket = nullptr;
+        const char* right_bracket = nullptr;
+        size_t idx_len = 0;
+        // find the current key and [] bracket position
+        for (; key_path != fence && *key_path != *delim; ++key_path, ++klen) {
+            if ('[' == *key_path) {
+                left_bracket = key_path;
+            } else if (']' == *key_path) {
+                right_bracket = key_path;
+            }
         }
 
-        case JsonbType::T_Array: {
-            // parse string into an integer (array index)
-            if (klen >= sizeof(idx_buf)) return nullptr;
-
-            memcpy(idx_buf, key, klen);
-            idx_buf[klen] = 0;
-
-            char* end = nullptr;
-            int index = (int)strtol(idx_buf, &end, 10);
-            if (end && !*end)
-                pval = ((ArrayVal*)pval)->get(index);
-            else
-                // incorrect index string
+        // check brackets and array index length
+        if (left_bracket || right_bracket) {
+            if (!left_bracket || !right_bracket) {
                 return nullptr;
-            break;
+            }
+            // check the last char is ]
+            if (key + klen - 1 != right_bracket) {
+                return nullptr;
+            }
+            // the part before left_bracket is object key
+            klen = left_bracket - key;
+            // the part between left_bracket and right_bracket is array index
+            idx_len = right_bracket - left_bracket - 1;
         }
 
-        default:
-            return nullptr;
+        if (!klen && !idx_len) return nullptr;
+
+        // get value of key in object
+        if (klen) {
+            if (LIKELY(pval->type_ == JsonbType::T_Object)) {
+                pval = ((ObjectVal*)pval)->find(key, klen, handler);
+                if (!pval) return nullptr;
+            } else {
+                return nullptr;
+            }
+        }
+
+        // get value at idx in array
+        if (idx_len) {
+            if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+                if (idx_len >= sizeof(idx_buf)) return nullptr;
+                memcpy(idx_buf, left_bracket + 1, idx_len);
+                idx_buf[idx_len] = 0;
+
+                char* end = nullptr;
+                int index = (int)strtol(idx_buf, &end, 10);
+                if (end && !*end)
+                    pval = ((ArrayVal*)pval)->get(index);
+                else
+                    // incorrect index string
+                    return nullptr;
+
+                // doris::StringParser::ParseResult parse_result;
+                // int index = doris::StringParser::string_to_int<int>(left_bracket + 1, idx_len, &parse_result);
+                // if (parse_result == doris::StringParser::ParseResult::PARSE_SUCCESS)
+            } else {
+                return nullptr;
+            }
         }
 
         // skip the delimiter

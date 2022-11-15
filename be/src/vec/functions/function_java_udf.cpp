@@ -17,7 +17,6 @@
 
 #include "vec/functions/function_java_udf.h"
 
-#ifdef LIBJVM
 #include <fmt/format.h>
 
 #include <memory>
@@ -93,6 +92,10 @@ Status JavaFunctionCall::prepare(FunctionContext* context,
 
         RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
         jni_ctx->executor = env->NewObject(executor_cl_, executor_ctor_id_, ctor_params_bytes);
+
+        jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
+        env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
+        env->DeleteLocalRef(ctor_params_bytes);
     }
     RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_ctx->executor, &jni_ctx->executor));
@@ -108,34 +111,37 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     int arg_idx = 0;
+    ColumnPtr data_cols[arguments.size()];
+    ColumnPtr null_cols[arguments.size()];
     for (size_t col_idx : arguments) {
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
-        auto col = column.column->convert_to_full_column_if_const();
+        data_cols[arg_idx] = column.column->convert_to_full_column_if_const();
         if (!_argument_types[arg_idx]->equals(*column.type)) {
             return Status::InvalidArgument(strings::Substitute(
                     "$0-th input column's type $1 does not equal to required type $2", arg_idx,
                     column.type->get_name(), _argument_types[arg_idx]->get_name()));
         }
-        auto data_col = col;
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*col)) {
-            data_col = nullable->get_nested_column_ptr();
-            auto null_col =
-                    check_and_get_column<ColumnVector<UInt8>>(nullable->get_null_map_column_ptr());
-            jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] =
-                    reinterpret_cast<int64_t>(null_col->get_data().data());
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*data_cols[arg_idx])) {
+            null_cols[arg_idx] = nullable->get_null_map_column_ptr();
+            jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] = reinterpret_cast<int64_t>(
+                    check_and_get_column<ColumnVector<UInt8>>(null_cols[arg_idx])
+                            ->get_data()
+                            .data());
+            data_cols[arg_idx] = nullable->get_nested_column_ptr();
         } else {
             jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] = -1;
         }
 
-        if (data_col->is_column_string()) {
-            const ColumnString* str_col = assert_cast<const ColumnString*>(data_col.get());
+        if (data_cols[arg_idx]->is_column_string()) {
+            const ColumnString* str_col =
+                    assert_cast<const ColumnString*>(data_cols[arg_idx].get());
             jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
                     reinterpret_cast<int64_t>(str_col->get_chars().data());
             jni_ctx->input_offsets_ptrs.get()[arg_idx] =
                     reinterpret_cast<int64_t>(str_col->get_offsets().data());
-        } else if (data_col->is_numeric() || data_col->is_column_decimal()) {
+        } else if (data_cols[arg_idx]->is_numeric() || data_cols[arg_idx]->is_column_decimal()) {
             jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
-                    reinterpret_cast<int64_t>(data_col->get_raw_data().data);
+                    reinterpret_cast<int64_t>(data_cols[arg_idx]->get_raw_data().data);
         } else {
             return Status::InvalidArgument(
                     strings::Substitute("Java UDF doesn't support type $0 now !",
@@ -216,4 +222,3 @@ Status JavaFunctionCall::close(FunctionContext* context,
     return Status::OK();
 }
 } // namespace doris::vectorized
-#endif

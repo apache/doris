@@ -45,8 +45,23 @@ suite("function") {
         SELECT count(distinct c_custkey + 1) AS custdist FROM customer group by c_city;
     """
 
+    order_qt_distinct_count_group_by_distributed_key """
+        SELECT c_custkey, count(distinct c_custkey + 1) AS custdist FROM customer group by c_custkey;
+    """
+
     order_qt_avg """
         SELECT avg(lo_tax), avg(lo_extendedprice) AS avg_extendedprice FROM lineorder;
     """
+
+    // nested function
+    test {
+        sql "select cast(date('1994-01-01') + interval '1' YEAR as varchar)"
+        result([["1995-01-01 00:00:00"]])
+    }
+
+    test {
+        sql "select substring(substring('1994-01-01', 5), 3)"
+        result([["1-01"]])
+    }
 }
 

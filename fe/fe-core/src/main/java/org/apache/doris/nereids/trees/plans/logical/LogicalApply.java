@@ -45,7 +45,7 @@ import java.util.Optional;
 public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
     // correlation column
-    private final List<Expression> correlationSlot;
+    private final ImmutableList<Expression> correlationSlot;
     // original subquery
     private final SubqueryExpr subqueryExpr;
     // correlation Conjunction
@@ -136,7 +136,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalApply((LogicalApply<Plan, Plan>) this, context);
+        return visitor.visitLogicalApply(this, context);
     }
 
     @Override

@@ -90,7 +90,7 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
     }
 }
 
-Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))) {
+Status SegmentWriter::init() {
     uint32_t column_id = 0;
     _column_writers.reserve(_tablet_schema->columns().size());
     for (auto& column : _tablet_schema->columns()) {

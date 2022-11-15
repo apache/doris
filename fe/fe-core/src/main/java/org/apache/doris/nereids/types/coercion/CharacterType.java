@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types.coercion;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 /**
  * Abstract type for all characters type in Nereids.
@@ -46,7 +47,7 @@ public class CharacterType extends PrimitiveType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof CharacterType;
     }
 
@@ -58,5 +59,21 @@ public class CharacterType extends PrimitiveType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    /**
+     * find the wider character type for type coercion.
+     */
+    public static CharacterType widerCharacterType(CharacterType left, CharacterType right) {
+        if (left.equals(right)) {
+            return left;
+        }
+        if (left instanceof StringType || right instanceof StringType) {
+            return StringType.INSTANCE;
+        }
+        if (left.getLen() == -1 || right.getLen() == -1) {
+            return VarcharType.SYSTEM_DEFAULT;
+        }
+        return new VarcharType(Math.max(left.getLen(), right.getLen()));
     }
 }

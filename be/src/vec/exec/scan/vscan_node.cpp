@@ -17,14 +17,14 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+#include "common/status.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "util/stack_util.h"
-#include "util/threadpool.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vcompound_pred.h"
+#include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/in.h"
 
@@ -108,6 +108,7 @@ Status VScanNode::open(RuntimeState* state) {
 Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     INIT_AND_SCOPE_REENTRANT_SPAN_IF(state->enable_profile(), state->get_tracer(), _get_next_span,
                                      "VScanNode::get_next");
+    SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     if (state->is_cancelled()) {
@@ -146,6 +147,8 @@ Status VScanNode::_init_profile() {
     _total_throughput_counter =
             runtime_profile()->add_rate_counter("TotalReadThroughput", _rows_read_counter);
     _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
+    _get_next_timer = ADD_TIMER(_runtime_profile, "GetNextTime");
+    _acquire_runtime_filter_timer = ADD_TIMER(_runtime_profile, "AcuireRuntimeFilterTime");
 
     // 2. counters for scanners
     _scanner_profile.reset(new RuntimeProfile("VScanner"));
@@ -199,9 +202,17 @@ Status VScanNode::_register_runtime_filter() {
 }
 
 Status VScanNode::_acquire_runtime_filter() {
+    SCOPED_TIMER(_acquire_runtime_filter_timer);
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        // If all targets are local, scan node will use hash node's runtime filter, and we don't
+        // need to allocate memory again
+        if (runtime_filter->has_remote_target()) {
+            if (auto bf = runtime_filter->get_bloomfilter()) {
+                RETURN_IF_ERROR(bf->init_with_fixed_length());
+            }
+        }
         bool ready = runtime_filter->is_ready();
         if (!ready) {
             ready = runtime_filter->await();
@@ -405,9 +416,11 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
             _eval_const_conjuncts(cur_expr, *_vconjunct_ctx_ptr, &pdt);
-            if (pdt == PushDownType::UNACCEPTABLE &&
-                (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
-                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range))) {
+            if (pdt == PushDownType::ACCEPTABLE) {
+                return nullptr;
+            }
+            if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
+                _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 std::visit(
                         [&](auto& value_range) {
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
@@ -433,8 +446,7 @@ VExpr* VScanNode::_normalize_predicate(VExpr* conjunct_expr_root) {
                         },
                         *range);
             }
-            if (pdt == PushDownType::ACCEPTABLE && slot != nullptr &&
-                _is_key_column(slot->col_name())) {
+            if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
                 return nullptr;
             } else {
                 // for PARTIAL_ACCEPTABLE and UNACCEPTABLE, do not remove expr from the tree
@@ -542,11 +554,20 @@ void VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Push
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
             //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
+            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+                         << "] should return a const column but actually is "
+                         << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
-            constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
-            if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
-                *pdt = PushDownType::ACCEPTABLE;
-                _eos = true;
+            if (bool_column->size() == 1) {
+                constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
+                if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
+                    *pdt = PushDownType::ACCEPTABLE;
+                    _eos = true;
+                }
+            } else {
+                LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
+                                "`size == 1` but actually is "
+                             << bool_column->size();
             }
         } else {
             LOG(WARNING) << "Expr[" << vexpr->debug_string()
@@ -564,18 +585,33 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                                                                            slot->type().scale);
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
-        VInPredicate* pred = static_cast<VInPredicate*>(expr);
-        PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
-        if (temp_pdt == PushDownType::UNACCEPTABLE) {
-            return Status::OK();
+        HybridSetBase::IteratorBase* iter = nullptr;
+        auto hybrid_set = expr->get_set_func();
+
+        if (hybrid_set != nullptr) {
+            // runtime filter produce VDirectInPredicate
+            if (hybrid_set->size() <= _max_pushdown_conditions_per_column) {
+                iter = hybrid_set->begin();
+            } else {
+                _in_filters_push_down.emplace_back(slot->col_name(), expr->get_set_func());
+                *pdt = PushDownType::ACCEPTABLE;
+                return Status::OK();
+            }
+        } else {
+            // normal in predicate
+            VInPredicate* pred = static_cast<VInPredicate*>(expr);
+            PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
+            if (temp_pdt == PushDownType::UNACCEPTABLE) {
+                return Status::OK();
+            }
+
+            // begin to push InPredicate value into ColumnValueRange
+            InState* state = reinterpret_cast<InState*>(
+                    expr_ctx->fn_context(pred->fn_context_index())
+                            ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            iter = state->hybrid_set->begin();
         }
 
-        // begin to push InPredicate value into ColumnValueRange
-        InState* state = reinterpret_cast<InState*>(
-                expr_ctx->fn_context(pred->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        HybridSetBase::IteratorBase* iter = state->hybrid_set->begin();
-        auto fn_name = std::string("");
         while (iter->has_next()) {
             // column in (nullptr) is always false so continue to
             // dispose next item
@@ -585,11 +621,11 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
             }
             auto value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<true>(
-                    temp_range, value, ColumnValueRange<T>::add_fixed_value_range, fn_name));
+                    temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
             iter->next();
         }
         range.intersection(temp_range);
-        *pdt = temp_pdt;
+        *pdt = PushDownType::ACCEPTABLE;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
         DCHECK(expr->children().size() == 2);
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
@@ -623,11 +659,6 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
         *pdt = temp_pdt;
     }
 
-    // exceed limit, no conditions will be pushed down to storage engine.
-    if (range.get_fixed_value_size() > _max_pushdown_conditions_per_column) {
-        range.set_whole_value_range();
-        *pdt = PushDownType::UNACCEPTABLE;
-    }
     return Status::OK();
 }
 
@@ -928,22 +959,6 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
                                                                   VExprContext* expr_ctx,
                                                                   bool is_not_in) {
     if (pred->is_not_in() != is_not_in) {
-        return PushDownType::UNACCEPTABLE;
-    }
-    InState* state = reinterpret_cast<InState*>(
-            expr_ctx->fn_context(pred->fn_context_index())
-                    ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    HybridSetBase* set = state->hybrid_set.get();
-
-    // if there are too many elements in InPredicate, exceed the limit,
-    // we will not push any condition of this column to storage engine.
-    // because too many conditions pushed down to storage engine may even
-    // slow down the query process.
-    // ATTN: This is just an experience value. You may need to try
-    // different thresholds to improve performance.
-    if (set->size() > _max_pushdown_conditions_per_column) {
-        VLOG_NOTICE << "Predicate value num " << set->size() << " exceed limit "
-                    << _max_pushdown_conditions_per_column;
         return PushDownType::UNACCEPTABLE;
     }
     return PushDownType::ACCEPTABLE;

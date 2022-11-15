@@ -78,7 +78,7 @@ LDAP组授权是将LDAP中的group映射到Doris中的Role，如果用户在LDAP
 配置好ldap.conf文件后启动fe，使用root或admin账号登录Doris，执行sql：
 
 ```sql
-set ldap_admin_password = 'ldap_admin_password';
+set ldap_admin_password = password('ldap_admin_password');
 ```
 
 ### Client端配置

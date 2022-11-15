@@ -28,12 +28,14 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -78,38 +80,40 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 .whenNot(LogicalAggregate::isDisassembled)
                 .then(aggregate -> {
                     // used in secondDisassemble to transform local expressions into global
-                    final Map<Expression, Expression> globalOutputSMap = Maps.newHashMap();
-                    Pair<LogicalAggregate<LogicalAggregate<GroupPlan>>, Boolean> ret
-                            = firstDisassemble(aggregate, globalOutputSMap);
-                    if (!ret.second) {
-                        return ret.first;
+                    Map<Expression, Expression> globalOutputSMap = Maps.newHashMap();
+                    Pair<LogicalAggregate<LogicalAggregate<GroupPlan>>, Boolean> result
+                            = disassembleAggregateFunction(aggregate, globalOutputSMap);
+                    LogicalAggregate<LogicalAggregate<GroupPlan>> newPlan = result.first;
+                    boolean hasDistinct = result.second;
+                    if (!hasDistinct) {
+                        return newPlan;
                     }
-                    return secondDisassemble(ret.first, globalOutputSMap);
+                    return disassembleDistinct(newPlan, globalOutputSMap);
                 }).toRule(RuleType.AGGREGATE_DISASSEMBLE);
     }
 
     // only support distinct function with group by
     // TODO: support distinct function without group by. (add second global phase)
-    private LogicalAggregate<LogicalAggregate<LogicalAggregate<GroupPlan>>> secondDisassemble(
+    private LogicalAggregate<LogicalAggregate<LogicalAggregate<GroupPlan>>> disassembleDistinct(
             LogicalAggregate<LogicalAggregate<GroupPlan>> aggregate,
             Map<Expression, Expression> globalOutputSMap) {
-        LogicalAggregate<GroupPlan> local = aggregate.child();
+        LogicalAggregate<GroupPlan> localDistinct = aggregate.child();
         // replace expression in globalOutputExprs and globalGroupByExprs
-        List<NamedExpression> globalOutputExprs = local.getOutputExpressions().stream()
+        List<NamedExpression> globalOutputExprs = localDistinct.getOutputExpressions().stream()
                 .map(e -> ExpressionUtils.replace(e, globalOutputSMap))
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
 
         // generate new plan
-        LogicalAggregate<LogicalAggregate<GroupPlan>> globalAggregate = new LogicalAggregate<>(
-                local.getGroupByExpressions(),
+        LogicalAggregate<LogicalAggregate<GroupPlan>> globalDistinct = new LogicalAggregate<>(
+                localDistinct.getGroupByExpressions(),
                 globalOutputExprs,
                 Optional.of(aggregate.getGroupByExpressions()),
                 true,
                 aggregate.isNormalized(),
                 false,
                 AggPhase.GLOBAL,
-                local
+                localDistinct
         );
         return new LogicalAggregate<>(
                 aggregate.getGroupByExpressions(),
@@ -118,11 +122,11 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 aggregate.isNormalized(),
                 true,
                 AggPhase.DISTINCT_LOCAL,
-                globalAggregate
+                globalDistinct
         );
     }
 
-    private Pair<LogicalAggregate<LogicalAggregate<GroupPlan>>, Boolean> firstDisassemble(
+    private Pair<LogicalAggregate<LogicalAggregate<GroupPlan>>, Boolean> disassembleAggregateFunction(
             LogicalAggregate<GroupPlan> aggregate,
             Map<Expression, Expression> globalOutputSMap) {
         boolean hasDistinct = Boolean.FALSE;
@@ -147,7 +151,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
         //    +-----------+---------------------+-------------------------+--------------------------------+
         //    NOTICE: Ref: SlotReference, A: Alias, AF: AggregateFunction, #x: ExprId x
         // 2. collect local aggregate output expressions and local aggregate group by expression list
-        List<Expression> localGroupByExprs = aggregate.getGroupByExpressions();
+        List<Expression> localGroupByExprs = new ArrayList<>(aggregate.getGroupByExpressions());
         List<NamedExpression> localOutputExprs = Lists.newArrayList();
         for (Expression originGroupByExpr : originGroupByExprs) {
             if (inputSubstitutionMap.containsKey(originGroupByExpr)) {
@@ -183,11 +187,30 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                     }
                     continue;
                 }
-                NamedExpression localOutputExpr = new Alias(aggregateFunction, aggregateFunction.toSql());
-                Expression substitutionValue = aggregateFunction.withChildren(
-                        Lists.newArrayList(localOutputExpr.toSlot()));
+
+                AggregateFunction localAggregateFunction = aggregateFunction.withAggregateParam(
+                        aggregateFunction.getAggregateParam()
+                                .withDistinct(false)
+                                .withGlobal(false)
+                );
+                NamedExpression localOutputExpr = new Alias(localAggregateFunction, aggregateFunction.toSql());
+
+                List<DataType> inputTypesBeforeDissemble = aggregateFunction.children()
+                        .stream()
+                        .map(Expression::getDataType)
+                        .collect(Collectors.toList());
+                AggregateFunction substitutionValue = aggregateFunction
+                        // save the origin input types to the global aggregate functions
+                        .withAggregateParam(aggregateFunction.getAggregateParam()
+                                .withDistinct(false)
+                                .withGlobal(true)
+                                .withInputTypesBeforeDissemble(Optional.of(inputTypesBeforeDissemble)))
+                        .withChildren(Lists.newArrayList(localOutputExpr.toSlot()));
+
                 inputSubstitutionMap.put(aggregateFunction, substitutionValue);
-                globalOutputSMap.put(aggregateFunction, substitutionValue);
+                // because we use local output exprs to generate global output in disassembleDistinct,
+                // so we must use localAggregateFunction as key
+                globalOutputSMap.put(localAggregateFunction, substitutionValue);
                 localOutputExprs.add(localOutputExpr);
             }
         }

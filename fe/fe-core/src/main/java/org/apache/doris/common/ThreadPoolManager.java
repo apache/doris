@@ -17,7 +17,7 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
@@ -37,6 +37,8 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 /**
  * ThreadPoolManager is a helper class for construct daemon thread pool with limit thread and memory resource.
@@ -75,27 +77,33 @@ public class ThreadPoolManager {
     }
 
     public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
-        for (String poolMetricType : poolMetricTypes) {
-            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>(
-                    "thread_pool", MetricUnit.NOUNIT, "thread_pool statistics") {
-                @Override
-                public Integer getValue() {
-                    String metricType = this.getLabels().get(1).getValue();
-                    switch (metricType) {
-                        case "pool_size":
-                            return threadPool.getPoolSize();
-                        case "active_thread_num":
-                            return threadPool.getActiveCount();
-                        case "task_in_queue":
-                            return threadPool.getQueue().size();
-                        default:
-                            return 0;
-                    }
-                }
-            };
-            gauge.addLabel(new MetricLabel("name", poolName)).addLabel(new MetricLabel("type", poolMetricType));
-            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
+        Metric.MetricType gauge = Metric.MetricType.GAUGE;
+        Metric.MetricType counter = Metric.MetricType.COUNTER;
+        MetricUnit nounit = MetricUnit.NOUNIT;
+        registerMetric(poolName, "pool_size", gauge, nounit, threadPool::getPoolSize);
+        registerMetric(poolName, "active_thread_num", gauge, nounit, threadPool::getActiveCount);
+        registerMetric(poolName, "active_thread_pct", gauge, MetricUnit.PERCENT,
+                () -> 1.0 * threadPool.getActiveCount() / threadPool.getMaximumPoolSize());
+        registerMetric(poolName, "task_in_queue", gauge, nounit, () -> threadPool.getQueue().size());
+        registerMetric(poolName, "task_count", counter, nounit, threadPool::getTaskCount);
+        registerMetric(poolName, "completed_task_count", counter, nounit, threadPool::getCompletedTaskCount);
+        RejectedExecutionHandler rejectedHandler = threadPool.getRejectedExecutionHandler();
+        if (rejectedHandler instanceof LogDiscardPolicy) {
+            registerMetric(poolName, "task_rejected", counter, nounit,
+                    ((LogDiscardPolicy) rejectedHandler).rejectedNum::get);
         }
+    }
+
+    private static <T> void registerMetric(String poolName, String metricName,
+                                           Metric.MetricType type, MetricUnit unit, Supplier<T> supplier) {
+        Metric<T> gauge = new Metric<T>("thread_pool", type, unit, "thread_pool statistics") {
+            @Override
+            public T getValue() {
+                return supplier.get();
+            }
+        };
+        gauge.addLabel(new MetricLabel("name", poolName)).addLabel(new MetricLabel("type", metricName));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
 
     public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread,
@@ -165,14 +173,17 @@ public class ThreadPoolManager {
         private static final Logger LOG = LogManager.getLogger(LogDiscardPolicy.class);
 
         private String threadPoolName;
+        private AtomicLong rejectedNum;
 
         public LogDiscardPolicy(String threadPoolName) {
             this.threadPoolName = threadPoolName;
+            this.rejectedNum = new AtomicLong(0);
         }
 
         @Override
         public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
             LOG.warn("Task " + r.toString() + " rejected from " + threadPoolName + " " + executor.toString());
+            this.rejectedNum.incrementAndGet();
         }
     }
 
@@ -180,7 +191,7 @@ public class ThreadPoolManager {
      * A handler for rejected task that try to be blocked until the pool enqueue task succeed or timeout,
      * used for fixed thread pool
      */
-    static class BlockedPolicy implements RejectedExecutionHandler {
+    public static class BlockedPolicy implements RejectedExecutionHandler {
 
         private static final Logger LOG = LogManager.getLogger(BlockedPolicy.class);
 

@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -32,11 +34,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LogicalPlanBuilder {
@@ -57,11 +59,6 @@ public class LogicalPlanBuilder {
     public LogicalPlanBuilder scan(long tableId, String tableName, int hashColumn) {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(tableId, tableName, hashColumn);
         return from(scan);
-    }
-
-    public LogicalPlanBuilder projectWithExprs(List<NamedExpression> projectExprs) {
-        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
-        return from(project);
     }
 
     public LogicalPlanBuilder project(List<Integer> slotsIndex) {
@@ -89,23 +86,30 @@ public class LogicalPlanBuilder {
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
-                Optional.empty(), this.plan, right);
+                this.plan, right);
         return from(join);
     }
 
-    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, List<Pair<Integer, Integer>> hashOnSlots) {
+    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType,
+            List<Pair<Integer, Integer>> hashOnSlots) {
         List<EqualTo> hashConjunts = hashOnSlots.stream()
                 .map(pair -> new EqualTo(this.plan.getOutput().get(pair.first), right.getOutput().get(pair.second)))
                 .collect(Collectors.toList());
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
-                Optional.empty(), this.plan, right);
+                this.plan, right);
+        return from(join);
+    }
+
+    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjucts) {
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
+                this.plan, right);
         return from(join);
     }
 
     public LogicalPlanBuilder hashJoinEmptyOn(LogicalPlan right, JoinType joinType) {
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(),
-                Optional.empty(), this.plan, right);
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(), this.plan, right);
         return from(join);
     }
 
@@ -119,8 +123,41 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder filter(Expression predicate) {
-        LogicalFilter<LogicalPlan> limitPlan = new LogicalFilter<>(predicate, this.plan);
-        return from(limitPlan);
+        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(predicate, this.plan);
+        return from(filter);
     }
 
+    public LogicalPlanBuilder aggAllUsingIndex(List<Integer> groupByKeysIndex, List<Integer> outputExprsIndex) {
+        Builder<Expression> groupByBuilder = ImmutableList.builder();
+        for (Integer index : groupByKeysIndex) {
+            groupByBuilder.add(this.plan.getOutput().get(index));
+        }
+        ImmutableList<Expression> groupByKeys = groupByBuilder.build();
+
+        Builder<NamedExpression> outputBuilder = ImmutableList.builder();
+        for (Integer index : outputExprsIndex) {
+            outputBuilder.add(this.plan.getOutput().get(index));
+        }
+        ImmutableList<NamedExpression> outputExprsList = outputBuilder.build();
+
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        return from(agg);
+    }
+
+    public LogicalPlanBuilder aggGroupUsingIndex(List<Integer> groupByKeysIndex,
+            List<NamedExpression> outputExprsList) {
+        Builder<Expression> groupByBuilder = ImmutableList.builder();
+        for (Integer index : groupByKeysIndex) {
+            groupByBuilder.add(this.plan.getOutput().get(index));
+        }
+        ImmutableList<Expression> groupByKeys = groupByBuilder.build();
+
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        return from(agg);
+    }
+
+    public LogicalPlanBuilder agg(List<Expression> groupByKeys, List<NamedExpression> outputExprsList) {
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        return from(agg);
+    }
 }

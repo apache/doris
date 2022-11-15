@@ -35,7 +35,8 @@ public class ColumnPruning implements PlanRuleFactory {
                 new PruneFilterChildColumns().build(),
                 new PruneAggChildColumns().build(),
                 new PruneJoinChildrenColumns().build(),
-                new PruneSortChildColumns().build()
+                new PruneSortChildColumns().build(),
+                new MergeProjects().build()
         );
     }
 

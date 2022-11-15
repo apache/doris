@@ -33,9 +33,18 @@ public class Max extends AggregateFunction implements UnaryExpression {
         super("max", child);
     }
 
+    public Max(AggregateParam aggregateParam, Expression child) {
+        super("max", aggregateParam, child);
+    }
+
     @Override
-    public DataType getDataType() {
+    public DataType getFinalType() {
         return child().getDataType();
+    }
+
+    @Override
+    public DataType getIntermediateType() {
+        return getFinalType();
     }
 
     @Override
@@ -44,14 +53,14 @@ public class Max extends AggregateFunction implements UnaryExpression {
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Max withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(children.get(0));
+        return new Max(getAggregateParam(), children.get(0));
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getDataType();
+    public Max withAggregateParam(AggregateParam aggregateParam) {
+        return new Max(aggregateParam, child());
     }
 
     @Override

@@ -17,26 +17,13 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.DecimalLiteral;
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -75,11 +62,9 @@ public class ColumnStat {
     private static final Predicate<Double> DESIRED_MAX_SIZE_PRED = (v) -> v >= -1L;
     private static final Predicate<Double> DESIRED_NUM_NULLS_PRED = (v) -> v >= -1L;
 
-    private static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
+    public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
 
     static {
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.VARCHAR);
-        MAX_MIN_UNSUPPORTED_TYPE.add(Type.CHAR);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.HLL);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.BITMAP);
         MAX_MIN_UNSUPPORTED_TYPE.add(Type.ARRAY);
@@ -97,6 +82,8 @@ public class ColumnStat {
     private LiteralExpr minExpr;
     private LiteralExpr maxExpr;
 
+    private double selectivity = 1.0;
+
     public static ColumnStat createDefaultColumnStats() {
         ColumnStat columnStat = new ColumnStat();
         columnStat.setAvgSizeByte(1);
@@ -106,7 +93,7 @@ public class ColumnStat {
         return columnStat;
     }
 
-    public static boolean isInvalid(ColumnStat stats) {
+    public static boolean isUnKnown(ColumnStat stats) {
         return stats == UNKNOWN;
     }
 
@@ -120,6 +107,7 @@ public class ColumnStat {
         this.numNulls = other.numNulls;
         this.minValue = other.minValue;
         this.maxValue = other.maxValue;
+        this.selectivity = other.selectivity;
     }
 
     public ColumnStat(double ndv, double avgSizeByte,
@@ -204,16 +192,16 @@ public class ColumnStat {
                     if (MAX_MIN_UNSUPPORTED_TYPE.contains(statsType)) {
                         minValue = Double.NEGATIVE_INFINITY;
                     } else {
-                        minExpr = readableValue(columnType, entry.getValue());
-                        minValue = convertToDouble(columnType, entry.getValue());
+                        minExpr = StatisticsUtil.readableValue(columnType, entry.getValue());
+                        minValue = StatisticsUtil.convertToDouble(columnType, entry.getValue());
                     }
                     break;
                 case MAX_VALUE:
                     if (MAX_MIN_UNSUPPORTED_TYPE.contains(statsType)) {
                         maxValue = Double.NEGATIVE_INFINITY;
                     } else {
-                        maxExpr = readableValue(columnType, entry.getValue());
-                        maxValue = convertToDouble(columnType, entry.getValue());
+                        maxExpr = StatisticsUtil.readableValue(columnType, entry.getValue());
+                        maxValue = StatisticsUtil.convertToDouble(columnType, entry.getValue());
                     }
                     break;
                 default:
@@ -228,78 +216,15 @@ public class ColumnStat {
         result.add(Double.toString(avgSizeByte));
         result.add(Double.toString(maxSizeByte));
         result.add(Double.toString(numNulls));
-        result.add(minExpr == null ? "N/A" : minExpr.toSql());
-        result.add(maxExpr == null ? "N/A" : maxExpr.toSql());
+        result.add(Double.toString(minValue));
+        result.add(Double.toString(maxValue));
         return result;
-    }
-
-    private double convertToDouble(Type type, String columnValue) throws AnalysisException {
-        Preconditions.checkArgument(type.isScalarType());
-        try {
-            ScalarType scalarType = (ScalarType) type;
-
-            // check if default value is valid.
-            // if not, some literal constructor will throw AnalysisException
-            PrimitiveType primitiveType = scalarType.getPrimitiveType();
-            switch (primitiveType) {
-                case BOOLEAN:
-                    return Boolean.parseBoolean(columnValue) ? 1.0 : 0.0;
-                case TINYINT:
-                case SMALLINT:
-                case INT:
-                case BIGINT:
-                case LARGEINT:
-                case FLOAT:
-                    // the min max value will loose precision when value type is double.
-                case DOUBLE:
-                case DECIMALV2:
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128:
-                    return Double.parseDouble(columnValue);
-                case DATE:
-                case DATEV2:
-                    DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-                    return LocalDateTime
-                            .parse(columnValue, timeFormatter)
-                            .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
-                case DATETIMEV2:
-                case DATETIME:
-                    timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                    return LocalDateTime
-                            .parse(columnValue, timeFormatter)
-                            .atZone(ZoneId.systemDefault()).toInstant().getEpochSecond();
-                case CHAR:
-                case VARCHAR:
-                case HLL:
-                case BITMAP:
-                case ARRAY:
-                case MAP:
-                case STRUCT:
-                default:
-                    throw new AnalysisException("Unsupported setting this type: " + type + " of min max value");
-            }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
-
     }
 
     public ColumnStat copy() {
         return new ColumnStat(this);
     }
 
-    public ColumnStat updateBySelectivity(double selectivity, double rowCount) {
-        ndv = ndv * selectivity;
-        numNulls = (long) Math.ceil(numNulls * selectivity);
-        if (ndv > rowCount) {
-            ndv = rowCount;
-        }
-        if (numNulls > rowCount) {
-            numNulls = rowCount;
-        }
-        return this;
-    }
 
     public boolean hasIntersect(ColumnStat another) {
         double leftMin = this.getMinValue();
@@ -373,54 +298,34 @@ public class ColumnStat {
         return new ColumnStat(leftNdv, leftAvgSize, leftMaxSize, leftNumNulls, leftMinValue, leftMaxValue);
     }
 
-    private LiteralExpr readableValue(Type type, String columnValue) throws AnalysisException {
-        Preconditions.checkArgument(type.isScalarType());
-        ScalarType scalarType = (ScalarType) type;
-
-        // check if default value is valid.
-        // if not, some literal constructor will throw AnalysisException
-        PrimitiveType primitiveType = scalarType.getPrimitiveType();
-        switch (primitiveType) {
-            case BOOLEAN:
-                return new BoolLiteral(columnValue);
-            case TINYINT:
-            case SMALLINT:
-            case INT:
-            case BIGINT:
-                return new IntLiteral(columnValue, type);
-            case LARGEINT:
-                return new LargeIntLiteral(columnValue);
-            case FLOAT:
-                // the min max value will loose precision when value type is double.
-            case DOUBLE:
-                return new FloatLiteral(columnValue);
-            case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
-                DecimalLiteral decimalLiteral = new DecimalLiteral(columnValue);
-                decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
-                return decimalLiteral;
-            case DATE:
-            case DATETIME:
-            case DATEV2:
-            case DATETIMEV2:
-                return new DateLiteral(columnValue, type);
-            case CHAR:
-            case VARCHAR:
-                if (columnValue.length() > scalarType.getLength()) {
-                    throw new AnalysisException("Min/Max value is longer than length of column type: "
-                            + columnValue);
-                }
-                return new StringLiteral(columnValue);
-            case HLL:
-            case BITMAP:
-            case ARRAY:
-            case MAP:
-            case STRUCT:
-            default:
-                throw new AnalysisException("Unsupported setting this type: " + type + " of min max value");
-        }
+    public static boolean isAlmostUnique(double ndv, double rowCount) {
+        return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
     }
 
+    public double getSelectivity() {
+        return selectivity;
+    }
+
+    public void setSelectivity(double selectivity) {
+        this.selectivity = selectivity;
+    }
+
+    public double ndvIntersection(ColumnStat other) {
+        if (maxValue == minValue) {
+            if (minValue <= other.maxValue && minValue >= other.minValue) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        double min = Math.max(minValue, other.minValue);
+        double max = Math.min(maxValue, other.maxValue);
+        if (min < max) {
+            return Math.ceil(ndv * (max - min) / (maxValue - minValue));
+        } else if (min > max) {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
 }

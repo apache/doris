@@ -410,11 +410,6 @@ public class Config extends ConfigBase {
     @ConfField public static int query_port = 9030;
 
     /**
-     * mysql service nio option.
-     */
-    @ConfField public static boolean mysql_service_nio_enabled = true;
-
-    /**
      * num of thread to handle io events in mysql.
      */
     @ConfField public static int mysql_service_io_threads_num = 4;
@@ -455,7 +450,7 @@ public class Config extends ConfigBase {
      * In order not to wait too long for create table(index), set a max timeout.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_create_table_timeout_second = 60;
+    public static int max_create_table_timeout_second = 3600;
 
     /**
      * Maximal waiting time for all publish version tasks of one transaction to be finished
@@ -577,7 +572,7 @@ public class Config extends ConfigBase {
      * Default stream load and streaming mini load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int stream_load_default_timeout_second = 600; // 600s
+    public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
     /**
      * Default stream load pre-commit status timeout
@@ -807,7 +802,7 @@ public class Config extends ConfigBase {
      * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int alter_table_timeout_second = 86400; // 1day
+    public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
@@ -1320,18 +1315,6 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
-     * enable spark load for temporary use
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_spark_load = true;
-
-    /**
-     * enable use odbc table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_odbc_table = true;
-
-    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1583,7 +1566,7 @@ public class Config extends ConfigBase {
 
     /*
      * If set to true, when creating table, Doris will allow to locate replicas of a tablet
-     * on same host. And also the tablet repair and balance will be disabled.
+     * on same host.
      * This is only for local test, so that we can deploy multi BE on same host and create table
      * with multi replicas.
      * DO NOT use it for production env.
@@ -1690,7 +1673,7 @@ public class Config extends ConfigBase {
      * Temp config for multi catalog feature.
      * Should be removed when this feature is ready.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_multi_catalog = false;
 
     @ConfField(mutable = true, masterOnly = false)
@@ -1783,9 +1766,119 @@ public class Config extends ConfigBase {
     public static int be_exec_version = max_be_exec_version;
 
     @ConfField(mutable = false)
-    public static int statistic_job_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_job_scheduler_execution_interval_ms = 1000;
 
     @ConfField(mutable = false)
-    public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
+    /*
+     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_mtmv_scheduler_framework = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_pending_mtmv_scheduler_task_num = 100;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
+
+    /**
+     * The candidate of the backend node for federation query such as hive table and es table query.
+     * If the backend of computation role is less than this value, it will acquire some mix backend.
+     * If the computation backend is enough, federation query will only assign to computation backend.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int backend_num_for_federation = 3;
+
+    /**
+     * Max query profile num.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_query_profile_num = 100;
+
+    /**
+     * Set to true to disable backend black list, so that even if we failed to send task to a backend,
+     * that backend won't be added to black list.
+     * This should only be set when running tests, such as regression test.
+     * Highly recommended NOT disable it in product environment.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_backend_black_list = false;
+
+    /**
+     * Maximum backend heartbeat failure tolerance count.
+     * Default is 1, which means if 1 heart failed, the backend will be marked as dead.
+     * A larger value can improve the tolerance of the cluster to occasional heartbeat failures.
+     * For example, when running regression tests, this value can be increased.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_backend_heartbeat_failure_tolerance_count = 1;
+
+    /**
+     * The iceberg and hudi table will be removed in v1.3
+     * Use multi catalog instead.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_iceberg_hudi_table = true;
+
+    /**
+     * The default connection timeout for hive metastore.
+     * hive.metastore.client.socket.timeout
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static long hive_metastore_client_timeout_second = 10;
+
+    @ConfField(mutable = false)
+    public static int statistic_table_bucket_count = 7;
+
+    @ConfField
+    public static long statistics_max_mem_per_query_in_bytes = 2L * 1024 * 1024 * 1024;
+
+    @ConfField
+    public static int statistic_parallel_exec_instance_num = 1;
+
+    @ConfField
+    public static int statistics_simultaneously_running_job_num = 10;
+
+    @ConfField
+    public static int statistic_internal_table_replica_num = 1;
+
+    @ConfField
+    public static int statistic_clean_interval_in_hours = 24 * 2;
+
+    @ConfField
+    public static int statistics_stale_statistics_fetch_size = 1000;
+
+    @ConfField
+    public static int statistics_outdated_record_detector_running_interval_in_minutes = 5;
+
+    @ConfField
+    public static int statistics_records_outdated_time_in_ms = 2 * 24 * 3600 * 1000;
+
+    @ConfField
+    public static int statistics_job_execution_timeout_in_min = 5;
+
+    @ConfField
+    public static int statistics_table_creation_retry_interval_in_seconds = 5;
+
+    @ConfField
+    public static int statistics_cache_max_size = 100000;
+
+    @ConfField
+    public static int statistics_cache_valid_duration_in_hours = 24 * 2;
+
+    @ConfField
+    public static int statistics_cache_refresh_interval = 24 * 2;
+
+    /**
+     * if table has too many replicas, Fe occur oom when schema change.
+     * 10W replicas is a reasonable value for testing.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_replica_count_when_schema_change = 100000;
 }
+

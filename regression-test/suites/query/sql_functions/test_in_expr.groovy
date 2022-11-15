@@ -21,7 +21,7 @@ suite("test_in_expr", "query") {
 
     sql """DROP TABLE IF EXISTS ${nullTableName}"""
     sql """
-            CREATE TABLE ${nullTableName} (
+            CREATE TABLE IF NOT EXISTS ${nullTableName} (
               `cid` int(11) NULL,
               `number` int(11) NULL,
               `addr` varchar(256) NULL
@@ -40,7 +40,7 @@ suite("test_in_expr", "query") {
 
     sql """DROP TABLE IF EXISTS ${notNullTableName}"""
     sql """
-            CREATE TABLE ${notNullTableName} (
+            CREATE TABLE IF NOT EXISTS ${notNullTableName} (
               `cid` int(11) not NULL,
               `number` int(11) not NULL,
               `addr` varchar(256) not NULL

@@ -252,6 +252,19 @@ ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 ```
 
+12. Add a cold and hot separation data migration strategy to the table
+```sql
+ ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy");
+```
+NOTE：The table can be successfully added only if it hasn't been associated with a storage policy. A table just can have one storage policy.
+
+13. Add a hot and cold data migration strategy to the partition of the table
+```sql
+ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy");
+```
+NOTE：The table's partition can be successfully added only if it hasn't been associated with a storage policy. A table just can have one storage policy.
+
+
 ### Keywords
 
 ```text

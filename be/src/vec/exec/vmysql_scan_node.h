@@ -21,6 +21,7 @@
 
 #include "exec/mysql_scanner.h"
 #include "exec/scan_node.h"
+#include "exec/text_converter.h"
 #include "runtime/descriptors.h"
 namespace doris {
 

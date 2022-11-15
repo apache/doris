@@ -65,7 +65,8 @@ public class ToBitmapToSlotRefRule implements ExprRewriteRule {
             return expr;
         }
         FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
-        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")) {
+        if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")
+                && !child0FnExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap_with_check")) {
             return expr;
         }
         if (child0FnExpr.getChild(0) instanceof SlotRef) {

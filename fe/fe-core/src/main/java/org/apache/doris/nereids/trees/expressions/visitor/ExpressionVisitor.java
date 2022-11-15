@@ -62,14 +62,7 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
@@ -90,9 +83,24 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 /**
  * Use the visitor to visit expression and forward to unified method(visitExpression).
  */
-public abstract class ExpressionVisitor<R, C> {
+public abstract class ExpressionVisitor<R, C>
+        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
+
+    @Override
+    public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
+        return visitBoundFunction(aggregateFunction, context);
+    }
+
+    @Override
+    public R visitScalarFunction(ScalarFunction scalarFunction, C context) {
+        return visitBoundFunction(scalarFunction, context);
+    }
+
+    public R visitBoundFunction(BoundFunction boundFunction, C context) {
+        return visit(boundFunction, context);
+    }
 
     public R visitAlias(Alias alias, C context) {
         return visitNamedExpression(alias, context);
@@ -242,10 +250,6 @@ public abstract class ExpressionVisitor<R, C> {
         return visit(cast, context);
     }
 
-    public R visitBoundFunction(BoundFunction boundFunction, C context) {
-        return visit(boundFunction, context);
-    }
-
     public R visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, C context) {
         return visitBinaryOperator(binaryArithmetic, context);
     }
@@ -315,34 +319,6 @@ public abstract class ExpressionVisitor<R, C> {
     }
 
     /* ********************************************************************************************
-     * Aggregate functions
-     * ********************************************************************************************/
-
-    public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
-        return visitBoundFunction(aggregateFunction, context);
-    }
-
-    public R visitAvg(Avg avg, C context) {
-        return visitAggregateFunction(avg, context);
-    }
-
-    public R visitCount(Count count, C context) {
-        return visitAggregateFunction(count, context);
-    }
-
-    public R visitMax(Max max, C context) {
-        return visitAggregateFunction(max, context);
-    }
-
-    public R visitMin(Min min, C context) {
-        return visitAggregateFunction(min, context);
-    }
-
-    public R visitSum(Sum sum, C context) {
-        return visitAggregateFunction(sum, context);
-    }
-
-    /* ********************************************************************************************
      * Unbound expressions
      * ********************************************************************************************/
 
@@ -360,17 +336,5 @@ public abstract class ExpressionVisitor<R, C> {
 
     public R visitUnboundStar(UnboundStar unboundStar, C context) {
         return visitNamedExpression(unboundStar, context);
-    }
-
-    public R visitYear(Year year, C context) {
-        return visitBoundFunction(year, context);
-    }
-
-    public R visitWeekOfYear(WeekOfYear weekOfYear, C context) {
-        return visitBoundFunction(weekOfYear, context);
-    }
-
-    public R visitSubstring(Substring substring, C context) {
-        return visitBoundFunction(substring, context);
     }
 }

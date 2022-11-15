@@ -51,21 +51,21 @@ public class EnforceMissingPropertiesHelper {
     public PhysicalProperties enforceProperty(PhysicalProperties output, PhysicalProperties required) {
         boolean isSatisfyOrder = output.getOrderSpec().satisfy(required.getOrderSpec());
         boolean isSatisfyDistribution = output.getDistributionSpec().satisfy(required.getDistributionSpec());
+        if (isSatisfyDistribution && isSatisfyOrder) {
+            return output;
+        }
 
         if (!isSatisfyDistribution && !isSatisfyOrder) {
             return enforceSortAndDistribution(output, required);
-        } else if (!isSatisfyDistribution) {
-            if (!required.getOrderSpec().getOrderKeys().isEmpty()) {
-                // After redistribute data , original order required may be wrong.
-                return enforceDistributionButMeetSort(output, required);
-            }
-            return enforceDistribution(output, required);
-        } else if (!isSatisfyOrder) {
-            // Order don't satisfy.
-            return enforceLocalSort(output, required);
-        } else {
-            return output;
         }
+        if (!isSatisfyOrder) {
+            return enforceLocalSort(output, required);
+        }
+        if (!required.getOrderSpec().getOrderKeys().isEmpty()) {
+            // After redistribute data , original order required may be wrong.
+            return enforceDistributionButMeetSort(output, required);
+        }
+        return enforceDistribution(output, required);
     }
 
     /**
@@ -77,7 +77,7 @@ public class EnforceMissingPropertiesHelper {
      */
     private PhysicalProperties enforceDistributionButMeetSort(PhysicalProperties output, PhysicalProperties request) {
         groupExpression.getOwnerGroup()
-                .replaceBestPlan(output, PhysicalProperties.ANY, groupExpression.getCost(output));
+                .replaceBestPlan(output, PhysicalProperties.ANY, groupExpression.getCostByProperties(output));
         return enforceSortAndDistribution(output, request);
     }
 

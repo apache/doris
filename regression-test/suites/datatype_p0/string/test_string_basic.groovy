@@ -19,22 +19,22 @@ suite("test_string_basic") {
     sql "drop table if exists fail_tb1"
     // first column could not be string
     test {
-        sql """CREATE TABLE fail_tb1 (k1 STRING NOT NULL, v1 STRING NOT NULL) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")"""
-        exception "The olap table first column could not be float, double, string use decimal or varchar instead."
+        sql """CREATE TABLE IF NOT EXISTS fail_tb1 (k1 STRING NOT NULL, v1 STRING NOT NULL) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")"""
+        exception "The olap table first column could not be float, double, string or array, please use decimal or varchar instead."
     }
     // string type should could not be key
     test {
         sql """
-            CREATE TABLE fail_tb1 ( k1 INT NOT NULL, k2 STRING NOT NULL)
+            CREATE TABLE IF NOT EXISTS fail_tb1 ( k1 INT NOT NULL, k2 STRING NOT NULL)
             DUPLICATE KEY(k1,k2) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
             """
         exception "String Type should not be used in key column[k2]"
     }
-    // create table with string column, insert and select ok
+    // create table if not exists with string column, insert and select ok
     def tbName = "str_tb"
     sql "drop table if exists ${tbName}"
     sql """
-        CREATE TABLE ${tbName} (k1 VARCHAR(10) NULL, v1 STRING NULL) 
+        CREATE TABLE IF NOT EXISTS ${tbName} (k1 VARCHAR(10) NULL, v1 STRING NULL) 
         UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
         """
     sql """

@@ -17,13 +17,18 @@
 
 #include "util/jni-util.h"
 
-#ifdef LIBJVM
 #include <jni.h>
 #include <jni_md.h>
 #include <stdlib.h>
 
+#include <cstdlib>
+#include <filesystem>
+#include <sstream>
+
+#include "common/config.h"
 #include "gutil/once.h"
 #include "gutil/strings/substitute.h"
+#include "libjvm_loader.h"
 
 using std::string;
 
@@ -33,21 +38,60 @@ namespace {
 JavaVM* g_vm;
 GoogleOnceType g_vm_once = GOOGLE_ONCE_INIT;
 
+const std::string GetDorisJNIClasspath() {
+    const auto* classpath = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
+    if (classpath) {
+        return classpath;
+    } else {
+        const auto* doris_home = getenv("DORIS_HOME");
+        DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
+
+        std::ostringstream out;
+        std::string path(doris_home);
+        path += "/lib";
+        for (const auto& entry : std::filesystem::directory_iterator(path)) {
+            if (entry.path().extension() != ".jar") {
+                continue;
+            }
+            if (out.str().empty()) {
+                out << "-Djava.class.path=" << entry.path().string();
+            } else {
+                out << ":" << entry.path().string();
+            }
+        }
+
+        DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
+        return out.str();
+    }
+}
+
 void FindOrCreateJavaVM() {
     int num_vms;
-    int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
+    int rv = LibJVMLoader::JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
+        auto classpath = GetDorisJNIClasspath();
+        std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
+
+        JavaVMOption options[] = {
+                {const_cast<char*>(classpath.c_str()), nullptr},
+                {const_cast<char*>(heap_size.c_str()), nullptr},
+#ifdef __APPLE__
+                // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
+                // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)
+                // and it can not pass the check performed by storage engine.
+                // The newer JDK has fixed this issue.
+                {const_cast<char*>("-XX:-MaxFDLimit"), nullptr},
+#endif
+        };
         JNIEnv* env;
         JavaVMInitArgs vm_args;
-        JavaVMOption options[1];
-        char* str = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
-        options[0].optionString = str;
         vm_args.version = JNI_VERSION_1_8;
         vm_args.options = options;
-        vm_args.nOptions = 1;
-        vm_args.ignoreUnrecognized = JNI_TRUE;
+        vm_args.nOptions = sizeof(options) / sizeof(JavaVMOption);
+        // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
+        vm_args.ignoreUnrecognized = JNI_FALSE;
 
-        jint res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
+        jint res = LibJVMLoader::JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
         if (JNI_OK != res) {
             DCHECK(false) << "Failed to create JVM, code= " << res;
         }
@@ -169,6 +213,8 @@ Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global
 }
 
 Status JniUtil::Init() {
+    RETURN_IF_ERROR(LibJVMLoader::instance().load());
+
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -243,4 +289,3 @@ Status JniUtil::Init() {
 }
 
 } // namespace doris
-#endif

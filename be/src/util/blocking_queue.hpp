@@ -22,6 +22,7 @@
 
 #include <unistd.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <list>
 #include <mutex>
@@ -47,25 +48,19 @@ public:
     // are no more elements available.
     bool blocking_get(T* out) {
         MonotonicStopWatch timer;
+        timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
+        _get_cv.wait(unique_lock, [this] { return _shutdown || !_list.empty(); });
+        _total_get_wait_time += timer.elapsed_time();
 
-        while (true) {
-            if (!_list.empty()) {
-                *out = _list.front();
-                _list.pop_front();
-                _total_get_wait_time += timer.elapsed_time();
-                unique_lock.unlock();
-                _put_cv.notify_one();
-                return true;
-            }
-
-            if (_shutdown) {
-                return false;
-            }
-
-            timer.start();
-            _get_cv.wait(unique_lock);
-            timer.stop();
+        if (!_list.empty()) {
+            *out = _list.front();
+            _list.pop_front();
+            _put_cv.notify_one();
+            return true;
+        } else {
+            assert(_shutdown);
+            return false;
         }
     }
 
@@ -104,23 +99,16 @@ public:
     // If the queue is shut down, returns false.
     bool blocking_put(const T& val) {
         MonotonicStopWatch timer;
+        timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
-
-        while (_list.size() >= _max_elements && !_shutdown) {
-            timer.start();
-            _put_cv.wait(unique_lock);
-            timer.stop();
-        }
-
+        _put_cv.wait(unique_lock, [this] { return _shutdown || _list.size() < _max_elements; });
         _total_put_wait_time += timer.elapsed_time();
 
         if (_shutdown) {
             return false;
         }
 
-        DCHECK_LT(_list.size(), _max_elements);
         _list.push_back(val);
-        unique_lock.unlock();
         _get_cv.notify_one();
         return true;
     }
@@ -137,21 +125,15 @@ public:
     }
 
     uint32_t get_size() const {
-        std::unique_lock<std::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         return _list.size();
     }
 
     // Returns the total amount of time threads have blocked in BlockingGet.
-    uint64_t total_get_wait_time() const {
-        std::lock_guard<std::mutex> guard(_lock);
-        return _total_get_wait_time;
-    }
+    uint64_t total_get_wait_time() const { return _total_get_wait_time; }
 
     // Returns the total amount of time threads have blocked in BlockingPut.
-    uint64_t total_put_wait_time() const {
-        std::lock_guard<std::mutex> guard(_lock);
-        return _total_put_wait_time;
-    }
+    uint64_t total_put_wait_time() const { return _total_put_wait_time; }
 
 private:
     uint32_t SizeLocked(const std::unique_lock<std::mutex>& lock) const {
@@ -167,8 +149,8 @@ private:
     // _lock guards access to _list, total_get_wait_time, and total_put_wait_time
     mutable std::mutex _lock;
     std::list<T> _list;
-    uint64_t _total_get_wait_time;
-    uint64_t _total_put_wait_time;
+    std::atomic<uint64_t> _total_get_wait_time;
+    std::atomic<uint64_t> _total_put_wait_time;
 };
 
 } // namespace doris

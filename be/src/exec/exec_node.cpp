@@ -59,8 +59,8 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
-#include "vec/exec/file_scan_node.h"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -70,22 +70,17 @@
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
 #include "vec/exec/vbroker_scan_node.h"
-#include "vec/exec/vcross_join_node.h"
+#include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
-#include "vec/exec/ves_http_scan_node.h"
 #include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vintersect_node.h"
-#include "vec/exec/vjdbc_scan_node.h"
 #include "vec/exec/vmysql_scan_node.h"
-#include "vec/exec/vodbc_scan_node.h"
-#include "vec/exec/volap_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vtable_function_node.h"
-#include "vec/exec/vtable_valued_function_scannode.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
 
@@ -221,22 +216,21 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
+    _mem_tracker = std::make_shared<MemTracker>("ExecNode:" + _runtime_profile->name(),
                                                 _runtime_profile.get());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor));
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
     }
 
     // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
     // And _conjunct_ctxs is useless.
     // TODO: Should be removed when non-vec engine is removed.
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, _row_descriptor));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
@@ -251,8 +245,7 @@ Status ExecNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         return Expr::open(_conjunct_ctxs, state);
     } else {
         return Status::OK();
@@ -296,8 +289,7 @@ Status ExecNode::close(RuntimeState* state) {
     if (_vconjunct_ctx_ptr) {
         (*_vconjunct_ctx_ptr)->close(state);
     }
-    if (typeid(*this) != typeid(doris::vectorized::VOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         Expr::close(_conjunct_ctxs, state);
     }
     vectorized::VExpr::close(_projections, state);
@@ -418,7 +410,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::REPEAT_NODE:
         case TPlanNodeType::TABLE_FUNCTION_NODE:
         case TPlanNodeType::BROKER_SCAN_NODE:
-        case TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE:
+        case TPlanNodeType::DATA_GEN_SCAN_NODE:
         case TPlanNodeType::FILE_SCAN_NODE:
         case TPlanNodeType::JDBC_SCAN_NODE:
             break;
@@ -450,11 +442,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 #endif
     case TPlanNodeType::ODBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewOdbcScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
         }
@@ -462,15 +450,13 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::JDBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-#ifdef LIBJVM
-            if (config::enable_new_scan_node) {
+            if (config::enable_java_support) {
                 *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
             } else {
-                *node = pool->add(new vectorized::VJdbcScanNode(pool, tnode, descs));
+                return Status::InternalError(
+                        "Jdbc scan node is disabled, you can change be config enable_java_support "
+                        "to true and restart be.");
             }
-#else
-            return Status::InternalError("Jdbc scan node is disabled since no libjvm is found!");
-#endif
         } else {
             return Status::InternalError("Jdbc scan node only support vectorized engine.");
         }
@@ -478,11 +464,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VEsHttpScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewEsScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
         }
@@ -498,11 +480,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::OLAP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            if (config::enable_new_scan_node) {
-                *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
-            }
+            *node = pool->add(new vectorized::NewOlapScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OlapScanNode(pool, tnode, descs));
         }
@@ -518,6 +496,13 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::HASH_JOIN_NODE:
         if (state->enable_vectorized_exec()) {
+            if (!tnode.hash_join_node.__isset.vintermediate_tuple_id_list) {
+                // in progress of upgrading from 1.1-lts to 1.2-lts
+                error_msg << "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized hash "
+                             "join cannot be executed, you can switch to non-vectorized engine by "
+                             "'set global enable_vectorized_engine = false'";
+                return Status::InternalError(error_msg.str());
+            }
             *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         } else {
             *node = pool->add(new HashJoinNode(pool, tnode, descs));
@@ -526,7 +511,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::CROSS_JOIN_NODE:
         if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VCrossJoinNode(pool, tnode, descs));
+            *node = pool->add(new vectorized::VNestedLoopJoinNode(pool, tnode, descs));
         } else {
             *node = pool->add(new CrossJoinNode(pool, tnode, descs));
         }
@@ -613,13 +598,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::FILE_SCAN_NODE:
-        //        *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
-        if (config::enable_new_scan_node) {
+        if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
         } else {
-            *node = pool->add(new vectorized::FileScanNode(pool, tnode, descs));
+            return Status::InternalError("Not support file scan node in non-vec engine");
         }
-
         return Status::OK();
 
     case TPlanNodeType::REPEAT_NODE:
@@ -646,9 +629,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         }
         return Status::OK();
 
-    case TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE:
+    case TPlanNodeType::DATA_GEN_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-            *node = pool->add(new vectorized::VTableValuedFunctionScanNode(pool, tnode, descs));
+            *node = pool->add(new vectorized::VDataGenFunctionScanNode(pool, tnode, descs));
             return Status::OK();
         } else {
             error_msg << "numbers table function only support vectorized execution";
@@ -717,7 +700,7 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
-    collect_nodes(TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
 }
 
@@ -741,11 +724,8 @@ void ExecNode::try_do_aggregate_serde_improve() {
     if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
         typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewEsScanNode)
-#ifdef LIBJVM
-        || typeid(*child0) == typeid(vectorized::NewJdbcScanNode)
-#endif
-    ) {
+        typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
+        typeid(*child0) == typeid(vectorized::NewJdbcScanNode)) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();

@@ -33,6 +33,8 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <antlr4.version>4.9.3</antlr4.version>
+        <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}</protoc.artifact>
+        <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</grpc.java.artifact>
     </properties>
     <profiles>
         <profile>
@@ -55,6 +57,18 @@ under the License.
             </activation>
             <properties>
                 <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
+            </properties>
+        </profile>
+        <profile>
+            <activation>
+                <os>
+                    <name>Mac OS X</name>
+                    <arch>aarch64</arch>
+                </os>
+            </activation>
+            <properties>
+                <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
+                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:osx-x86_64</grpc.java.artifact>
             </properties>
         </profile>
     </profiles>
@@ -113,7 +127,7 @@ under the License.
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
-            <version>1.9</version>
+            <version>1.10.0</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/cglib/cglib -->
         <dependency>
@@ -675,6 +689,26 @@ under the License.
             <version>3.10.1</version>
         </dependency>
 
+        <!-- for aliyun dlf -->
+        <dependency>
+            <groupId>com.aliyun.datalake</groupId>
+            <artifactId>metastore-client-hive2</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.aliyun</groupId>
+                    <artifactId>tea</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.aliyun</groupId>
+                    <artifactId>tea-openapi</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.aliyun</groupId>
+                    <artifactId>tea-util</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
     </dependencies>
     <build>
         <finalName>doris-fe</finalName>
@@ -781,7 +815,7 @@ under the License.
             <plugin>
                 <groupId>com.github.os72</groupId>
                 <artifactId>protoc-jar-maven-plugin</artifactId>
-                <version>3.11.1</version>
+                <version>3.11.4</version>
                 <executions>
                     <execution>
                         <phase>generate-sources</phase>
@@ -791,7 +825,7 @@ under the License.
                         <configuration>
                             <!-- <protocCommand>${doris.thirdparty}/installed/bin/protoc</protocCommand> -->
                             <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
-                            <protocArtifact>com.google.protobuf:protoc:${protobuf.version}</protocArtifact>
+                            <protocArtifact>${protoc.artifact}</protocArtifact>
                             <protocVersion>${protobuf.version}</protocVersion>
                             <inputDirectories>
                                 <include>${doris.home}/gensrc/proto</include>
@@ -802,7 +836,7 @@ under the License.
                                 </outputTarget>
                                 <outputTarget>
                                     <type>grpc-java</type>
-                                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</pluginArtifact>
+                                    <pluginArtifact>${grpc.java.artifact}</pluginArtifact>
                                 </outputTarget>
                             </outputTargets>
                         </configuration>

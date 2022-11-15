@@ -38,7 +38,7 @@ import java.util.Optional;
  */
 public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Sort {
 
-    protected final List<OrderKey> orderKeys;
+    protected final ImmutableList<OrderKey> orderKeys;
 
     /**
      * Constructor of AbstractPhysicalSort.

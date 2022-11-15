@@ -20,7 +20,10 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
@@ -35,6 +38,8 @@ import java.util.Map;
  * @TableStats based on the table id.
  */
 public class Statistics {
+    private static final Logger LOG = LogManager.getLogger(Statistics.class);
+
     private final Map<Long, TableStats> idToTableStats = Maps.newConcurrentMap();
 
     /**
@@ -156,6 +161,26 @@ public class Statistics {
         synchronized (this) {
             PartitionStats partitionStats = getNotNullPartitionStats(tableId, partitionName);
             partitionStats.updateColumnStats(columnName, columnType, statsTypeToValue);
+        }
+    }
+
+    public void dropTableStats(long tableId) {
+        dropPartitionStats(tableId, null);
+    }
+
+    public void dropPartitionStats(long tableId, String partitionName) {
+        synchronized (this) {
+            if (idToTableStats.containsKey(tableId)) {
+                if (Strings.isNullOrEmpty(partitionName)) {
+                    idToTableStats.remove(tableId);
+                    LOG.info("Deleted table(id={}) statistics.", tableId);
+                } else {
+                    TableStats tableStats = idToTableStats.get(tableId);
+                    tableStats.getNameToPartitionStats().remove(partitionName);
+                    LOG.info("Deleted statistics for partition {} of table(id={}).",
+                            partitionName, tableId);
+                }
+            }
         }
     }
 

@@ -344,7 +344,7 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const cctz::time_zone& ctz) {
-    // src column always be nullable for simpify converting
+    // src column always be nullable for simplify converting
     CHECK(doris_column->is_nullable());
     MutableColumnPtr data_column = nullptr;
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(

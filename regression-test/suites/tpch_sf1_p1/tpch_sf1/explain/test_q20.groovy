@@ -74,7 +74,7 @@ suite("test_explain_tpch_sf_1_q20") {
 		explainStr.contains("vec output tuple id: 10") && 
 		explainStr.contains("output slot ids: 25 26 27 \n" + 
 				"  |  hash output slot ids: 17 18 19 ") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> <slot 17>, RF001[in_or_bloom] -> `s_nationkey`") && 
 		explainStr.contains("join op: LEFT SEMI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
 				"  |  equal join conjunct: <slot 33> = <slot 9> `l_suppkey`\n" + 
@@ -90,7 +90,7 @@ suite("test_explain_tpch_sf_1_q20") {
 		explainStr.contains("vec output tuple id: 11") && 
 		explainStr.contains("output slot ids: 31 32 33 \n" + 
 				"  |  hash output slot ids: 3 14 15 ") && 
-		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.partsupp(partsupp), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF002[in_or_bloom] -> <slot 15>, RF003[in_or_bloom] -> <slot 3>, RF004[in_or_bloom] -> `ps_partkey`") && 
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: sum(<slot 10> sum(`l_quantity`))\n" + 
@@ -99,11 +99,11 @@ suite("test_explain_tpch_sf_1_q20") {
 				"  |  STREAMING\n" + 
 				"  |  output: sum(`l_quantity`)\n" + 
 				"  |  group by: `l_partkey`, `l_suppkey`") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` >= date('1994-01-01 00:00:00'), `l_shipdate` < date('1994-01-01 00:00:00') + INTERVAL 1 YEAR") && 
-		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_name` LIKE 'forest%'") && 
-		explainStr.contains("TABLE: nation(nation), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.nation(nation), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `n_name` = 'CANADA'") 
             
         }

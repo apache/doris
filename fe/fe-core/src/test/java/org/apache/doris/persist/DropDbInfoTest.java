@@ -44,7 +44,7 @@ public class DropDbInfoTest {
         DropDbInfo info1 = new DropDbInfo();
         info1.write(dos);
 
-        DropDbInfo info2 = new DropDbInfo("test_db", true);
+        DropDbInfo info2 = new DropDbInfo("test_db", true, 0);
         info2.write(dos);
 
         dos.flush();
@@ -64,9 +64,9 @@ public class DropDbInfoTest {
 
         Assert.assertTrue(rInfo2.equals(rInfo2));
         Assert.assertFalse(rInfo2.equals(this));
-        Assert.assertFalse(info2.equals(new DropDbInfo("test_db1", true)));
-        Assert.assertFalse(info2.equals(new DropDbInfo("test_db", false)));
-        Assert.assertTrue(info2.equals(new DropDbInfo("test_db", true)));
+        Assert.assertFalse(info2.equals(new DropDbInfo("test_db1", true, 0)));
+        Assert.assertFalse(info2.equals(new DropDbInfo("test_db", false, 0)));
+        Assert.assertTrue(info2.equals(new DropDbInfo("test_db", true, 0)));
 
         // 3. delete files
         dis.close();

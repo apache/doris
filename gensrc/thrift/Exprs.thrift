@@ -40,7 +40,6 @@ enum TExprNodeType {
   NULL_LITERAL,
   SLOT_REF,
   STRING_LITERAL,
-  JSON_LITERAL,
   TUPLE_IS_NULL_PRED,
   INFO_FUNC,
   FUNCTION_CALL,
@@ -52,6 +51,9 @@ enum TExprNodeType {
 
   // only used in runtime filter
   BLOOM_PRED,
+
+  // for josn
+  JSON_LITERAL,
 }
 
 //enum TAggregationOp {
@@ -74,7 +76,7 @@ enum TExprNodeType {
 struct TAggregateExpr {
   // Indicates whether this expr is the merge() of an aggregation.
   1: required bool is_merge_agg
-  2: required list<Types.TTypeDesc> param_types
+  2: optional list<Types.TTypeDesc> param_types
 }
 struct TBoolLiteral {
   1: required bool value

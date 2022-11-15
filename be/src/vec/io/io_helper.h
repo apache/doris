@@ -166,7 +166,7 @@ inline void read_float_binary(Type& x, BufferReadable& buf) {
 
 inline void read_string_binary(std::string& s, BufferReadable& buf,
                                size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
@@ -179,7 +179,7 @@ inline void read_string_binary(std::string& s, BufferReadable& buf,
 
 inline void read_string_binary(StringRef& s, BufferReadable& buf,
                                size_t MAX_STRING_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     if (size > MAX_STRING_SIZE) {
@@ -190,7 +190,7 @@ inline void read_string_binary(StringRef& s, BufferReadable& buf,
 }
 
 inline StringRef read_string_binary_into(Arena& arena, BufferReadable& buf) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     char* data = arena.alloc(size);
@@ -208,7 +208,7 @@ inline void read_json_binary(JsonbField val, BufferReadable& buf,
 template <typename Type>
 void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
                         size_t MAX_VECTOR_SIZE = DEFAULT_MAX_STRING_SIZE) {
-    size_t size = 0;
+    UInt64 size = 0;
     read_var_uint(size, buf);
 
     if (size > MAX_VECTOR_SIZE) {
@@ -357,6 +357,24 @@ bool try_read_bool_text(T& x, ReadBuffer& buf) {
 template <typename T>
 bool try_read_int_text(T& x, ReadBuffer& buf) {
     return read_int_text_impl<T>(x, buf);
+}
+
+template <typename T>
+static inline const char* try_read_first_int_text(T& x, const char* pos, const char* end) {
+    const int len = end - pos;
+    int i = 0;
+    while (i < len) {
+        if (pos[i] >= '0' && pos[i] <= '9') {
+            i++;
+        } else {
+            break;
+        }
+    }
+    const char* int_end = pos + i;
+    ReadBuffer in((char*)pos, int_end - pos);
+    const size_t count = in.count();
+    try_read_int_text(x, in);
+    return pos + count;
 }
 
 template <typename T>

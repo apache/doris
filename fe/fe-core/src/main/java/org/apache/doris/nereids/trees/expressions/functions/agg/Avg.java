@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -48,17 +48,31 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
         super("avg", child);
     }
 
+    public Avg(AggregateParam aggregateParam, Expression child) {
+        super("avg", aggregateParam, child);
+    }
+
     @Override
-    public DataType getDataType() {
-        if (child().getDataType() instanceof DecimalType) {
-            return child().getDataType();
-        } else if (child().getDataType().isDate()) {
+    public DataType getFinalType() {
+        DataType argumentType = inputTypesBeforeDissemble()
+                .map(types -> types.get(0))
+                .orElse(child().getDataType());
+        if (argumentType instanceof DecimalV2Type) {
+            return DecimalV2Type.SYSTEM_DEFAULT;
+        } else if (argumentType.isDate()) {
             return DateType.INSTANCE;
-        } else if (child().getDataType().isDateTime()) {
+        } else if (argumentType.isDateTime()) {
             return DateTimeType.INSTANCE;
         } else {
             return DoubleType.INSTANCE;
         }
+    }
+
+    // TODO: We should return a complex type: PartialAggType(bufferTypes=[Double, Int], inputTypes=[Int])
+    //       to denote sum(double) and count(int)
+    @Override
+    public DataType getIntermediateType() {
+        return VarcharType.createVarcharType(-1);
     }
 
     @Override
@@ -67,19 +81,23 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Avg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(children.get(0));
+        return new Avg(getAggregateParam(), children.get(0));
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return VarcharType.createVarcharType(-1);
+    public Avg withAggregateParam(AggregateParam aggregateParam) {
+        return new Avg(aggregateParam, child());
     }
 
     @Override
     public List<AbstractDataType> expectedInputTypes() {
-        return EXPECTED_INPUT_TYPES;
+        if (isGlobal() && inputTypesBeforeDissemble().isPresent()) {
+            return ImmutableList.of();
+        } else {
+            return EXPECTED_INPUT_TYPES;
+        }
     }
 
     @Override

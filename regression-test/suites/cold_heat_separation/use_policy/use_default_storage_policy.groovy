@@ -34,7 +34,7 @@ suite("use_default_storage_policy") {
 
     if (!storage_exist.call("default_storage_policy")) {
         def create_table_use_default_policy_but_not_set_default_policy_result = try_sql """
-            CREATE TABLE use_default_storage_policy 
+            CREATE TABLE IF NOT EXISTS use_default_storage_policy 
             ( k1 DATE, k2 INT, V1 VARCHAR(2048) REPLACE ) 
             PARTITION BY RANGE (k1) 
             ( 
@@ -67,7 +67,7 @@ suite("use_default_storage_policy") {
     }
 
     def create_table_use_default_policy_has_set_default_policy_result = try_sql """
-        CREATE TABLE use_default_storage_policy 
+        CREATE TABLE IF NOT EXISTS use_default_storage_policy 
         ( k1 DATE, k2 INT, V1 VARCHAR(2048) REPLACE ) 
         PARTITION BY RANGE (k1) 
         ( 

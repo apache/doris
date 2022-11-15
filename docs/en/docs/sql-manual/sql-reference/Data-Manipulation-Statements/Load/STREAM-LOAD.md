@@ -144,7 +144,8 @@ separated by commas.
            The system will use the order specified by user. in case above, data should be ended
            with __DORIS_SEQUENCE_COL__.
        ```
-
+23. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
+    
     RETURN VALUES
         After the import is complete, the related content of this import will be returned in Json format. Currently includes the following fields
         Status: Import the last status.
@@ -174,8 +175,11 @@ ERRORS:
         SHOW LOAD WARNINGS ON 'url
        ````
 
+    where url is the url given by ErrorURL.
 
- where url is the url given by ErrorURL.
+23: compress_type
+
+    Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
 
 ### Example
 
@@ -425,21 +429,21 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 4. Label, import transaction, multi-table atomicity
 
-   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../data-operate/import/import-scenes/load-atomicity.md) documentation.
+   All import tasks in Doris are atomic. And the import of multiple tables in the same import task can also guarantee atomicity. At the same time, Doris can also use the Label mechanism to ensure that the data imported is not lost or heavy. For details, see the [Import Transactions and Atomicity](../../../../../data-operate/import/import-scenes/load-atomicity) documentation.
 
 5. Column mapping, derived columns and filtering
 
-   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
+   Doris can support very rich column transformation and filtering operations in import statements. Most built-in functions and UDFs are supported. For how to use this function correctly, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
 
 6. Error data filtering
 
    Doris' import tasks can tolerate a portion of malformed data. The tolerance ratio is set via `max_filter_ratio`. The default is 0, which means that the entire import task will fail when there is an error data. If the user wants to ignore some problematic data rows, the secondary parameter can be set to a value between 0 and 1, and Doris will automatically skip the rows with incorrect data format.
 
-   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../data-operate/import/import-scenes/load-data-convert.md) document.
+   For some calculation methods of the tolerance rate, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
 
 7. Strict Mode
 
-   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
+   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../../../data-operate/import/import-scenes/load-strict-mode) documentation.
 
 8. Timeout
 

@@ -34,16 +34,14 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
-                               const std::shared_ptr<MemTrackerLimiter>& parent_tracker,
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
                                bool is_high_priority, bool is_vec)
         : _key(key),
           _state(kInitialized),
+          _load_id(load_id),
           _closed_senders(64),
           _is_high_priority(is_high_priority),
           _is_vec(is_vec) {
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, fmt::format("TabletsChannel#indexID={}", key.index_id), parent_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -194,15 +192,28 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     }
 }
 
+int64_t TabletsChannel::mem_consumption() {
+    int64_t mem_usage = 0;
+    {
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        for (auto& it : _tablet_writers) {
+            mem_usage += it.second->mem_consumption();
+        }
+    }
+    return mem_usage;
+}
+
 template <typename TabletWriterAddResult>
 Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
     if (_try_to_wait_flushing()) {
         // `_try_to_wait_flushing()` returns true means other thread already
         // reduced the mem usage, and current thread do not need to reduce again.
+        LOG(INFO) << "Duplicate reduce mem usage on TabletsChannel, txn_id: " << _txn_id
+                  << ", index_id: " << _index_id;
         return Status::OK();
     }
 
-    std::vector<DeltaWriter*> writers_to_flush;
+    std::vector<DeltaWriter*> writers_to_wait_flush;
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_state == kFinished) {
@@ -214,8 +225,15 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         // Sort the DeltaWriters by mem consumption in descend order.
         std::vector<DeltaWriter*> writers;
         for (auto& it : _tablet_writers) {
-            it.second->save_memtable_consumption_snapshot();
+            it.second->save_mem_consumption_snapshot();
             writers.push_back(it.second);
+        }
+        int64_t total_memtable_consumption_in_flush = 0;
+        for (auto writer : writers) {
+            if (writer->get_memtable_consumption_inflush() > 0) {
+                writers_to_wait_flush.push_back(writer);
+                total_memtable_consumption_in_flush += writer->get_memtable_consumption_inflush();
+            }
         }
         std::sort(writers.begin(), writers.end(),
                   [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
@@ -234,54 +252,70 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         // So here we only flush part of the tablet, and the next time the reduce memory operation is triggered,
         // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
 
-        int64_t mem_to_flushed = _mem_tracker->consumption() / 3;
-        int counter = 0;
-        int64_t sum = 0;
-        for (auto writer : writers) {
-            if (writer->mem_consumption() <= 0) {
-                break;
+        int64_t mem_to_flushed = mem_consumption() / 3;
+        if (total_memtable_consumption_in_flush < mem_to_flushed) {
+            mem_to_flushed -= total_memtable_consumption_in_flush;
+            int counter = 0;
+            int64_t sum = 0;
+            for (auto writer : writers) {
+                if (writer->mem_consumption() <= 0) {
+                    break;
+                }
+                ++counter;
+                sum += writer->mem_consumption();
+                if (sum > mem_to_flushed) {
+                    break;
+                }
             }
-            ++counter;
-            sum += writer->mem_consumption();
-            if (sum > mem_to_flushed) {
-                break;
+            std::ostringstream ss;
+            ss << "total size of memtables in flush: " << total_memtable_consumption_in_flush
+               << " will flush " << counter << " more memtables to reduce memory: " << sum;
+            if (counter > 0) {
+                ss << ", the size of smallest memtable to flush is "
+                   << writers[counter - 1]->get_memtable_consumption_snapshot() << " bytes";
             }
+            LOG(INFO) << ss.str();
+            google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
+                    response->mutable_tablet_errors();
+            // following loop flush memtable async, we'll do it with _lock
+            for (int i = 0; i < counter; i++) {
+                Status st = writers[i]->flush_memtable_and_wait(false);
+                if (!st.ok()) {
+                    auto err_msg = strings::Substitute(
+                            "tablet writer failed to reduce mem consumption by flushing memtable, "
+                            "tablet_id=$0, txn_id=$1, err=$2, errcode=$3, msg:$4",
+                            writers[i]->tablet_id(), _txn_id, st.code(), st.precise_code(),
+                            st.get_error_msg());
+                    LOG(WARNING) << err_msg;
+                    PTabletError* error = tablet_errors->Add();
+                    error->set_tablet_id(writers[i]->tablet_id());
+                    error->set_msg(err_msg);
+                    _broken_tablets.insert(writers[i]->tablet_id());
+                }
+            }
+            for (int i = 0; i < counter; i++) {
+                if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
+                    // skip broken tablets
+                    continue;
+                }
+                writers_to_wait_flush.push_back(writers[i]);
+            }
+            _reducing_mem_usage = true;
+        } else {
+            LOG(INFO) << "total size of memtables in flush is big enough: "
+                      << total_memtable_consumption_in_flush
+                      << " bytes, will not flush more memtables";
         }
-        VLOG_CRITICAL << "flush " << counter << " memtables to reduce memory: " << sum;
-        google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
-                response->mutable_tablet_errors();
-        // following loop flush memtable async, we'll do it with _lock
-        for (int i = 0; i < counter; i++) {
-            Status st = writers[i]->flush_memtable_and_wait(false);
-            if (!st.ok()) {
-                auto err_msg = strings::Substitute(
-                        "tablet writer failed to reduce mem consumption by flushing memtable, "
-                        "tablet_id=$0, txn_id=$1, err=$2, errcode=$3, msg:$4",
-                        writers[i]->tablet_id(), _txn_id, st.code(), st.precise_code(),
-                        st.get_error_msg());
-                LOG(WARNING) << err_msg;
-                PTabletError* error = tablet_errors->Add();
-                error->set_tablet_id(writers[i]->tablet_id());
-                error->set_msg(err_msg);
-                _broken_tablets.insert(writers[i]->tablet_id());
-            }
-        }
-        for (int i = 0; i < counter; i++) {
-            if (_broken_tablets.find(writers[i]->tablet_id()) != _broken_tablets.end()) {
-                // skip broken tablets
-                continue;
-            }
-            writers_to_flush.push_back(writers[i]);
-        }
-        _reducing_mem_usage = true;
     }
 
-    for (auto writer : writers_to_flush) {
-        Status st = writer->wait_flush();
+    Status st = Status::OK();
+    for (auto writer : writers_to_wait_flush) {
+        st = writer->wait_flush();
         if (!st.ok()) {
-            return Status::InternalError(
+            st = Status::InternalError(
                     "failed to reduce mem consumption by flushing memtable. err: {}",
                     st.to_string());
+            break;
         }
     }
 
@@ -291,7 +325,7 @@ Status TabletsChannel::reduce_mem_usage(TabletWriterAddResult* response) {
         _reduce_memory_cond.notify_all();
     }
 
-    return Status::OK();
+    return st;
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
@@ -324,7 +358,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.ptable_schema_param = request.schema();
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _mem_tracker, _is_vec);
+        auto st = DeltaWriter::open(&wrequest, &writer, _load_id, _is_vec);
         if (!st.ok()) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
@@ -333,7 +367,10 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-        _tablet_writers.emplace(tablet.tablet_id(), writer);
+        {
+            std::lock_guard<SpinLock> l(_tablet_writers_lock);
+            _tablet_writers.emplace(tablet.tablet_id(), writer);
+        }
     }
     _s_tablet_writer_count += _tablet_writers.size();
     DCHECK_EQ(_tablet_writers.size(), request.tablets_size());

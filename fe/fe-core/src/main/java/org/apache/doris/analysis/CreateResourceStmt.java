@@ -36,15 +36,22 @@ public class CreateResourceStmt extends DdlStmt {
     private static final String TYPE = "type";
 
     private final boolean isExternal;
+    private final boolean ifNotExists;
     private final String resourceName;
     private final Map<String, String> properties;
     private ResourceType resourceType;
 
-    public CreateResourceStmt(boolean isExternal, String resourceName, Map<String, String> properties) {
+    public CreateResourceStmt(boolean isExternal, boolean ifNotExists, String resourceName,
+            Map<String, String> properties) {
         this.isExternal = isExternal;
+        this.ifNotExists = ifNotExists;
         this.resourceName = resourceName;
         this.properties = properties;
         this.resourceType = ResourceType.UNKNOWN;
+    }
+
+    public boolean isIfNotExists() {
+        return ifNotExists;
     }
 
     public String getResourceName() {

@@ -30,6 +30,8 @@ under the License.
 
 `GET /rest/v2/manager/query/query_info`
 
+`GET /rest/v2/manager/query/trace/{trace_id}`
+
 `GET /rest/v2/manager/query/sql/{query_id}`
 
 `GET /rest/v2/manager/query/profile/text/{query_id}`
@@ -96,6 +98,12 @@ under the License.
 }
 ```
 
+<version since="1.2">
+
+Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。
+
+</version>
+
 ### Examples
 ```
 GET /rest/v2/manager/query/query_info
@@ -134,6 +142,54 @@ GET /rest/v2/manager/query/query_info
     "count": 0
 }
 ```
+
+## 通过 Trace Id 获取 Query Id
+
+`GET /rest/v2/manager/query/trace_id/{trace_id}`
+
+### Description
+
+通过 Trace Id 获取 Query Id.
+
+在执行一个 Query 前，先设置一个唯一的 trace id:
+
+`set set session_context="trace_id:your_trace_id";`
+
+在同一个 Session 链接内执行 Query 后，可以通过 trace id 获取 query id。
+    
+### Path parameters
+
+* `{trace_id}`
+
+    用户设置的 trace id.
+
+### Query parameters
+
+### Response
+
+```
+{
+    "msg": "success", 
+    "code": 0, 
+    "data": "fb1d9737de914af1-a498d5c5dec638d3", 
+    "count": 0
+}
+```
+
+<version since="1.2">
+
+Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。若指定 trace id 不存在或无权限，则返回 Bad Request：
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
 
 ## 获取指定查询的sql和文本profile
 
@@ -180,6 +236,21 @@ GET /rest/v2/manager/query/query_info
     "count": 0
 }
 ```
+
+<version since="1.2">
+
+Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。若指定 query id 不存在或无权限，则返回 Bad Request：
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
     
 ### Examples
 
@@ -237,6 +308,21 @@ GET /rest/v2/manager/query/query_info
     "count": 0
 }
 ```
+
+<version since="1.2">
+
+Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。若指定 query id 不存在或无权限，则返回 Bad Request：
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
     
 ### Examples
 
@@ -313,6 +399,21 @@ GET /rest/v2/manager/query/query_info
 }
 ```
 
+<version since="1.2">
+
+Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。若指定 query id 不存在或无权限，则返回 Bad Request：
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
+
 ## 正在执行的query
 
 `GET /rest/v2/manager/query/current_queries`
@@ -372,3 +473,4 @@ GET /rest/v2/manager/query/query_info
     "count": 0
 }
 ```
+

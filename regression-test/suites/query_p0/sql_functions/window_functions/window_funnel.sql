@@ -1,6 +1,6 @@
 DROP TABLE IF EXISTS windowfunnel_test;
 
-CREATE TABLE windowfunnel_test (
+CREATE TABLE IF NOT EXISTS windowfunnel_test (
                 `xwho` varchar(50) NULL COMMENT 'xwho', 
                 `xwhen` datetime COMMENT 'xwhen', 
                 `xwhat` int NULL COMMENT 'xwhat' 

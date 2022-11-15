@@ -36,12 +36,6 @@ public abstract class PhysicalBinary<
             RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalPlan
         implements BinaryPlan<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
-    public PhysicalBinary(PlanType type, LogicalProperties logicalProperties,
-                              LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(type, logicalProperties, leftChild, rightChild);
-    }
-
     public PhysicalBinary(PlanType type, Optional<GroupExpression> groupExpression,
                               LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild,
                               RIGHT_CHILD_TYPE rightChild) {

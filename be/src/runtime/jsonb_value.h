@@ -97,7 +97,7 @@ struct JsonBinaryValue {
         LOG(FATAL) << "comparing between JsonBinaryValue is not supported";
     }
 
-    JsonbErrType from_json_string(const char* s, int len);
+    Status from_json_string(const char* s, int len);
 
     std::string to_json_string() const;
 

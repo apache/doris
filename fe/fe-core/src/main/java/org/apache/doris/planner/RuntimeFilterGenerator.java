@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -161,7 +162,7 @@ public final class RuntimeFilterGenerator {
         Preconditions.checkState(runtimeFilterType >= 0, "runtimeFilterType not expected");
         Preconditions.checkState(runtimeFilterType <= Arrays.stream(TRuntimeFilterType.values())
                 .mapToInt(TRuntimeFilterType::getValue).sum(), "runtimeFilterType not expected");
-        if (ConnectContext.get().getSessionVariable().enableRemoveNoConjunctsRuntimeFilterPolicy) {
+        if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
             filterGenerator.findAllTuplesHavingConjuncts(plan);
         }
         filterGenerator.generateFilters(plan);
@@ -221,7 +222,8 @@ public final class RuntimeFilterGenerator {
             // from the ON clause.
             if (!joinNode.getJoinOp().isLeftOuterJoin()
                     && !joinNode.getJoinOp().isFullOuterJoin()
-                    && !joinNode.getJoinOp().isAntiJoin()) {
+                    && !joinNode.getJoinOp().equals(JoinOperator.LEFT_ANTI_JOIN)
+                    && !joinNode.getJoinOp().equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 joinConjuncts.addAll(joinNode.getEqJoinConjuncts());
             }
 

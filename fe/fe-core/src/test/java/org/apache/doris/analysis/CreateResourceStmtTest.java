@@ -63,7 +63,7 @@ public class CreateResourceStmtTest {
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("type", "spark");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, resourceName1, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName1, properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName1, stmt.getResourceName());
         Assert.assertEquals(Resource.ResourceType.SPARK, stmt.getResourceType());
@@ -71,7 +71,7 @@ public class CreateResourceStmtTest {
 
         properties = Maps.newHashMap();
         properties.put("type", "odbc_catalog");
-        stmt = new CreateResourceStmt(true, resourceName2, properties);
+        stmt = new CreateResourceStmt(true, false, resourceName2, properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName2, stmt.getResourceName());
         Assert.assertEquals(Resource.ResourceType.ODBC_CATALOG, stmt.getResourceType());
@@ -79,7 +79,7 @@ public class CreateResourceStmtTest {
 
         properties = Maps.newHashMap();
         properties.put("type", "s3");
-        stmt = new CreateResourceStmt(true, resourceName3, properties);
+        stmt = new CreateResourceStmt(true, false, resourceName3, properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName3, stmt.getResourceName());
         Assert.assertEquals(ResourceType.S3, stmt.getResourceType());
@@ -100,7 +100,7 @@ public class CreateResourceStmtTest {
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put("type", "hadoop");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, resourceName1, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName1, properties);
         stmt.analyze(analyzer);
     }
 }

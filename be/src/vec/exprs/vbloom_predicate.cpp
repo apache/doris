@@ -17,9 +17,6 @@
 
 #include "vec/exprs/vbloom_predicate.h"
 
-#include <cstdint>
-#include <string_view>
-
 #include "common/status.h"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -36,12 +33,7 @@ Status VBloomPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         return Status::InternalError("Invalid argument for VBloomPredicate.");
     }
 
-    ColumnsWithTypeAndName argument_template;
-    argument_template.reserve(_children.size());
-    for (auto child : _children) {
-        auto column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
-    }
+    _be_exec_version = state->be_exec_version();
     return Status::OK();
 }
 
@@ -79,7 +71,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
             const StringValue v(ele.data, ele.size);
             ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
         }
-    } else if (type.is_int_or_uint() || type.is_float()) {
+    } else if (_be_exec_version > 0 && (type.is_int_or_uint() || type.is_float())) {
         if (argument_column->is_nullable()) {
             auto column_nested = reinterpret_cast<const ColumnNullable*>(argument_column.get())
                                          ->get_nested_column_ptr();
@@ -96,6 +88,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
                     reinterpret_cast<const void*>(argument_column->get_data_at(i).data));
         }
     }
+
     if (_data_type->is_nullable()) {
         auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
         block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),

@@ -17,8 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
 
@@ -32,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Representation of a set ops with its list of operands, and optional order by and limit.
@@ -476,8 +480,20 @@ public class SetOperationStmt extends QueryStmt {
             LOG.trace("SetOperationStmt.createMetadata: tupleId=" + tupleId.toString());
         }
 
-        // One slot per expr in the select blocks. Use first select block as representative.
-        List<Expr> firstSelectExprs = operands.get(0).getQueryStmt().getResultExprs();
+        // When multiple operands exist here, we should use compatible type for each slot. For example,
+        // for `SELECT decimal(10,1) UNION ALL decimal(6,4)`, we should use decimal(10,4) as the result type.
+        List<Pair<Type, Boolean>> selectTypeWithNullable = operands.get(0).getQueryStmt().getResultExprs().stream()
+                .map(expr -> Pair.of(expr.getType(), expr.isNullable())).collect(Collectors.toList());
+        for (int i = 1; i < operands.size(); i++) {
+            for (int j = 1; j < selectTypeWithNullable.size(); j++) {
+                if (selectTypeWithNullable.get(j).first.isDecimalV2()
+                        && operands.get(i).getQueryStmt().getResultExprs().get(j).getType().isDecimalV2()) {
+                    selectTypeWithNullable.get(j).first = ScalarType.getAssignmentCompatibleDecimalV2Type(
+                            (ScalarType) selectTypeWithNullable.get(j).first,
+                            (ScalarType) operands.get(i).getQueryStmt().getResultExprs().get(j).getType());
+                }
+            }
+        }
 
         // TODO(zc) Column stats
         /*
@@ -497,12 +513,11 @@ public class SetOperationStmt extends QueryStmt {
         */
 
         // Create tuple descriptor and slots.
-        for (int i = 0; i < firstSelectExprs.size(); ++i) {
-            Expr expr = firstSelectExprs.get(i);
+        for (int i = 0; i < selectTypeWithNullable.size(); ++i) {
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(tupleDesc);
             slotDesc.setLabel(getColLabels().get(i));
-            slotDesc.setType(expr.getType());
-            slotDesc.setIsNullable(expr.isNullable());
+            slotDesc.setType(selectTypeWithNullable.get(i).first);
+            slotDesc.setIsNullable(selectTypeWithNullable.get(i).second);
             // TODO(zc)
             // slotDesc.setStats(columnStats.get(i));
             SlotRef outputSlotRef = new SlotRef(slotDesc);

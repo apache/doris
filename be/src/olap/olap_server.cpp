@@ -26,12 +26,14 @@
 #include <string>
 
 #include "agent/cgroups_mgr.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "io/cache/file_cache_manager.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/storage_engine.h"
 #include "util/file_utils.h"
 #include "util/time.h"
@@ -83,6 +85,12 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::quick_compaction_max_threads)
             .set_max_threads(config::quick_compaction_max_threads)
             .build(&_quick_compaction_thread_pool);
+    if (config::enable_segcompaction && config::enable_storage_vectorization) {
+        ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                .set_min_threads(config::seg_compaction_max_threads)
+                .set_max_threads(config::seg_compaction_max_threads)
+                .build(&_seg_compaction_thread_pool);
+    }
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
@@ -117,7 +125,7 @@ Status StorageEngine::start_bg_threads() {
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
                     [this, data_dir]() {
-                        SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
+                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
                         this->_path_scan_thread_callback(data_dir);
                     },
                     &path_scan_thread));
@@ -127,7 +135,7 @@ Status StorageEngine::start_bg_threads() {
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
                     [this, data_dir]() {
-                        SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
+                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
                         this->_path_gc_thread_callback(data_dir);
                     },
                     &path_gc_thread));
@@ -479,7 +487,6 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
     _update_cumulative_compaction_policy();
-
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
 
@@ -563,21 +570,9 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 }
 
 void StorageEngine::_update_cumulative_compaction_policy() {
-    std::string current_policy = "";
-    {
-        std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
-        current_policy = config::cumulative_compaction_policy;
-    }
-    boost::to_upper(current_policy);
-    if (_cumulative_compaction_policy == nullptr ||
-        _cumulative_compaction_policy->name() != current_policy) {
-        if (current_policy == CUMULATIVE_SIZE_BASED_POLICY) {
-            // check size_based cumulative compaction config
-            check_cumulative_compaction_config();
-        }
+    if (_cumulative_compaction_policy == nullptr) {
         _cumulative_compaction_policy =
-                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                        current_policy);
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
     }
 }
 
@@ -673,9 +668,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
                                              CompactionType compaction_type) {
     _update_cumulative_compaction_policy();
-    if (tablet->get_cumulative_compaction_policy() == nullptr ||
-        tablet->get_cumulative_compaction_policy()->name() !=
-                _cumulative_compaction_policy->name()) {
+    if (tablet->get_cumulative_compaction_policy() == nullptr) {
         tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
     }
     return _submit_compaction_task(tablet, compaction_type);
@@ -699,6 +692,19 @@ Status StorageEngine::submit_quick_compaction_task(TabletSharedPtr tablet) {
     _quick_compaction_thread_pool->submit_func(
             std::bind<void>(&StorageEngine::_handle_quick_compaction, this, tablet));
     return Status::OK();
+}
+
+Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
+                                             SegCompactionCandidatesSharedPtr segments) {
+    writer->compact_segments(segments);
+    // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
+    return Status::OK();
+}
+
+Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
+                                                 SegCompactionCandidatesSharedPtr segments) {
+    return _seg_compaction_thread_pool->submit_func(
+            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
 }
 
 void StorageEngine::_cooldown_tasks_producer_callback() {
@@ -767,28 +773,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
     int64_t interval = config::generate_cache_cleaner_task_interval_sec;
     do {
         LOG(INFO) << "Begin to Clean cache files";
-        FileCacheManager::instance()->clean_timeout_caches();
-        std::vector<TabletSharedPtr> tablets =
-                StorageEngine::instance()->tablet_manager()->get_all_tablet();
-        for (const auto& tablet : tablets) {
-            std::vector<Path> seg_file_paths;
-            if (io::global_local_filesystem()->list(tablet->tablet_path(), &seg_file_paths).ok()) {
-                for (Path seg_file : seg_file_paths) {
-                    std::string seg_filename = seg_file.native();
-                    // check if it is a dir name
-                    if (ends_with(seg_filename, ".dat")) {
-                        continue;
-                    }
-                    std::stringstream ss;
-                    ss << tablet->tablet_path() << "/" << seg_filename;
-                    std::string cache_path = ss.str();
-                    if (FileCacheManager::instance()->exist(cache_path)) {
-                        continue;
-                    }
-                    FileCacheManager::instance()->clean_timeout_file_not_in_mem(cache_path);
-                }
-            }
-        }
+        FileCacheManager::instance()->gc_file_caches();
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 

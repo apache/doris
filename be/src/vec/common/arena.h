@@ -145,7 +145,7 @@ public:
         return res;
     }
 
-    /// Get peice of memory with alignment
+    /// Get piece of memory with alignment
     char* aligned_alloc(size_t size, size_t alignment) {
         do {
             void* head_pos = head->pos;

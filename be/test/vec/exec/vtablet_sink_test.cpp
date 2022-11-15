@@ -28,11 +28,11 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
+#include "runtime/tuple_row.h"
 #include "runtime/types.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
@@ -45,47 +45,6 @@ namespace doris {
 namespace stream_load {
 
 extern Status k_add_batch_status;
-
-class VOlapTableSinkTest : public testing::Test {
-public:
-    VOlapTableSinkTest() {}
-    virtual ~VOlapTableSinkTest() {}
-    void SetUp() override {
-        k_add_batch_status = Status::OK();
-        _env = ExecEnv::GetInstance();
-        _env->_thread_mgr = new ThreadResourceMgr();
-        _env->_master_info = new TMasterInfo();
-        _env->_load_stream_mgr = new LoadStreamMgr();
-        _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
-        _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
-        _env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
-        ThreadPoolBuilder("SendBatchThreadPool")
-                .set_min_threads(1)
-                .set_max_threads(5)
-                .set_max_queue_size(100)
-                .build(&_env->_send_batch_thread_pool);
-        config::tablet_writer_open_rpc_timeout_sec = 60;
-        config::max_send_batch_parallelism_per_job = 1;
-    }
-
-    void TearDown() override {
-        SAFE_DELETE(_env->_internal_client_cache);
-        SAFE_DELETE(_env->_function_client_cache);
-        SAFE_DELETE(_env->_load_stream_mgr);
-        SAFE_DELETE(_env->_master_info);
-        SAFE_DELETE(_env->_thread_mgr);
-        SAFE_DELETE(_env->_task_pool_mem_tracker_registry);
-        if (_server) {
-            _server->Stop(100);
-            _server->Join();
-            SAFE_DELETE(_server);
-        }
-    }
-
-private:
-    ExecEnv* _env = nullptr;
-    brpc::Server* _server = nullptr;
-};
 
 TDataSink get_data_sink(TDescriptorTable* desc_tbl);
 TDataSink get_decimal_sink(TDescriptorTable* desc_tbl);
@@ -109,6 +68,31 @@ public:
         brpc::ClosureGuard done_guard(done);
         Status status;
         status.to_protobuf(response->mutable_status());
+    }
+
+    void tablet_writer_add_batch(google::protobuf::RpcController* controller,
+                                 const PTabletWriterAddBatchRequest* request,
+                                 PTabletWriterAddBatchResult* response,
+                                 google::protobuf::Closure* done) override {
+        brpc::ClosureGuard done_guard(done);
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            _row_counters += request->tablet_ids_size();
+            if (request->eos()) {
+                _eof_counters++;
+            }
+            k_add_batch_status.to_protobuf(response->mutable_status());
+
+            if (request->has_row_batch() && _row_desc != nullptr) {
+                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+                attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
+                RowBatch batch(*_row_desc, request->row_batch());
+                for (int i = 0; i < batch.num_rows(); ++i) {
+                    LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
+                    _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
+                }
+            }
+        }
     }
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
@@ -160,107 +144,155 @@ public:
     std::set<std::string>* _output_set = nullptr;
 };
 
+class VOlapTableSinkTest : public testing::Test {
+public:
+    VOlapTableSinkTest() {}
+    virtual ~VOlapTableSinkTest() {}
+    void SetUp() override {
+        k_add_batch_status = Status::OK();
+        _env = ExecEnv::GetInstance();
+        _env->_thread_mgr = new ThreadResourceMgr();
+        _env->_master_info = new TMasterInfo();
+        _env->_load_stream_mgr = new LoadStreamMgr();
+        _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
+        _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
+        ThreadPoolBuilder("SendBatchThreadPool")
+                .set_min_threads(1)
+                .set_max_threads(5)
+                .set_max_queue_size(100)
+                .build(&_env->_send_batch_thread_pool);
+        config::tablet_writer_open_rpc_timeout_sec = 60;
+        config::max_send_batch_parallelism_per_job = 1;
+    }
+
+    void TearDown() override {
+        SAFE_DELETE(_env->_internal_client_cache);
+        SAFE_DELETE(_env->_function_client_cache);
+        SAFE_DELETE(_env->_load_stream_mgr);
+        SAFE_DELETE(_env->_master_info);
+        SAFE_DELETE(_env->_thread_mgr);
+        if (_server) {
+            _server->Stop(100);
+            _server->Join();
+            SAFE_DELETE(_server);
+        }
+    }
+
+    void test_normal(int be_exec_version) {
+        // start brpc service first
+        _server = new brpc::Server();
+        auto service = new VTestInternalService();
+        ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
+        brpc::ServerOptions options;
+        {
+            debug::ScopedLeakCheckDisabler disable_lsan;
+            _server->Start(4356, &options);
+        }
+
+        TUniqueId fragment_id;
+        TQueryOptions query_options;
+        query_options.batch_size = 1;
+        query_options.be_exec_version = be_exec_version;
+        RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+        state.init_mem_trackers(TUniqueId());
+
+        ObjectPool obj_pool;
+        TDescriptorTable tdesc_tbl;
+        auto t_data_sink = get_data_sink(&tdesc_tbl);
+
+        // crate desc_tabl
+        DescriptorTbl* desc_tbl = nullptr;
+        auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+        ASSERT_TRUE(st.ok());
+        state._desc_tbl = desc_tbl;
+
+        TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+        LOG(INFO) << "tuple_desc=" << tuple_desc->debug_string();
+
+        RowDescriptor row_desc(*desc_tbl, {0}, {false});
+        service->_row_desc = &row_desc;
+        std::set<std::string> output_set;
+        service->_output_set = &output_set;
+
+        VOlapTableSink sink(&obj_pool, row_desc, {}, &st);
+        ASSERT_TRUE(st.ok());
+
+        // init
+        st = sink.init(t_data_sink);
+        ASSERT_TRUE(st.ok());
+        // prepare
+        st = sink.prepare(&state);
+        ASSERT_TRUE(st.ok());
+        // open
+        st = sink.open(&state);
+        ASSERT_TRUE(st.ok());
+
+        int slot_count = tuple_desc->slots().size();
+        std::vector<vectorized::MutableColumnPtr> columns(slot_count);
+        for (int i = 0; i < slot_count; i++) {
+            columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
+        }
+
+        int col_idx = 0;
+        auto* column_ptr = columns[col_idx++].get();
+        auto column_vector_int = column_ptr;
+        int int_val = 12;
+        column_vector_int->insert_data((const char*)&int_val, 0);
+        int_val = 13;
+        column_vector_int->insert_data((const char*)&int_val, 0);
+        int_val = 14;
+        column_vector_int->insert_data((const char*)&int_val, 0);
+
+        column_ptr = columns[col_idx++].get();
+        auto column_vector_bigint = column_ptr;
+        int64_t int64_val = 9;
+        column_vector_bigint->insert_data((const char*)&int64_val, 0);
+        int64_val = 25;
+        column_vector_bigint->insert_data((const char*)&int64_val, 0);
+        int64_val = 50;
+        column_vector_bigint->insert_data((const char*)&int64_val, 0);
+
+        column_ptr = columns[col_idx++].get();
+        auto column_vector_str = column_ptr;
+        column_vector_str->insert_data("abc", 3);
+        column_vector_str->insert_data("abcd", 4);
+        column_vector_str->insert_data("abcde1234567890", 15);
+
+        vectorized::Block block;
+        col_idx = 0;
+        for (const auto slot_desc : tuple_desc->slots()) {
+            block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
+                                                           slot_desc->get_data_type_ptr(),
+                                                           slot_desc->col_name()));
+        }
+
+        // send
+        st = sink.send(&state, &block);
+        ASSERT_TRUE(st.ok());
+        // close
+        st = sink.close(&state, Status::OK());
+        ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
+                << st.to_string();
+
+        // each node has a eof
+        ASSERT_EQ(2, service->_eof_counters);
+        ASSERT_EQ(2 * 2, service->_row_counters);
+
+        // 2node * 2
+        ASSERT_EQ(1, state.num_rows_load_filtered());
+    }
+
+private:
+    ExecEnv* _env = nullptr;
+    brpc::Server* _server = nullptr;
+};
+
 TEST_F(VOlapTableSinkTest, normal) {
-    // start brpc service first
-    _server = new brpc::Server();
-    auto service = new VTestInternalService();
-    ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
-    brpc::ServerOptions options;
-    {
-        debug::ScopedLeakCheckDisabler disable_lsan;
-        _server->Start(4356, &options);
-    }
+    test_normal(1);
+}
 
-    TUniqueId fragment_id;
-    TQueryOptions query_options;
-    query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
-    state.init_mem_trackers(TUniqueId());
-
-    ObjectPool obj_pool;
-    TDescriptorTable tdesc_tbl;
-    auto t_data_sink = get_data_sink(&tdesc_tbl);
-
-    // crate desc_tabl
-    DescriptorTbl* desc_tbl = nullptr;
-    auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
-    state._desc_tbl = desc_tbl;
-
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    LOG(INFO) << "tuple_desc=" << tuple_desc->debug_string();
-
-    RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    service->_row_desc = &row_desc;
-    std::set<std::string> output_set;
-    service->_output_set = &output_set;
-
-    VOlapTableSink sink(&obj_pool, row_desc, {}, &st);
-    ASSERT_TRUE(st.ok());
-
-    // init
-    st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
-    // prepare
-    st = sink.prepare(&state);
-    ASSERT_TRUE(st.ok());
-    // open
-    st = sink.open(&state);
-    ASSERT_TRUE(st.ok());
-
-    int slot_count = tuple_desc->slots().size();
-    std::vector<vectorized::MutableColumnPtr> columns(slot_count);
-    for (int i = 0; i < slot_count; i++) {
-        columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
-    }
-
-    int col_idx = 0;
-    auto* column_ptr = columns[col_idx++].get();
-    auto column_vector_int = column_ptr;
-    int int_val = 12;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-    int_val = 13;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-    int_val = 14;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-
-    column_ptr = columns[col_idx++].get();
-    auto column_vector_bigint = column_ptr;
-    int64_t int64_val = 9;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-    int64_val = 25;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-    int64_val = 50;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-
-    column_ptr = columns[col_idx++].get();
-    auto column_vector_str = column_ptr;
-    column_vector_str->insert_data("abc", 3);
-    column_vector_str->insert_data("abcd", 4);
-    column_vector_str->insert_data("abcde1234567890", 15);
-
-    vectorized::Block block;
-    col_idx = 0;
-    for (const auto slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
-    }
-
-    // send
-    st = sink.send(&state, &block);
-    ASSERT_TRUE(st.ok());
-    // close
-    st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
-            << st.to_string();
-
-    // each node has a eof
-    ASSERT_EQ(2, service->_eof_counters);
-    ASSERT_EQ(2 * 2, service->_row_counters);
-
-    // 2node * 2
-    ASSERT_EQ(1, state.num_rows_load_filtered());
+TEST_F(VOlapTableSinkTest, fallback) {
+    test_normal(0);
 }
 
 TEST_F(VOlapTableSinkTest, convert) {
@@ -277,6 +309,7 @@ TEST_F(VOlapTableSinkTest, convert) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1024;
+    query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
@@ -406,6 +439,7 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
+    query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
@@ -519,6 +553,7 @@ TEST_F(VOlapTableSinkTest, decimal) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
+    query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 

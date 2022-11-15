@@ -17,15 +17,14 @@
 
 #pragma once
 
-#include <condition_variable>
-#include <list>
-#include <map>
-#include <mutex>
-
 #include "exprs/expr_context.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
 
 namespace doris {
 class Predicate;
@@ -97,14 +96,20 @@ struct RuntimeFilterParams {
 };
 
 struct UpdateRuntimeFilterParams {
+    UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
+                              butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
+            : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequest* request;
-    const char* data;
+    butil::IOBufAsZeroCopyInputStream* data;
     ObjectPool* pool;
 };
 
 struct MergeRuntimeFilterParams {
+    MergeRuntimeFilterParams(const PMergeFilterRequest* req,
+                             butil::IOBufAsZeroCopyInputStream* data_stream)
+            : request(req), data(data_stream) {}
     const PMergeFilterRequest* request;
-    const char* data;
+    butil::IOBufAsZeroCopyInputStream* data;
 };
 
 /// The runtimefilter is built in the join node.
@@ -135,6 +140,8 @@ public:
     static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
                          int node_id, IRuntimeFilter** res);
+
+    Status apply_from_other(IRuntimeFilter* other);
 
     // insert data to build filter
     // only used for producer
@@ -191,7 +198,7 @@ public:
 
     // init filter with desc
     Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
-                          UniqueId fragment_id, bool init_bloom_filter = false, int node_id = -1);
+                          UniqueId fragment_id, int node_id = -1);
 
     BloomFilterFuncBase* get_bloomfilter() const;
 
@@ -203,9 +210,11 @@ public:
 
     // for ut
     const RuntimePredicateWrapper* get_wrapper();
-    static Status create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
+                                 ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
+    static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
+                                 ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
     Status update_filter(const UpdateRuntimeFilterParams* param);
@@ -235,9 +244,11 @@ public:
 
     void ready_for_publish();
 
-    static bool enable_use_batch(PrimitiveType type) {
-        return is_int_or_bool(type) || is_float_or_double(type);
+    static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
+        return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
     }
+
+    int filter_id() const { return _filter_id; }
 
 protected:
     // serialize _wrapper to protobuf
@@ -248,8 +259,17 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(const T* param, ObjectPool* pool,
+    static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+
+    void _set_push_down() { _is_push_down = true; }
+
+    std::string _format_status() {
+        return fmt::format(
+                "[IsPushDown = {}, IsEffective = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+                "HasLocalTarget = {}]",
+                _is_push_down, _is_ready, _is_ignored, _has_remote_target, _has_local_target);
+    }
 
     RuntimeState* _state;
     ObjectPool* _pool;
@@ -275,6 +295,8 @@ protected:
     // used for await or signal
     std::mutex _inner_mutex;
     std::condition_variable _inner_cv;
+
+    bool _is_push_down = false;
 
     // if set always_true = true
     // this filter won't filter any data
@@ -307,8 +329,6 @@ protected:
     std::unique_ptr<RuntimeProfile> _profile;
     // unix millis
     RuntimeProfile::Counter* _await_time_cost = nullptr;
-    RuntimeProfile::Counter* _effect_time_cost = nullptr;
-    std::unique_ptr<ScopedTimer<MonotonicStopWatch>> _effect_timer;
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;

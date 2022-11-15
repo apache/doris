@@ -93,6 +93,11 @@ public class BackendServiceClient {
         return blockingStub.fetchData(request);
     }
 
+    public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
+                                InternalService.PFetchTableSchemaRequest request) {
+        return stub.fetchTableSchema(request);
+    }
+
     public Future<InternalService.PCacheResponse> updateCache(InternalService.PUpdateCacheRequest request) {
         return stub.updateCache(request);
     }

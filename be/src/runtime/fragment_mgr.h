@@ -36,6 +36,10 @@
 #include "util/metrics.h"
 #include "util/thread.h"
 
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
+
 namespace doris {
 
 class QueryFragmentsCtx;
@@ -85,9 +89,11 @@ public:
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
-    Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
+    Status apply_filter(const PPublishFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status merge_filter(const PMergeFilterRequest* request, const char* attach_data);
+    Status merge_filter(const PMergeFilterRequest* request,
+                        butil::IOBufAsZeroCopyInputStream* attach_data);
 
     void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe);
 
@@ -101,12 +107,19 @@ private:
 
     bool _is_scan_node(const TPlanNodeType::type& type);
 
+    void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
+                                                    RuntimeState* state,
+                                                    QueryFragmentsCtx* fragments_ctx);
+
     // This is input params
     ExecEnv* _exec_env;
 
     std::mutex _lock;
 
     std::condition_variable _cv;
+
+    std::mutex _lock_for_shared_hash_table;
+    std::condition_variable _cv_for_sharing_hashtable;
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;

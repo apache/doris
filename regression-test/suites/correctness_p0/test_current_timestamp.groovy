@@ -20,7 +20,7 @@ suite("test_current_timestamp") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-        CREATE TABLE ${tableName}
+        CREATE TABLE IF NOT EXISTS ${tableName}
         (
             id TINYINT,
             name CHAR(10) NOT NULL DEFAULT "zs",

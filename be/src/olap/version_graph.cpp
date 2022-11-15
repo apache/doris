@@ -575,9 +575,8 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
     }
 
     if (cur_idx < 0) {
-        LOG(WARNING) << "failed to find path in version_graph. "
-                     << "spec_version: " << spec_version.first << "-" << spec_version.second;
-        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+        return Status::InternalError("failed to find path in version_graph. spec_version: {}-{}",
+                                     spec_version.first, spec_version.second);
     }
 
     int64_t end_value = spec_version.second + 1;
@@ -606,9 +605,8 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
             }
             cur_idx = next_idx;
         } else {
-            VLOG_NOTICE << "fail to find path in version_graph. "
-                        << "spec_version: " << spec_version.first << "-" << spec_version.second;
-            return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
+            return Status::InternalError("fail to find path in version_graph. spec_version: {}-{}",
+                                         spec_version.first, spec_version.second);
         }
     }
 

@@ -37,6 +37,7 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -370,6 +371,7 @@ public class EsUtil {
             column.setName(key);
             column.setIsKey(true);
             column.setIsAllowNull(true);
+            column.setUniqueId((int) Env.getCurrentEnv().getNextId());
             if (arrayFields.contains(key)) {
                 column.setType(ArrayType.create(type, true));
             } else {
@@ -397,8 +399,9 @@ public class EsUtil {
             case "integer":
                 return Type.INT;
             case "long":
-            case "unsigned_long":
                 return Type.BIGINT;
+            case "unsigned_long":
+                return Type.LARGEINT;
             case "float":
             case "half_float":
                 return Type.FLOAT;
@@ -413,7 +416,7 @@ public class EsUtil {
             case "nested":
             case "object":
             default:
-                return Type.STRING;
+                return ScalarType.createStringType();
         }
     }
 
