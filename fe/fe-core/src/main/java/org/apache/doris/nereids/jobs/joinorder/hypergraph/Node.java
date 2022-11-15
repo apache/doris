@@ -79,40 +79,12 @@ public class Node {
         return index;
     }
 
-    public BitSet getBitSet() {
+    public BitSet getNodeMap() {
         return Bitmap.newBitmap(index);
     }
 
     public Plan getPlan() {
         return group.getLogicalExpression().getPlan();
-    }
-
-    //    public void setPlan(Plan plan) {
-    //        this.plan = plan;
-    //    }
-
-    public List<Edge> getComplexEdges() {
-        return complexEdges;
-    }
-
-    public void setComplexEdges(List<Edge> complexEdges) {
-        this.complexEdges = complexEdges;
-    }
-
-    public List<Edge> getSimpleEdges() {
-        return simpleEdges;
-    }
-
-    public void setSimpleEdges(List<Edge> simpleEdges) {
-        this.simpleEdges = simpleEdges;
-    }
-
-    public BitSet getSimpleNeighborhood() {
-        return simpleNeighborhood;
-    }
-
-    public void setSimpleNeighborhood(BitSet simpleNeighborhood) {
-        this.simpleNeighborhood = simpleNeighborhood;
     }
 
     /**
@@ -131,31 +103,6 @@ public class Node {
      */
     public void removeEdge(Edge edge) {
         edges.remove(edge);
-    }
-
-    /**
-     * This function split edge into complex edges and simple edges
-     * We do it after constructing HyperGraph because the edge may be modified
-     * by graph simplifier.
-     */
-    public void splitEdges() {
-        simpleEdges.clear();
-        Bitmap.clear(simpleNeighborhood);
-        complexEdges.clear();
-        Bitmap.clear(complexNeighborhood);
-        for (Edge edge : edges) {
-            if (edge.isSimple()) {
-                simpleEdges.add(edge);
-                Bitmap.or(simpleNeighborhood, edge.getLeft());
-                Bitmap.or(simpleNeighborhood, edge.getRight());
-            } else {
-                complexEdges.add(edge);
-                Bitmap.or(complexNeighborhood, edge.getLeft());
-                Bitmap.or(complexNeighborhood, edge.getRight());
-            }
-        }
-        Bitmap.unset(simpleNeighborhood, index);
-        Bitmap.unset(complexNeighborhood, index);
     }
 
     public String getName() {

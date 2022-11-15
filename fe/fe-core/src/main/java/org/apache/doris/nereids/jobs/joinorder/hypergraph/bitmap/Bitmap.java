@@ -26,8 +26,8 @@ public class Bitmap {
     public static boolean isSubset(BitSet bitSet1, BitSet bitSet2) {
         BitSet bitSet = new BitSet();
         bitSet.or(bitSet1);
-        bitSet.or(bitSet2);
-        return bitSet.equals(bitSet2);
+        bitSet.andNot(bitSet2);
+        return bitSet.cardinality() == 0;
     }
 
     public static BitSet newBitmap(int... values) {
@@ -62,6 +62,14 @@ public class Bitmap {
         u.or(bitSet1);
         u.andNot(bitSet2);
         return u;
+    }
+
+    //return bitset1 ∩ bitset2
+    public static BitSet newBitmapIntersect(BitSet bitSet1, BitSet bitSet2) {
+        BitSet intersect = newBitmap();
+        intersect.or(bitSet1);
+        intersect.and(bitSet2);
+        return intersect;
     }
 
     public static BitSet newBitmapBetween(int start, int end) {
@@ -121,5 +129,6 @@ public class Bitmap {
     public static SubsetIterator getSubsetIterator(BitSet bitSet) {
         return new SubsetIterator(bitSet);
     }
+
 }
 
