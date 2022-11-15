@@ -205,7 +205,7 @@ Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                                  properties, _docvalue_context, doc_value_mode);
 
         _scanner_pool.add(scanner);
-        RETURN_IF_ERROR(scanner->prepare(_state));
+        RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
         scanners->push_back(static_cast<VScanner*>(scanner));
     }
     return Status::OK();

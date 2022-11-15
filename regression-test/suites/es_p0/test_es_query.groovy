@@ -54,9 +54,18 @@ suite("test_es_query", "p0") {
             );
             """
         sql """switch es6"""
-        order_qt_sql1 """show tables"""
-        order_qt_sql1 """select * from test1 where test2='text#1'"""
-        sql """switch es8"""
-        order_qt_sql1 """select * from test1 where test2='text'"""
+        order_qt_sql61 """show tables"""
+        order_qt_sql62 """select * from test1 where test2='text#1'"""
+        order_qt_sql63 """select * from test2_20220808 where test4='2022-08-08'"""
+        order_qt_sql64 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
+        sql """switch es7"""
+        order_qt_sql71 """show tables"""
+        order_qt_sql72 """select * from test1 where test2='text#1'"""
+        order_qt_sql73 """select * from test2_20220808 where test4='2022-08-08'"""
+        order_qt_sql74 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
+        // es8 has some problem, need fix
+        // sql """switch es8"""
+        // order_qt_sql1 """select * from test1 where test2='text'"""
+        // order_qt_sql2 """select * from test2_20220808 where test4='2022-08-08'"""
     }
 }

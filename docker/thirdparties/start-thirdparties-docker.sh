@@ -31,7 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 CONTAINER_UID="doris--"
 
 # elasticsearch
-sed -i "" "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
 sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env down
 sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
 sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es6/*
