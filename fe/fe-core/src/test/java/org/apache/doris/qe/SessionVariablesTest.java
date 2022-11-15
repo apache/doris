@@ -60,7 +60,7 @@ public class SessionVariablesTest {
     public void testForwardQueryOptions() {
         TQueryOptions queryOptions = sessionVariable.getQueryOptionVariables();
         Assert.assertTrue(queryOptions.isSetMemLimit());
-        Assert.assertTrue(queryOptions.isSetLoadMemLimit());
+        Assert.assertFalse(queryOptions.isSetLoadMemLimit());
         Assert.assertTrue(queryOptions.isSetQueryTimeout());
 
         queryOptions.setQueryTimeout(123);

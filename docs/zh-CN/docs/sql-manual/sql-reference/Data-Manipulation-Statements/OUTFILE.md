@@ -56,7 +56,7 @@ INTO OUTFILE "file_path"
     
 2. format_as
     ​    FORMAT AS CSV
-    ​    指定导出格式. 支持csv、parquet、csv_with_names、csv_with_names_and_types. 默认为 CSV。
+    ​    指定导出格式. 支持 CSV、PARQUET、CSV_WITH_NAMES、CSV_WITH_NAMES_AND_TYPES、ORC. 默认为 CSV。
     
 3. properties
    
@@ -204,7 +204,7 @@ INTO OUTFILE "file_path"
     在cos上验证
     
         1. 不存在的path会自动创建
-            2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
+        2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
     
 6. 使用 s3 协议导出到 bos，并且并发导出开启。
     

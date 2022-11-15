@@ -21,13 +21,15 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-
 namespace doris::vectorized {
 
 struct BitmapEmpty {
@@ -41,37 +43,134 @@ struct ToBitmap {
     static constexpr auto name = "to_bitmap";
     using ReturnType = DataTypeBitMap;
 
-    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       MutableColumnPtr& col_res) {
-        execute<false>(data, offsets, nullptr, col_res);
+    template <typename ColumnType>
+    static void vector(const ColumnType* col, MutableColumnPtr& col_res) {
+        execute<ColumnType, false>(col, nullptr, col_res);
     }
-
-    static void vector_nullable(const ColumnString::Chars& data,
-                                const ColumnString::Offsets& offsets, const NullMap& nullmap,
+    template <typename ColumnType>
+    static void vector_nullable(const ColumnType* col, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
-        execute<true>(data, offsets, &nullmap, col_res);
+        execute<ColumnType, true>(col, &nullmap, col_res);
     }
-    template <bool arg_is_nullable>
-    static void execute(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                        const NullMap* nullmap, MutableColumnPtr& col_res) {
-        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
-        auto& res_data = res_column->get_data();
-        size_t size = offsets.size();
+    template <typename ColumnType, bool arg_is_nullable>
+    static void execute(const ColumnType* col, const NullMap* nullmap, MutableColumnPtr& col_res) {
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            const ColumnString::Chars& data = col->get_chars();
+            const ColumnString::Offsets& offsets = col->get_offsets();
 
-        for (size_t i = 0; i < size; ++i) {
-            if (arg_is_nullable && ((*nullmap)[i])) {
-                continue;
-            } else {
-                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                size_t str_size = offsets[i] - offsets[i - 1];
-                StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-                uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                        raw_str, str_size, &parse_result);
-                if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
-                    res_data[i].add(int_value);
+            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto& res_data = res_column->get_data();
+            size_t size = offsets.size();
+
+            for (size_t i = 0; i < size; ++i) {
+                if (arg_is_nullable && ((*nullmap)[i])) {
+                    continue;
+                } else {
+                    const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                    size_t str_size = offsets[i] - offsets[i - 1];
+                    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+                    uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                            raw_str, str_size, &parse_result);
+                    if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                        res_data[i].add(int_value);
+                    }
+                }
+            }
+        } else if constexpr (std::is_same_v<ColumnType, ColumnInt64>) {
+            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto& res_data = res_column->get_data();
+            size_t size = col->size();
+
+            for (size_t i = 0; i < size; ++i) {
+                if (arg_is_nullable && ((*nullmap)[i])) {
+                    continue;
+                } else {
+                    int64_t int_value = col->get_data()[i];
+                    if (LIKELY(int_value >= 0)) {
+                        res_data[i].add(int_value);
+                    }
                 }
             }
         }
+    }
+};
+
+struct ToBitmapWithCheck {
+    static constexpr auto name = "to_bitmap_with_check";
+    using ReturnType = DataTypeBitMap;
+
+    template <typename ColumnType>
+    static Status vector(const ColumnType* col, MutableColumnPtr& col_res) {
+        return execute<ColumnType, false>(col, nullptr, col_res);
+    }
+    template <typename ColumnType>
+    static Status vector_nullable(const ColumnType* col, const NullMap& nullmap,
+                                  MutableColumnPtr& col_res) {
+        return execute<ColumnType, true>(col, &nullmap, col_res);
+    }
+    template <typename ColumnType, bool arg_is_nullable>
+    static Status execute(const ColumnType* col, const NullMap* nullmap,
+                          MutableColumnPtr& col_res) {
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            const ColumnString::Chars& data = col->get_chars();
+            const ColumnString::Offsets& offsets = col->get_offsets();
+            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto& res_data = res_column->get_data();
+            size_t size = offsets.size();
+
+            for (size_t i = 0; i < size; ++i) {
+                if (arg_is_nullable && ((*nullmap)[i])) {
+                    continue;
+                } else {
+                    const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                    size_t str_size = offsets[i] - offsets[i - 1];
+                    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+                    uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                            raw_str, str_size, &parse_result);
+                    if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                        res_data[i].add(int_value);
+                    } else {
+                        std::stringstream ss;
+                        ss << "The input: " << std::string(raw_str, str_size)
+                           << " is not valid, to_bitmap only support bigint value from 0 to "
+                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                              "column with negative values or cannot load negative values to "
+                              "column "
+                              "with to_bitmap MV on it.";
+                        LOG(WARNING) << ss.str();
+                        return Status::InternalError(ss.str());
+                    }
+                }
+            }
+        } else if constexpr (std::is_same_v<ColumnType, ColumnInt64>) {
+            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto& res_data = res_column->get_data();
+            size_t size = col->size();
+
+            for (size_t i = 0; i < size; ++i) {
+                if (arg_is_nullable && ((*nullmap)[i])) {
+                    continue;
+                } else {
+                    int64_t int_value = col->get_data()[i];
+                    if (LIKELY(int_value >= 0)) {
+                        res_data[i].add(int_value);
+                    } else {
+                        std::stringstream ss;
+                        ss << "The input: " << int_value
+                           << " is not valid, to_bitmap only support bigint value from 0 to "
+                              "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                              "column with negative values or cannot load negative values to "
+                              "column "
+                              "with to_bitmap MV on it.";
+                        LOG(WARNING) << ss.str();
+                        return Status::InternalError(ss.str());
+                    }
+                }
+            }
+        } else {
+            return Status::InternalError("not support type");
+        }
+        return Status::OK();
     }
 };
 
@@ -159,38 +258,16 @@ struct BitmapHash {
 
     using ReturnType = DataTypeBitMap;
 
-    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       MutableColumnPtr& col_res) {
-        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
-        auto& res_data = res_column->get_data();
-        size_t size = offsets.size();
+    template <typename ColumnType>
+    static void vector(const ColumnType* col, MutableColumnPtr& col_res) {
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            const ColumnString::Chars& data = col->get_chars();
+            const ColumnString::Offsets& offsets = col->get_offsets();
+            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto& res_data = res_column->get_data();
+            size_t size = offsets.size();
 
-        for (size_t i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1];
-            if constexpr (HashBits == 32) {
-                uint32_t hash_value =
-                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
-                res_data[i].add(hash_value);
-            } else {
-                uint64_t hash_value = 0;
-                murmur_hash3_x64_64(raw_str, str_size, 0, &hash_value);
-                res_data[i].add(hash_value);
-            }
-        }
-    }
-
-    static void vector_nullable(const ColumnString::Chars& data,
-                                const ColumnString::Offsets& offsets, const NullMap& nullmap,
-                                MutableColumnPtr& col_res) {
-        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
-        auto& res_data = res_column->get_data();
-        size_t size = offsets.size();
-
-        for (size_t i = 0; i < size; ++i) {
-            if (nullmap[i]) {
-                continue;
-            } else {
+            for (size_t i = 0; i < size; ++i) {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
                 size_t str_size = offsets[i] - offsets[i - 1];
                 if constexpr (HashBits == 32) {
@@ -201,6 +278,36 @@ struct BitmapHash {
                     uint64_t hash_value = 0;
                     murmur_hash3_x64_64(raw_str, str_size, 0, &hash_value);
                     res_data[i].add(hash_value);
+                }
+            }
+        }
+    }
+
+    template <typename ColumnType>
+    static void vector_nullable(const ColumnType* col, const NullMap& nullmap,
+                                MutableColumnPtr& col_res) {
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            const ColumnString::Chars& data = col->get_chars();
+            const ColumnString::Offsets& offsets = col->get_offsets();
+            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
+            auto& res_data = res_column->get_data();
+            size_t size = offsets.size();
+
+            for (size_t i = 0; i < size; ++i) {
+                if (nullmap[i]) {
+                    continue;
+                } else {
+                    const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                    size_t str_size = offsets[i] - offsets[i - 1];
+                    if constexpr (HashBits == 32) {
+                        uint32_t hash_value = HashUtil::murmur_hash3_32(raw_str, str_size,
+                                                                        HashUtil::MURMUR3_32_SEED);
+                        res_data[i].add(hash_value);
+                    } else {
+                        uint64_t hash_value = 0;
+                        murmur_hash3_x64_64(raw_str, str_size, 0, &hash_value);
+                        res_data[i].add(hash_value);
+                    }
                 }
             }
         }
@@ -534,8 +641,59 @@ public:
     }
 };
 
+class FunctionBitmapToArray : public IFunction {
+public:
+    static constexpr auto name = "bitmap_to_array";
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionBitmapToArray>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto nested_type = make_nullable(std::make_shared<DataTypeInt64>());
+        return std::make_shared<DataTypeArray>(nested_type);
+    }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto return_nested_type = make_nullable(std::make_shared<DataTypeInt64>());
+        auto dest_array_column_ptr = ColumnArray::create(return_nested_type->create_column(),
+                                                         ColumnArray::ColumnOffsets::create());
+
+        IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
+        ColumnNullable* dest_nested_nullable_col =
+                reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr();
+        auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
+
+        auto arg_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
+        const auto& bitmap_col_data = bitmap_col->get_data();
+        auto& nested_column_data =
+                assert_cast<ColumnVector<Int64>*>(dest_nested_column)->get_data();
+        auto& dest_offsets = dest_array_column_ptr->get_offsets();
+        dest_offsets.reserve(input_rows_count);
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            bitmap_col_data[i].to_array(nested_column_data);
+            dest_nested_null_map.resize_fill(nested_column_data.size(), 0);
+            dest_offsets.push_back(nested_column_data.size());
+        }
+
+        block.replace_by_position(result, std::move(dest_array_column_ptr));
+        return Status::OK();
+    }
+};
+
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
 using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
+using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
+
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
 using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;
@@ -564,6 +722,7 @@ using FunctionBitmapSubsetInRange = FunctionBitmapSubs<BitmapSubsetInRange>;
 void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapEmpty>();
     factory.register_function<FunctionToBitmap>();
+    factory.register_function<FunctionToBitmapWithCheck>();
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();
@@ -580,6 +739,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubBitmap>();
     factory.register_function<FunctionBitmapSubsetLimit>();
     factory.register_function<FunctionBitmapSubsetInRange>();
+    factory.register_function<FunctionBitmapToArray>();
 }
 
 } // namespace doris::vectorized

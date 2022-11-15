@@ -189,9 +189,11 @@ public class ConnectProcessor {
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
-            } else if (ctx.getState().getStateType() == MysqlStateType.OK) {
+            } else if (ctx.getState().getStateType() == MysqlStateType.OK
+                    || ctx.getState().getStateType() == MysqlStateType.EOF) {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd(ctx.getDatabase()).update(elapseMs);
                 if (elapseMs > Config.qe_slow_log_ms) {
                     String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                     ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
@@ -248,10 +250,8 @@ public class ConnectProcessor {
                 .setTimestamp(System.currentTimeMillis())
                 .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setDb(ctx.getDatabase())
+                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setSqlHash(ctx.getSqlHash());
-
-        // execute this query.
         StatementBase parsedStmt = null;
         List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
         boolean alreadyAddedToAuditInfoList = false;
@@ -264,10 +264,10 @@ public class ConnectProcessor {
                 try {
                     stmts = nereidsParser.parseSQL(originStmt);
                 } catch (Exception e) {
-                    nereidsParseException = e;
                     // TODO: We should catch all exception here until we support all query syntax.
+                    nereidsParseException = e;
                     LOG.info(" Fallback to stale planner."
-                            + " Nereids cannot process this statement: \"{}\".", originStmt.toString());
+                            + " Nereids cannot process this statement: \"{}\".", originStmt);
                 }
             }
             // stmts == null when Nereids cannot planner this query or Nereids is disabled.
@@ -281,10 +281,11 @@ public class ConnectProcessor {
                     ctx.resetReturnRows();
                 }
                 parsedStmt = stmts.get(i);
-                if (parsedStmt instanceof SelectStmt) {
-                    if (!ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                        throw new Exception(String.format("SQL: {}", parsedStmt.toSql()), nereidsParseException);
-                    }
+                if (parsedStmt instanceof SelectStmt && nereidsParseException != null
+                        && ctx.getSessionVariable().isEnableNereidsPlanner()
+                        && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
+                    throw new Exception(String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
+                                parsedStmt.toSql()), nereidsParseException);
                 }
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
@@ -561,9 +562,6 @@ public class ConnectProcessor {
             }
             if (request.isSetQueryTimeout()) {
                 ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
-            }
-            if (request.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(request.loadMemLimit);
             }
         }
 

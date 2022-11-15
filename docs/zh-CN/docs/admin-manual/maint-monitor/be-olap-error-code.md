@@ -6,7 +6,7 @@
 
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -258,3 +258,7 @@ under the License.
 | OLAP_ERR_ROWSET_READER_INIT                      | -3110  | Rowset读对象初始化失败                                       |
 | OLAP_ERR_ROWSET_READ_FAILED                      | -3111  | Rowset读失败                                                 |
 | OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION         | -3112  | Rowset无效的事务状态                                         |
+| OLAP_ERR_ROWSET_RENAME_FILE_FAILED               | -3116  | Rowset重命名文件失败                                         |
+| OLAP_ERR_SEGCOMPACTION_INIT_READER               | -3117  | SegmentCompaction初始化Reader失败                            |
+| OLAP_ERR_SEGCOMPACTION_INIT_WRITER               | -3118  | SegmentCompaction初始化Writer失败                            |
+| OLAP_ERR_SEGCOMPACTION_FAILED                    | -3119  | SegmentCompaction失败                                        |

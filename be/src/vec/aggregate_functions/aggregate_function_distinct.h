@@ -83,7 +83,7 @@ struct AggregateFunctionDistinctGenericData {
     }
 
     void deserialize(BufferReadable& buf, Arena* arena) {
-        size_t size;
+        UInt64 size;
         read_var_uint(size, buf);
 
         StringRef ref;

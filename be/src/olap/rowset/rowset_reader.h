@@ -74,6 +74,8 @@ public:
     virtual Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) {
         return Status::NotSupported("to be implemented");
     }
+
+    virtual bool update_profile(RuntimeProfile* profile) = 0;
 };
 
 } // namespace doris

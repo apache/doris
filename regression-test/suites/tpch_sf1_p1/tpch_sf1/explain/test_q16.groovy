@@ -67,9 +67,9 @@ suite("test_explain_tpch_sf_1_q16") {
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  STREAMING\n" + 
 				"  |  group by: <slot 29>, <slot 30>, <slot 31>, <slot 27>") && 
-		explainStr.contains("join op: LEFT ANTI JOIN(BROADCAST)[The src data has been redistributed]\n" + 
+		explainStr.contains("join op: NULL AWARE LEFT ANTI JOIN(BROADCAST)[Build side of null aware left anti join must be broadcast]\n" +
 				"  |  equal join conjunct: <slot 21> = `s_suppkey`") && 
-		explainStr.contains("vec output tuple id: 8") && 
+		explainStr.contains("vec output tuple id: 8") &&
 		explainStr.contains("output slot ids: 27 29 30 31 \n" + 
 				"  |  hash output slot ids: 21 23 24 25 ") && 
 		explainStr.contains("join op: INNER JOIN(BROADCAST)[Tables are not in the same group]\n" + 
@@ -78,11 +78,11 @@ suite("test_explain_tpch_sf_1_q16") {
 		explainStr.contains("vec output tuple id: 7") && 
 		explainStr.contains("output slot ids: 21 23 24 25 \n" + 
 				"  |  hash output slot ids: 3 4 5 6 ") && 
-		explainStr.contains("TABLE: partsupp(partsupp), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.partsupp(partsupp), PREAGGREGATION: ON\n" + 
 				"     runtime filters: RF000[in_or_bloom] -> `ps_partkey`") && 
-		explainStr.contains("TABLE: supplier(supplier), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.supplier(supplier), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `s_comment` LIKE '%Customer%Complaints%'") && 
-		explainStr.contains("TABLE: part(part), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.part(part), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `p_brand` != 'Brand#45', NOT `p_type` LIKE 'MEDIUM POLISHED%', `p_size` IN (49, 14, 23, 45, 19, 3, 36, 9)") 
             
         }

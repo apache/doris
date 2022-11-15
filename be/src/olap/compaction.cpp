@@ -34,13 +34,7 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
           _input_rowsets_size(0),
           _input_row_num(0),
           _state(CompactionState::INITED) {
-#ifndef BE_TEST
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, label, StorageEngine::instance()->compaction_mem_tracker());
-    _mem_tracker->enable_reset_zero();
-#else
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(-1, label);
-#endif
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
 }
 
 Compaction::~Compaction() {}
@@ -187,7 +181,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());

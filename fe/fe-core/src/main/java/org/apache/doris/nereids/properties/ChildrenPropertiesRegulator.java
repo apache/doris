@@ -58,6 +58,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
         this.jobContext = jobContext;
     }
 
+    /**
+     * adjust children properties
+     * @return enforce cost.
+     */
     public double adjustChildrenProperties() {
         return parent.getPlan().accept(this, null);
     }
@@ -80,7 +84,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
     @Override
     public Double visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
             Void context) {
-        Preconditions.checkArgument(children.size() == 2);
+        Preconditions.checkArgument(children.size() == 2, String.format("children.size() is %d", children.size()));
         Preconditions.checkArgument(childrenProperties.size() == 2);
         Preconditions.checkArgument(requiredProperties.size() == 2);
         DistributionSpec leftDistributionSpec = childrenProperties.get(0).getDistributionSpec();

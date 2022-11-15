@@ -42,7 +42,7 @@ suite("load") {
         sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
         sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     }
-    i = 0
+    def i = 0
     for (String tableName in tables) {
         streamLoad {
             // a default db 'regression_test' is specified in
@@ -84,7 +84,7 @@ suite("load") {
     def table = "lineorder_flat"
     def table_rows = 6001215
     sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
-    rowCount = sql "select count(*) from ${table}"
+    def rowCount = sql "select count(*) from ${table}"
     if (rowCount[0][0] != table_rows) {
         sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
         sql "set global query_timeout=3600"

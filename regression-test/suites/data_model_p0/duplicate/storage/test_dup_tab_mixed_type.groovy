@@ -23,7 +23,7 @@ suite("test_dup_tab_mixed_type") {
 
     sql """
 
-CREATE TABLE `${table1}` (
+CREATE TABLE IF NOT EXISTS `${table1}` (
   `siteid` int(11) NOT NULL COMMENT "",
   `cardid` int(11) NOT NULL COMMENT "",
   `low` double NOT NULL COMMENT "",

@@ -22,7 +22,6 @@
 #include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
-#include "vec/functions/in.h"
 
 namespace doris::vectorized {
 
@@ -53,6 +52,8 @@ Status NewOlapScanNode::_init_profile() {
 
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
+    _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
+    _process_conjunct_timer = ADD_TIMER(_runtime_profile, "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
@@ -116,7 +117,9 @@ static std::string olap_filter_to_string(const doris::TCondition& condition) {
         op_name = "NOT IN";
     }
     return fmt::format("{{{} {} {}}}", condition.column_name, op_name,
-                       to_string(condition.condition_values));
+                       condition.condition_values.size() > 128
+                               ? "[more than 128 elements]"
+                               : to_string(condition.condition_values));
 }
 
 static std::string olap_filters_to_string(const std::vector<doris::TCondition>& filters) {
@@ -132,7 +135,22 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     return filters_string;
 }
 
+static std::string tablets_id_to_string(
+        const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
+    if (scan_ranges.empty()) {
+        return "[empty]";
+    }
+    std::stringstream ss;
+    ss << "[" << scan_ranges[0]->tablet_id;
+    for (int i = 1; i < scan_ranges.size(); ++i) {
+        ss << ", " << scan_ranges[i]->tablet_id;
+    }
+    ss << "]";
+    return ss.str();
+}
+
 Status NewOlapScanNode::_process_conjuncts() {
+    SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(VScanNode::_process_conjuncts());
     if (_eos) {
         return Status::OK();
@@ -161,10 +179,16 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
-                    RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
-                    if (exact_range) {
-                        _colname_to_value_range.erase(iter->first);
+                    // make a copy or range and pass to extend_scan_key, keep the range unchanged
+                    // because extend_scan_key method may change the first parameter.
+                    // but the original range may be converted to olap filters, if it's not a exact_range.
+                    auto temp_range = range;
+                    if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+                        RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
+                                                                   &exact_range));
+                        if (exact_range) {
+                            _colname_to_value_range.erase(iter->first);
+                        }
                     }
                     return Status::OK();
                 },
@@ -176,7 +200,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
         std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
         for (const auto& filter : filters) {
-            _olap_filters.push_back(std::move(filter));
+            _olap_filters.push_back(filter);
         }
     }
 
@@ -186,8 +210,12 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                    range);
     }
 
-    _runtime_profile->add_info_string("PushDownPredicates", olap_filters_to_string(_olap_filters));
-    _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
+    if (_state->enable_profile()) {
+        _runtime_profile->add_info_string("PushDownPredicates",
+                                          olap_filters_to_string(_olap_filters));
+        _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
+        _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+    }
     VLOG_CRITICAL << _scan_keys.debug_string();
 
     return Status::OK();
@@ -260,7 +288,13 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         _eos = true;
         return Status::OK();
     }
+    SCOPED_TIMER(_scanner_init_timer);
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
+
+    if (_vconjunct_ctx_ptr && (*_vconjunct_ctx_ptr)->root()) {
+        _runtime_profile->add_info_string("RemainedDownPredicates",
+                                          (*_vconjunct_ctx_ptr)->root()->debug_string());
+    }
 
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<doris::OlapScanRange>> cond_ranges;
@@ -306,15 +340,15 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
 
-            NewOlapScanner* scanner = new NewOlapScanner(_state, this, _limit_per_scanner,
-                                                         _olap_scan_node.is_preaggregation,
-                                                         _need_agg_finalize, *scan_range);
+            NewOlapScanner* scanner = new NewOlapScanner(
+                    _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
+                    _need_agg_finalize, *scan_range, _scanner_profile.get());
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
                                              _olap_filters, _bloom_filters_push_down,
-                                             _push_down_functions));
+                                             _in_filters_push_down, _push_down_functions));
             scanners->push_back((VScanner*)scanner);
             disk_set.insert(scanner->scan_disk());
         }

@@ -25,8 +25,6 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.util.ArrayList;
-
 public class CreateIndexClauseTest {
     private static Analyzer analyzer;
 
@@ -37,8 +35,10 @@ public class CreateIndexClauseTest {
 
     @Test
     public void testNormal() throws AnalysisException {
-        CreateIndexClause clause = new CreateIndexClause(new TableName(InternalDataSource.INTERNAL_DS_NAME, "db", "table"), new IndexDef("index1", false,
-                Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, new ArrayList<>(), "balabala"), false);
+        CreateIndexClause clause = new CreateIndexClause(
+                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"),
+                new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, null, "balabala"),
+                false);
         clause.analyze(analyzer);
         Assert.assertEquals("CREATE INDEX index1 ON `db`.`table` (`col1`) USING BITMAP COMMENT 'balabala'",
                 clause.toSql());

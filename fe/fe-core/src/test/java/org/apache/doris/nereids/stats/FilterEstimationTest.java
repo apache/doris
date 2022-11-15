@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -26,11 +27,11 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.statistics.ColumnStat;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.Lists;
@@ -56,10 +57,16 @@ class FilterEstimationTest {
         EqualTo equalTo = new EqualTo(a, c);
         And and = new And(greaterThan1, lessThan);
         Or or = new Or(and, equalTo);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 500, 0, 1000));
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 500, 0, 1000));
-        slotToColumnStat.put(c, new ColumnStat(500, 4, 4, 500, 0, 1000));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        slotToColumnStat.put(a.getExprId(),
+                new ColumnStatisticBuilder().setCount(500).setNdv(500).setAvgSizeByte(4).setNumNulls(500).setDataSize(0)
+                        .setMinValue(0).setMaxValue(1000).setMinExpr(null).build());
+        slotToColumnStat.put(b.getExprId(),
+                new ColumnStatisticBuilder().setCount(500).setNdv(500).setAvgSizeByte(4).setNumNulls(500).setDataSize(0)
+                        .setMinValue(0).setMaxValue(1000).setMinExpr(null).build());
+        slotToColumnStat.put(c.getExprId(),
+                new ColumnStatisticBuilder().setCount(500).setNdv(500).setAvgSizeByte(4).setNumNulls(500).setDataSize(0)
+                        .setMinValue(0).setMaxValue(1000).setMinExpr(null).build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(or);
@@ -80,15 +87,24 @@ class FilterEstimationTest {
         GreaterThan greaterThan = new GreaterThan(a, c);
         And and = new And(greaterThan1, lessThan);
         Or or = new Or(and, greaterThan);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 500, 0, 1000));
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 500, 0, 1000));
-        slotToColumnStat.put(c, new ColumnStat(500, 4, 4, 500, 0, 1000));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder aBuilder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(500)
+                .setMinValue(0)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), aBuilder.build());
+        slotToColumnStat.put(b.getExprId(), aBuilder.build());
+        slotToColumnStat.put(c.getExprId(), aBuilder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(or);
         Assertions.assertTrue(
-                Precision.equals((0.5 * 0.1 + 0.1 / 0.3 - 0.5 * 0.1 * 0.1 / 0.3) * 1000, expected.getRowCount(), 0.01));
+                Precision.equals((0.5 * 0.1
+                        + FilterEstimation.DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY
+                        - 0.5 * 0.1 * FilterEstimation.DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY) * 1000,
+                        expected.getRowCount(), 0.01));
     }
 
     // a >= 500
@@ -98,8 +114,14 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int500 = new IntegerLiteral(500);
         GreaterThanEqual ge = new GreaterThanEqual(a, int500);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 500, 0, 500));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(500)
+                .setMinValue(0)
+                .setMaxValue(500);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(ge);
@@ -113,8 +135,14 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int500 = new IntegerLiteral(500);
         LessThanEqual le = new LessThanEqual(a, int500);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 500, 500, 1000));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(500)
+                .setMinValue(500)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder1.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(le);
@@ -128,8 +156,14 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int500 = new IntegerLiteral(500);
         LessThan less = new LessThan(a, int500);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 500, 500, 1000));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(500)
+                .setMinValue(500)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(less);
@@ -143,8 +177,14 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         IntegerLiteral int1000 = new IntegerLiteral(1000);
         GreaterThan ge = new GreaterThan(a, int1000);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 500, 500, 1000));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(500)
+                .setMinValue(500)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(ge);
@@ -159,9 +199,21 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         GreaterThan ge = new GreaterThan(a, b);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 0, 500));
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, 501, 1000));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500);
+        ColumnStatisticBuilder builder2 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(501)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder1.build());
+        slotToColumnStat.put(b.getExprId(), builder2.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(ge);
@@ -176,9 +228,21 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         LessThan less = new LessThan(a, b);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 0, 500));
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, 501, 1000));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500);
+        ColumnStatisticBuilder builder2 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(501)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder1.build());
+        slotToColumnStat.put(b.getExprId(), builder2.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult esimated = filterEstimation.estimate(less);
@@ -193,9 +257,21 @@ class FilterEstimationTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         GreaterThan ge = new GreaterThan(a, b);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 501, 1000));
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, 0, 500));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(501)
+                .setMaxValue(1000);
+        ColumnStatisticBuilder builder2 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(500)
+                .setMinValue(0)
+                .setMaxValue(500);
+        slotToColumnStat.put(a.getExprId(), builder1.build());
+        slotToColumnStat.put(b.getExprId(), builder2.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult estimated = filterEstimation.estimate(ge);
@@ -211,8 +287,14 @@ class FilterEstimationTest {
         IntegerLiteral i3 = new IntegerLiteral(3);
         IntegerLiteral i5 = new IntegerLiteral(5);
         InPredicate inPredicate = new InPredicate(a, Lists.newArrayList(i1, i3, i5));
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(10, 4, 4, 0, 1, 10));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(1)
+                .setMaxValue(10);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult estimated = filterEstimation.estimate(inPredicate);
@@ -229,8 +311,14 @@ class FilterEstimationTest {
         IntegerLiteral i5 = new IntegerLiteral(5);
         InPredicate inPredicate = new InPredicate(a, Lists.newArrayList(i1, i3, i5));
         Not not = new Not(inPredicate);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(10, 4, 4, 0, 1, 10));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(1)
+                .setMaxValue(10);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult estimated = filterEstimation.estimate(not);

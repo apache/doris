@@ -25,11 +25,12 @@ namespace doris::vectorized {
 
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, bool need_agg_finalize,
-                               const TPaloScanRange& scan_range)
+                               const TPaloScanRange& scan_range, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1) {
+          _version(-1),
+          _profile(profile) {
     _tablet_schema = std::make_shared<TabletSchema>();
 }
 
@@ -37,6 +38,7 @@ Status NewOlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
         const std::vector<FunctionFilter>& function_filters) {
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
@@ -103,7 +105,7 @@ Status NewOlapScanner::prepare(
 
             // Initialize tablet_reader_params
             RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, bloom_filters,
-                                                       function_filters));
+                                                       in_filters, function_filters));
         }
     }
 
@@ -121,6 +123,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
            << ", backend=" << BackendOptions::get_localhost();
         return Status::InternalError(ss.str());
     }
+
     return Status::OK();
 }
 
@@ -128,6 +131,7 @@ Status NewOlapScanner::open(RuntimeState* state) {
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters,
+        const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     bool single_version =
@@ -154,15 +158,16 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 real_parent->_olap_scan_node.__isset.push_down_agg_type_opt;
     }
 
-    RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
+    RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.tablet = _tablet;
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
-    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt)
+    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
         _tablet_reader_params.push_down_agg_type_opt =
                 real_parent->_olap_scan_node.push_down_agg_type_opt;
+    }
     _tablet_reader_params.version = Version(0, _version);
 
     // Condition
@@ -173,9 +178,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.bloom_filters,
                             _tablet_reader_params.bloom_filters.begin()));
 
+    std::copy(in_filters.cbegin(), in_filters.cend(),
+              std::inserter(_tablet_reader_params.in_filters,
+                            _tablet_reader_params.in_filters.begin()));
+
     std::copy(function_filters.cbegin(), function_filters.cend(),
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
+
     if (!_state->skip_delete_predicate()) {
         auto& delete_preds = _tablet->delete_predicates();
         std::copy(delete_preds.cbegin(), delete_preds.cend(),
@@ -222,6 +232,22 @@ Status NewOlapScanner::_init_tablet_reader_params(
                 _tablet_reader_params.return_columns.push_back(index);
             }
         }
+        // expand the sequence column
+        if (_tablet_schema->has_sequence_col()) {
+            bool has_replace_col = false;
+            for (auto col : _return_columns) {
+                if (_tablet_schema->column(col).aggregation() ==
+                    FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
+                    has_replace_col = true;
+                    break;
+                }
+            }
+            if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
+                has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
+                                             sequence_col_idx) == _return_columns.end()) {
+                _tablet_reader_params.return_columns.push_back(sequence_col_idx);
+            }
+        }
     }
 
     // If a agg node is this scan node direct parent
@@ -253,7 +279,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
-Status NewOlapScanner::_init_return_columns(bool need_seq_col) {
+Status NewOlapScanner::_init_return_columns() {
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -275,23 +301,6 @@ Status NewOlapScanner::_init_return_columns(bool need_seq_col) {
         }
     }
 
-    // expand the sequence column
-    if (_tablet_schema->has_sequence_col() && need_seq_col) {
-        bool has_replace_col = false;
-        for (auto col : _return_columns) {
-            if (_tablet_schema->column(col).aggregation() ==
-                FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
-                has_replace_col = true;
-                break;
-            }
-        }
-        if (auto sequence_col_idx = _tablet_schema->sequence_col_idx();
-            has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
-                                         sequence_col_idx) == _return_columns.end()) {
-            _return_columns.push_back(sequence_col_idx);
-        }
-    }
-
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
@@ -299,6 +308,9 @@ Status NewOlapScanner::_init_return_columns(bool need_seq_col) {
 }
 
 Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
+    if (!_profile_updated) {
+        _profile_updated = _tablet_reader->update_profile(_profile);
+    }
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
@@ -342,9 +354,7 @@ void NewOlapScanner::_update_realtime_counters() {
 }
 
 void NewOlapScanner::_update_counters_before_close() {
-    if (!_state->enable_profile()) return;
-
-    if (_has_updated_counter) {
+    if (!_state->enable_profile() || _has_updated_counter) {
         return;
     }
     _has_updated_counter = true;

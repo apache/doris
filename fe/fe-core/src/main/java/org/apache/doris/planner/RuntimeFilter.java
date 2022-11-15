@@ -26,8 +26,8 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.qe.ConnectContext;
@@ -264,11 +264,12 @@ public final class RuntimeFilter {
                 TupleIsNullPredicate.unwrapExpr(normalizedJoinConjunct.getChild(0).clone());
         Expr srcExpr = normalizedJoinConjunct.getChild(1);
 
-        if (srcExpr.getType().equals(ScalarType.createHllType())
-                || srcExpr.getType().equals(ScalarType.createType(PrimitiveType.BITMAP))) {
+        Type srcType = srcExpr.getType();
+        if (srcType.equals(ScalarType.HLL) || srcType.equals(ScalarType.BITMAP) || srcType.equals(ScalarType.BOOLEAN)) {
             return null;
         }
 
+        targetExpr = targetExpr.getRealSlotRef();
         Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr);
         Preconditions.checkNotNull(targetSlots);
         if (targetSlots.isEmpty()) {
@@ -278,7 +279,7 @@ public final class RuntimeFilter {
         if (LOG.isTraceEnabled()) {
             LOG.trace("Generating runtime filter from predicate " + joinPredicate);
         }
-        if (ConnectContext.get().getSessionVariable().enableRemoveNoConjunctsRuntimeFilterPolicy) {
+        if (ConnectContext.get().getSessionVariable().isEnableRuntimeFilterPrune()) {
             if (srcExpr instanceof SlotRef) {
                 if (!tupleHasConjuncts.contains(((SlotRef) srcExpr).getDesc().getParent().getId())) {
                     // src tuple has no conjunct, don't create runtime filter

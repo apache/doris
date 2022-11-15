@@ -19,7 +19,6 @@ package org.apache.doris.mysql.nio;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.qe.ConnectScheduler;
 
 import org.apache.logging.log4j.LogManager;
@@ -38,8 +37,11 @@ import java.util.concurrent.ExecutorService;
 /**
  * mysql protocol implementation based on nio.
  */
-public class NMysqlServer extends MysqlServer {
+public class NMysqlServer {
     private static final Logger LOG = LogManager.getLogger(NMysqlServer.class);
+
+    private int port;
+    private volatile boolean running;
 
     private XnioWorker xnioWorker;
 
@@ -63,7 +65,6 @@ public class NMysqlServer extends MysqlServer {
 
     // start MySQL protocol service
     // return true if success, otherwise false
-    @Override
     public boolean start() {
         try {
             server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port), acceptListener,
@@ -78,7 +79,6 @@ public class NMysqlServer extends MysqlServer {
         }
     }
 
-    @Override
     public void stop() {
         if (running) {
             running = false;
@@ -89,9 +89,5 @@ public class NMysqlServer extends MysqlServer {
                 LOG.warn("close server channel failed.", e);
             }
         }
-    }
-
-    public void setTaskService(ExecutorService taskService) {
-        this.taskService = taskService;
     }
 }

@@ -23,10 +23,6 @@ import com.google.common.base.Preconditions;
  * Derive ExchangeNode statistics.
  */
 public class ExchangeStatsDerive extends BaseStatsDerive {
-    @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
 
     @Override
     protected long deriveRowCount() {

@@ -57,7 +57,7 @@ struct BloomFilterTraits<int128_t> {
 // high cardinality key columns and none-agg value columns for high selectivity and storage
 // efficiency.
 // This builder builds a bloom filter page by every data page, with a page id index.
-// Meanswhile, It adds an ordinal index to load bloom filter index according to requirement.
+// Meanwhile, It adds an ordinal index to load bloom filter index according to requirement.
 //
 template <FieldType field_type>
 class BloomFilterIndexWriterImpl : public BloomFilterIndexWriter {

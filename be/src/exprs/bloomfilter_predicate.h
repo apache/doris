@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -31,6 +32,10 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/uint24.h"
 #include "util/hash_util.hpp"
+
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
 
 namespace doris {
 class BloomFilterAdaptor {
@@ -49,9 +54,9 @@ public:
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
 
-    Status init(const char* data, int len) {
-        int log_space = log2(len);
-        return _bloom_filter->init_from_directory(log_space, Slice(data, len), false, 0);
+    Status init(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
+        int log_space = log2(data_size);
+        return _bloom_filter->init_from_directory(log_space, data, data_size, false, 0);
     }
 
     char* data() { return (char*)_bloom_filter->directory().data; }
@@ -100,6 +105,10 @@ public:
         return init_with_fixed_length(filter_size);
     }
 
+    void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
+
+    Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
+
     Status init_with_fixed_length(int64_t bloom_filter_length) {
         if (_inited) {
             return Status::OK();
@@ -118,26 +127,51 @@ public:
     }
 
     Status merge(BloomFilterFuncBase* bloomfilter_func) {
-        auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-        if (bloomfilter_func == nullptr) {
-            _bloom_filter.reset(BloomFilterAdaptor::create());
+        // If `_inited` is false, there is no memory allocated in bloom filter and this is the first
+        // call for `merge` function. So we just reuse this bloom filter, and we don't need to
+        // allocate memory again.
+        if (_inited) {
+            DCHECK(bloomfilter_func != nullptr);
+            auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+            if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+                LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
+                             << _bloom_filter_alloced << ", expected allocated bytes = "
+                             << other_func->_bloom_filter_alloced;
+                return Status::InvalidArgument("bloom filter size invalid");
+            }
+            return _bloom_filter->merge(other_func->_bloom_filter.get());
         }
-        if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
-            LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
-                         << _bloom_filter_alloced
-                         << ", expected allocated bytes = " << other_func->_bloom_filter_alloced;
-            return Status::InvalidArgument("bloom filter size invalid");
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            if (!_inited) {
+                auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+                DCHECK(_bloom_filter == nullptr);
+                DCHECK(bloomfilter_func != nullptr);
+                _bloom_filter = bloomfilter_func->_bloom_filter;
+                _bloom_filter_alloced = other_func->_bloom_filter_alloced;
+                _inited = true;
+                return Status::OK();
+            } else {
+                DCHECK(bloomfilter_func != nullptr);
+                auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+                if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
+                    LOG(WARNING) << "bloom filter size not the same: already allocated bytes = "
+                                 << _bloom_filter_alloced << ", expected allocated bytes = "
+                                 << other_func->_bloom_filter_alloced;
+                    return Status::InvalidArgument("bloom filter size invalid");
+                }
+                return _bloom_filter->merge(other_func->_bloom_filter.get());
+            }
         }
-        return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
 
-    Status assign(const char* data, int len) {
+    Status assign(butil::IOBufAsZeroCopyInputStream* data, const size_t data_size) {
         if (_bloom_filter == nullptr) {
             _bloom_filter.reset(BloomFilterAdaptor::create());
         }
 
-        _bloom_filter_alloced = len;
-        return _bloom_filter->init(data, len);
+        _bloom_filter_alloced = data_size;
+        return _bloom_filter->init(data, data_size);
     }
 
     Status get_data(char** data, int* len) {
@@ -163,6 +197,8 @@ public:
 
     virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
 
+    virtual void insert_fixed_len(const char* data) = 0;
+
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
                                                 uint16_t* offsets, int number) = 0;
 
@@ -175,6 +211,7 @@ protected:
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited;
     std::mutex _lock;
+    int64_t _bloom_filter_length;
 };
 
 template <class T>
@@ -185,6 +222,10 @@ struct CommonFindOp {
         for (int i = 0; i < number; i++) {
             bloom_filter.add_element(*((T*)data + offsets[i]));
         }
+    }
+
+    void insert_single(BloomFilterAdaptor& bloom_filter, const char* data) const {
+        bloom_filter.add_element(*((T*)data));
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
@@ -235,6 +276,10 @@ struct StringFindOp {
     void insert_batch(BloomFilterAdaptor& bloom_filter, const char* data, const int* offsets,
                       int number) const {
         LOG(FATAL) << "StringFindOp does not support insert_batch";
+    }
+
+    void insert_single(BloomFilterAdaptor& bloom_filter, const char* data) const {
+        LOG(FATAL) << "StringFindOp does not support insert_single";
     }
 
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
@@ -377,6 +422,11 @@ public:
         dummy.insert_batch(*_bloom_filter, data, offsets, number);
     }
 
+    void insert_fixed_len(const char* data) override {
+        DCHECK(_bloom_filter != nullptr);
+        dummy.insert_single(*_bloom_filter, data);
+    }
+
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
                                         int number) override {
         return dummy.find_batch_olap_engine(*_bloom_filter, data, nullmap, offsets, number);
@@ -435,9 +485,7 @@ private:
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     bool _has_calculate_filter = false;
-    // loop size must be power of 2
-    constexpr static int64_t _loop_size = 8192;
     // if filter rate less than this, bloom filter will set always true
-    constexpr static double _expect_filter_rate = 0.2;
+    constexpr static double _expect_filter_rate = 0.4;
 };
 } // namespace doris

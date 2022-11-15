@@ -19,7 +19,7 @@ suite("test_list_partition") {
     // todo: test list partitions, such as: create, alter table partition ...
     sql "drop table if exists list_par"
     sql """
-        CREATE TABLE list_par ( 
+        CREATE TABLE IF NOT EXISTS list_par ( 
             k1 tinyint NOT NULL, 
             k2 smallint NOT NULL, 
             k3 int NOT NULL, 

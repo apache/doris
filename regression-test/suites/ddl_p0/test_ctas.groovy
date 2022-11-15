@@ -20,6 +20,7 @@ suite("test_ctas") {
         sql """
     CREATE TABLE IF NOT EXISTS `test_ctas` (
       `test_varchar` varchar(150) NULL,
+      `test_text` text NULL,
       `test_datetime` datetime NULL,
       `test_default_timestamp` datetime DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=OLAP
@@ -32,10 +33,10 @@ suite("test_ctas") {
     )
     """
 
-        sql """ INSERT INTO test_ctas(test_varchar, test_datetime) VALUES ('test1','2022-04-27 16:00:33'),('test2','2022-04-27 16:00:54') """
+        sql """ INSERT INTO test_ctas(test_varchar, test_text, test_datetime) VALUES ('test1','test11','2022-04-27 16:00:33'),('test2','test22','2022-04-27 16:00:54') """
 
-        sql """ 
-    CREATE TABLE IF NOT EXISTS `test_ctas1` 
+        sql """
+    CREATE TABLE IF NOT EXISTS `test_ctas1`
     PROPERTIES (
       "replication_allocation" = "tag.location.default: 1",
       "in_memory" = "false",
@@ -46,10 +47,26 @@ suite("test_ctas") {
         qt_select """SHOW CREATE TABLE `test_ctas1`"""
 
         qt_select """select count(*) from test_ctas1"""
+
+        sql """
+    CREATE TABLE IF NOT EXISTS `test_ctas2`
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1",
+      "in_memory" = "false",
+      "storage_format" = "V2"
+    ) as select test_varchar, lpad(test_text,10,'0') as test_text, test_datetime, test_default_timestamp from test_ctas;
+    """
+
+        qt_select """SHOW CREATE TABLE `test_ctas2`"""
+
+        qt_select """select count(*) from test_ctas2"""
     } finally {
         sql """ DROP TABLE IF EXISTS test_ctas """
 
         sql """ DROP TABLE IF EXISTS test_ctas1 """
+
+        sql """ DROP TABLE IF EXISTS test_ctas2 """
     }
 
 }
+

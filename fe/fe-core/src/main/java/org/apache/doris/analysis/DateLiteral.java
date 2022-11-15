@@ -557,6 +557,11 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
     public void roundCeiling(int newScale) {
         Preconditions.checkArgument(type.isDatetimeV2());
         long remain = Double.valueOf(microsecond % (Math.pow(10, 6 - newScale))).longValue();

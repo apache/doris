@@ -24,6 +24,7 @@ public enum PlanType {
     UNKNOWN,
 
     // logical plan
+    LOGICAL_CTE,
     LOGICAL_SUBQUERY_ALIAS,
     LOGICAL_UNBOUND_ONE_ROW_RELATION,
     LOGICAL_EMPTY_RELATION,
@@ -42,6 +43,7 @@ public enum PlanType {
     LOGICAL_SELECT_HINT,
     LOGICAL_ASSERT_NUM_ROWS,
     LOGICAL_HAVING,
+    LOGICAL_MULTI_JOIN,
     GROUP_PLAN,
 
     // physical plan

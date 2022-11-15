@@ -284,6 +284,11 @@ public class CastExpr extends Expr {
         noOp = Type.matchExactType(childType, type);
 
         if (noOp) {
+            // For decimalv2, we do not perform an actual cast between different precision/scale. Instead, we just
+            // set the target type as the child's type.
+            if (type.isDecimalV2() && childType.isDecimalV2()) {
+                getChild(0).setType(type);
+            }
             return;
         }
 
@@ -291,7 +296,7 @@ public class CastExpr extends Expr {
         // it is necessary to check if it is castable before creating fn.
         // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
         if (type.isArrayType() || childType.isArrayType()) {
-            if (!Type.canCastTo(childType, type)) {
+            if (childType.isNull() || !Type.canCastTo(childType, type)) {
                 throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                         + " from " + childType + " to " + type);
             }
@@ -316,8 +321,12 @@ public class CastExpr extends Expr {
         }
 
         if (fn == null) {
-            throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
+            if (childType.isNull() && Type.canCastTo(childType, type)) {
+                return;
+            } else {
+                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                     + " from " + childType + " to " + type);
+            }
         }
 
         if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
@@ -568,4 +577,10 @@ public class CastExpr extends Expr {
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
     }
+
+    @Override
+    public String getStringValueForArray() {
+        return children.get(0).getStringValueForArray();
+    }
 }
+

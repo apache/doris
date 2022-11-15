@@ -27,11 +27,13 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -129,6 +131,8 @@ public class NereidsPlanner extends Planner {
 
         deriveStats();
 
+        // We need to do join reorder before cascades and after deriving stats
+        // joinReorder();
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
         // cascades style optimize phase.
 
@@ -166,6 +170,14 @@ public class NereidsPlanner extends Planner {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
+    private void joinReorder() {
+        new RewriteTopDownJob(
+            getRoot(),
+            (new HyperGraphJoinReorder()).buildRules(),
+            cascadesContext.getCurrentJobContext()
+        ).execute();
+    }
+
     /**
      * Cascades style optimize:
      * Perform equivalent logical plan exploration and physical implementation enumeration,
@@ -190,25 +202,31 @@ public class NereidsPlanner extends Planner {
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)
             throws AnalysisException {
-        GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
-                () -> new AnalysisException("lowestCostPlans with physicalProperties doesn't exist")).second;
-        List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+        try {
+            GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
+                    () -> new AnalysisException("lowestCostPlans with physicalProperties doesn't exist")).second;
+            List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
 
-        List<Plan> planChildren = Lists.newArrayList();
-        for (int i = 0; i < groupExpression.arity(); i++) {
-            planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+            List<Plan> planChildren = Lists.newArrayList();
+            for (int i = 0; i < groupExpression.arity(); i++) {
+                planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+            }
+
+            Plan plan = groupExpression.getPlan().withChildren(planChildren);
+            if (!(plan instanceof PhysicalPlan)) {
+                throw new AnalysisException("Result plan must be PhysicalPlan");
+            }
+
+            // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
+            PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                    groupExpression.getOutputProperties(physicalProperties),
+                    groupExpression.getOwnerGroup().getStatistics());
+            return physicalPlan;
+        } catch (Exception e) {
+            String memo = cascadesContext.getMemo().toString();
+            LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
+            throw new AnalysisException("Failed to choose best plan", e);
         }
-
-        Plan plan = groupExpression.getPlan().withChildren(planChildren);
-        if (!(plan instanceof PhysicalPlan)) {
-            throw new AnalysisException("Result plan must be PhysicalPlan");
-        }
-
-        // TODO: set (logical and physical)properties/statistics/... for physicalPlan.
-        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
-                groupExpression.getOutputProperties(physicalProperties),
-                groupExpression.getOwnerGroup().getStatistics());
-        return physicalPlan;
     }
 
     @Override

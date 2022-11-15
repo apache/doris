@@ -5,7 +5,6 @@
 *.iml
 *.swp
 *.jar
-*.gz
 *.log
 *.so.tmp
 *.flattened-pom.xml
@@ -16,6 +15,7 @@ core.*
 .classpath
 nohup.out
 custom_env.sh
+custom_env_mac.sh
 derby.log
 dependency-reduced-pom.xml
 yarn.lock
@@ -56,6 +56,8 @@ fs_brokers/apache_hdfs_broker/src/main/thrift/
 # regression-test
 regression-test/framework/dependency-reduced-pom.xml
 regression-test/realdata/*
+regression-test/cacheData/*
+regression-test/conf/regression-conf-custom.groovy
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
@@ -84,11 +86,11 @@ be/.devcontainer/
 ## tools
 tools/ssb-tools/ssb-data/
 tools/ssb-tools/ssb-dbgen/
-tools/tpch-tools/TPC-H_Tools_v*.zip
-tools/tpch-tools/TPC-H_Tools_v*/
-tools/tpch-tools/tpc-h_v*.docx
-tools/tpch-tools/tpc-h_v*.pdf
-tools/tpch-tools/tpch-data/
+tools/**/TPC-H_Tools_v*.zip
+tools/**/TPC-H_Tools_v*/
+tools/**/tpc-h_v*.docx
+tools/**/tpc-h_v*.pdf
+tools/**/tpch-data/
 
 # be-ut
 data_test

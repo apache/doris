@@ -25,7 +25,6 @@
 #include <memory>
 #include <vector>
 
-#include "common/logging.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -33,18 +32,14 @@
 #include "olap/data_dir.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
-#include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "testutil/test_util.h"
-#include "util/debug_util.h"
 #include "util/file_utils.h"
 #include "util/key_util.h"
 
@@ -130,7 +125,7 @@ protected:
         DataDir data_dir(kSegmentDir);
         data_dir.init();
         SegmentWriter writer(file_writer.get(), 0, build_schema, &data_dir, INT32_MAX, opts);
-        st = writer.init(10);
+        st = writer.init();
         EXPECT_TRUE(st.ok());
 
         RowCursor row;
@@ -175,7 +170,7 @@ protected:
             EXPECT_EQ("", writer.max_encoded_key().to_string());
         }
 
-        st = Segment::open(fs, path, "", 0, query_schema, res);
+        st = Segment::open(fs, path, "", 0, {}, query_schema, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }
@@ -579,7 +574,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     DataDir data_dir(kSegmentDir);
     data_dir.init();
     SegmentWriter writer(file_writer.get(), 0, tablet_schema, &data_dir, INT32_MAX, opts);
-    st = writer.init(10);
+    st = writer.init();
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     RowCursor row;
@@ -744,7 +739,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     DataDir data_dir(kSegmentDir);
     data_dir.init();
     SegmentWriter writer(file_writer.get(), 0, tablet_schema, &data_dir, INT32_MAX, opts);
-    st = writer.init(10);
+    st = writer.init();
     EXPECT_TRUE(st.ok());
 
     RowCursor row;
@@ -774,7 +769,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     {
         std::shared_ptr<Segment> segment;
-        st = Segment::open(fs, fname, "", 0, tablet_schema, &segment);
+        st = Segment::open(fs, fname, "", 0, {}, tablet_schema, &segment);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(4096, segment->num_rows());
         Schema schema(tablet_schema);
@@ -976,8 +971,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             values.insert(20);
             values.insert(1);
             std::unique_ptr<ColumnPredicate> predicate(
-                    new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST>(0,
-                                                                              std::move(values)));
+                    new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST>(0, values));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
@@ -1001,8 +995,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             values.insert(10);
             values.insert(20);
             std::unique_ptr<ColumnPredicate> predicate(
-                    new InListPredicateBase<TYPE_INT, PredicateType::NOT_IN_LIST>(
-                            0, std::move(values)));
+                    new InListPredicateBase<TYPE_INT, PredicateType::NOT_IN_LIST>(0, values));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;

@@ -104,7 +104,7 @@ ssh agent01@xx.xxx.xx.xx
 
 1. 代码包路径
 
-   通过Doris Manager 进行集群部署时，需要提供已编译好的 Doris 安装包，您可以通过 Doris 源码自行编译，或使用官方提供的[二进制版本](https://doris.apache.org/zh-CN/downloads/downloads.html)。
+   通过Doris Manager 进行集群部署时，需要提供已编译好的 Doris 安装包，您可以通过 Doris 源码自行编译.
 
 `Doris Manager 将通过 http 方式拉取Doris安装包，若您需要自建 http 服务，请参考文档底部-自建http服务`。
 
@@ -219,7 +219,7 @@ systemctl start nginx
 ### 3 配置
 
 1.将doris安装包放置nginx根目录
-mv PALO-0.15.1-rc03-binary.tar.gz /usr/share/nginx/html
+mv apache-doris-1.1.1-bin-x86.tar.gz /usr/share/nginx/html
 
 2.修改ngixn.conf
 ```
@@ -228,4 +228,4 @@ location /download {
         }
 ```
 修改后重启ngxin访问 ：
-https://host:port/download/PALO-0.15.1-rc03-binary.tar.gz
+https://host:port/download/apache-doris-1.1.1-bin-x86.tar.gz

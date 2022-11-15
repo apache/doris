@@ -77,6 +77,8 @@ suite("test_string_function") {
     qt_sql "SELECT lcase(\"AbC123\");"
     qt_sql "SELECT lower(\"AbC123\");"
 
+    qt_sql "SELECT initcap(\"AbC123abc abc.abc,?|abc\");"
+
     qt_sql "select left(\"Hello doris\",5);"
     qt_sql "select right(\"Hello doris\",5);"
 
@@ -99,6 +101,10 @@ suite("test_string_function") {
     qt_sql "select null_or_empty(null);"
     qt_sql "select null_or_empty(\"\");"
     qt_sql "select null_or_empty(\"a\");"
+
+    qt_sql "select not_null_or_empty(null);"
+    qt_sql "select not_null_or_empty(\"\");"
+    qt_sql "select not_null_or_empty(\"a\");"
 
     qt_sql "SELECT repeat(\"a\", 3);"
     qt_sql "SELECT repeat(\"a\", -1);"
@@ -133,4 +139,7 @@ suite("test_string_function") {
     qt_sql "select substr('a',-1,1);"
     qt_sql "select substr('a',-2,1);"
     qt_sql "select substr('a',-3,1);"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 }

@@ -194,7 +194,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                                             size_t len, bool copy_string, bool need_escape) {
     vectorized::IColumn* col_ptr = nullable_col_ptr;
     // \N means it's NULL
-    if (true == slot_desc->is_nullable()) {
+    if (slot_desc->is_nullable()) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(nullable_col_ptr);
         if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
             nullable_column->insert_data(nullptr, 0);

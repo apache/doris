@@ -57,7 +57,6 @@ suite("test_array_export", "export") {
     
     def create_test_table = {testTablex ->
         sql """ DROP TABLE IF EXISTS ${tableName} """
-        sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
         result1 = sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

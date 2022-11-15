@@ -33,7 +33,7 @@ suite("test_outer_join_with_cross_join") {
     """
     
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_A ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -44,7 +44,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_B ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_B ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -55,7 +55,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_C ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_C ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -66,7 +66,7 @@ suite("test_outer_join_with_cross_join") {
     """
 
     sql """
-        create table test_outer_join_with_cross_join_outerjoin_D ( a int not null )
+        create table if not exists test_outer_join_with_cross_join_outerjoin_D ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -95,6 +95,21 @@ suite("test_outer_join_with_cross_join") {
     qt_select """
         select test_outer_join_with_cross_join_outerjoin_B.a from test_outer_join_with_cross_join_outerjoin_A left join test_outer_join_with_cross_join_outerjoin_B on test_outer_join_with_cross_join_outerjoin_A.a = test_outer_join_with_cross_join_outerjoin_B.a 
         inner join test_outer_join_with_cross_join_outerjoin_C on true left join test_outer_join_with_cross_join_outerjoin_D on test_outer_join_with_cross_join_outerjoin_B.a = test_outer_join_with_cross_join_outerjoin_D.a;
+    """
+
+    qt_select2 """
+        select
+        subq_0.`c3` as c0
+        from
+        (
+            select
+            ref_0.a as c3,
+            unhex(cast(version() as varchar)) as c4
+            from
+            test_outer_join_with_cross_join_outerjoin_A as ref_0
+        ) as subq_0
+        right join test_outer_join_with_cross_join_outerjoin_B as ref_3 on (subq_0.`c3` = ref_3.a)
+        inner join test_outer_join_with_cross_join_outerjoin_C as ref_4 on true;
     """
 
     sql """

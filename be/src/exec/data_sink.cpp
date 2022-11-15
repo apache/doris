@@ -171,11 +171,13 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
             return Status::InternalError("Missing data jdbc sink.");
         }
         if (is_vec) {
-#ifdef LIBJVM
-            sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
-#else
-            return Status::InternalError("Jdbc table sink is disabled since no libjvm is found!");
-#endif
+            if (config::enable_java_support) {
+                sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
+            } else {
+                return Status::InternalError(
+                        "Jdbc table sink is not enabled, you can change be config "
+                        "enable_java_support to true and restart be.");
+            }
         } else {
             return Status::InternalError("only support jdbc sink in vectorized engine.");
         }

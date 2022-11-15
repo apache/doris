@@ -24,6 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+<version since="1.2.0">
+
 # 多源数据目录
 
 多源数据目录（Multi-Catalog）是 Doris 1.2.0 版本中推出的功能，旨在能够更方便对接外部数据目录，以增强Doris的数据湖分析和联邦数据查询能力。
@@ -64,7 +66,7 @@ under the License.
 	
 4. 删除 Catalog
 
-	External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DRIO-CATALOG.md) 命令删除一个 External Catalog。
+	External Catalog 中的 Database 和 Table 都是只读的。但是可以删除 Catalog（Internal Catalog无法删除）。可以通过 [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) 命令删除一个 External Catalog。
 	
 	该操作仅会删除 Doris 中该 Catalog 的映射信息，并不会修改或变更任何外部数据目录的内容。
 
@@ -232,7 +234,141 @@ Query OK, 1000 rows affected (0.28 sec)
 
 ### 连接 Elasticsearch
 
-TODO
+> 1. 支持 5.x 及以上版本。
+> 2. 5.x 和 6.x 中一个 index 中的多个 type 默认取第一个
+
+以下示例，用于创建一个名为 es 的 Catalog 连接指定的 ES，并关闭节点发现功能。
+
+```
+CREATE CATALOG es PROPERTIES (
+	"type"="es",
+	"elasticsearch.hosts"="http://192.168.120.12:29200",
+	"elasticsearch.nodes_discovery"="false"
+);
+```
+
+创建后，可以通过 `SHOW CATALOGS` 命令查看 catalog：
+
+```
+mysql> SHOW CATALOGS;
++-----------+-------------+----------+
+| CatalogId | CatalogName | Type     |
++-----------+-------------+----------+
+|         0 | internal    | internal |
+|     11003 | es          | es       |
++-----------+-------------+----------+
+2 rows in set (0.02 sec)
+```
+
+通过 `SWITCH` 命令切换到 es catalog，并查看其中的数据库(只有一个 default_db 关联所有 index)
+
+```
+mysql> SWITCH es;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> SHOW DATABASES;
++------------+
+| Database   |
++------------+
+| default_db |
++------------+
+
+mysql> show tables;
++----------------------+
+| Tables_in_default_db |
++----------------------+
+| test                 |
+| test2                |
++----------------------+
+```
+
+查询示例
+
+```
+mysql> select * from test;
++------------+-------------+--------+-------+
+| test4      | test2       | test3  | test1 |
++------------+-------------+--------+-------+
+| 2022-08-08 | hello world |  2.415 | test2 |
+| 2022-08-08 | hello world | 3.1415 | test1 |
++------------+-------------+--------+-------+
+```
+
+#### 参数说明：
+
+参数 | 说明
+---|---
+**elasticsearch.hosts** | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址
+**elasticsearch.username** | ES 用户名
+**elasticsearch.password** | 对应用户的密码信息
+**elasticsearch.doc_value_scan** | 是否开启通过 ES/Lucene 列式存储获取查询字段的值，默认为 false
+**elasticsearch.keyword_sniff** | 是否对 ES 中字符串类型分词类型 text.fields 进行探测，获取额外的未分词 keyword 字段名 multi-fields 机制
+**elasticsearch.nodes_discovery** | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点
+**elasticsearch.ssl** | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有
+
+### 连接阿里云 Data Lake Formation
+
+> [什么是 Data Lake Formation](https://www.aliyun.com/product/bigdata/dlf)
+
+1. 创建 hive-site.xml
+
+	创建 hive-site.xml 文件，并将其放置在 `fe/conf` 和 `be/conf` 目录下。
+	
+	```
+	<?xml version="1.0"?>
+	<configuration>
+	    <!--Set to use dlf client-->
+	    <property>
+	        <name>hive.metastore.type</name>
+	        <value>dlf</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.endpoint</name>
+	        <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.region</name>
+	        <value>cn-beijing</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.proxyMode</name>
+	        <value>DLF_ONLY</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.uid</name>
+	        <value>20000000000000000</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.accessKeyId</name>
+	        <value>XXXXXXXXXXXXXXX</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.accessKeySecret</name>
+	        <value>XXXXXXXXXXXXXXXXX</value>
+	    </property>
+	</configuration>
+	```
+
+	* `dlf.catalog.endpoint`：DLF Endpoint，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
+	* `dlf.catalog.region`：DLF Region，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
+	* `dlf.catalog.uid`：阿里云账号。即阿里云控制台右上角个人信息的“云账号ID”。
+	* `dlf.catalog.accessKeyId`：AccessKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
+	* `dlf.catalog.accessKeySecret`：SecretKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
+
+	其他配置项为固定值，无需改动。
+
+2. 重启 FE，并通过 `CREATE CATALOG` 语句创建 catalog。
+
+	```
+	CREATE CATALOG dlf PROPERTIES (
+	    "type"="hms",
+	    "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+	);
+	```
+	
+	其中 `type` 固定为 `hms`。 `hive.metastore.uris` 的值随意填写即可，实际不会使用。但需要按照标准 hive metastore thrift uri 格式填写。
+	
+之后，可以像正常的 Hive MetaStore 一样，访问 DLF 下的元数据。 
 
 
 ## 列类型映射
@@ -296,3 +432,5 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) 命令手动刷新元数据。
 
 后续会支持元数据的自动同步。
+
+</version>

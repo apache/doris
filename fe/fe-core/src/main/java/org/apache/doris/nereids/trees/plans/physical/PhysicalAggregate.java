@@ -43,11 +43,11 @@ import java.util.Optional;
  */
 public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Aggregate {
 
-    private final List<Expression> groupByExpressions;
+    private final ImmutableList<Expression> groupByExpressions;
 
-    private final List<NamedExpression> outputExpressions;
+    private final ImmutableList<NamedExpression> outputExpressions;
 
-    private final List<Expression> partitionExpressions;
+    private final ImmutableList<Expression> partitionExpressions;
 
     private final AggPhase aggPhase;
 
@@ -80,10 +80,10 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, child);
-        this.groupByExpressions = groupByExpressions;
-        this.outputExpressions = outputExpressions;
+        this.groupByExpressions = ImmutableList.copyOf(groupByExpressions);
+        this.outputExpressions = ImmutableList.copyOf(outputExpressions);
         this.aggPhase = aggPhase;
-        this.partitionExpressions = partitionExpressions;
+        this.partitionExpressions = ImmutableList.copyOf(partitionExpressions);
         this.usingStream = usingStream;
         this.isFinalPhase = isFinalPhase;
     }
@@ -102,10 +102,10 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
                 child);
-        this.groupByExpressions = groupByExpressions;
-        this.outputExpressions = outputExpressions;
+        this.groupByExpressions = ImmutableList.copyOf(groupByExpressions);
+        this.outputExpressions = ImmutableList.copyOf(outputExpressions);
         this.aggPhase = aggPhase;
-        this.partitionExpressions = partitionExpressions;
+        this.partitionExpressions = ImmutableList.copyOf(partitionExpressions);
         this.usingStream = usingStream;
         this.isFinalPhase = isFinalPhase;
     }
@@ -153,7 +153,8 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
                 "phase", aggPhase,
                 "outputExpr", outputExpressions,
                 "groupByExpr", groupByExpressions,
-                "partitionExpr", partitionExpressions
+                "partitionExpr", partitionExpressions,
+                "stats", statsDeriveResult
         );
     }
 

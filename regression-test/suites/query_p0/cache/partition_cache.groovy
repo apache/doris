@@ -40,6 +40,9 @@ suite("partition_cache") {
             "storage_format" = "V2"
             )
         """
+
+    sql "sync"
+
     sql """ INSERT INTO ${tableName} VALUES 
                     ("2022-05-27",0),
                     ("2022-05-28",0),

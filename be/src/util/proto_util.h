@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "exception.h"
+
 namespace doris {
 
 // When the tuple/block data is greater than 2G, embed the tuple/block data
@@ -122,7 +124,7 @@ inline Status request_embed_attachment(Params* brpc_request, const std::string& 
         std::exception_ptr p = std::current_exception();
         LOG(WARNING) << "Try to alloc " << data_size
                      << " bytes for append data to attachment failed. "
-                     << (p ? p.__cxa_exception_type()->name() : "null");
+                     << get_current_exception_type_name(p);
         return Status::MemoryAllocFailed("request embed attachment failed to memcpy {} bytes",
                                          data_size);
     }
@@ -173,7 +175,7 @@ inline Status attachment_extract_request(const Params* brpc_request, brpc::Contr
         std::exception_ptr p = std::current_exception();
         LOG(WARNING) << "Try to alloc " << data_size
                      << " bytes for extract data from attachment failed. "
-                     << (p ? p.__cxa_exception_type()->name() : "null");
+                     << get_current_exception_type_name(p);
         return Status::MemoryAllocFailed("attachment extract request failed to memcpy {} bytes",
                                          data_size);
     }

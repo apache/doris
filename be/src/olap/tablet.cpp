@@ -125,8 +125,7 @@ Status Tablet::_init_once_action() {
 #ifdef BE_TEST
     // init cumulative compaction policy by type
     _cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
-                    _cumulative_compaction_type);
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
 #endif
 
     RowsetVector rowset_vec;
@@ -428,11 +427,16 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
 
 RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
-    return *std::max_element(rowset_metas.begin(), rowset_metas.end(),
-                             [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
-                                 return a->tablet_schema()->schema_version() <
-                                        b->tablet_schema()->schema_version();
-                             });
+    return *std::max_element(
+            rowset_metas.begin(), rowset_metas.end(),
+            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+                return !a->tablet_schema()
+                               ? true
+                               : (!b->tablet_schema()
+                                          ? false
+                                          : a->tablet_schema()->schema_version() <
+                                                    b->tablet_schema()->schema_version());
+            });
 }
 
 RowsetSharedPtr Tablet::_rowset_with_largest_size() {
@@ -1247,13 +1251,13 @@ void Tablet::get_compaction_status(std::string* json_result) {
         if (ver.first != last_version + 1) {
             rapidjson::Value miss_value;
             miss_value.SetString(
-                    strings::Substitute("[$0-$1]", last_version + 1, ver.first).c_str(),
+                    strings::Substitute("[$0-$1]", last_version + 1, ver.first - 1).c_str(),
                     missing_versions_arr.GetAllocator());
             missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
         }
         rapidjson::Value value;
-        std::string disk_size =
-                PrettyPrinter::print(rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+        std::string disk_size = PrettyPrinter::print(
+                static_cast<uint64_t>(rowsets[i]->rowset_meta()->total_disk_size()), TUnit::BYTES);
         std::string version_str = strings::Substitute(
                 "[$0-$1] $2 $3 $4 $5 $6", ver.first, ver.second, rowsets[i]->num_segments(),
                 (delete_flags[i] ? "DELETE" : "DATA"),
@@ -1273,7 +1277,8 @@ void Tablet::get_compaction_status(std::string* json_result) {
         const Version& ver = stale_rowsets[i]->version();
         rapidjson::Value value;
         std::string disk_size = PrettyPrinter::print(
-                stale_rowsets[i]->rowset_meta()->total_disk_size(), TUnit::BYTES);
+                static_cast<uint64_t>(stale_rowsets[i]->rowset_meta()->total_disk_size()),
+                TUnit::BYTES);
         std::string version_str = strings::Substitute(
                 "[$0-$1] $2 $3 $4", ver.first, ver.second, stale_rowsets[i]->num_segments(),
                 stale_rowsets[i]->rowset_id().to_string(), disk_size);
@@ -1661,6 +1666,16 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
                                     TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
                                     int64_t newest_write_timestamp,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
+    return create_rowset_writer(version, rowset_state, overlap, tablet_schema,
+                                oldest_write_timestamp, newest_write_timestamp, nullptr,
+                                rowset_writer);
+}
+
+Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
+                                    const SegmentsOverlapPB& overlap,
+                                    TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
+                                    int64_t newest_write_timestamp, io::FileSystemSPtr fs,
+                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
     context.version = version;
     context.rowset_state = rowset_state;
@@ -1669,6 +1684,7 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
     context.newest_write_timestamp = newest_write_timestamp;
     context.tablet_schema = tablet_schema;
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    context.fs = fs;
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, rowset_writer);
 }
@@ -1704,7 +1720,11 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     if (context.rowset_type == ALPHA_ROWSET) {
         context.rowset_type = StorageEngine::instance()->default_rowset_type();
     }
-    context.tablet_path = tablet_path();
+    if (context.fs != nullptr && context.fs->type() != io::FileSystemType::LOCAL) {
+        context.rowset_dir = BetaRowset::remote_tablet_path(tablet_id());
+    } else {
+        context.rowset_dir = tablet_path();
+    }
     context.data_dir = data_dir();
 }
 

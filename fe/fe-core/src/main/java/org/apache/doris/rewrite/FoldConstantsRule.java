@@ -110,7 +110,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         if (expr instanceof CastExpr) {
             CastExpr castExpr = (CastExpr) expr;
             if (castExpr.getChild(0) instanceof NullLiteral) {
-                return expr;
+                return castExpr.getChild(0);
             }
         }
 

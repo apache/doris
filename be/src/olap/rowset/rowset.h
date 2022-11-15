@@ -229,6 +229,8 @@ public:
 
     const std::string& tablet_path() const { return _tablet_path; }
 
+    virtual std::string rowset_dir() { return _rowset_dir; }
+
     static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
         return left->end_version() < right->end_version();
     }
@@ -291,6 +293,7 @@ protected:
     TabletSchemaSPtr _schema;
 
     std::string _tablet_path;
+    std::string _rowset_dir;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor
     bool _is_pending;    // rowset is pending iff it's not in visible state

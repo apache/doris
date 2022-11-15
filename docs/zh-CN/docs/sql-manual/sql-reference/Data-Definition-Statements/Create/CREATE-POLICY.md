@@ -92,7 +92,11 @@ PROPERTIES ("key"="value", ...);
    select * from (select * from table1 where c1 = 'a' and c2 = 'b' or c3 = 'c' or c4 = 'd')
    ```
 2. 创建数据迁移策略
-    1. 指定数据冷却时间创建数据迁移策略
+    1. 说明
+        - 冷热分离创建策略，必须先创建resource，然后创建迁移策略时候关联创建的resource名
+        - 当前不支持删除drop数据迁移策略，防止数据被迁移后。策略被删除了，系统无法找回数据
+   
+    2. 指定数据冷却时间创建数据迁移策略
     ```sql
     CREATE STORAGE POLICY testPolicy
     PROPERTIES(
@@ -100,7 +104,7 @@ PROPERTIES ("key"="value", ...);
       "cooldown_datetime" = "2022-06-08 00:00:00"
     );
     ```
-    2. 指定热数据持续时间创建数据迁移策略
+    3. 指定热数据持续时间创建数据迁移策略
     ```sql
     CREATE STORAGE POLICY testPolicy
     PROPERTIES(
@@ -108,6 +112,10 @@ PROPERTIES ("key"="value", ...);
       "cooldown_ttl" = "1d"
     );
     ```
+    相关参数如下：
+    - `storage_resource`：创建的storage resource名称
+    - `cooldown_datetime`：迁移数据的时间点
+    - `cooldown_ttl`：迁移数据距离当前时间的倒计时，单位s。与cooldown_datetime二选一即可
 
 ### Keywords
 

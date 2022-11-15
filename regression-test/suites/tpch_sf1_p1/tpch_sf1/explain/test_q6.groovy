@@ -44,7 +44,7 @@ suite("test_explain_tpch_sf_1_q6") {
 		explainStr.contains("VAGGREGATE (update serialize)\n" + 
 				"  |  output: sum(`l_extendedprice` * `l_discount`)\n" + 
 				"  |  group by: ") && 
-		explainStr.contains("TABLE: lineitem(lineitem), PREAGGREGATION: ON\n" + 
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.lineitem(lineitem), PREAGGREGATION: ON\n" + 
 				"     PREDICATES: `l_shipdate` >= '1994-01-01 00:00:00', `l_shipdate` < '1995-01-01 00:00:00', `l_discount` >= 0.05, `l_discount` <= 0.07, `l_quantity` < 24") 
             
         }

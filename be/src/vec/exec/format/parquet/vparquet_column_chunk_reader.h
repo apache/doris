@@ -113,7 +113,6 @@ public:
     uint32_t remaining_num_values() const { return _remaining_num_values; };
     // null values are generated from definition levels
     // the caller should maintain the consistency after analyzing null values from definition levels.
-    void insert_null_values(ColumnPtr& doris_column, size_t num_values);
     void insert_null_values(MutableColumnPtr& doris_column, size_t num_values);
     // Get the raw data of current page.
     Slice& get_page_data() { return _page_data; }
@@ -124,8 +123,8 @@ public:
     size_t get_def_levels(level_t* levels, size_t n);
 
     // Decode values in current page into doris column.
-    Status decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
-    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
+    Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                         ColumnSelectVector& select_vector);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }

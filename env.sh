@@ -33,6 +33,55 @@ if [[ -n "${OSTYPE}" ]]; then
     fi
 fi
 
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if ! command -v brew &>/dev/null; then
+        echo "Error: Homebrew is missing. Please install it first due to we use Homebrew to manage the tools which are needed to build the project."
+        exit 1
+    fi
+
+    cat >"${DORIS_HOME}/custom_env_mac.sh" <<EOF
+# This file is generated automatically. PLEASE DO NOT MODIFY IT.
+
+HOMEBREW_REPO_PREFIX="$(brew --prefix)"
+CELLARS=(
+    automake
+    autoconf
+    libtool
+    pkg-config
+    texinfo
+    coreutils
+    gnu-getopt
+    python
+    cmake
+    ninja
+    ccache
+    bison
+    byacc
+    gettext
+    wget
+    pcre
+    maven
+)
+for cellar in "\${CELLARS[@]}"; do
+    EXPORT_CELLARS="\${HOMEBREW_REPO_PREFIX}/opt/\${cellar}/bin:\${EXPORT_CELLARS}"
+done
+export PATH="\${EXPORT_CELLARS}:/usr/bin:\${PATH}"
+
+export DORIS_BUILD_PYTHON_VERSION=python3
+EOF
+
+    DORIS_HOME_ABSOLUATE_PATH="$(
+        set -e
+        cd "${DORIS_HOME}"
+        pwd
+    )"
+    SOURCE_MAC_ENV_CONTENT="source '${DORIS_HOME_ABSOLUATE_PATH}/custom_env_mac.sh'"
+    if [[ ! -f "${DORIS_HOME}/custom_env.sh" ]] ||
+        ! grep "${SOURCE_MAC_ENV_CONTENT}" "${DORIS_HOME}/custom_env.sh" &>/dev/null; then
+        echo "${SOURCE_MAC_ENV_CONTENT}" >>"${DORIS_HOME}/custom_env.sh"
+    fi
+fi
+
 # include custom environment variables
 if [[ -f "${DORIS_HOME}/custom_env.sh" ]]; then
     # shellcheck disable=1091
@@ -57,7 +106,11 @@ if ! ${PYTHON} --version; then
 fi
 
 if [[ -z "${DORIS_TOOLCHAIN}" ]]; then
-    DORIS_TOOLCHAIN=gcc
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        DORIS_TOOLCHAIN=clang
+    else
+        DORIS_TOOLCHAIN=gcc
+    fi
 fi
 
 if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
@@ -158,6 +211,13 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
         exit 1
     fi
     export MVN_CMD
+fi
+
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if ! command -v libtoolize &>/dev/null && command -v glibtoolize &>/dev/null; then
+        shopt -s expand_aliases
+        alias libtoolize='glibtoolize'
+    fi
 fi
 
 CMAKE_CMD='cmake'

@@ -109,10 +109,10 @@ TEST_F(ParquetReaderTest, normal) {
     p_reader->set_file_reader(reader);
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
-    runtime_state.init_instance_mem_tracker();
+    runtime_state.init_mem_trackers();
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    p_reader->init_reader(&colname_to_value_range);
+    p_reader->init_reader(&colname_to_value_range, nullptr);
     Block* block = new Block();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =

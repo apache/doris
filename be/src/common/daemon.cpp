@@ -69,6 +69,17 @@ bool k_doris_exit = false;
 
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
+        !defined(USE_JEMALLOC)
+
+    size_t tc_use_memory_min = MemInfo::mem_limit();
+    if (config::memory_mode == std::string("performance")) {
+        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9,
+                                     tc_use_memory_min - (size_t)10 * 1024 * 1024 * 1024);
+    } else {
+        tc_use_memory_min >>= 1;
+    }
+
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
@@ -78,15 +89,17 @@ void Daemon::tcmalloc_gc_thread() {
         MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes", &free_size);
         size_t alloc_size = used_size + free_size;
         LOG(INFO) << "tcmalloc.pageheap_free_bytes " << free_size
-                  << ", generic.current_allocated_bytes " << used_size;
+                  << ", generic.current_allocated_bytes " << used_size << ", tc_use_memory_min "
+                  << tc_use_memory_min;
 
-        if (alloc_size > config::tc_use_memory_min) {
-            size_t max_free_size = alloc_size * config::tc_free_memory_rate / 100;
+        if (alloc_size > tc_use_memory_min) {
+            size_t max_free_size = alloc_size * 20 / 100;
             if (free_size > max_free_size) {
                 MallocExtension::instance()->ReleaseToSystem(free_size - max_free_size);
             }
         }
     }
+#endif
 }
 
 void Daemon::memory_maintenance_thread() {
@@ -264,13 +277,10 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
 
 void Daemon::start() {
     Status st;
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
-        !defined(USE_JEMALLOC)
     st = Thread::create(
             "Daemon", "tcmalloc_gc_thread", [this]() { this->tcmalloc_gc_thread(); },
             &_tcmalloc_gc_thread);
     CHECK(st.ok()) << st.to_string();
-#endif
     st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
             &_memory_maintenance_thread);

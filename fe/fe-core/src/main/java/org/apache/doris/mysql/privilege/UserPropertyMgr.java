@@ -130,6 +130,15 @@ public class UserPropertyMgr implements Writable {
         property.update(properties);
     }
 
+    public long getQueryTimeout(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return 0;
+        }
+        return existProperty.getQueryTimeout();
+    }
+
     public long getMaxConn(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
@@ -272,15 +281,6 @@ public class UserPropertyMgr implements Writable {
             return -1;
         }
         return existProperty.getExecMemLimit();
-    }
-
-    public long getLoadMemLimit(String qualifiedUser) {
-        UserProperty existProperty = propertyMap.get(qualifiedUser);
-        existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
-        if (existProperty == null) {
-            return -1;
-        }
-        return existProperty.getLoadMemLimit();
     }
 
     private UserProperty getLdapPropertyIfNull(String qualifiedUser, UserProperty existProperty) {

@@ -48,6 +48,8 @@ import java.util.Set;
  */
 public class ExpressionUtils {
 
+    public static final List<Expression> EMPTY_CONDITION = ImmutableList.of();
+
     public static List<Expression> extractConjunction(Expression expr) {
         return extract(And.class, expr);
     }
@@ -93,6 +95,21 @@ public class ExpressionUtils {
             return Optional.empty();
         } else {
             return Optional.of(ExpressionUtils.and(expressions));
+        }
+    }
+
+    /**
+     * And two list.
+     */
+    public static Optional<Expression> optionalAnd(List<Expression> left, List<Expression> right) {
+        if (left.isEmpty() && right.isEmpty()) {
+            return Optional.empty();
+        } else if (left.isEmpty()) {
+            return optionalAnd(right);
+        } else if (right.isEmpty()) {
+            return optionalAnd(left);
+        } else {
+            return Optional.of(new And(optionalAnd(left).get(), optionalAnd(right).get()));
         }
     }
 
@@ -283,4 +300,18 @@ public class ExpressionUtils {
     public static boolean isAllNullLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof NullLiteral);
     }
+
+    /**
+     * extract the predicate that is covered by `slots`
+     */
+    public static List<Expression> extractCoveredConjunction(List<Expression> predicates, Set<Slot> slots) {
+        List<Expression> coveredPredicates = Lists.newArrayList();
+        for (Expression predicate : predicates) {
+            if (slots.containsAll(predicate.getInputSlots())) {
+                coveredPredicates.add(predicate);
+            }
+        }
+        return coveredPredicates;
+    }
 }
+

@@ -75,17 +75,21 @@ Instructions:
 1. `symbol` in properties represents the class name containing UDF classes. This parameter must be set.
 2. The jar package containing UDF represented by `file` in properties must be set.
 3. The UDF call type represented by `type` in properties is native by default. When using java UDF, it is transferred to `Java_UDF`.
-4. `name`: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`.
+4. In PROPERTIES `always_nullable` indicates whether there may be a NULL value in the UDF return result. It is an optional parameter. The default value is true.
+5. `name`: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`.
 
 Sample：
 ```sql
 CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
     "file"="file:///path/to/java-udf-demo-jar-with-dependencies.jar",
     "symbol"="org.apache.doris.udf.AddOne",
+    "always_nullable"="true",
     "type"="JAVA_UDF"
 );
 ```
+* "file"=" http://IP:port/udf -code. Jar ", you can also use http to download jar packages in a multi machine environment.
 
+* The "always_nullable" is optional attribute, if there is special treatment for the NULL value in the calculation, it is determined that the result will not return NULL, and it can be set to false, so that the performance may be better in the whole calculation process.
 ## Create UDAF
 <br/>
 When using Java code to write UDAF, there are some functions that must be implemented (mark required) and an inner class State, which will be explained with a specific example below.
@@ -155,6 +159,7 @@ public class SimpleDemo {
 CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
     "file"="file:///pathTo/java-udaf.jar",
     "symbol"="org.apache.doris.udf.SimpleDemo",
+    "always_nullable"="true",
     "type"="JAVA_UDF"
 );
 ```
@@ -176,8 +181,9 @@ When you no longer need UDF functions, you can delete a UDF function by the foll
 ## Example
 Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` directory. See the `README.md` in each directory for details on how to use it, Check it out [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
 
-## Unsupported Use Case
-At present, Java UDF is still in the process of continuous development, so some features are **not completed**.
+## Instructions
 1. Complex data types (HLL, bitmap) are not supported.
-2. Memory management and statistics of JVM and Doris have not been unified.
+2. Currently, users are allowed to specify the maximum heap size of the JVM themselves. The configuration item is jvm_ max_ heap_ size.
+3. The udf of char type needs to use the String type when creating a function.
+4. Due to the problem that the jvm loads classes with the same name, do not use multiple classes with the same name as udf implementations at the same time. If you want to update the udf of a class with the same name, you need to restart be to reload the classpath.
 

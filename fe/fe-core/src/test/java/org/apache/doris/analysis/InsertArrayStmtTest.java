@@ -25,6 +25,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -44,7 +47,6 @@ public class InsertArrayStmtTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(RUNNING_DIR);
         connectContext = UtFrameUtils.createDefaultCtx();
-        Config.enable_array_type = true;
         createDatabase("create database test;");
     }
 
@@ -106,7 +108,47 @@ public class InsertArrayStmtTest {
         Assert.assertSame(PrimitiveType.INT, ((ArrayType) arrayLiteral.getType()).getItemType().getPrimitiveType());
 
         connectContext.setQueryId(new TUniqueId(3, 0));
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "type not match",
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "can not cast from origin type",
                 () -> parseAndAnalyze("insert into test.table1 values (1, [[1, 2], [3, 4]]);"));
     }
+
+    @Test
+    public void testTransactionalInsert() throws Exception {
+        Config.enable_new_load_scan_node = true;
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("CREATE TABLE test.`txn_insert_tbl` (\n"
+                        + "  `k1` int(11) NULL,\n"
+                        + "  `k2` double NULL,\n"
+                        + "  `k3` varchar(100) NULL,\n"
+                        + "  `k4` array<int(11)> NULL,\n"
+                        + "  `k5` array<boolean> NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(`k1`)\n"
+                        + "COMMENT 'OLAP'\n"
+                        + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"in_memory\" = \"false\",\n"
+                        + "\"storage_format\" = \"V2\",\n"
+                        + "\"disable_auto_compaction\" = \"false\"\n"
+                        + ");"));
+
+        SqlParser parser = new SqlParser(new SqlScanner(
+                new StringReader("begin"), connectContext.getSessionVariable().getSqlMode()
+        ));
+        TransactionBeginStmt beginStmt = (TransactionBeginStmt) SqlParserUtils.getFirstStmt(parser);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, beginStmt);
+        stmtExecutor.execute();
+
+        parser = new SqlParser(new SqlScanner(
+                new StringReader("insert into test.txn_insert_tbl values(2, 3.3, \"xyz\", [1], [1, 0]);"),
+                connectContext.getSessionVariable().getSqlMode()
+        ));
+        InsertStmt insertStmt = (InsertStmt) SqlParserUtils.getFirstStmt(parser);
+        stmtExecutor = new StmtExecutor(connectContext, insertStmt);
+        stmtExecutor.execute();
+        QueryState state = connectContext.getState();
+        Assert.assertEquals(MysqlStateType.OK, state.getStateType());
+    }
 }
+

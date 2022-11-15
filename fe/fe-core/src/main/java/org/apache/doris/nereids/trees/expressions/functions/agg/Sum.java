@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -46,22 +46,29 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
         super("sum", child);
     }
 
+    public Sum(AggregateParam aggregateParam, Expression child) {
+        super("sum", aggregateParam, child);
+    }
+
     @Override
-    public DataType getDataType() {
+    public DataType getFinalType() {
         DataType dataType = child().getDataType();
         if (dataType instanceof LargeIntType) {
             return dataType;
-        } else if (dataType instanceof DecimalType) {
-            // TODO: precision + 10
-            return dataType;
+        } else if (dataType instanceof DecimalV2Type) {
+            return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (dataType instanceof IntegralType) {
             return BigIntType.INSTANCE;
         } else if (dataType instanceof FractionalType) {
-            // TODO: precision + 10
             return DoubleType.INSTANCE;
         } else {
             throw new IllegalStateException("Unsupported sum type: " + dataType);
         }
+    }
+
+    @Override
+    public DataType getIntermediateType() {
+        return getFinalType();
     }
 
     @Override
@@ -75,14 +82,14 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    public Sum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(children.get(0));
+        return new Sum(getAggregateParam(), children.get(0));
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getDataType();
+    public Sum withAggregateParam(AggregateParam aggregateParam) {
+        return new Sum(aggregateParam, child());
     }
 
     @Override

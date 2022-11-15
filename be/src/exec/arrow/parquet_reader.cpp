@@ -22,6 +22,7 @@
 #include <time.h>
 
 #include <algorithm>
+#include <cinttypes>
 #include <mutex>
 #include <thread>
 
@@ -274,7 +275,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int32_t value = int32_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -286,7 +287,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int64_t value = int64_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%ld", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRId64, value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -298,7 +299,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint32_t value = uint32_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%u", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%u", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -310,7 +311,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint64_t value = uint64_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%lu", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRIu64, value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -359,7 +360,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint8_t value = uint8_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -371,7 +372,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int8_t value = int8_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -383,7 +384,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     uint16_t value = uint16_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -395,7 +396,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     int16_t value = int16_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%d", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -407,7 +408,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     float value = half_float_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%f", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -422,7 +423,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     // Because the decimal type currently only supports (27, 9).
                     // Therefore, we use %.9f to give priority to the progress of the decimal type.
                     // Cannot use %f directly, this will cause 4000.9 to be converted to 4000.8999
-                    wbytes = sprintf((char*)tmp_buf, "%.9f", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%.9f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -434,7 +435,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     double value = double_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%.9f", value);
+                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%.9f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;

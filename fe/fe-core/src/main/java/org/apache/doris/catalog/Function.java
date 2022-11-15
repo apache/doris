@@ -201,6 +201,10 @@ public class Function implements Writable {
         location = loc;
     }
 
+    public void setName(FunctionName name) {
+        this.name = name;
+    }
+
     public TFunctionBinaryType getBinaryType() {
         return binaryType;
     }
@@ -790,6 +794,10 @@ public class Function implements Writable {
 
     boolean isVectorized() {
         return vectorized;
+    }
+
+    public void setNullableMode(NullableMode nullableMode) {
+        this.nullableMode = nullableMode;
     }
 
     public NullableMode getNullableMode() {

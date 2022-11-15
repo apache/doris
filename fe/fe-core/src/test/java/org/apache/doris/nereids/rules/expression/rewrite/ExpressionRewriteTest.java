@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
@@ -25,18 +24,28 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqua
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
 
 /**
  * all expr rewrite rule test case.
  */
-public class ExpressionRewriteTest {
-    private static final NereidsParser PARSER = new NereidsParser();
-    private ExpressionRuleExecutor executor;
+public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testNotRewrite() {
@@ -184,12 +193,23 @@ public class ExpressionRewriteTest {
         // deduplicate inside
         assertRewrite("CAST(CAST('str' AS varchar) AS double)", "CAST('str' AS double)");
         assertRewrite("CAST(CAST(1 AS tinyint) AS double)", "CAST(1 AS double)");
-    }
 
-    private void assertRewrite(String expression, String expected) {
-        Expression needRewriteExpression = PARSER.parseExpression(expression);
-        Expression expectedExpression = PARSER.parseExpression(expected);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
-        Assertions.assertEquals(expectedExpression, rewrittenExpression);
+        // string literal
+        assertRewrite(new Cast(new CharLiteral("123", 3), VarcharType.createVarcharType(10)),
+                new VarcharLiteral("123", 10));
+        assertRewrite(new Cast(new VarcharLiteral("123", 3), VarcharType.createVarcharType(10)),
+                new VarcharLiteral("123", 10));
+        assertRewrite(new Cast(new CharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
+        assertRewrite(new Cast(new VarcharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
+
+        // decimal literal
+        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new IntegerLiteral(1), DecimalV2Type.createDecimalV2Type(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
+        assertRewrite(new Cast(new BigIntLiteral(1L), DecimalV2Type.createDecimalV2Type(15, 9)),
+                new DecimalLiteral(new BigDecimal(1)));
     }
 }

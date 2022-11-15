@@ -445,13 +445,17 @@ Status VOrcWriterWrapper::write(const Block& block) {
                             cur_batch->notNull[row_id] = 1;
                             auto& v = assert_cast<const ColumnDecimal128&>(*col).get_data()[row_id];
                             orc::Int128 value(v >> 64, (uint64_t)v);
-                            cur_batch->values[row_id] += value;
+                            cur_batch->values[row_id] = value;
                         }
                     }
                 } else if (const auto& not_null_column =
                                    check_and_get_column<const ColumnDecimal128>(col)) {
-                    memcpy(reinterpret_cast<void*>(cur_batch->values.data()),
-                           not_null_column->get_data().data(), sz * sizeof(Int128));
+                    auto ptr = not_null_column->get_data().data();
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        auto v = ptr[row_id];
+                        orc::Int128 value(v >> 64, (uint64_t)v);
+                        cur_batch->values[row_id] = value;
+                    }
                 } else {
                     RETURN_WRONG_TYPE
                 }

@@ -21,6 +21,21 @@ import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewri
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
+
+import java.math.BigDecimal;
 
 /**
  * Rewrite rule of simplify CAST expression.
@@ -35,24 +50,48 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitCast(Cast origin, ExpressionRewriteContext context) {
-        return simplify(origin);
+        return simplify(origin, context);
     }
 
-    private Expression simplify(Cast cast) {
-        Expression source = cast.child();
-        // simplify inside
-        if (source instanceof Cast) {
-            source = simplify((Cast) source);
-        }
+    private Expression simplify(Cast cast, ExpressionRewriteContext context) {
+        Expression child = rewrite(cast.child(), context);
 
         // remove redundant cast
         // CAST(value as type), value is type
-        if (cast.getDataType().equals(source.getDataType())) {
-            return source;
+        if (cast.getDataType().equals(child.getDataType())) {
+            return child;
         }
 
-        if (source != cast.child()) {
-            return new Cast(source, cast.getDataType());
+        if (child instanceof Literal) {
+            // TODO: process other type
+            DataType castType = cast.getDataType();
+            if (castType instanceof StringType) {
+                if (child instanceof VarcharLiteral) {
+                    return new StringLiteral(((VarcharLiteral) child).getValue());
+                } else if (child instanceof CharLiteral) {
+                    return new StringLiteral(((CharLiteral) child).getValue());
+                }
+            } else if (castType instanceof VarcharType) {
+                if (child instanceof VarcharLiteral) {
+                    return new VarcharLiteral(((VarcharLiteral) child).getValue(), ((VarcharType) castType).getLen());
+                } else if (child instanceof CharLiteral) {
+                    return new VarcharLiteral(((CharLiteral) child).getValue(), ((VarcharType) castType).getLen());
+                }
+            } else if (castType instanceof DecimalV2Type) {
+                if (child instanceof TinyIntLiteral) {
+                    return new DecimalLiteral(new BigDecimal(((TinyIntLiteral) child).getValue()));
+                } else if (child instanceof SmallIntLiteral) {
+                    return new DecimalLiteral(new BigDecimal(((SmallIntLiteral) child).getValue()));
+                } else if (child instanceof IntegerLiteral) {
+                    return new DecimalLiteral(new BigDecimal(((IntegerLiteral) child).getValue()));
+                } else if (child instanceof BigIntLiteral) {
+                    return new DecimalLiteral(new BigDecimal(((BigIntLiteral) child).getValue()));
+                }
+            }
+        }
+
+        if (child != cast.child()) {
+            return new Cast(child, cast.getDataType());
         }
         return cast;
     }

@@ -131,12 +131,12 @@ public class PushdownFilterThroughJoin extends OneRewriteRuleFactory {
                 }
             }
 
-            join.getOtherJoinCondition().map(joinConditions::add);
+            joinConditions.addAll(join.getOtherJoinConjuncts());
 
             return PlanUtils.filterOrSelf(remainingPredicates,
                     new LogicalJoin<>(join.getJoinType(),
                             join.getHashJoinConjuncts(),
-                            ExpressionUtils.optionalAnd(joinConditions),
+                            joinConditions,
                             PlanUtils.filterOrSelf(leftPredicates, join.left()),
                             PlanUtils.filterOrSelf(rightPredicates, join.right())));
         }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_JOIN);

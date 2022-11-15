@@ -20,7 +20,7 @@
 
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-        CREATE TABLE ${tableName}  (
+        CREATE TABLE IF NOT EXISTS ${tableName}  (
         `a` int,
         `b` char(10)
         ) ENGINE=OLAP

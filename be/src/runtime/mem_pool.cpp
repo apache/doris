@@ -134,7 +134,7 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits) {
 
     chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
     if (check_limits &&
-        !thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->check_limit(
+        !thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
                 chunk_size)) {
         return Status::MemoryAllocFailed("MemPool find new chunk {} bytes faild, exceed limit",
                                          chunk_size);
@@ -241,7 +241,7 @@ std::string MemPool::debug_string() {
     char str[16];
     out << "MemPool(#chunks=" << chunks_.size() << " [";
     for (int i = 0; i < chunks_.size(); ++i) {
-        sprintf(str, "0x%lx=", reinterpret_cast<size_t>(chunks_[i].chunk.data));
+        snprintf(str, sizeof(str), "0x%lx=", reinterpret_cast<size_t>(chunks_[i].chunk.data));
         out << (i > 0 ? " " : "") << str << chunks_[i].chunk.size << "/"
             << chunks_[i].allocated_bytes;
     }

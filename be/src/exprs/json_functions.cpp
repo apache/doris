@@ -156,7 +156,7 @@ rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const 
                                                     const int num,
                                                     rapidjson::Document::AllocatorType& allocator) {
     rapidjson::Value val;
-    if (*(flag.ptr + num) == '0') { //null
+    if (arg.is_null || *(flag.ptr + num) == '0') { //null
         rapidjson::Value nullObject(rapidjson::kNullType);
         val = nullObject;
     } else if (*(flag.ptr + num) == '1') { //bool
@@ -299,8 +299,8 @@ rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed
 }
 
 rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
-                                                 const std::string_view& json_string,
-                                                 const std::string_view& path_string,
+                                                 std::string_view json_string,
+                                                 std::string_view path_string,
                                                  const JsonFunctionType& fntype,
                                                  rapidjson::Document* document) {
     // split path by ".", and escape quota by "\"
@@ -319,13 +319,19 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     }
 
     if (json_state->json_paths.size() == 0) {
+#ifdef USE_LIBCPP
+        std::string s(path_string);
+        auto tok = get_json_token(s);
+#else
         auto tok = get_json_token(path_string);
+#endif
         std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, &json_state->json_paths);
     }
 #else
     json_state = &tmp_json_state;
-    auto tok = get_json_token(path_string);
+    std::string s(path_string);
+    auto tok = get_json_token(s);
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &json_state->json_paths);
 #endif

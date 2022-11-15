@@ -30,6 +30,7 @@ import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStatus;
@@ -640,4 +641,31 @@ public class GlobalTransactionMgr implements Writable {
         }
         throw new TimeoutException("Operation is timeout");
     }
+
+    public long getAllRunningTxnNum() {
+        long total = 0;
+        for (DatabaseTransactionMgr mgr : dbIdToDatabaseTransactionMgrs.values()) {
+            long num = mgr.getRunningTxnNum();
+            total += num;
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(mgr.getDbId());
+            if (db != null) {
+                MetricRepo.DB_GAUGE_TXN_NUM.getOrAdd(db.getFullName()).setValue(num);
+            }
+        }
+        return total;
+    }
+
+    public long getAllRunningTxnReplicaNum() {
+        long total = 0;
+        for (DatabaseTransactionMgr mgr : dbIdToDatabaseTransactionMgrs.values()) {
+            long num = mgr.getRunningTxnReplicaNum();
+            total += num;
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(mgr.getDbId());
+            if (db != null) {
+                MetricRepo.DB_GAUGE_TXN_REPLICA_NUM.getOrAdd(db.getFullName()).setValue(num);
+            }
+        }
+        return total;
+    }
+
 }

@@ -21,9 +21,7 @@
 #include <fmt/format.h>
 
 #include "exprs/create_predicate_function.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_set.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -54,7 +52,9 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& args) const override {
         for (const auto& arg : args) {
-            if (arg->is_nullable()) return make_nullable(std::make_shared<DataTypeUInt8>());
+            if (arg->is_nullable()) {
+                return make_nullable(std::make_shared<DataTypeUInt8>());
+            }
         }
         return std::make_shared<DataTypeUInt8>();
     }
@@ -74,7 +74,7 @@ public:
             state->hybrid_set.reset(new StringValueSet());
         } else {
             state->hybrid_set.reset(
-                    vec_create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type), true));
         }
 
         DCHECK(context->get_num_args() >= 1);
@@ -199,16 +199,17 @@ public:
                     continue;
                 }
 
-                std::unique_ptr<HybridSetBase> hybrid_set(
-                        vec_create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
+                std::unique_ptr<HybridSetBase> hybrid_set(create_set(
+                        convert_type_to_primitive(context->get_arg_type(0)->type), true));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {
                     auto set_data = set_column->get_data_at(i);
-                    if (set_data.data == nullptr)
+                    if (set_data.data == nullptr) {
                         null_in_set = true;
-                    else
+                    } else {
                         hybrid_set->insert((void*)(set_data.data), set_data.size);
+                    }
                 }
                 vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
                 if (null_in_set) {

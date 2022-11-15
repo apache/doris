@@ -49,7 +49,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                     LogicalJoin<GroupPlan, GroupPlan> newJoin = new LogicalJoin<>(
                             join.getJoinType().swap(),
                             join.getHashJoinConjuncts(),
-                            join.getOtherJoinCondition(),
+                            join.getOtherJoinConjuncts(),
                             join.right(), join.left(),
                             join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
