@@ -26,6 +26,7 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.PlatformManagedObject;
 import java.lang.management.RuntimeMXBean;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
@@ -58,11 +59,25 @@ public class JvmInfo {
         long nonHeapMax = memoryMXBean.getNonHeapMemoryUsage().getMax() < 0
                 ? 0 : memoryMXBean.getNonHeapMemoryUsage().getMax();
         long directMemoryMax = 0;
-        try {
-            Class<?> vmClass = Class.forName("sun.misc.VM");
-            directMemoryMax = (Long) vmClass.getMethod("maxDirectMemory").invoke(null);
-        } catch (Exception t) {
-            // ignore
+        String[][] providers = new String[][]{
+                {"sun.misc.VM", "maxDirectMemory"},
+                {"jdk.internal.misc.VM", "maxDirectMemory"}
+        };
+
+        Method maxMemMethod = null;
+        for (String[] provider : providers) {
+            String clazz = provider[0];
+            String method = provider[1];
+            try {
+                Class<?> vmClass = Class.forName(clazz);
+                maxMemMethod = vmClass.getDeclaredMethod(method);
+
+                maxMemMethod.setAccessible(true);
+                directMemoryMax = (long) maxMemMethod.invoke(null);
+                break;
+            } catch (Exception t) {
+                // ignore
+            }
         }
         String[] inputArguments = runtimeMXBean.getInputArguments()
                 .toArray(new String[runtimeMXBean.getInputArguments().size()]);
