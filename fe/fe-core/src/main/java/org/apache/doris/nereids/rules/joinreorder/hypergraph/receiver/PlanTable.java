@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver;
 
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.Edge;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-
-import com.google.common.base.Preconditions;
 
 import java.util.BitSet;
 import java.util.HashMap;
@@ -28,14 +26,9 @@ import java.util.HashMap;
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
  */
-public class Receiver {
+public class PlanTable implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
-    int limit;
-    HashMap<BitSet, Plan> planMap;
-
-    Receiver(int limit) {
-        this.limit = limit;
-    }
+    HashMap<BitSet, Integer> counter;
 
     /**
      * Emit a new plan from bottom to top
@@ -46,29 +39,19 @@ public class Receiver {
      * @return the left and the right can be connected by the edge
      */
     public boolean emitCsgCmp(BitSet left, BitSet right, Edge edge) {
-        limit -= 1;
-        if (limit < 0) {
-            return false;
-        }
-        Preconditions.checkArgument(planMap.containsKey(left));
-        Preconditions.checkArgument(planMap.containsKey(right));
-        Plan plan = new LogicalJoin<>(edge.join.getJoinType(), planMap.get(left), planMap.get(right));
-        left.or(right);
-        planMap.put(left, plan);
-        return true;
+        throw new RuntimeException("PlanTable does not support emitCsgCmp()");
     }
 
-    public void addNode(Node node) {
-        BitSet bitSet = new BitSet();
-        bitSet.set(node.getIndex());
-        planMap.put(bitSet, node.getPlan());
+    public void addPlan(BitSet bitSet, Plan plan) {
+        throw new RuntimeException("PlanTable does not support addPlan()");
     }
 
-    public void addPlan(BitSet referenceNodes, Plan plan) {
-        planMap.put(referenceNodes, plan);
+    public boolean contain(BitSet bitSet) {
+        throw new RuntimeException("PlanTable does not support contain()");
     }
 
     public Plan getBestPlan(BitSet bitSet) {
-        return planMap.get(bitSet);
+        throw new RuntimeException("PlanTable does not support getBestPlan()");
     }
 }
+

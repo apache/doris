@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
@@ -25,24 +26,50 @@ import com.google.common.collect.Lists;
 
 import java.util.BitSet;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * HyperGraph Node.
  */
-class Node {
+public class Node {
     private final int index;
     private Plan plan;
     // We split these into simple edges (only one node on each side) and complex edges (others)
     // because we can often quickly discard all simple edges by testing the set of interesting nodes
     // against the “simple_neighborhood” bitmap.
     private List<Edge> complexEdges = Lists.newArrayList();
-    private List<Edge> simpleEdges = Lists.newArrayList();
-
     private BitSet simpleNeighborhood = new BitSet();
+    private List<Edge> simpleEdges = Lists.newArrayList();
+    private BitSet complexNeighborhood = new BitSet();
 
     public Node(int index, Plan plan) {
         this.plan = plan;
         this.index = index;
+    }
+
+    /**
+     * Try to find the edge between this node and nodes
+     *
+     * @param nodes the other side of the edge
+     * @return The edge between this node and parameters
+     */
+    @Nullable
+    public Edge tryGetEdgeWith(BitSet nodes) {
+        if (simpleNeighborhood.intersects(nodes)) {
+            for (Edge edge : simpleEdges) {
+                if (Bitmap.isSubset(edge.getLeft(), nodes) || Bitmap.isSubset(edge.getRight(), nodes)) {
+                    return edge;
+                }
+            }
+            throw new RuntimeException(String.format("There is no simple Edge <%d - %s>", index, nodes));
+        } else if (complexNeighborhood.intersects(nodes)) {
+            for (Edge edge : simpleEdges) {
+                if (edge.getLeft().equals(nodes) || edge.getRight().equals(nodes)) {
+                    return edge;
+                }
+            }
+        }
+        return null;
     }
 
     public int getIndex() {
@@ -87,6 +114,11 @@ class Node {
         this.simpleNeighborhood = simpleNeighborhood;
     }
 
+    /**
+     * Attach all edge in this node if the edge references this node
+     *
+     * @param edge the edge that references this node
+     */
     public void attachEdge(Edge edge) {
         if (edge.isSimple()) {
             simpleEdges.add(edge);
@@ -94,6 +126,9 @@ class Node {
             edge.getRight().stream().forEach(index -> simpleNeighborhood.set(index));
             simpleNeighborhood.clear(index);
         } else {
+            edge.getLeft().stream().forEach(index -> complexNeighborhood.set(index));
+            edge.getRight().stream().forEach(index -> complexNeighborhood.set(index));
+            simpleNeighborhood.clear(index);
             complexEdges.add(edge);
         }
     }
