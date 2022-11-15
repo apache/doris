@@ -138,7 +138,7 @@ false
 3
 
 -- !sql --
-6.0
+6
 
 -- !sql --
 \N
@@ -378,14 +378,20 @@ any_any_1_2___any
 _
 
 -- !sql --
-['_', '_', '_']
+[1, 2, 3, NULL, 4]
 
 -- !sql --
-['1', '1']
+[NULL]
 
 -- !sql --
-[1223, 1223, 1223, 1223]
+[1.2, 3.4, 3.3, 2.1]
 
 -- !sql --
-[NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
+['a', 'b', 'c', 'd']
+
+-- !sql --
+['aaa', 'bbb', 'ccc', 'ccccc', NULL, 'dddd']
+
+-- !sql --
+['2015-03-13']
 

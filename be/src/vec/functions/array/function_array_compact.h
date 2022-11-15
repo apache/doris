@@ -134,7 +134,7 @@ private:
             
                 // For the rest of elements, insert if the element is different from the previous.   
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&!((*dest_null_map)[src_pos-1])) {
+                    if (src_null_map && (*src_null_map)[src_pos]&&!((*src_null_map)[src_pos-1])) {
                         DCHECK(dest_null_map != nullptr);
                         (*dest_null_map).push_back(true);
                         dest_datas.push_back(NestType());
@@ -147,8 +147,8 @@ private:
                         ++dest_pos;
                     }
                 }
-                dest_offsets.push_back(dest_pos);
             }
+            dest_offsets.push_back(dest_pos);
         }
 
         return true;
@@ -199,7 +199,7 @@ private:
             
                 // For the rest of elements, insert if the element is different from the previous.   
                 for (; src_pos < src_offset; ++src_pos) {
-                    if (src_null_map && (*src_null_map)[src_pos]&&(!(*dest_null_map)[src_pos-1])) {
+                    if (src_null_map && (*src_null_map)[src_pos]&&(!(*src_null_map)[src_pos-1])) {
                         DCHECK(dest_null_map != nullptr);
                         column_string_offsets.push_back(column_string_offsets.back());
                         (*dest_null_map).push_back(true);
@@ -222,8 +222,8 @@ private:
                         ++dest_pos;
                     }
                 }
-                    dest_offsets.push_back(dest_pos);
             }
+            dest_offsets.push_back(dest_pos);
         }
         return true;
     }
