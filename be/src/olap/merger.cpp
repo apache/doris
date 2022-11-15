@@ -207,7 +207,9 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
             key_columns.emplace_back(sequence_col_idx);
         }
         delete_sign_idx = tablet_schema->field_index(DELETE_SIGN);
-        key_columns.emplace_back(delete_sign_idx);
+        if (delete_sign_idx != -1) {
+            key_columns.emplace_back(delete_sign_idx);
+        }
     }
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
