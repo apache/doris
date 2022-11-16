@@ -70,12 +70,15 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             validParams.put(key, params.get(key));
         }
 
-        boolean forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
-        if (forceVirtualHosted) {
-            s3uri = S3URI.create(validParams.get(S3_URI), true);
+        boolean forceVirtualHosted = false;
+        String originUri = validParams.getOrDefault(S3_URI, "");
+        if (originUri.toLowerCase().startsWith("s3")) {
+            forceVirtualHosted = false;
         } else {
-            s3uri = S3URI.create(validParams.get(S3_URI), false);
+            forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
         }
+
+        s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
         s3AK = validParams.getOrDefault(AK, "");
         s3SK = validParams.getOrDefault(SK, "");
         String usePathStyle = validParams.getOrDefault(USE_PATH_STYLE, "false");
