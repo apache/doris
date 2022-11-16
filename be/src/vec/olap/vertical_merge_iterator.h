@@ -209,9 +209,11 @@ private:
 class VerticalHeapMergeIterator : public RowwiseIterator {
 public:
     // VerticalMergeIterator takes the ownership of input iterators
-    VerticalHeapMergeIterator(std::vector<RowwiseIterator*> iters, KeysType keys_type,
-                              int32_t seq_col_idx, RowSourcesBuffer* row_sources_buf)
+    VerticalHeapMergeIterator(std::vector<RowwiseIterator*> iters, size_t ori_return_cols,
+                              KeysType keys_type, int32_t seq_col_idx,
+                              RowSourcesBuffer* row_sources_buf)
             : _origin_iters(std::move(iters)),
+              _ori_return_cols(ori_return_cols),
               _keys_type(keys_type),
               _seq_col_idx(seq_col_idx),
               _row_sources_buf(row_sources_buf) {}
@@ -235,6 +237,7 @@ private:
 private:
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIterator*> _origin_iters;
+    size_t _ori_return_cols;
 
     const Schema* _schema = nullptr;
 
@@ -301,8 +304,8 @@ private:
 
 // segment merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
-        const std::vector<RowwiseIterator*>& inputs, KeysType key_type, uint32_t seq_col_idx,
-        RowSourcesBuffer* row_sources_buf);
+        const std::vector<RowwiseIterator*>& inputs, size_t _ori_return_cols, KeysType key_type,
+        uint32_t seq_col_idx, RowSourcesBuffer* row_sources_buf);
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         const std::vector<RowwiseIterator*>& inputs, size_t ori_return_cols,

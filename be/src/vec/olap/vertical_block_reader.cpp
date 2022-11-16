@@ -64,15 +64,16 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     RETURN_IF_ERROR(_get_segment_iterators(read_params, &segment_iters));
 
     // build heap if key column iterator or build vertical merge iterator if value column
+    auto ori_return_col_size = _return_columns.size();
     if (read_params.is_key_column_group) {
         uint32_t seq_col_idx = -1;
         if (read_params.tablet->tablet_schema()->has_sequence_col()) {
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
-        _vcollect_iter = new_vertical_heap_merge_iterator(
-                segment_iters, read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
+        _vcollect_iter = new_vertical_heap_merge_iterator(segment_iters, ori_return_col_size,
+                                                          read_params.tablet->keys_type(),
+                                                          seq_col_idx, _row_sources_buffer);
     } else {
-        auto ori_return_col_size = _return_columns.size();
         _vcollect_iter = new_vertical_mask_merge_iterator(segment_iters, ori_return_col_size,
                                                           _row_sources_buffer);
     }
