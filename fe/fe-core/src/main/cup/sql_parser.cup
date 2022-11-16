@@ -3183,7 +3183,7 @@ opt_index_type ::=
     {:
         RESULT = IndexDef.IndexType.BITMAP;
     :}
-    | KW_NGRAM_BF
+    | KW_USING KW_NGRAM_BF
     {:
         RESULT = IndexDef.IndexType.NGRAM_BF;
     :}
