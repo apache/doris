@@ -36,7 +36,6 @@ public class PartialAggType extends DataType {
     public PartialAggType(List<Expression> originArguments, List<DataType> intermediateTypes) {
         this.originArguments = ImmutableList.copyOf(
                 Objects.requireNonNull(originArguments, "originArguments can not be null"));
-        Preconditions.checkArgument(originArguments.size() > 0, "inputTypes can not empty");
         this.intermediateTypes = ImmutableList.copyOf(
                 Objects.requireNonNull(intermediateTypes, "intermediateTypes can not be null"));
         Preconditions.checkArgument(intermediateTypes.size() > 0, "intermediateTypes can not empty");

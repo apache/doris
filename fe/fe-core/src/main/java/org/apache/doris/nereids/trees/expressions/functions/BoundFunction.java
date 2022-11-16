@@ -48,10 +48,11 @@ public abstract class BoundFunction extends Expression implements FunctionTrait,
 
     private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {
         // first step: find the candidate signature in the signature list
+        List<Expression> originArguments = getOriginArguments();
         FunctionSignature matchedSignature = searchSignature(
-                getOriginArgumentTypes(), getOriginArguments(), getSignatures());
+                getOriginArgumentTypes(), originArguments, getSignatures());
         // second step: change the signature, e.g. fill precision for decimal v2
-        return computeSignature(matchedSignature);
+        return computeSignature(matchedSignature, originArguments);
     });
 
     public BoundFunction(String name, Expression... arguments) {
@@ -64,14 +65,14 @@ public abstract class BoundFunction extends Expression implements FunctionTrait,
         this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
         // NOTE:
         // this computed chain only process the common cases.
         // If you want to add some common cases to here, please separate the process code
         // to the other methods and add to this chain.
         // If you want to add some special cases, please override this method in the special
         // function class, like 'If' function and 'Substring' function.
-        return ComputeSignatureChain.from(signature, getArguments())
+        return ComputeSignatureChain.from(signature, arguments)
                 .then(this::computePrecisionForDatetimeV2)
                 .then(this::upgradeDateOrDateTimeToV2)
                 .then(this::upgradeDecimalV2ToV3)

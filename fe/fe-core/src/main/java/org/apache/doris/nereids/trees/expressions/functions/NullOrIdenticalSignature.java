@@ -41,7 +41,7 @@ public interface NullOrIdenticalSignature extends ComputeSignature {
     @Override
     default FunctionSignature searchSignature(List<DataType> argumentTypes, List<Expression> arguments,
             List<FunctionSignature> signatures) {
-        return SearchSignature.from(getSignatures(), getArguments())
+        return SearchSignature.from(signatures, arguments)
                 // first round, use identical strategy to find signature
                 .orElseSearch(IdenticalSignature::isIdentical)
                 // second round: if not found, use nullOrIdentical strategy

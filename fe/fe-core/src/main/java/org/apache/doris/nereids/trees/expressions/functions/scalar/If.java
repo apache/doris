@@ -107,11 +107,11 @@ public class If extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
         DataType widerType = this.widerType.get();
-        signature = signature.withArgumentTypes(children(), (sigType, argType) -> widerType)
+        signature = signature.withArgumentTypes(arguments, (sigType, argType) -> widerType)
                 .withReturnType(widerType);
-        return super.computeSignature(signature);
+        return super.computeSignature(signature, arguments);
     }
 
     /**
