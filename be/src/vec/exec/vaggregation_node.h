@@ -76,7 +76,7 @@ struct AggregationMethodSerialized {
         if (total_bytes > _serialized_key_buffer_size) {
             _serialized_key_buffer_size = total_bytes;
             _mem_pool->clear();
-            _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size);
+            _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size, true);
         }
 
         if (keys.size() < num_rows) keys.resize(num_rows);
