@@ -285,7 +285,6 @@ my_import.json
                         ],
                         "loadProps": {
                             "format": "json",
-                            "read_json_by_line":"true",
                             "strip_outer_array":"true",
                             "line_delimiter": "\\x02"
                         }
