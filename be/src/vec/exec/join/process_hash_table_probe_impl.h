@@ -207,15 +207,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             }
             int last_offset = current_offset;
             auto find_result =
-                    !need_null_map_for_probe ? key_getter.find_key(*hash_table_ctx.hash_table_ptr,
-                                                                   probe_index, _arena)
+                    !need_null_map_for_probe
+                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena)
                     : (*null_map)[probe_index]
-                            ? decltype(key_getter.find_key(*hash_table_ctx.hash_table_ptr,
-                                                           probe_index, _arena)) {nullptr, false}
-                            : key_getter.find_key(*hash_table_ctx.hash_table_ptr, probe_index,
-                                                  _arena);
+                            ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
+                                                           _arena)) {nullptr, false}
+                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena);
             if (probe_index + PREFETCH_STEP < probe_rows)
-                key_getter.template prefetch<true>(*hash_table_ctx.hash_table_ptr,
+                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
                                                    probe_index + PREFETCH_STEP, _arena);
 
             if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
@@ -372,15 +371,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
 
             auto last_offset = current_offset;
             auto find_result =
-                    !need_null_map_for_probe ? key_getter.find_key(*hash_table_ctx.hash_table_ptr,
-                                                                   probe_index, _arena)
+                    !need_null_map_for_probe
+                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena)
                     : (*null_map)[probe_index]
-                            ? decltype(key_getter.find_key(*hash_table_ctx.hash_table_ptr,
-                                                           probe_index, _arena)) {nullptr, false}
-                            : key_getter.find_key(*hash_table_ctx.hash_table_ptr, probe_index,
-                                                  _arena);
+                            ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
+                                                           _arena)) {nullptr, false}
+                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena);
             if (probe_index + PREFETCH_STEP < probe_rows)
-                key_getter.template prefetch<true>(*hash_table_ctx.hash_table_ptr,
+                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
                                                    probe_index + PREFETCH_STEP, _arena);
             if (find_result.is_found()) {
                 auto& mapped = find_result.get_mapped();
@@ -627,7 +625,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             }
         };
 
-        for (; iter != hash_table_ctx.hash_table_ptr->end() && block_size < _batch_size; ++iter) {
+        for (; iter != hash_table_ctx.hash_table.end() && block_size < _batch_size; ++iter) {
             auto& mapped = iter->get_second();
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 if (mapped.visited) {
@@ -674,7 +672,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
             }
             _tuple_is_null_left_flags->resize_fill(block_size, 1);
         }
-        *eos = iter == hash_table_ctx.hash_table_ptr->end();
+        *eos = iter == hash_table_ctx.hash_table.end();
         output_block->swap(
                 mutable_block.to_block(right_semi_anti_without_other ? right_col_idx : 0));
         return Status::OK();

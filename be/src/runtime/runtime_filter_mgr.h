@@ -80,6 +80,8 @@ public:
 
     Status get_merge_addr(TNetworkAddress* addr);
 
+    std::shared_ptr<ObjectPool> obj_pool_ptr() const { return _pool; }
+
 private:
     Status get_filter_by_role(const int filter_id, const RuntimeFilterRole role,
                               IRuntimeFilter** target);
@@ -97,7 +99,7 @@ private:
 
     RuntimeState* _state;
     std::unique_ptr<MemTracker> _tracker;
-    ObjectPool _pool;
+    std::shared_ptr<ObjectPool> _pool;
 
     TNetworkAddress _merge_addr;
 

@@ -32,15 +32,6 @@ bool SharedHashTableController::should_build_hash_table(RuntimeState* state, int
     return false;
 }
 
-bool SharedHashTableController::supposed_to_build_hash_table(RuntimeState* state, int my_node_id) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    auto it = _builder_fragment_ids.find(my_node_id);
-    if (it != _builder_fragment_ids.cend()) {
-        return _builder_fragment_ids[my_node_id] == state->fragment_instance_id();
-    }
-    return false;
-}
-
 void SharedHashTableController::put_hash_table(SharedHashTableEntry&& entry, int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     DCHECK(_hash_table_entries.find(my_node_id) == _hash_table_entries.cend());
@@ -71,7 +62,11 @@ Status SharedHashTableController::release_ref_count(RuntimeState* state, int my_
     auto it = std::find(_ref_fragments[my_node_id].begin(), _ref_fragments[my_node_id].end(), id);
     CHECK(it != _ref_fragments[my_node_id].end());
     _ref_fragments[my_node_id].erase(it);
-    _put_an_empty_entry_if_need(Status::Cancelled("hash table not build"), id, my_node_id);
+    if (_ref_fragments[my_node_id].empty()) {
+        _hash_table_entries.erase(my_node_id);
+    } else {
+        _put_an_empty_entry_if_need(Status::Cancelled("hash table not build"), id, my_node_id);
+    }
     _cv.notify_all();
     return Status::OK();
 }
@@ -115,15 +110,6 @@ Status SharedHashTableController::release_ref_count_if_need(TUniqueId fragment_i
 
     if (need_to_notify) {
         _cv.notify_all();
-    }
-    return Status::OK();
-}
-
-Status SharedHashTableController::wait_for_closable(RuntimeState* state, int my_node_id) {
-    std::unique_lock<std::mutex> lock(_mutex);
-    RETURN_IF_CANCELLED(state);
-    if (!_ref_fragments[my_node_id].empty()) {
-        _cv.wait(lock, [&]() { return _ref_fragments[my_node_id].empty(); });
     }
     return Status::OK();
 }

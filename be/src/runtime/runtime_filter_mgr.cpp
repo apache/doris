@@ -39,7 +39,8 @@ struct async_rpc_context {
     brpc::CallId cid;
 };
 
-RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state) : _state(state) {}
+RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state)
+        : _state(state), _pool(new ObjectPool()) {}
 
 RuntimeFilterMgr::~RuntimeFilterMgr() {}
 
@@ -101,7 +102,7 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
     RuntimeFilterMgrVal filter_mgr_val;
     filter_mgr_val.role = role;
 
-    RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options, role, node_id,
+    RETURN_IF_ERROR(IRuntimeFilter::create(_state, _pool.get(), &desc, &options, role, node_id,
                                            &filter_mgr_val.filter));
 
     filter_map->emplace(key, filter_mgr_val);
@@ -111,7 +112,7 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
 Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request,
                                        butil::IOBufAsZeroCopyInputStream* data) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
-    UpdateRuntimeFilterParams params(request, data, &_pool);
+    UpdateRuntimeFilterParams params(request, data, _pool.get());
     int filter_id = request->filter_id();
     IRuntimeFilter* real_filter = nullptr;
     RETURN_IF_ERROR(get_consume_filter(filter_id, &real_filter));
