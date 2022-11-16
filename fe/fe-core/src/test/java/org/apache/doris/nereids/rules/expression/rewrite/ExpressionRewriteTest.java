@@ -287,5 +287,18 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite(
                 new GreaterThan(new Cast(d, DateTimeV2Type.INSTANCE), dv2),
                 new GreaterThan(d, d));
+
+        // test hour, minute and second all zero
+        Expression dtv2AtZeroClock = new DateTimeV2Literal(1, 1, 1, 0, 0, 0);
+        assertRewrite(
+                new GreaterThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2AtZeroClock),
+                new GreaterThan(dv2, dv2));
+        assertRewrite(
+                new LessThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2AtZeroClock),
+                new LessThan(dv2, dv2));
+        assertRewrite(
+                new EqualTo(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2AtZeroClock),
+                new EqualTo(dv2, dv2));
+
     }
 }
