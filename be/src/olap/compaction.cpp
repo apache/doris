@@ -130,10 +130,11 @@ bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr&
 }
 
 Status Compaction::do_compact_ordered_rowsets() {
-    LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version;
     build_basic_info();
     RETURN_NOT_OK(construct_output_rowset_writer());
+
+    LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->full_name()
+              << ", output_version=" << _output_version;
     // link data to new rowset
     auto seg_id = 0;
     std::vector<KeyBoundsPB> segment_key_bounds;
@@ -187,6 +188,9 @@ void Compaction::build_basic_info() {
 }
 
 bool Compaction::handle_ordered_data_compaction() {
+    if (!config::enable_ordered_data_compaction) {
+        return false;
+    }
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
