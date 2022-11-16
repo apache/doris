@@ -26,7 +26,6 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Sets;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -37,9 +36,6 @@ import java.util.stream.Collectors;
  */
 public class LogicalProperties {
     protected final Supplier<List<Slot>> outputSupplier;
-    protected final Supplier<List<Id>> outputExprIdsSupplier;
-    protected final Supplier<Set<Slot>> outputSetSupplier;
-    protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
     private Integer hashCode = null;
 
     /**
@@ -52,17 +48,6 @@ public class LogicalProperties {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
-        this.outputExprIdsSupplier = Suppliers.memoize(
-                () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId).map(Id.class::cast)
-                        .collect(Collectors.toList())
-        );
-        this.outputSetSupplier = Suppliers.memoize(
-                () -> Sets.newHashSet(this.outputSupplier.get())
-        );
-        this.outputExprIdSetSupplier = Suppliers.memoize(
-                () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId)
-                        .collect(Collectors.toCollection(HashSet::new))
-        );
     }
 
     public List<Slot> getOutput() {
@@ -70,15 +55,17 @@ public class LogicalProperties {
     }
 
     public Set<Slot> getOutputSet() {
-        return outputSetSupplier.get();
+        return Sets.newHashSet(this.outputSupplier.get());
     }
 
     public Set<ExprId> getOutputExprIdSet() {
-        return outputExprIdSetSupplier.get();
+        return outputSupplier.get().stream().map(NamedExpression::getExprId)
+                .collect(Collectors.toSet());
     }
 
     public List<Id> getOutputExprIds() {
-        return outputExprIdsSupplier.get();
+        return outputSupplier.get().stream().map(NamedExpression::getExprId).map(Id.class::cast)
+                .collect(Collectors.toList());
     }
 
     public LogicalProperties withOutput(List<Slot> output) {
@@ -94,13 +81,13 @@ public class LogicalProperties {
             return false;
         }
         LogicalProperties that = (LogicalProperties) o;
-        return Objects.equals(outputExprIdSetSupplier.get(), that.outputExprIdSetSupplier.get());
+        return Objects.equals(getOutputExprIdSet(), that.getOutputExprIdSet());
     }
 
     @Override
     public int hashCode() {
         if (hashCode == null) {
-            hashCode = Objects.hash(outputExprIdSetSupplier.get());
+            hashCode = Objects.hash(getOutputExprIdSet());
         }
         return hashCode;
     }

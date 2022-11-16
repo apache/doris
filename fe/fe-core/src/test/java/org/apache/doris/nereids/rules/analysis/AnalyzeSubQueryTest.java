@@ -164,15 +164,6 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                             logicalOlapScan()
                         )
                         .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                        .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(new EqualTo(
-                                new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("default_cluster:test", "T1")),
-                                new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2")))))
-                        )
-                    ).when(FieldChecker.check("projects", ImmutableList.of(
-                        new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("default_cluster:test", "T1")),
-                        new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("default_cluster:test", "T1")),
-                        new SlotReference(new ExprId(2), "id", BigIntType.INSTANCE, true, ImmutableList.of("T2")),
-                        new SlotReference(new ExprId(3), "score", BigIntType.INSTANCE, true, ImmutableList.of("T2"))))
                     )
                 );
     }

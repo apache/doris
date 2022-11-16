@@ -32,7 +32,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,7 +47,6 @@ public class Memo {
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
     private final Map<GroupExpression, GroupExpression> groupExpressions = Maps.newHashMap();
-    private final Map<GroupExpression, GroupExpression> groupExpressions1 = new IdentityHashMap<>();
     private final Group root;
 
     // FOR TEST ONLY
@@ -84,9 +82,7 @@ public class Memo {
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
         if (rewrite) {
-            CopyInResult res = doRewrite(plan, target);
-            System.out.println(Maps.difference(groupExpressions, groupExpressions1).entriesDiffering());
-            return res;
+            return doRewrite(plan, target);
         } else {
             return doCopyIn(plan, target);
         }
@@ -201,8 +197,6 @@ public class Memo {
             throw new IllegalStateException("groupExpression already exists in memo, maybe a bug");
         }
         groupExpressions.put(newGroupExpression, newGroupExpression);
-        groupExpressions1.put(newGroupExpression, newGroupExpression);
-        System.out.println(Maps.difference(groupExpressions, groupExpressions1).entriesDiffering());
         return group;
     }
 
@@ -453,7 +447,6 @@ public class Memo {
                     newPlan.getLogicalProperties());
             groups.put(newGroup.getGroupId(), newGroup);
             groupExpressions.put(newGroupExpression, newGroupExpression);
-            groupExpressions1.put(newGroupExpression, newGroupExpression);
         } else {
             // case 3:
             // if exist the target group, clear all origin group expressions in the
@@ -465,7 +458,6 @@ public class Memo {
             //       because existedExpression maybe equal to the newGroupExpression and recycle
             //       existedExpression will recycle newGroupExpression
             groupExpressions.put(newGroupExpression, newGroupExpression);
-            groupExpressions1.put(newGroupExpression, newGroupExpression);
         }
         return CopyInResult.of(true, newGroupExpression);
     }
@@ -483,7 +475,6 @@ public class Memo {
             //       because existedExpression maybe equal to the newGroupExpression and recycle
             //       existedExpression will recycle newGroupExpression
             groupExpressions.put(newExpression, newExpression);
-            groupExpressions1.put(newExpression, newExpression);
             return CopyInResult.of(true, newExpression);
         } else {
             // case 5:

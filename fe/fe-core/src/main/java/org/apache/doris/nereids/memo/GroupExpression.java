@@ -21,9 +21,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -31,6 +33,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +46,14 @@ import java.util.Optional;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
+    static {
+        try {
+            System.setOut(new PrintStream(new FileOutputStream("log.txt", true)));
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public int hashCnt = 0;
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
@@ -222,6 +235,33 @@ public class GroupExpression {
         // TODO: add relation id to UnboundRelation
         if (plan instanceof UnboundRelation) {
             return false;
+        }
+        // run all the unit tests, we find:
+        // if children are not equal, groupExpressions, plans and plans' logical properties will never be equal.
+        // if plans are equal, children are always equal.
+        if (plan instanceof LogicalPlan && that.plan instanceof LogicalPlan) {
+            if (plan.equals(that.plan)) {
+                if (!plan.getLogicalProperties().equals(that.plan.getLogicalProperties())) {
+                    if (plan.getLogicalProperties() instanceof UnboundLogicalProperties) {
+                        System.out.println("dbg7");
+                    }
+                    System.out.println("dbg1");
+                    if (plan.getLogicalProperties() instanceof UnboundLogicalProperties) {
+                        System.out.println("dbg8");
+                    }
+                }
+                if (!children.equals(that.children)) {
+                    System.out.println("dbg2");
+                }
+            }
+            if (!children.equals(that.children)) {
+                if (!plan.equals(that.plan)) {
+                    System.out.println("dbg3");
+                }
+                if (!plan.getLogicalProperties().equals(that.plan.getLogicalProperties())) {
+                    System.out.println("dbg4");
+                }
+            }
         }
         return children.equals(that.children) && plan.equals(that.plan)
                 && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
