@@ -192,3 +192,6 @@ fi
     -jar ${RUN_JAR:+${RUN_JAR}} \
     -cf "${CONFIG_FILE}" \
     ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
+
+
+
