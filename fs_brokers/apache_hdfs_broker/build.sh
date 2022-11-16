@@ -41,10 +41,6 @@ rm -rf "${BROKER_OUTPUT}"
 install -d "${BROKER_OUTPUT}/bin" "${BROKER_OUTPUT}/conf" \
     "${BROKER_OUTPUT}/lib"
 
-# download tencent hadoop cos jar
-wget https://github.com/tencentyun/hadoop-cos/releases/download/v8.1.7/hadoop-cos-2.7.5-8.1.7.jar
-mv hadoop-cos-2.7.5-8.1.7.jar "${BROKER_OUTPUT}/lib/"
-
 cp -r -p "${BROKER_HOME}/bin"/*.sh "${BROKER_OUTPUT}/bin"/
 cp -r -p "${BROKER_HOME}/conf"/*.conf "${BROKER_OUTPUT}/conf"/
 cp -r -p "${BROKER_HOME}/conf"/*.xml "${BROKER_OUTPUT}/conf"/
