@@ -110,7 +110,7 @@ if [[ "${WRONG_CMD}" -eq 1 ]]; then
 fi
 
 # set maven
-MVN_CMD='mvn'
+MVN_CMD='/mnt/disk2/lishiyang/maven/apache-maven-3.8.6/bin/mvn'
 if [[ -n "${CUSTOM_MVN}" ]]; then
     MVN_CMD="${CUSTOM_MVN}"
 fi
@@ -162,6 +162,7 @@ if ! test -f ${JAVAUDF_JAR:+${JAVAUDF_JAR}}; then
 fi
 
 # check java home
+JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.322.b06-1.el7_9.x86_64
 if [[ -z "${JAVA_HOME}" ]]; then
     echo "Error: JAVA_HOME is not set"
     exit 1
@@ -192,6 +193,3 @@ fi
     -jar ${RUN_JAR:+${RUN_JAR}} \
     -cf "${CONFIG_FILE}" \
     ${REGRESSION_OPTIONS_PREFIX:+${REGRESSION_OPTIONS_PREFIX}} "$@"
-
-
-
