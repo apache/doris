@@ -112,6 +112,13 @@ public class Group {
             logicalExpressions.remove(groupExpression);
         } else {
             physicalExpressions.remove(groupExpression);
+            List<PhysicalProperties> needToRemove = Lists.newArrayList();
+            for (Map.Entry<PhysicalProperties, Pair<Double, GroupExpression>> entry : lowestCostPlans.entrySet()) {
+                if (entry.getValue().second.equals(groupExpression)) {
+                    needToRemove.add(entry.getKey());
+                }
+            }
+            needToRemove.forEach(lowestCostPlans::remove);
         }
         groupExpression.setOwnerGroup(null);
         return groupExpression;
