@@ -323,6 +323,9 @@ public class ConnectProcessor {
                     finalizeCommand();
                 }
                 auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+                if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                    return;
+                }
             } catch (Throwable throwable) {
                 handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                         executor.getQueryStatisticsForAuditLog());
