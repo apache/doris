@@ -25,7 +25,7 @@ services:
       - ${DOCKER_ES_6_EXTERNAL_PORT}:9200
     environment:
       ELASTICSEARCH_CLUSTER_NAME: "elasticsearch6"
-      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+      ES_JAVA_OPTS: "-Xms128m -Xmx128m"
       discovery.type: "single-node"
       ELASTICSEARCH_XPACK_SECURITY_ENABLED: "false"
     volumes:
@@ -43,7 +43,7 @@ services:
       - ${DOCKER_ES_7_EXTERNAL_PORT}:9200
     environment:
       cluster.name: "elasticsearch7"
-      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+      ES_JAVA_OPTS: "-Xms128m -Xmx128m"
       discovery.type: "single-node"
       xpack.security.enabled: "false"
     volumes:
@@ -61,7 +61,7 @@ services:
       - ${DOCKER_ES_8_EXTERNAL_PORT}:9200
     environment:
       cluster.name: "elasticsearch8"
-      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+      ES_JAVA_OPTS: "-Xms128m -Xmx128m"
       discovery.type: "single-node"
       xpack.security.enabled: "false"
     volumes:
