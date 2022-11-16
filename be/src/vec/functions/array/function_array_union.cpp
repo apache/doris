@@ -55,6 +55,10 @@ struct UnionAction {
         }
         return false;
     }
+
+    void reset() {
+        null_flag = false;
+    }
 };
 
 using FunctionArrayUnion = FunctionArrayBinary<ArraySetImpl<SetOperation::UNION>, NameArrayUnion>;
