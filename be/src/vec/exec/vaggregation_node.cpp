@@ -804,7 +804,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
-                bool is_pre_serialized = _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                bool is_pre_serialized =
+                        _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
@@ -901,7 +902,8 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
-                bool is_pre_serialized = _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                bool is_pre_serialized =
+                        _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);

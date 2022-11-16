@@ -114,8 +114,8 @@ protected:
   */
 template <typename Value, typename Mapped>
 struct HashMethodSerialized
-        : public columns_hashing_impl::HashMethodBase<
-                  HashMethodSerialized<Value, Mapped>, Value, Mapped, false> {
+        : public columns_hashing_impl::HashMethodBase<HashMethodSerialized<Value, Mapped>, Value,
+                                                      Mapped, false> {
     using Self = HashMethodSerialized<Value, Mapped>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 
