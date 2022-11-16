@@ -390,7 +390,6 @@ _
 [NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
 
 -- !sql --
-<<<<<<< HEAD
 [1, 2, 3, NULL, 4]
 
 -- !sql --
@@ -407,7 +406,8 @@ _
 
 -- !sql --
 ['2015-03-13']
-=======
+
+-- !sql --
 true
 
 -- !sql --
@@ -442,5 +442,4 @@ true
 
 -- !sql --
 \N
->>>>>>> fix
 
