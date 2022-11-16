@@ -18,13 +18,12 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.Id;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
 
 /**
  * This structure is maintained in each operator to store the statistical information results obtained by the operator.
@@ -118,17 +117,13 @@ public class StatsDeriveResult {
         return slotIdToColumnStats;
     }
 
-    public StatsDeriveResult updateBySelectivity(double selectivity, Set<Id> exclude) {
+    public StatsDeriveResult updateBySelectivity(double selectivity) {
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(rowCount * selectivity, width, penalty);
         for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
             statsDeriveResult.addColumnStats(entry.getKey(),
                         entry.getValue().updateBySelectivity(selectivity, rowCount));
         }
         return statsDeriveResult;
-    }
-
-    public StatsDeriveResult updateBySelectivity(double selectivity) {
-        return updateBySelectivity(selectivity, Collections.emptySet());
     }
 
     public StatsDeriveResult updateRowCountByLimit(long limit) {
@@ -156,7 +151,7 @@ public class StatsDeriveResult {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("(rows=").append((long) rowCount)
+        builder.append("(rows=").append((long) Math.ceil(rowCount))
                 .append(", isReduced=").append(isReduced)
                 .append(", width=").append(width)
                 .append(", penalty=").append(penalty).append(")");
@@ -188,8 +183,12 @@ public class StatsDeriveResult {
         return this;
     }
 
-    public ColumnStatistic getColumnStatsBySlotId(Id slot) {
-        return slotIdToColumnStats.get(slot);
+    public ColumnStatistic getColumnStatsBySlotId(Id slotId) {
+        return slotIdToColumnStats.get(slotId);
+    }
+
+    public ColumnStatistic getColumnStatsBySlot(Slot slot) {
+        return slotIdToColumnStats.get(slot.getExprId());
     }
 
     public int getWidth() {

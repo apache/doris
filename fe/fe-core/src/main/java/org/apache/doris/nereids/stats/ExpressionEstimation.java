@@ -96,7 +96,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitSlotReference(SlotReference slotReference, StatsDeriveResult context) {
-        ColumnStatistic columnStat = context.getColumnStatsBySlotId(slotReference.getExprId());
+        ColumnStatistic columnStat = context.getColumnStatsBySlot(slotReference);
         Preconditions.checkState(columnStat != null);
         return columnStat.copy();
     }
