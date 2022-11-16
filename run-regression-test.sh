@@ -109,8 +109,6 @@ if [[ "${WRONG_CMD}" -eq 1 ]]; then
     exit 1
 fi
 
-
-
 # set maven
 MVN_CMD='mvn'
 if [[ -n "${CUSTOM_MVN}" ]]; then
