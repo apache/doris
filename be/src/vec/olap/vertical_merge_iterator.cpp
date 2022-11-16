@@ -396,8 +396,8 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
 
     auto seg_order = 0;
     for (auto iter : _origin_iters) {
-        auto ctx = std::make_unique<VerticalMergeIteratorContext>(
-                iter, iter->schema().num_column_ids(), seg_order, _seq_col_idx);
+        auto ctx = std::make_unique<VerticalMergeIteratorContext>(iter, _ori_return_cols, seg_order,
+                                                                  _seq_col_idx);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -528,10 +528,10 @@ Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts) {
 
 // interfaces to create vertical merge iterator
 std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
-        const std::vector<RowwiseIterator*>& inputs, KeysType keys_type, uint32_t seq_col_idx,
-        RowSourcesBuffer* row_sources) {
-    return std::make_shared<VerticalHeapMergeIterator>(std::move(inputs), keys_type, seq_col_idx,
-                                                       row_sources);
+        const std::vector<RowwiseIterator*>& inputs, size_t ori_return_cols, KeysType keys_type,
+        uint32_t seq_col_idx, RowSourcesBuffer* row_sources) {
+    return std::make_shared<VerticalHeapMergeIterator>(std::move(inputs), ori_return_cols,
+                                                       keys_type, seq_col_idx, row_sources);
 }
 
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
