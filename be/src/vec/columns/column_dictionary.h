@@ -262,14 +262,6 @@ public:
         return _dict.find_codes(values, selected);
     }
 
-    void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
-        _rowset_segment_id = rowset_segment_id;
-    }
-
-    std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
-        return _rowset_segment_id;
-    }
-
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
@@ -299,6 +291,10 @@ public:
         }
         return result;
     }
+
+    size_t dict_size() const { return _dict.size(); }
+
+    std::string dict_debug_string() const { return _dict.debug_string(); }
 
     class Dictionary {
     public:
@@ -436,6 +432,27 @@ public:
 
         size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
 
+        size_t size() const {
+            if (!_dict_data) {
+                return 0;
+            }
+            return _dict_data->size();
+        }
+
+        std::string debug_string() const {
+            std::string str = "[";
+            if (_dict_data) {
+                for (size_t i = 0; i < _dict_data->size(); i++) {
+                    if (i) {
+                        str += ',';
+                    }
+                    str += (*_dict_data)[i].to_string();
+                }
+            }
+            str += ']';
+            return str;
+        }
+
     private:
         StringValue _null_value = StringValue();
         StringValue::Comparator _comparator;
@@ -459,7 +476,6 @@ private:
     Dictionary _dict;
     Container _codes;
     FieldType _type;
-    std::pair<RowsetId, uint32_t> _rowset_segment_id;
 };
 
 template class ColumnDictionary<int32_t>;

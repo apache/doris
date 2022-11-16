@@ -252,15 +252,19 @@ public:
             auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
-                return _base_evaluate<true, true>(&nested_col, &null_bitmap, sel, size);
+                return _base_evaluate<true, true>(&nested_col, &null_bitmap, sel, size,
+                                                  column.get_rowset_segment_id());
             } else {
-                return _base_evaluate<true, false>(&nested_col, &null_bitmap, sel, size);
+                return _base_evaluate<true, false>(&nested_col, &null_bitmap, sel, size,
+                                                   column.get_rowset_segment_id());
             }
         } else {
             if (_opposite) {
-                return _base_evaluate<false, true>(&column, nullptr, sel, size);
+                return _base_evaluate<false, true>(&column, nullptr, sel, size,
+                                                   column.get_rowset_segment_id());
             } else {
-                return _base_evaluate<false, false>(&column, nullptr, sel, size);
+                return _base_evaluate<false, false>(&column, nullptr, sel, size,
+                                                    column.get_rowset_segment_id());
             }
         }
     }
@@ -278,16 +282,20 @@ public:
 
             if (_opposite) {
                 return _base_evaluate_bit<true, true, is_and>(&nested_col, &null_bitmap, sel, size,
-                                                              flags);
+                                                              flags,
+                                                              column.get_rowset_segment_id());
             } else {
                 return _base_evaluate_bit<true, false, is_and>(&nested_col, &null_bitmap, sel, size,
-                                                               flags);
+                                                               flags,
+                                                               column.get_rowset_segment_id());
             }
         } else {
             if (_opposite) {
-                return _base_evaluate_bit<false, true, is_and>(&column, nullptr, sel, size, flags);
+                return _base_evaluate_bit<false, true, is_and>(&column, nullptr, sel, size, flags,
+                                                               column.get_rowset_segment_id());
             } else {
-                return _base_evaluate_bit<false, false, is_and>(&column, nullptr, sel, size, flags);
+                return _base_evaluate_bit<false, false, is_and>(&column, nullptr, sel, size, flags,
+                                                                column.get_rowset_segment_id());
             }
         }
     }
@@ -450,7 +458,8 @@ private:
     template <bool is_nullable, bool is_opposite>
     uint16_t _base_evaluate(const vectorized::IColumn* column,
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                            uint16_t* sel, uint16_t size) const {
+                            uint16_t* sel, uint16_t size,
+                            const std::pair<RowsetId, uint32_t>& segid) const {
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
@@ -458,11 +467,16 @@ private:
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                auto& value_in_dict_flags =
-                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
+                auto& value_in_dict_flags = _segment_id_to_value_in_dict_flags[segid];
                 if (value_in_dict_flags.empty()) {
                     nested_col_ptr->find_codes(*_values, value_in_dict_flags);
                 }
+
+                CHECK(value_in_dict_flags.size() == nested_col_ptr->dict_size())
+                        << "value_in_dict_flags.size()!=nested_col_ptr->dict_size(), "
+                        << value_in_dict_flags.size() << " vs " << nested_col_ptr->dict_size()
+                        << " rowsetid=" << segid.first << " segmentid=" << segid.second
+                        << "dict_info" << nested_col_ptr->dict_debug_string();
 
                 for (uint16_t i = 0; i < size; i++) {
                     uint16_t idx = sel[i];
@@ -525,14 +539,14 @@ private:
     template <bool is_nullable, bool is_opposite, bool is_and>
     void _base_evaluate_bit(const vectorized::IColumn* column,
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
-                            const uint16_t* sel, uint16_t size, bool* flags) const {
+                            const uint16_t* sel, uint16_t size, bool* flags,
+                            const std::pair<RowsetId, uint32_t>& segid) const {
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringValue>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
-                auto& value_in_dict_flags =
-                        _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
+                auto& value_in_dict_flags = _segment_id_to_value_in_dict_flags[segid];
                 if (value_in_dict_flags.empty()) {
                     nested_col_ptr->find_codes(*_values, value_in_dict_flags);
                 }

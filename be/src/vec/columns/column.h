@@ -131,9 +131,11 @@ public:
     }
 
     // Only used on ColumnDictionary
-    virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
+    void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {
+        _rowset_segment_id = rowset_segment_id;
+    }
 
-    virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
+    std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return _rowset_segment_id; }
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;
@@ -646,6 +648,7 @@ protected:
 
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
+    std::pair<RowsetId, uint32_t> _rowset_segment_id;
 };
 
 using ColumnPtr = IColumn::Ptr;
