@@ -61,7 +61,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public S3TableValuedFunction(Map<String, String> params) throws UserException {
         Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
-            if (!PROPERTIES_SET.contains(key.toLowerCase()) || !FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase()) && !FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
                 throw new AnalysisException(key + " is invalid property");
             }
             validParams.put(key, params.get(key));
