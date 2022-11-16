@@ -175,7 +175,12 @@ public class ColumnDef {
         if (typeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) typeDef.getType();
             if (targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet()) {
-                targetType.setLength(1);
+                if (targetType.getPrimitiveType() != PrimitiveType.STRING) {
+                    targetType.setLength(1);
+                } else {
+                    // alway set text length MAX_STRING_LENGTH
+                    targetType.setLength(ScalarType.MAX_STRING_LENGTH);
+                }
             }
         }
 
