@@ -239,7 +239,7 @@ public class ExportStmt extends StatementBase {
             if (schema == null || (!schema.equalsIgnoreCase("hdfs")
                     && !schema.equalsIgnoreCase("ofs")
                     && !schema.equalsIgnoreCase("obs")
-                    && !schema.equalsIgnoreCase("oss"))) {
+                    && !schema.equalsIgnoreCase("oss")
                     && !schema.equalsIgnoreCase("s3a"))) {
                 throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'ofs://', 'obs://',"
                     + "'oss://'" + " or 's3a://' path.");
