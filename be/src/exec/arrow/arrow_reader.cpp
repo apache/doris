@@ -71,11 +71,13 @@ void ArrowReaderWrap::close() {
 
 Status ArrowReaderWrap::column_indices() {
     _include_column_ids.clear();
+    _include_cols.clear();
     for (auto& slot_desc : _file_slot_descs) {
         // Get the Column Reader for the boolean column
         auto iter = _map_column.find(slot_desc->col_name());
         if (iter != _map_column.end()) {
             _include_column_ids.emplace_back(iter->second);
+            _include_cols.push_back(slot_desc->col_name());
         } else {
             _missing_cols.push_back(slot_desc->col_name());
         }
@@ -136,6 +138,7 @@ Status ArrowReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, b
     while (!_closed && _queue.empty()) {
         if (_batch_eof) {
             _include_column_ids.clear();
+            _include_cols.clear();
             *eof = true;
             return Status::OK();
         }

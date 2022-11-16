@@ -165,8 +165,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (!opts.column_predicates.empty()) {
         _col_predicates = opts.column_predicates;
     }
-    // Read options will not change, so that just reserve here
-    _block_rowids.reserve(_opts.block_row_max);
+    // Read options will not change, so that just resize here
+    _block_rowids.resize(_opts.block_row_max);
     return Status::OK();
 }
 
@@ -1144,7 +1144,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
 
         if (UNLIKELY(_opts.record_rowids)) {
-            _sel_rowid_idx.reserve(selected_size);
+            _sel_rowid_idx.resize(selected_size);
             _selected_size = selected_size;
             for (auto i = 0; i < _selected_size; i++) {
                 _sel_rowid_idx[i] = sel_rowid_idx[i];

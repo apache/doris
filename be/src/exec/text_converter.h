@@ -56,6 +56,11 @@ public:
     bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
                           const char* data, size_t len, bool copy_string, bool need_escape);
 
+    /// Write consecutive rows of the same data.
+    bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
+                          const char* data, size_t len, bool copy_string, bool need_escape,
+                          size_t rows);
+
     // Removes escape characters from len characters of the null-terminated string src,
     // and copies the unescaped string into dest, changing *len to the unescaped length.
     // No null-terminator is added to dest.
