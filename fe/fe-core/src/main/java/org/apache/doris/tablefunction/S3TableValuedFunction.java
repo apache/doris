@@ -88,7 +88,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             //          uri: http://my_bucket.cos.ap-beijing.myqcloud.com/file.txt
             // s3uri.getVirtualBucket() = my_bucket.cos.ap-beijing.myqcloud.com,
             // so we need separate virtualBucket and endpoint.
-            String[] fileds = s3uri.getVirtualBucket().split(".", 2);
+            String[] fileds = s3uri.getVirtualBucket().split("\\.", 2);
             virtualBucket = fileds[0];
             if (fileds.length > 1) {
                 endPoint = fileds[1];
