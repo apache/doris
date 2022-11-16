@@ -39,16 +39,6 @@ BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
 DATETIME, CHAR, VARCHAR, STRING
 ```
 
-### notice
-
-使用前可以通过如下命令打开Array开关:
-
-```
-$ mysql-client > admin set frontend config("enable_array_type"="true");
-```
-
-这种方式下Array开关会在Fe进程重启后重置，或者在fe.conf中添加`enable_array_type=true`配置项可永久生效。
-
 ### example
 
 建表示例如下：
@@ -72,9 +62,8 @@ PROPERTIES (
 
 ```
 mysql> INSERT INTO `array_test` VALUES (1, [1,2,3,4,5]);
-mysql> INSERT INTO `array_test` VALUES (2, array(6,7,8)), (3, array()), (4, null);
+mysql> INSERT INTO `array_test` VALUES (2, [6,7,8]), (3, []), (4, null);
 ```
-注意：以上sql仅在非向量化场景下，支持 array() 函数，向量化场景不支持。
 
 查询数据示例：
 

@@ -396,6 +396,7 @@
                                 "sql-manual/sql-functions/string-functions/money_format",
                                 "sql-manual/sql-functions/string-functions/parse_url",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
+                                "sql-manual/sql-functions/string-functions/uuid",
                                 "sql-manual/sql-functions/string-functions/mask/mask",
                                 "sql-manual/sql-functions/string-functions/mask/mask_first_n",
                                 "sql-manual/sql-functions/string-functions/mask/mask_last_n",
@@ -429,10 +430,13 @@
                                 "sql-manual/sql-functions/aggregate-functions/min",
                                 "sql-manual/sql-functions/aggregate-functions/stddev_samp",
                                 "sql-manual/sql-functions/aggregate-functions/avg",
+                                "sql-manual/sql-functions/aggregate-functions/avg_weighted",
                                 "sql-manual/sql-functions/aggregate-functions/percentile",
+                                "sql-manual/sql-functions/aggregate-functions/percentile_array",
                                 "sql-manual/sql-functions/aggregate-functions/hll_union_agg",
                                 "sql-manual/sql-functions/aggregate-functions/topn",
                                 "sql-manual/sql-functions/aggregate-functions/topn_array",
+                                "sql-manual/sql-functions/aggregate-functions/topn_weighted",
                                 "sql-manual/sql-functions/aggregate-functions/count",
                                 "sql-manual/sql-functions/aggregate-functions/sum",
                                 "sql-manual/sql-functions/aggregate-functions/max_by",
@@ -448,7 +452,9 @@
                                 "sql-manual/sql-functions/aggregate-functions/var_samp",
                                 "sql-manual/sql-functions/aggregate-functions/approx_count_distinct",
                                 "sql-manual/sql-functions/aggregate-functions/variance",
-                                "sql-manual/sql-functions/aggregate-functions/retention"
+                                "sql-manual/sql-functions/aggregate-functions/retention",
+                                "sql-manual/sql-functions/aggregate-functions/sequence_match",
+                                "sql-manual/sql-functions/aggregate-functions/sequence_count"
                             ]
                         },
                         {
@@ -460,6 +466,7 @@
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_from_string",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_to_string",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_to_array",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_from_array",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_empty",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_or",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_and",
@@ -867,7 +874,8 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-STATUS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLE-ID",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-SMALL-FILES",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-POLICY"
+                                "sql-manual/sql-reference/Show-Statements/SHOW-POLICY",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CATALOG-RECYCLE-BIN"
                             ]
                         },
                         {

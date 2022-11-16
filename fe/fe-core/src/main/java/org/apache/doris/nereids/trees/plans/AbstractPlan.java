@@ -125,6 +125,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
+    public Set<Slot> getOutputSet() {
+        return getLogicalProperties().getOutputSet();
+    }
+
+    @Override
     public Set<ExprId> getOutputExprIdSet() {
         return getLogicalProperties().getOutputExprIdSet();
     }

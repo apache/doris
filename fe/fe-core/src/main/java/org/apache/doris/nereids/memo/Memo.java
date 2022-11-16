@@ -72,7 +72,6 @@ public class Memo {
 
     /**
      * Add plan to Memo.
-     * TODO: add ut later
      *
      * @param plan {@link Plan} or {@link Expression} to be added
      * @param target target group to add node. null to generate new Group
@@ -375,14 +374,21 @@ public class Memo {
         if (source.equals(destination)) {
             return source;
         }
-        if (source.getParentGroupExpressions().stream()
-                .anyMatch(e -> e.getOwnerGroup().equals(destination))) {
-            return null;
+        List<GroupExpression> needReplaceChild = Lists.newArrayList();
+        for (GroupExpression groupExpression : groupExpressions.values()) {
+            if (groupExpression.children().contains(source)) {
+                if (groupExpression.getOwnerGroup().equals(destination)) {
+                    // cycle, we should not merge
+                    return null;
+                }
+                needReplaceChild.add(groupExpression);
+            }
         }
-        for (GroupExpression groupExpression : source.getParentGroupExpressions()) {
+        for (GroupExpression groupExpression : needReplaceChild) {
+            // After change GroupExpression children, the hashcode will change,
+            // so need to reinsert into map.
             groupExpressions.remove(groupExpression);
             List<Group> children = groupExpression.children();
-            // TODO: use a better way to replace child, avoid traversing all groupExpression
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).equals(source)) {
                     children.set(i, destination);
@@ -474,6 +480,7 @@ public class Memo {
             // case 5:
             // if targetGroup is null or targetGroup equal to the existedExpression's ownerGroup,
             // then recycle the temporary new group expression
+            // No ownerGroup, don't need ownerGroup.removeChild()
             recycleExpression(newExpression);
             return CopyInResult.of(false, existedExpression);
         }
@@ -506,8 +513,7 @@ public class Memo {
         List<GroupExpression> logicalExpressions = fromGroup.clearLogicalExpressions();
         recycleGroup(fromGroup);
 
-        recycleLogicalExpressions(targetGroup);
-        recyclePhysicalExpressions(targetGroup);
+        recycleLogicalAndPhysicalExpressions(targetGroup);
 
         for (GroupExpression logicalExpression : logicalExpressions) {
             targetGroup.addLogicalExpression(logicalExpression);
@@ -516,8 +522,7 @@ public class Memo {
     }
 
     private void reInitGroup(Group group, GroupExpression initLogicalExpression, LogicalProperties logicalProperties) {
-        recycleLogicalExpressions(group);
-        recyclePhysicalExpressions(group);
+        recycleLogicalAndPhysicalExpressions(group);
 
         group.setLogicalProperties(logicalProperties);
         group.addLogicalExpression(initLogicalExpression);
@@ -556,42 +561,45 @@ public class Memo {
         }
     }
 
+    /**
+     * Notice: this func don't replace { Parent GroupExpressions -> this Group }.
+     */
     private void recycleGroup(Group group) {
+        // recycle in memo.
         if (groups.get(group.getGroupId()) == group) {
             groups.remove(group.getGroupId());
         }
-        recycleLogicalExpressions(group);
-        recyclePhysicalExpressions(group);
+
+        // recycle children GroupExpression
+        recycleLogicalAndPhysicalExpressions(group);
     }
 
-    private void recycleLogicalExpressions(Group group) {
-        if (!group.getLogicalExpressions().isEmpty()) {
-            for (GroupExpression logicalExpression : group.getLogicalExpressions()) {
-                recycleExpression(logicalExpression);
-            }
-            group.clearLogicalExpressions();
-        }
+    private void recycleLogicalAndPhysicalExpressions(Group group) {
+        group.getLogicalExpressions().forEach(this::recycleExpression);
+        group.clearLogicalExpressions();
+
+        group.getPhysicalExpressions().forEach(this::recycleExpression);
+        group.clearPhysicalExpressions();
     }
 
-    private void recyclePhysicalExpressions(Group group) {
-        if (!group.getPhysicalExpressions().isEmpty()) {
-            for (GroupExpression physicalExpression : group.getPhysicalExpressions()) {
-                recycleExpression(physicalExpression);
-            }
-            group.clearPhysicalExpressions();
-        }
-    }
-
+    /**
+     * Notice: this func don't clear { OwnerGroup() -> this GroupExpression }.
+     */
     private void recycleExpression(GroupExpression groupExpression) {
+        // recycle in memo.
         if (groupExpressions.get(groupExpression) == groupExpression) {
             groupExpressions.remove(groupExpression);
         }
-        for (Group childGroup : groupExpression.children()) {
+
+        // recycle parentGroupExpr in childGroup
+        groupExpression.children().forEach(childGroup -> {
             // if not any groupExpression reference child group, then recycle the child group
             if (childGroup.removeParentExpression(groupExpression) == 0) {
                 recycleGroup(childGroup);
             }
-        }
+        });
+
+        groupExpression.setOwnerGroup(null);
     }
 
     @Override

@@ -250,9 +250,7 @@ int64_t BufferedBlockMgr2::available_buffers(Client* client) const {
 int64_t BufferedBlockMgr2::remaining_unreserved_buffers() const {
     int64_t num_buffers =
             _free_io_buffers.size() + _unpinned_blocks.size() + _non_local_outstanding_writes;
-    num_buffers +=
-            thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->spare_capacity() /
-            max_block_size();
+    num_buffers += thread_context()->thread_mem_tracker()->spare_capacity() / max_block_size();
     num_buffers -= _unfullfilled_reserved_buffers;
     return num_buffers;
 }
@@ -358,9 +356,7 @@ Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Bloc
 
         if (len > 0 && len < _max_block_size) {
             DCHECK(unpin_block == nullptr);
-            Status st =
-                    thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
-                            len);
+            Status st = thread_context()->thread_mem_tracker()->check_limit(len);
             WARN_IF_ERROR(st, "get_new_block failed");
             if (st) {
                 client->_tracker->consume(len);
@@ -457,7 +453,7 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
         lock_guard<SpinLock> lock(_s_block_mgrs_lock);
         BlockMgrsMap::iterator it = _s_query_to_block_mgrs.find(_query_id);
         // IMPALA-2286: Another fragment may have called create() for this _query_id and
-        // saw that this BufferedBlockMgr2 is being destructed.  That fragement will
+        // saw that this BufferedBlockMgr2 is being destructed.  That fragment will
         // overwrite the map entry for _query_id, pointing it to a different
         // BufferedBlockMgr2 object.  We should let that object's destructor remove the
         // entry.  On the other hand, if the second BufferedBlockMgr2 is destructed before
@@ -986,8 +982,7 @@ Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor
 
     // First, try to allocate a new buffer.
     if (_free_io_buffers.size() < _block_write_threshold &&
-        thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
-                _max_block_size)) {
+        thread_context()->thread_mem_tracker()->check_limit(_max_block_size)) {
         _mem_tracker->consume(_max_block_size);
         uint8_t* new_buffer = new uint8_t[_max_block_size];
         *buffer_desc = _obj_pool.add(new BufferDescriptor(new_buffer, _max_block_size));
@@ -1155,11 +1150,9 @@ string BufferedBlockMgr2::debug_internal() const {
        << "  Unfullfilled reserved buffers: " << _unfullfilled_reserved_buffers << endl
        << "  BUffer Block Mgr Used memory: " << _mem_tracker->consumption()
        << "  Instance remaining memory: "
-       << thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->spare_capacity()
-       << " (#blocks="
-       << (thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker()->spare_capacity() /
-           _max_block_size)
-       << ")" << endl
+       << thread_context()->thread_mem_tracker()->spare_capacity() << " (#blocks="
+       << (thread_context()->thread_mem_tracker()->spare_capacity() / _max_block_size) << ")"
+       << endl
        << "  Block write threshold: " << _block_write_threshold;
     return ss.str();
 }

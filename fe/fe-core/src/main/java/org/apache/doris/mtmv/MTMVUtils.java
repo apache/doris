@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.concurrent.TimeUnit;
 
 public class MTMVUtils {
 
@@ -110,5 +111,25 @@ public class MTMVUtils {
         taskExecutor.setProcessor(new MTMVTaskProcessor());
 
         return taskExecutor;
+    }
+
+    public static TimeUnit getTimeUint(String strTimeUnit) {
+        switch (strTimeUnit.toUpperCase()) {
+            case "SECOND": return TimeUnit.SECONDS;
+            case "HOUR": return TimeUnit.HOURS;
+            case "DAY": return TimeUnit.DAYS;
+            default:
+                return TimeUnit.DAYS;
+        }
+    }
+
+    // In MTMV package, all the timestamp unit is second.
+    public static long getNowTimeStamp() {
+        return System.currentTimeMillis() / 1000;
+    }
+
+    public static String getTimeString(long timestamp) {
+        LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochSecond(timestamp), ZoneId.systemDefault());
+        return time.toString();
     }
 }

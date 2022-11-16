@@ -19,6 +19,7 @@
 
 #include "common/config.h"
 #include "io/fs/local_file_system.h"
+#include "olap/iterators.h"
 
 namespace doris {
 namespace io {
@@ -46,8 +47,10 @@ Status FileCache::download_cache_to_local(const Path& cache_file, const Path& ca
             }
             Slice file_slice(file_buf, need_req_size);
             size_t bytes_read = 0;
+            IOContext io_ctx;
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    remote_file_reader->read_at(offset + count_bytes_read, file_slice, &bytes_read),
+                    remote_file_reader->read_at(offset + count_bytes_read, file_slice, io_ctx,
+                                                &bytes_read),
                     fmt::format("read remote file failed. {}. offset: {}, request size: {}",
                                 remote_file_reader->path().native(), offset + count_bytes_read,
                                 need_req_size));

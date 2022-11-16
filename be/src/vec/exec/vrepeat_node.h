@@ -48,6 +48,8 @@ private:
     using RepeatNode::get_next;
     Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);
 
+    void _release_mem();
+
     std::unique_ptr<Block> _child_block {};
     std::unique_ptr<Block> _intermediate_block {};
 

@@ -332,7 +332,7 @@ public class CreateTableStmt extends DdlStmt {
                         }
                         keysColumnNames.add(columnDef.getName());
                     }
-                    // The OLAP table must has at least one short key and the float and double should not be short key.
+                    // The OLAP table must have at least one short key and the float and double should not be short key.
                     // So the float and double could not be the first column in OLAP table.
                     if (keysColumnNames.isEmpty()) {
                         throw new AnalysisException("The olap table first column could not be float, double, string"
@@ -488,8 +488,9 @@ public class CreateTableStmt extends DdlStmt {
                                 + indexColName);
                     }
                 }
-                indexes.add(new Index(indexDef.getIndexName(), indexDef.getColumns(), indexDef.getIndexType(),
-                        indexDef.getComment()));
+                indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
+                        indexDef.getColumns(), indexDef.getIndexType(),
+                        indexDef.getProperties(), indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
                 distinctCol.add(indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList()));
             }

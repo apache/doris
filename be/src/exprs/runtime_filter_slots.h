@@ -229,6 +229,24 @@ public:
         }
     }
 
+    Status apply_from_other(RuntimeFilterSlotsBase<ExprCtxType>* other) {
+        for (auto& it : _runtime_filters) {
+            auto& other_filters = other->_runtime_filters[it.first];
+            for (auto& filter : it.second) {
+                auto filter_id = filter->filter_id();
+                auto ret = std::find_if(other_filters.begin(), other_filters.end(),
+                                        [&](IRuntimeFilter* other_filter) {
+                                            return other_filter->filter_id() == filter_id;
+                                        });
+                if (ret == other_filters.end()) {
+                    return Status::Aborted("invalid runtime filter id: {}", filter_id);
+                }
+                filter->apply_from_other(*ret);
+            }
+        }
+        return Status::OK();
+    }
+
     bool empty() { return !_runtime_filters.size(); }
 
 private:

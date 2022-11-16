@@ -206,6 +206,7 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
 
 Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
     if (seg_id == _num_segcompacted) {
+        ++_num_segcompacted;
         return Status::OK();
     }
 
@@ -389,8 +390,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         auto cache_path =
                 BetaRowset::segment_cache_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _context.tablet_schema,
-                                           &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(),
+                                           _context.tablet_schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);

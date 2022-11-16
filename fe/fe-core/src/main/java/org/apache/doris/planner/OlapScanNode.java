@@ -56,6 +56,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
@@ -537,7 +538,7 @@ public class OlapScanNode extends ScanNode {
         // update statsDeriveResult for real statistics
         // After statistics collection is complete, remove the logic
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            statsDeriveResult.setRowCount(cardinality);
+            statsDeriveResult = new StatsDeriveResult(cardinality, statsDeriveResult.getSlotIdToColumnStats());
         }
     }
 
@@ -684,7 +685,6 @@ public class OlapScanNode extends ScanNode {
 
                 // for CBO
                 if (!collectedStat && replica.getRowCount() != -1) {
-                    cardinality += replica.getRowCount();
                     totalBytes += replica.getDataSize();
                     collectedStat = true;
                 }
@@ -945,6 +945,13 @@ public class OlapScanNode extends ScanNode {
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append("\n").append(prefix).append(String.format("cardinality=%s", cardinality));
+            if (!runtimeFilters.isEmpty()) {
+                output.append("\n").append(prefix).append("Apply RFs: ");
+                output.append(getRuntimeFilterExplainString(false, true));
+            }
+            if (!conjuncts.isEmpty()) {
+                output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
+            }
             return output.toString();
         }
         if (isPreAggregation) {

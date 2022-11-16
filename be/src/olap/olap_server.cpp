@@ -125,7 +125,7 @@ Status StorageEngine::start_bg_threads() {
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
                     [this, data_dir]() {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
                         this->_path_scan_thread_callback(data_dir);
                     },
                     &path_scan_thread));
@@ -135,7 +135,7 @@ Status StorageEngine::start_bg_threads() {
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
                     [this, data_dir]() {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
                         this->_path_gc_thread_callback(data_dir);
                     },
                     &path_gc_thread));
@@ -495,7 +495,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
     std::shuffle(data_dirs.begin(), data_dirs.end(), g);
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
-    // when travesing the data dir
+    // when traversing the data dir
     std::map<DataDir*, std::unordered_set<TTabletId>> copied_cumu_map;
     std::map<DataDir*, std::unordered_set<TTabletId>> copied_base_map;
     {

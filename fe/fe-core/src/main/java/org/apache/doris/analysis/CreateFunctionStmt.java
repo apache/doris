@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -96,6 +97,8 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String MERGE_METHOD_NAME = "merge";
     public static final String GETVALUE_METHOD_NAME = "getValue";
     public static final String STATE_CLASS_NAME = "State";
+    // add for java udf check return type nullable mode, always_nullable or always_not_nullable
+    public static final String IS_RETURN_NULL = "always_nullable";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
 
     private final FunctionName functionName;
@@ -113,12 +116,16 @@ public class CreateFunctionStmt extends DdlStmt {
     private String userFile;
     private Function function;
     private String checksum = "";
+    // now set udf default NullableMode is ALWAYS_NULLABLE
+    // if not, will core dump when input is not null column, but need return null
+    // like https://github.com/apache/doris/pull/14002/files
+    private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
 
     public CreateFunctionStmt(boolean isAggregate, FunctionName functionName, FunctionArgsDef argsDef,
-                              TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+            TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
         this.functionName = functionName;
         this.isAggregate = isAggregate;
         this.argsDef = argsDef;
@@ -135,7 +142,7 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     public CreateFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef,
-                              List<String> parameters, Expr originFunction) {
+            List<String> parameters, Expr originFunction) {
         this.functionName = functionName;
         this.isAlias = true;
         this.argsDef = argsDef;
@@ -221,6 +228,19 @@ public class CreateFunctionStmt extends DdlStmt {
                 throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
             }
         }
+        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+            String returnNullModeStr = properties.get(IS_RETURN_NULL);
+            if (returnNullModeStr == null) {
+                return;
+            }
+            if (!returnNullModeStr.equalsIgnoreCase("false") && !returnNullModeStr.equalsIgnoreCase("true")) {
+                throw new AnalysisException("'always_nullable' in properties, you should set it false or true");
+            }
+
+            if (!Boolean.parseBoolean(returnNullModeStr)) {
+                returnNullMode = NullableMode.ALWAYS_NOT_NULLABLE;
+            }
+        }
     }
 
     private void computeObjectChecksum() throws IOException, NoSuchAlgorithmException {
@@ -302,6 +322,7 @@ public class CreateFunctionStmt extends DdlStmt {
         function.setLocation(location);
         function.setBinaryType(binaryType);
         function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -327,6 +348,7 @@ public class CreateFunctionStmt extends DdlStmt {
                 returnType.getType(), argsDef.isVariadic(),
                 location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
     }
 
     private void analyzeJavaUdaf(String clazz) throws AnalysisException {

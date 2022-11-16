@@ -121,6 +121,7 @@ protected:
     int _current_group;                     // current group(stripe)
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::vector<int> _include_column_ids;   // columns that need to get from file
+    std::vector<std::string> _include_cols; // columns that need to get from file
     std::shared_ptr<Statistics> _statistics;
 
     std::atomic<bool> _closed = false;

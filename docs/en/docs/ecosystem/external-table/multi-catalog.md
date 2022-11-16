@@ -24,6 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+<version since="1.2.0">
+
 # Multi-Catalog
 
 Multi-Catalog is a feature introduced in Doris 1.2.0, which aims to make it easier to interface with external data sources to enhance Doris' data lake analysis and federated data query capabilities.
@@ -292,7 +294,7 @@ mysql> select * from test;
 +------------+-------------+--------+-------+
 ```
 
-## Parameters that：
+#### Parameters:
 
 Parameter | Description
 ---|---
@@ -300,10 +302,72 @@ Parameter | Description
 **elasticsearch.username** | username for ES
 **elasticsearch.password** | password for the user
 **elasticsearch.doc_value_scan** | whether to enable ES/Lucene column storage to get the value of the query field, the default is false
-**elasticsearch.keyword_sniff** | Whether to detect the string type text.fields in ES to obtain additional not analyzed keyword field name multi-fields mechanism
-**elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected.
+**elasticsearch.keyword_sniff** | Whether to probe the string segmentation type text.fields in ES, query by keyword (the default is true, false matches the content after the segmentation)
+**elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected
 **elasticsearch.ssl** | Whether ES cluster enables https access mode, the current FE/BE implementation is to trust all
 
+### Connect Aliyun Data Lake Formation
+
+> [What is Data Lake Formation](https://www.alibabacloud.com/product/datalake-formation)
+
+1. Create hive-site.xml
+
+	Create hive-site.xml and put it in `fe/conf` and `be/conf`.
+	
+	```
+	<?xml version="1.0"?>
+	<configuration>
+	    <!--Set to use dlf client-->
+	    <property>
+	        <name>hive.metastore.type</name>
+	        <value>dlf</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.endpoint</name>
+	        <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.region</name>
+	        <value>cn-beijing</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.proxyMode</name>
+	        <value>DLF_ONLY</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.uid</name>
+	        <value>20000000000000000</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.accessKeyId</name>
+	        <value>XXXXXXXXXXXXXXX</value>
+	    </property>
+	    <property>
+	        <name>dlf.catalog.accessKeySecret</name>
+	        <value>XXXXXXXXXXXXXXXXX</value>
+	    </property>
+	</configuration>
+	```
+
+	* `dlf.catalog.endpoint`: DLF Endpoint. See: [Regions and endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints)
+	* `dlf.catalog.region`: DLF Regio. See: [Regions and endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints)
+	* `dlf.catalog.uid`: Ali Cloud Account ID. That is, the "cloud account ID" of the personal information in the upper right corner of the Alibaba Cloud console.	* `dlf.catalog.accessKeyId`: AccessKey. See: [Ali Could Console](https://ram.console.aliyun.com/manage/ak).
+	* `dlf.catalog.accessKeySecret`: SecretKey. See: [Ali Could Console](https://ram.console.aliyun.com/manage/ak).
+
+	Other configuration items are fixed values and do not need to be changed.
+
+2. Restart FE and create a catalog with the `CREATE CATALOG` statement.
+
+	```
+	CREATE CATALOG dlf PROPERTIES (
+	    "type"="hms",
+	    "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+	);
+	```
+	
+	where `type` is fixed to `hms`. The value of `hive.metastore.uris` can be filled in at will, but it will not be used in practice. But it needs to be filled in the standard hive metastore thrift uri format.
+
+After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
 
 ## Column Type Mapping
 
@@ -366,3 +430,5 @@ Metadata changes of external data sources, such as creating, dropping tables, ad
 Currently, users need to manually refresh metadata via the [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG.md) command.
 
 Automatic synchronization of metadata will be supported soon.
+
+</version>

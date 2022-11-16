@@ -52,7 +52,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         pool.executeTask(executor);
         executor.getFuture().get();
         Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
-        Assertions.assertEquals("java.lang.Exception: my define error 1", executor.getTask().getErrorMessage());
+        Assertions.assertEquals("java.lang.Exception: my define error 1", executor.getTask().getMessage());
     }
 
     @Test
@@ -83,7 +83,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         pool.executeTask(executor);
         executor.getFuture().get();
         Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
-        Assertions.assertEquals("java.lang.Exception: my define error 4", executor.getTask().getErrorMessage());
+        Assertions.assertEquals("java.lang.Exception: my define error 4", executor.getTask().getMessage());
     }
 
     public static class MTMVTaskProcessorTest extends MTMVTaskProcessor {

@@ -395,7 +395,7 @@ void CsvReader::_split_line(const Slice& line) {
         //     curpos
 
         while (curpos < line.size) {
-            if (*(value + curpos + p1) != _value_separator[p1]) {
+            if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
                 // Not match, move forward:
                 curpos += (p1 == 0 ? 1 : p1);
                 p1 = 0;

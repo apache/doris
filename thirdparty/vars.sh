@@ -429,6 +429,12 @@ XXHASH_NAME=xxHash-0.8.1.tar.gz
 XXHASH_SOURCE=xxHash-0.8.1
 XXHASH_MD5SUM="b67c587f5ff4894253da0095ba7ea393"
 
+# concurrentqueue
+CONCURRENTQUEUE_DOWNLOAD="https://github.com/cameron314/concurrentqueue/archive/refs/tags/v1.0.3.tar.gz"
+CONCURRENTQUEUE_NAME=concurrentqueue-1.0.3.tar.gz
+CONCURRENTQUEUE_SOURCE=concurrentqueue-1.0.3
+CONCURRENTQUEUE_MD5SUM="118e5bb661b567634647312991e10222"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -491,6 +497,7 @@ export TP_ARCHIVES=(
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
+    'CONCURRENTQUEUE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -114,7 +114,7 @@ public class InternalQueryResult {
             }
         }
 
-        public Object getColumnValue(String columnName) throws DdlException {
+        public String getColumnValue(String columnName) throws DdlException {
             int index = getColumnIndex(columnName);
             if (index == -1) {
                 throw new DdlException("The column name does not exist.");

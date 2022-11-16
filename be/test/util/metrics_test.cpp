@@ -448,7 +448,7 @@ test_registry_task_duration_standard_deviation 28.8661
     }
 
     {
-        // Register one histogram metric with lables to the entity
+        // Register one histogram metric with labels to the entity
         auto entity = registry.register_entity("test_entity", {{"instance", "test"}});
 
         MetricPrototype task_duration_type(MetricType::HISTOGRAM, MetricUnit::MILLISECONDS,

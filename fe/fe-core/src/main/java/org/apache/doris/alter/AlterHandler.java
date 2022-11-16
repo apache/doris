@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -251,6 +252,25 @@ public abstract class AlterHandler extends MasterDaemon {
             alterJobsV2.put(alterJob.getJobId(), alterJob);
         } else {
             existingJob.replay(alterJob);
+        }
+    }
+
+    /**
+     * there will be OOM if there are too many replicas of the table when schema change.
+     */
+    protected void checkReplicaCount(OlapTable olapTable) throws DdlException {
+        olapTable.readLock();
+        try {
+            long replicaCount = olapTable.getReplicaCount();
+            long maxReplicaCount = Config.max_replica_count_when_schema_change;
+            if (replicaCount > maxReplicaCount) {
+                String msg = String.format("%s have %d replicas reach %d limit when schema change.",
+                        olapTable.getName(), replicaCount, maxReplicaCount);
+                LOG.warn(msg);
+                throw new DdlException(msg);
+            }
+        } finally {
+            olapTable.readUnlock();
         }
     }
 }

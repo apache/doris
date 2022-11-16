@@ -92,7 +92,7 @@ public abstract class Job {
     protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup) {
         context.onInvokeRule(rule.getRuleType());
 
-        String traceBefore = enableTrace ? getTraceLog(rule) : null;
+        String traceBefore = enableTrace ? getPlanTraceLog() : null;
 
         List<Plan> afters = rule.transform(before, context.getCascadesContext());
         Preconditions.checkArgument(afters.size() == 1);
@@ -104,7 +104,7 @@ public abstract class Job {
                     .copyIn(after, targetGroup, true);
 
             if (result.generateNewExpression && enableTrace) {
-                String traceAfter = getTraceLog(rule);
+                String traceAfter = getPlanTraceLog();
                 printTraceLog(rule, traceBefore, traceAfter);
             }
 
@@ -114,18 +114,18 @@ public abstract class Job {
         return Optional.empty();
     }
 
-    protected String getTraceLog(Rule rule) {
-        if (rule.isRewrite()) {
-            return context.getCascadesContext()
-                    .getMemo()
-                    .copyOut(false)
-                    .treeString();
-        } else {
-            return context.getCascadesContext()
-                    .getMemo()
-                    .getRoot()
-                    .treeString();
-        }
+    protected String getPlanTraceLog() {
+        return context.getCascadesContext()
+                .getMemo()
+                .copyOut(false)
+                .treeString();
+    }
+
+    protected String getMemoTraceLog() {
+        return context.getCascadesContext()
+                .getMemo()
+                .getRoot()
+                .treeString();
     }
 
     protected void printTraceLog(Rule rule, String traceBefore, String traceAfter) {

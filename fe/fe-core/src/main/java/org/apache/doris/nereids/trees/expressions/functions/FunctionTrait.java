@@ -21,5 +21,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
  * FunctionTrait.
  */
 public interface FunctionTrait extends ExpressionTrait {
+    String getName();
+
     boolean hasVarArguments();
 }
