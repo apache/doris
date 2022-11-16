@@ -122,14 +122,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * @param context context to help translate
      * @return Stale Planner PlanFragment tree
      */
-    public PlanFragment translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
+    public PlanFragment translatePlan(PhysicalPlan physicalPlan,
+            PlanTranslatorContext context, List<Slot> resultSlots) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
         if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
-        List<Expr> outputExprs = Lists.newArrayList();
-        physicalPlan.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        List<Expr> outputExprs = resultSlots.stream()
+                .map(Slot::getExprId)
+                .map(context::findSlotRef)
+                .collect(Collectors.toList());
         rootFragment.setOutputExprs(outputExprs);
         rootFragment.getPlanRoot().convertToVectoriezd();
         for (PlanFragment fragment : context.getPlanFragments()) {
@@ -455,16 +457,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         });
         List<Expr> sortTupleOutputList = new ArrayList<>();
         List<Slot> outputList = sort.getOutput();
-        outputList.forEach(k -> {
-            sortTupleOutputList.add(ExpressionTranslator.translate(k, context));
-        });
+        outputList.forEach(k -> sortTupleOutputList.add(ExpressionTranslator.translate(k, context)));
         // 2. Generate new Tuple
         TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, context, null);
         // 3. Get current slotRef
         List<Expr> newOrderingExprList = Lists.newArrayList();
-        orderKeyList.forEach(k -> {
-            newOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
-        });
+        orderKeyList.forEach(k -> newOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context)));
         // 4. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
         PlanNode childNode = childFragment.getPlanRoot();
@@ -478,6 +476,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     /**
+     * <pre>
      * the contract of hash join node with BE
      * 1. hash join contains 3 types of predicates:
      *   a. equal join conjuncts
@@ -518,9 +517,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      *      In general, intermediate tuple contains all slots of both children, except one case.
      *      For left-semi/left-ant (right-semi/right-semi) join without other join conjuncts, intermediate tuple
      *      only contains left (right) children output slots.
-     *
+     * </pre>
      */
-    // TODO: 1. support shuffle join / co-locate / bucket shuffle join later
     @Override
     public PlanFragment visitPhysicalHashJoin(
             PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
@@ -562,8 +560,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (JoinUtils.shouldBroadcastJoin(physicalHashJoin)) {
             currentFragment = constructBroadcastJoin(hashJoinNode, leftFragment, rightFragment, context);
         } else {
-            currentFragment = constructShuffleJoin(
-                    physicalHashJoin, hashJoinNode, leftFragment, rightFragment, context);
+            currentFragment = constructShuffleJoin(hashJoinNode, leftFragment, rightFragment, context);
         }
         // Nereids does not care about output order of join,
         // but BE need left child's output must be before right child's output.
@@ -1088,8 +1085,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setChild(0, leftFragment.getPlanRoot());
         hashJoinNode.setChild(1, rightFragment.getPlanRoot());
         leftFragment.setPlanRoot(hashJoinNode);
-        rightFragment.getTargetRuntimeFilterIds().stream().forEach(leftFragment::setTargetRuntimeFilterIds);
-        rightFragment.getBuilderRuntimeFilterIds().stream().forEach(leftFragment::setBuilderRuntimeFilterIds);
+        rightFragment.getTargetRuntimeFilterIds().forEach(leftFragment::setTargetRuntimeFilterIds);
+        rightFragment.getBuilderRuntimeFilterIds().forEach(leftFragment::setBuilderRuntimeFilterIds);
         context.removePlanFragment(rightFragment);
         leftFragment.setHasColocatePlanNode(true);
         return leftFragment;
@@ -1133,8 +1130,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return leftFragment;
     }
 
-    private PlanFragment constructShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> physicalHashJoin,
-            HashJoinNode hashJoinNode, PlanFragment leftFragment,
+    private PlanFragment constructShuffleJoin(HashJoinNode hashJoinNode, PlanFragment leftFragment,
             PlanFragment rightFragment, PlanTranslatorContext context) {
         hashJoinNode.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
         // TODO should according nereids distribute indicate

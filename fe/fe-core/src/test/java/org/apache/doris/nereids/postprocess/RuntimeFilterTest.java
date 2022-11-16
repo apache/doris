@@ -219,7 +219,8 @@ public class RuntimeFilterTest extends SSBTestBase {
         PhysicalPlan plan = checker.getPhysicalPlan();
         new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         System.out.println(plan.treeString());
-        new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(checker.getCascadesContext()));
+        new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(checker.getCascadesContext()),
+                plan.getOutput());
         RuntimeFilterContext context = checker.getCascadesContext().getRuntimeFilterContext();
         List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
         Assertions.assertEquals(filters.size(), context.getLegacyFilters().size() + context.getTargetNullCount());

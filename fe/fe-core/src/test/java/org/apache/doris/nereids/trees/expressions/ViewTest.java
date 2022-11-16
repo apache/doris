@@ -105,7 +105,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
                     PhysicalProperties.ANY
             );
             // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(planner.getCascadesContext()));
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(planner.getCascadesContext()), plan.getOutput());
         }
     }
 

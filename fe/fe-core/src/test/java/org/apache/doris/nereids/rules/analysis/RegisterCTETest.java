@@ -134,7 +134,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                     PhysicalProperties.ANY
             );
             // Just to check whether translate will throw exception
-            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext());
+            new PhysicalPlanTranslator().translatePlan(plan, new PlanTranslatorContext(), plan.getOutput());
         }
     }
 

@@ -35,6 +35,7 @@ import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -61,8 +62,9 @@ public class NereidsPlanner extends Planner {
 
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
-    private List<ScanNode> scanNodeList = null;
+    private List<ScanNode> scanNodes = null;
     private DescriptorTable descTable;
+    private List<Slot> resultSlots;
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -86,17 +88,17 @@ public class NereidsPlanner extends Planner {
             System.out.println(memo);
             LOG.info(memo);
         }
-        PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
+        PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext, resultSlots);
 
-        scanNodeList = planTranslatorContext.getScanNodes();
+        scanNodes = planTranslatorContext.getScanNodes();
         descTable = planTranslatorContext.getDescTable();
-        fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
+        fragments = Lists.newArrayList(planTranslatorContext.getPlanFragments());
 
         // set output exprs
         logicalPlanAdapter.setResultExprs(root.getOutputExprs());
-        ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
+        ArrayList<String> columnLabels = resultSlots.stream().map(NamedExpression::getName)
                 .collect(Collectors.toCollection(ArrayList::new));
-        logicalPlanAdapter.setColLabels(columnLabelList);
+        logicalPlanAdapter.setColLabels(columnLabels);
     }
 
     @VisibleForTesting
@@ -139,7 +141,7 @@ public class NereidsPlanner extends Planner {
         // cost-based optimize and explore plan space
         optimize();
 
-        PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
+        PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), outputProperties);
 
         // post-process physical plan out of memo, just for future use.
         return postProcess(physicalPlan);
@@ -155,6 +157,7 @@ public class NereidsPlanner extends Planner {
 
     private void analyze() {
         cascadesContext.newAnalyzer().analyze();
+        resultSlots = cascadesContext.getMemo().getRoot().getLogicalExpression().getPlan().getOutput();
     }
 
     /**
@@ -193,7 +196,7 @@ public class NereidsPlanner extends Planner {
 
     @Override
     public List<ScanNode> getScanNodes() {
-        return scanNodeList;
+        return scanNodes;
     }
 
     public Group getRoot() {
