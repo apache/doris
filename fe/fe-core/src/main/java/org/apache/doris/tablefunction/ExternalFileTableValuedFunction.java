@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import org.apache.log4j.LogManager;
@@ -78,6 +79,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String READ_JSON_BY_LINE = "read_json_by_line";
     protected static final String NUM_AS_STRING = "num_as_string";
     protected static final String FUZZY_PARSE = "fuzzy_parse";
+
+    protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
+            .add(FORMAT)
+            .add(JSON_ROOT)
+            .add(JSON_PATHS)
+            .add(STRIP_OUTER_ARRAY)
+            .add(READ_JSON_BY_LINE)
+            .add(NUM_AS_STRING)
+            .add(FUZZY_PARSE)
+            .add(COLUMN_SEPARATOR)
+            .add(LINE_DELIMITER)
+            .build();
 
 
     protected List<Column> columns = null;

@@ -51,18 +51,6 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
 
-    private static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
-            .add(FORMAT)
-            .add(JSON_ROOT)
-            .add(JSON_PATHS)
-            .add(STRIP_OUTER_ARRAY)
-            .add(READ_JSON_BY_LINE)
-            .add(NUM_AS_STRING)
-            .add(FUZZY_PARSE)
-            .add(COLUMN_SEPARATOR)
-            .add(LINE_DELIMITER)
-            .build();
-
     private static final ImmutableSet<String> LOCATION_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(HDFS_URI)
             .add(HADOOP_SECURITY_AUTHENTICATION)

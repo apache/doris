@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -52,27 +53,18 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                         .add(S3_URI)
                         .add(AK)
                         .add(SK)
-                        .add(FORMAT)
-                        .add(JSON_ROOT)
-                        .add(JSON_PATHS)
-                        .add(STRIP_OUTER_ARRAY)
-                        .add(READ_JSON_BY_LINE)
-                        .add(NUM_AS_STRING)
-                        .add(FUZZY_PARSE)
-                        .add(COLUMN_SEPARATOR)
-                        .add(LINE_DELIMITER)
                         .build();
     private S3URI s3uri;
     private String s3AK;
     private String s3SK;
 
     public S3TableValuedFunction(Map<String, String> params) throws UserException {
-        Map<String, String> validParams = Maps.newHashMap();
+        Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
-            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase()) || !FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
                 throw new AnalysisException(key + " is invalid property");
             }
-            validParams.put(key.toLowerCase(), params.get(key));
+            validParams.put(key, params.get(key));
         }
 
         s3uri = S3URI.create(validParams.get(S3_URI));
@@ -82,6 +74,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         parseProperties(validParams);
 
         // set S3 location properties
+        // these five properties is necessary, no one can be lost.
         locationProperties = Maps.newHashMap();
         locationProperties.put(S3_ENDPOINT, s3uri.getBucketScheme());
         locationProperties.put(S3_AK, s3AK);
