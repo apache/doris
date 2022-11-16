@@ -174,11 +174,8 @@ Status ParquetReader::init_reader(
     RETURN_IF_ERROR(_init_read_columns());
     // build column predicates for column lazy read
     _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
-    _init_lazy_read();
     RETURN_IF_ERROR(_init_row_group_readers(filter_groups));
     return Status::OK();
-
-    return _init_row_group_readers();
 }
 
 Status ParquetReader::set_fill_columns(
