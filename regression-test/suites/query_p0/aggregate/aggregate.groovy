@@ -285,7 +285,4 @@ suite("aggregate") {
     qt_aggregate_2phase_1"""select k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1"""
 
     qt_aggregate31"select count(*) from baseall where k1 < 64 and k1 > 0;"
-    sql""" DROP TABLE IF EXISTS tempbaseall """
-    sql"""create table tempbaseall PROPERTIES("replication_num" = "1")  as select k1, k2 from baseall where k1 is not null;"""
-    qt_aggregate32"select k1, k2 from (select k1, max(k2) as k2 from tempbaseall where k1 > 0 group by k1 order by k1)a where k1 > 0 and k1 < 10 order by k1;"
 }

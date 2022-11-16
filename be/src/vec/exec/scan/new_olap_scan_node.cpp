@@ -170,9 +170,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     // we use `exact_range` to identify a key range is an exact range or not when we convert
     // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
     bool exact_range = true;
-    bool eos = false;
-    for (int column_index = 0;
-         column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
+    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
          ++column_index) {
         auto iter = _colname_to_value_range.find(column_names[column_index]);
         if (_colname_to_value_range.end() == iter) {
@@ -187,7 +185,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                     auto temp_range = range;
                     if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
                         RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
-                                                                   &exact_range, &eos));
+                                                                   &exact_range));
                         if (exact_range) {
                             _colname_to_value_range.erase(iter->first);
                         }
@@ -196,7 +194,6 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                 },
                 iter->second));
     }
-    _eos |= eos;
 
     for (auto& iter : _colname_to_value_range) {
         std::vector<TCondition> filters;
