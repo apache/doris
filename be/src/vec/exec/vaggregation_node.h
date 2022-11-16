@@ -58,19 +58,23 @@ struct AggregationMethodSerialized {
               _serialized_key_buffer(nullptr),
               _mem_pool(new MemPool) {}
 
-    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
+    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped>;
 
     template <typename Other>
     explicit AggregationMethodSerialized(const Other& other) : data(other.data) {}
 
-    void serialize_keys(const ColumnRawPtrs& key_columns, const size_t num_rows) {
+    bool serialize_keys(const ColumnRawPtrs& key_columns, const size_t num_rows) {
         size_t max_one_row_byte_size = 0;
         for (const auto& column : key_columns) {
             max_one_row_byte_size += column->get_max_row_byte_size();
         }
-
-        if ((max_one_row_byte_size * num_rows) > _serialized_key_buffer_size) {
-            _serialized_key_buffer_size = max_one_row_byte_size * num_rows;
+        size_t total_bytes = max_one_row_byte_size * num_rows;
+        if (total_bytes > SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES) {
+            // reach mem limit, don't serialize in batch
+            return false;
+        }
+        if (total_bytes > _serialized_key_buffer_size) {
+            _serialized_key_buffer_size = total_bytes;
             _mem_pool->clear();
             _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size);
         }
@@ -86,6 +90,7 @@ struct AggregationMethodSerialized {
         for (const auto& column : key_columns) {
             column->serialize_vec(keys, num_rows, max_one_row_byte_size);
         }
+        return true;
     }
 
     static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
@@ -110,6 +115,7 @@ private:
     size_t _serialized_key_buffer_size;
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<MemPool> _mem_pool;
+    static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16 * 1024 * 1024; // 16M
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
@@ -844,13 +850,18 @@ private:
     void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
 
     template <typename AggState, typename AggMethod>
-    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
+    bool _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
                                     const ColumnRawPtrs& key_columns, const size_t num_rows) {
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
             SCOPED_TIMER(_serialize_key_timer);
-            agg_method.serialize_keys(key_columns, num_rows);
-            state.set_serialized_keys(agg_method.keys.data());
+            if (agg_method.serialize_keys(key_columns, num_rows)) {
+                state.set_serialized_keys(agg_method.keys.data());
+                return true;
+            } else {
+                return false;
+            }
         }
+        return false;
     }
 
     template <bool limit>

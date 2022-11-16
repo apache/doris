@@ -112,14 +112,12 @@ protected:
   * That is, for example, for strings, it contains first the serialized length of the string, and then the bytes.
   * Therefore, when aggregating by several strings, there is no ambiguity.
   */
-template <typename Value, typename Mapped, bool keys_pre_serialized = false>
+template <typename Value, typename Mapped>
 struct HashMethodSerialized
         : public columns_hashing_impl::HashMethodBase<
-                  HashMethodSerialized<Value, Mapped, keys_pre_serialized>, Value, Mapped, false> {
-    using Self = HashMethodSerialized<Value, Mapped, keys_pre_serialized>;
+                  HashMethodSerialized<Value, Mapped>, Value, Mapped, false> {
+    using Self = HashMethodSerialized<Value, Mapped>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
-    using KeyHolderType =
-            std::conditional_t<keys_pre_serialized, ArenaKeyHolder, SerializedKeyHolder>;
 
     ColumnRawPtrs key_columns;
     size_t keys_size;
@@ -131,13 +129,9 @@ struct HashMethodSerialized
 
     void set_serialized_keys(const StringRef* keys_) { keys = keys_; }
 
-    ALWAYS_INLINE KeyHolderType get_key_holder(size_t row, Arena& pool) const {
-        if constexpr (keys_pre_serialized) {
-            return KeyHolderType {keys[row], pool};
-        } else {
-            return KeyHolderType {
-                    serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
-        }
+    ALWAYS_INLINE SerializedKeyHolder get_key_holder(size_t row, Arena& pool) const {
+        return SerializedKeyHolder {
+                serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
     }
 
 protected:
@@ -150,7 +144,7 @@ struct IsPreSerializedKeysHashMethodTraits {
 };
 
 template <typename Value, typename Mapped>
-struct IsPreSerializedKeysHashMethodTraits<HashMethodSerialized<Value, Mapped, true>> {
+struct IsPreSerializedKeysHashMethodTraits<HashMethodSerialized<Value, Mapped>> {
     constexpr static bool value = true;
 };
 
