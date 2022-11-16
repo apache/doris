@@ -309,7 +309,7 @@ public class ConnectProcessor {
                         parsedStmt.toSql()), nereidsParseException);
                 // An exception occurs, audit it and return
                 handleQueryException(exception, auditStmt, null, null);
-                return;
+                break;
             }
 
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
@@ -324,13 +324,13 @@ public class ConnectProcessor {
                 }
                 auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
-                    return;
+                    break;
                 }
             } catch (Throwable throwable) {
                 handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                         executor.getQueryStatisticsForAuditLog());
                 // execute failed, skip remaining stmts
-                return;
+                break;
             } finally {
                 executor.addProfileToSpan();
             }
