@@ -20,17 +20,19 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
 /** count agg function. */
-public class Count extends AggregateFunction implements AlwaysNotNullable {
+public class Count extends AggregateFunction implements AlwaysNotNullable, CustomSignature {
 
     private final boolean isStar;
 
@@ -59,13 +61,13 @@ public class Count extends AggregateFunction implements AlwaysNotNullable {
     }
 
     @Override
-    public DataType getFinalType() {
+    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
         return BigIntType.INSTANCE;
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getFinalType();
+    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+        return ImmutableList.of(BigIntType.INSTANCE);
     }
 
     @Override

@@ -1,0 +1,60 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.trees.expressions.functions;
+
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
+/** CustomSignature */
+public interface CustomSignature extends ComputeSignature {
+    @Override
+    default List<FunctionSignature> getSignatures() {
+        List<DataType> originArgumentTypes = getOriginArgumentTypes();
+        List<Expression> originArguments = getOriginArguments();
+        return ImmutableList.of(customSignature(originArgumentTypes, originArguments));
+    }
+
+    // custom data type. this method is used to build the custom signature's return type,
+    // so you don't get any signature in this method, or else run into dead loop.
+    DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments);
+
+    // override hasVarArguments method and set to false, or else run into dead loop.
+    @Override
+    default boolean hasVarArguments() {
+        return false;
+    }
+
+    // custom generate a function signature.
+    default FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        return FunctionSignature.of(
+                signatureReturnType(argumentTypes, arguments), hasVarArguments(), (List) argumentTypes
+        );
+    }
+
+    // use the first signature as the candidate signature.
+    @Override
+    default FunctionSignature searchSignature(List<DataType> argumentTypes, List<Expression> arguments,
+            List<FunctionSignature> signatures) {
+        return signatures.get(0);
+    }
+}

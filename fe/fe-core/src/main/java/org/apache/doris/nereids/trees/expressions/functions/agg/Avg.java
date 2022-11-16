@@ -18,18 +18,16 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.NumericType;
-import org.apache.doris.nereids.types.coercion.TypeCollection;
+import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,12 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** avg agg function. */
-public class Avg extends AggregateFunction implements UnaryExpression, ImplicitCastInputTypes {
-
-    // used in interface expectedInputTypes to avoid new list in each time it be called
-    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
-            new TypeCollection(NumericType.INSTANCE, DateTimeType.INSTANCE, DateType.INSTANCE)
-    );
+public class Avg extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
 
     public Avg(Expression child) {
         super("avg", child);
@@ -53,10 +46,8 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
     }
 
     @Override
-    public DataType getFinalType() {
-        DataType argumentType = inputTypesBeforeDissemble()
-                .map(types -> types.get(0))
-                .orElse(child().getDataType());
+    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
+        DataType argumentType = argumentTypes.get(0);
         if (argumentType instanceof DecimalV2Type) {
             return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (argumentType.isDate()) {
@@ -68,16 +59,11 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
         }
     }
 
-    // TODO: We should return a complex type: PartialAggType(bufferTypes=[Double, Int], inputTypes=[Int])
-    //       to denote sum(double) and count(int)
     @Override
-    public DataType getIntermediateType() {
-        return VarcharType.createVarcharType(-1);
-    }
-
-    @Override
-    public boolean nullable() {
-        return child().nullable();
+    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+        DoubleType sumType = DoubleType.INSTANCE;
+        IntegerType countType = IntegerType.INSTANCE;
+        return ImmutableList.of(sumType, countType);
     }
 
     @Override
@@ -89,15 +75,6 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
     @Override
     public Avg withAggregateParam(AggregateParam aggregateParam) {
         return new Avg(aggregateParam, child());
-    }
-
-    @Override
-    public List<AbstractDataType> expectedInputTypes() {
-        if (isGlobal() && inputTypesBeforeDissemble().isPresent()) {
-            return ImmutableList.of();
-        } else {
-            return EXPECTED_INPUT_TYPES;
-        }
     }
 
     @Override

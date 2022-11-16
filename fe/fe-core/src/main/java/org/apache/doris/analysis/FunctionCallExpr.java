@@ -222,10 +222,17 @@ public class FunctionCallExpr extends Expr {
 
     // nereids constructor without finalize/analyze
     public FunctionCallExpr(FunctionName functionName, Function function, FunctionParams functionParams) {
+        this(functionName, function, functionParams, null);
+    }
+
+    // nereids constructor without finalize/analyze
+    public FunctionCallExpr(FunctionName functionName, Function function, FunctionParams functionParams,
+            FunctionParams aggFnParams) {
         this.fnName = functionName;
         this.fn = function;
         this.type = function.getReturnType();
         this.fnParams = functionParams;
+        this.aggFnParams = aggFnParams;
         if (functionParams.exprs() != null) {
             this.children.addAll(functionParams.exprs());
         }

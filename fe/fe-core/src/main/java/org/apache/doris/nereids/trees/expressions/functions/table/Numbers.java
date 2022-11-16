@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.tablefunction.NumbersTableValuedFunction;
@@ -41,6 +43,11 @@ import java.util.Map;
 public class Numbers extends TableValuedFunction {
     public Numbers(TVFProperties properties) {
         super("numbers", properties);
+    }
+
+    @Override
+    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
+        return BigIntType.INSTANCE;
     }
 
     @Override
@@ -81,10 +88,5 @@ public class Numbers extends TableValuedFunction {
         Preconditions.checkArgument(children().size() == 1
                 && children().get(0) instanceof TVFProperties);
         return new Numbers((TVFProperties) children.get(0));
-    }
-
-    @Override
-    public boolean hasVarArguments() {
-        return false;
     }
 }
