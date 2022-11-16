@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.util.BrokerUtil;
+
 import com.google.common.collect.Maps;
 
 import java.util.Iterator;
@@ -46,6 +48,8 @@ public class IcebergProperty {
             Map.Entry<String, String> entry = iterator.next();
             if (entry.getKey().startsWith(ICEBERG_HDFS_PREFIX)) {
                 dfsProperties.put(entry.getKey(), entry.getValue());
+            } else if (entry.getKey().equalsIgnoreCase(BrokerUtil.HADOOP_USER_NAME)) {
+                dfsProperties.put(BrokerUtil.HADOOP_USER_NAME, entry.getValue());
             }
         }
     }

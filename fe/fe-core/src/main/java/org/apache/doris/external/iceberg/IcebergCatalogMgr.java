@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 
 import com.google.common.base.Enums;
@@ -132,6 +133,8 @@ public class IcebergCatalogMgr {
             while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 if (entry.getKey().startsWith(IcebergProperty.ICEBERG_HDFS_PREFIX)) {
+                    iter.remove();
+                } else if (entry.getKey().equalsIgnoreCase(BrokerUtil.HADOOP_USER_NAME)) {
                     iter.remove();
                 }
             }
