@@ -37,10 +37,10 @@ public class IndexDef {
     private String comment;
     private Map<String, String> properties;
 
-    private static final String NGRAM_SIZE_KEY = "gran_size";
-    private static final String NGRAM_BF_SIZE_KEY = "bf_size";
-    private static final String DEFAULT_NGRAM_SIZE = "2";
-    private static final String DEFAULT_NGRAM_BF_SIZE = "256";
+    public static final String NGRAM_SIZE_KEY = "gram_size";
+    public static final String NGRAM_BF_SIZE_KEY = "bf_size";
+    public static final String DEFAULT_NGRAM_SIZE = "2";
+    public static final String DEFAULT_NGRAM_BF_SIZE = "256";
 
     public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType,
                     Map<String, String> properties, String comment) {
