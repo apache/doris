@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -345,7 +346,12 @@ public class Memo {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(existedGroupExpression.getOwnerGroup(), target);
+                if (existedGroupExpression.getPlan() instanceof LogicalProject) {
+                    existedGroupExpression.getOwnerGroup().removeGroupExpression(existedGroupExpression);
+                    target.addGroupExpression(existedGroupExpression);
+                } else {
+                    mergeGroup(existedGroupExpression.getOwnerGroup(), target);
+                }
             }
             return CopyInResult.of(false, existedGroupExpression);
         }
