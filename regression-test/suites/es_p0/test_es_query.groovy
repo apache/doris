@@ -67,5 +67,9 @@ suite("test_es_query", "p0") {
         // sql """switch es8"""
         // order_qt_sql1 """select * from test1 where test2='text'"""
         // order_qt_sql2 """select * from test2_20220808 where test4='2022-08-08'"""
+        order_qt_sql1 """show tables"""
+        order_qt_sql1 """select * from test1 where test2='text#1'"""
+        // sql """switch es8"""
+        // order_qt_sql1 """select * from test1 where test2='text'"""
     }
 }
