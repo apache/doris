@@ -115,6 +115,7 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
     // close sender, this is normal path end
     if (_sender) {
         if (_writer) _sender->update_num_written_rows(_writer->get_written_rows());
+        _sender->update_max_peak_memory_bytes();
         _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(
