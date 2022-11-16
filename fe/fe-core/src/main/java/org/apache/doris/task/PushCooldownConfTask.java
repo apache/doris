@@ -41,6 +41,7 @@ public class PushCooldownConfTask extends AgentTask {
     public TPushCooldownConfReq toThrift() {
         TPushCooldownConfReq pushCooldownConfReq = new TPushCooldownConfReq();
         pushCooldownConfReq.setTabletId(tabletId);
+        pushCooldownConfReq.setReplicaId(replicaId);
         pushCooldownConfReq.setCooldownType(cooldownType);
 
         return pushCooldownConfReq;

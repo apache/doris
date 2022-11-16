@@ -742,6 +742,10 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_PUSH_COOLDOWN_CONF:
+                    CooldownJob cooldownJob = (CooldownJob) journal.getData();
+                    env.getCooldownSingleRemoteHandler().replayCooldownJob(cooldownJob);
+                    break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
@@ -1467,7 +1471,7 @@ public class EditLog {
     }
 
     public void logCooldownJob(CooldownJob cooldownJob) {
-        logEdit(OperationType.OP_SET_REPLICA_COOLDOWN_CONF, cooldownJob);
+        logEdit(OperationType.OP_PUSH_COOLDOWN_CONF, cooldownJob);
     }
 
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {

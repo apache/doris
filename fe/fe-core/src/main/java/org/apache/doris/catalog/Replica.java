@@ -17,8 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCooldownType;
 
 import com.google.gson.annotations.SerializedName;
@@ -468,18 +470,8 @@ public class Replica implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(id);
-        out.writeLong(backendId);
-        out.writeLong(version);
-        out.writeLong(versionHash);
-        out.writeLong(dataSize);
-        out.writeLong(rowCount);
-        Text.writeString(out, state.name());
-
-        out.writeLong(lastFailedVersion);
-        out.writeLong(lastFailedVersionHash);
-        out.writeLong(lastSuccessVersion);
-        out.writeLong(lastSuccessVersionHash);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -497,6 +489,10 @@ public class Replica implements Writable {
     }
 
     public static Replica read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Replica.class);
+        }
         Replica replica = new Replica();
         replica.readFields(in);
         return replica;

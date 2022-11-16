@@ -120,6 +120,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
+import org.apache.doris.cooldown.CooldownSingleRemoteHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -314,6 +315,7 @@ public class Env {
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
+    private CooldownSingleRemoteHandler cooldownSingleRemoteHandler;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -542,6 +544,7 @@ public class Env {
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
+        this.cooldownSingleRemoteHandler = new CooldownSingleRemoteHandler();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -1408,6 +1411,9 @@ public class Env {
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
         partitionInMemoryInfoCollector.start();
+        if (Config.cooldown_single_remote_file) {
+            cooldownSingleRemoteHandler.start();
+        }
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         this.statisticsJobScheduler.start();
@@ -1787,6 +1793,12 @@ public class Env {
         }
         LOG.info("finished replay alterJob from image");
         return newChecksum;
+    }
+
+    public long loadCooldownJob(DataInputStream dis, long checksum) throws IOException {
+        cooldownSingleRemoteHandler.readField(dis);
+        LOG.info("finished replay loadCooldownJob from image");
+        return checksum;
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
@@ -3434,6 +3446,10 @@ public class Env {
 
     public MaterializedViewHandler getMaterializedViewHandler() {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
+    }
+
+    public CooldownSingleRemoteHandler getCooldownSingleRemoteHandler() {
+        return cooldownSingleRemoteHandler;
     }
 
     public SystemHandler getClusterHandler() {

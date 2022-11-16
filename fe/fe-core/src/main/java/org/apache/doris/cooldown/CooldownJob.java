@@ -32,7 +32,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.PushCooldownConfTask;
 import org.apache.doris.thrift.TCooldownType;
 import org.apache.doris.thrift.TTaskType;
 
@@ -41,6 +43,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -89,6 +92,10 @@ public class CooldownJob implements Writable {
 
     private AgentBatchTask cooldownBatchTask = new AgentBatchTask();
 
+    public long getTabletId() {
+        return tabletId;
+    }
+
     public CooldownJob(long jobId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                        long replicaId, TCooldownType cooldownType, long timeoutMs) {
         this.jobId = jobId;
@@ -107,6 +114,51 @@ public class CooldownJob implements Writable {
     protected void runPendingJob() throws CooldownException {
         Preconditions.checkState(jobState == CooldownJob.JobState.PENDING, jobState);
         LOG.info("begin to send cooldown conf tasks. job: {}", jobId);
+        Database db = Env.getCurrentInternalCatalog()
+                .getDbOrException(dbId, s -> new CooldownException("Database " + s + " does not exist"));
+        OlapTable tbl;
+        try {
+            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableIf.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new CooldownException(e.getMessage());
+        }
+        if (tbl == null) {
+            throw new CooldownException("Table doesn't exist. tabletId: " + tableId);
+        }
+        long backendId = 0;
+        tbl.readLock();
+        try {
+            Partition partition = tbl.getPartition(partitionId);
+            if (partition == null) {
+                throw new CooldownException("Partition doesn't exist. tabletId: " + tableId + ", partitionId: " +
+                        partitionId);
+            }
+            MaterializedIndex index = partition.getIndex(indexId);
+            if (index == null) {
+                throw new CooldownException("Index doesn't exist. tabletId: " + tableId + ", partitionId: " +
+                        partitionId + ", indexId: " + indexId);
+            }
+            Tablet tablet = index.getTablet(tabletId);
+            if (tablet == null) {
+                throw new CooldownException("Tablet doesn't exist. tabletId: " + tableId + ", tabletId: " + tabletId);
+            }
+            Replica replica = tablet.getReplicaById(replicaId);
+            if (replica == null) {
+                throw new CooldownException("Replica doesn't exist. tabletId: " + tableId + ", tabletId: " + tabletId +
+                        ", replicaId: " + replicaId);
+            }
+            backendId = replica.getBackendId();
+        } finally {
+            tbl.readUnlock();
+        }
+        AgentBatchTask batchTask = new AgentBatchTask();
+        PushCooldownConfTask pushCooldownConfTask = new PushCooldownConfTask(backendId, dbId, tableId, partitionId,
+                indexId, tabletId, replicaId, cooldownType);
+        batchTask.addTask(pushCooldownConfTask);
+
+        AgentTaskQueue.addBatchTask(batchTask);
+        AgentTaskExecutor.submit(batchTask);
+
         this.jobState = JobState.RUNNING;
         // write edit log
         Env.getCurrentEnv().getEditLog().logCooldownJob(this);
@@ -125,6 +177,7 @@ public class CooldownJob implements Writable {
                     throw new CooldownException("cooldown tasks failed on same tablet: " + tabletId);
                 }
             }
+            return;
         }
         setCooldownType(cooldownType);
         this.jobState = CooldownJob.JobState.FINISHED;
@@ -136,6 +189,10 @@ public class CooldownJob implements Writable {
 
     public boolean isTimeout() {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
+    }
+
+    public boolean isDone() {
+        return jobState.isFinalState();
     }
 
     /*
@@ -211,6 +268,11 @@ public class CooldownJob implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
         Text.writeString(out, json);
+    }
+
+    public static CooldownJob read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, CooldownJob.class);
     }
 
     /**

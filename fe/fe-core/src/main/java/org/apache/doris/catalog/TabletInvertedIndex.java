@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TCooldownType;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -46,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -125,7 +127,7 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<Triple<Long, Integer, Boolean>> tabletToInMemory,
-                             Map<Long, Replica> replicaCooldownMap) {
+                             Map<Long, TabletMeta> syncCooldownTabletMap) {
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {
@@ -185,6 +187,11 @@ public class TabletInvertedIndex {
                                 synchronized (tabletRecoveryMap) {
                                     tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
+                            }
+
+                            if (Config.cooldown_single_remote_file &&
+                                    needChangeCooldownConf(replica, backendTabletInfo)) {
+                                syncCooldownTabletMap.put(backendTabletInfo.getTabletId(), tabletMeta);
                             }
 
                             long partitionId = tabletMeta.getPartitionId();
@@ -327,6 +334,50 @@ public class TabletInvertedIndex {
         }
 
         return false;
+    }
+
+    private boolean needChangeCooldownConf(Replica replicaInFe, TTabletInfo beTabletInfo) {
+        // check cooldown type in fe and be, they need to be the same.
+        if (replicaInFe.getCooldownType() != beTabletInfo.getCooldownType()) {
+            LOG.warn("Cooldown type is wrong for tablet: {}, Fe: {}, Be: {}", beTabletInfo.getTabletId(),
+                    replicaInFe.getCooldownType().name(), beTabletInfo.getCooldownType().name());
+            return true;
+        }
+        // check cooldown type in one tablet, One UPLOAD_DATA is needed in the replicas.
+        long stamp = readLock();
+        try {
+            int uploadTypeCount = 0;
+            Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
+            for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
+                if (entry.getValue().getCooldownType() == TCooldownType.UPLOAD_DATA) {
+                    ++uploadTypeCount;
+                }
+            }
+            if (uploadTypeCount > 1) {
+                LOG.warn("tabletId: {}, uploadTypeCount is {}, maybe somewhere error.", beTabletInfo.getTabletId(),
+                        uploadTypeCount);
+            }
+            if (uploadTypeCount == 0) {
+                return true;
+            }
+        } finally {
+            readUnlock(stamp);
+        }
+        return false;
+    }
+
+    public List<Replica> getReplicas(Long tabletId) {
+        List<Replica> replicas = new LinkedList<>();
+        long stamp = readLock();
+        try {
+            Map<Long, Replica> replicaMap = replicaMetaTable.row(tabletId);
+            for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
+                replicas.add(entry.getValue());
+            }
+        } finally {
+            readUnlock(stamp);
+        }
+        return replicas;
     }
 
     /**
