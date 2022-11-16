@@ -168,7 +168,7 @@ public class TableFunctionNode extends PlanNode {
         output.append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
-            output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
             return output.toString();
         }
 
@@ -182,7 +182,7 @@ public class TableFunctionNode extends PlanNode {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
         }
-        output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+        output.append(prefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         return output.toString();
     }
 
