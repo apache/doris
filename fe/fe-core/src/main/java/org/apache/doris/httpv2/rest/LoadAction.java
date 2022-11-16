@@ -44,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.List;
+import java.util.Random;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -192,8 +193,9 @@ public class LoadAction extends RestBaseController {
         if (backendIds.isEmpty()) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-
-        Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+        Random random = new Random();
+        Long backendId = backendIds.get(random.nextInt(backendIds.size()));
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
