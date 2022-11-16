@@ -181,6 +181,20 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_compact(['aaa','aaa','bbb','ccc','ccccc',null, null,'dddd'])"
     qt_sql "select array_compact(['2015-03-13','2015-03-13'])"
 
+    //has_all test
+    qt_sql "select has_all([1,2,3], [1,2])"
+    qt_sql "select has_all([1,2,3], [1,1,2,2])"
+    qt_sql "select has_all([1,2,3], [1.0,2.0])"
+    qt_sql "select has_all([1.2,2.4], [3.5])"
+    qt_sql "select has_all([1.01,2.02], [1,2])"
+    qt_sql "select has_all(['a'], [1])"
+    qt_sql "select has_all(['hi'], [null])"
+    qt_sql "select has_all([1,null], [null])"
+    qt_sql "select has_all([1,null], [null])"
+    qt_sql "select has_all([1,2,3,null], NULL)"
+    qt_sql "select has_all(NULL, [null])"
+    qt_sql "select has_all(NULL, NULL)"
+
     // abnormal test
     test {
         sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
