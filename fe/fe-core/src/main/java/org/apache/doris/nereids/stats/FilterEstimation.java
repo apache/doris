@@ -474,7 +474,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
         StatsDeriveResult estimated = new StatsDeriveResult(inputStats);
 
-        estimated = estimated.updateRowCountOnCopy(selectivity);
+        estimated = estimated.updateBySelectivity(selectivity);
         if (compareExpr instanceof SlotReference) {
             estimated.addColumnStats(((SlotReference) compareExpr).getExprId(),
                     compareExprStatsBuilder.build());

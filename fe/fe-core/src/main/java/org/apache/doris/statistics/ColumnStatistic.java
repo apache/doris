@@ -177,18 +177,20 @@ public class ColumnStatistic {
 
     public ColumnStatistic updateBySelectivity(double selectivity, double rowCount) {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
+        Double rowsAfterFilter = rowCount * selectivity;
         if (ColumnStat.isAlmostUnique(ndv, rowCount)) {
             builder.setSelectivity(this.selectivity * selectivity);
             builder.setNdv(ndv * selectivity);
+        } else {
+            if (ndv > rowsAfterFilter) {
+                builder.setSelectivity(this.selectivity * rowsAfterFilter / ndv);
+                builder.setNdv(rowsAfterFilter);
+            } else {
+                builder.setSelectivity(this.selectivity);
+                builder.setNdv(this.ndv);
+            }
         }
         builder.setNumNulls((long) Math.ceil(numNulls * selectivity));
-        Double rowsAfterFilter = rowCount * selectivity;
-        if (ndv > rowsAfterFilter) {
-            builder.setNdv(rowsAfterFilter);
-        }
-        if (numNulls > rowsAfterFilter) {
-            builder.setNumNulls(rowsAfterFilter);
-        }
         return builder.build();
     }
 
@@ -228,5 +230,11 @@ public class ColumnStatistic {
             double interSection = Math.min(maxValue, other.maxValue) - Math.max(minValue, other.minValue);
             return interSection / myRange;
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("ndv=%.4f, min=%f, max=%f, sel=%f, count=%.4f",
+                ndv, minValue, maxValue, selectivity, count);
     }
 }
