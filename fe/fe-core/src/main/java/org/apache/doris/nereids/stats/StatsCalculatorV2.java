@@ -75,6 +75,8 @@ import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.HashMap;
@@ -87,6 +89,8 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Void> {
+
+    private static final Logger LOG = LogManager.getLogger(StatsCalculatorV2.class);
 
     private final GroupExpression groupExpression;
 
@@ -290,7 +294,11 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
             ColumnStatistic statistic =
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
             if (statistic == ColumnStatistic.UNKNOWN) {
+                LOG.info("statistics not accurate!!!");
                 statistic = ColumnStatistic.DEFAULT;
+            }
+            if (statistic.ndv == 0) {
+                LOG.info("statistics error: ndv = 0!!!");
             }
             rowCount = statistic.count;
             columnStatisticMap.put(slotReference.getExprId(), statistic);
