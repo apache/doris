@@ -181,8 +181,7 @@ private:
 
     static std::string process_mem_log_str() {
         return fmt::format(
-                "process memory used {}, limit {}, sys mem available {}, system mem available min "
-                "reserve {}, tc/jemalloc "
+                "process memory used {} limit {}, sys mem available {} min reserve {}, tc/jemalloc "
                 "allocator cache {}",
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
                 MemInfo::sys_mem_available_str(),

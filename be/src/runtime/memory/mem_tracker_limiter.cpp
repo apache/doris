@@ -168,7 +168,7 @@ std::string MemTrackerLimiter::log_usage(MemTracker::Snapshot snapshot) {
 }
 
 std::string MemTrackerLimiter::type_log_usage(MemTracker::Snapshot snapshot) {
-    return fmt::format("Memory Type={}, Used={}({} B), Peak={}({} B)", snapshot.type,
+    return fmt::format("Type={}, Used={}({} B), Peak={}({} B)", snapshot.type,
                        print_bytes(snapshot.cur_consumption), snapshot.cur_consumption,
                        print_bytes(snapshot.peak_consumption), snapshot.peak_consumption);
 }
