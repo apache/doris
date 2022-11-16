@@ -124,7 +124,7 @@ private:
 
     void _build_rowset_meta_with_spec_field(RowsetMetaSharedPtr rowset_meta,
                                             const RowsetMetaSharedPtr& spec_rowset_meta);
-    bool _is_segment_overlapping();
+    bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
 
 protected:
     RowsetWriterContext _context;

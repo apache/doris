@@ -791,9 +791,10 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
-bool BetaRowsetWriter::_is_segment_overlapping() {
+bool BetaRowsetWriter::_is_segment_overlapping(
+        const std::vector<KeyBoundsPB>& segments_encoded_key_bounds) {
     std::string last;
-    for (auto segment_encode_key : _segments_encoded_key_bounds) {
+    for (auto segment_encode_key : segments_encoded_key_bounds) {
         auto cur_min = segment_encode_key.min_key();
         auto cur_max = segment_encode_key.max_key();
         if (cur_min < last) {
@@ -839,16 +840,16 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
         }
     }
-    rowset_meta->set_num_segments(num_seg);
-    if (!_is_segment_overlapping()) {
-        rowset_meta->set_segments_overlap(NONOVERLAPPING);
-    }
-    _segment_num_rows = segment_num_rows;
     for (auto itr = _segments_encoded_key_bounds.begin(); itr != _segments_encoded_key_bounds.end();
          ++itr) {
         segments_encoded_key_bounds.push_back(*itr);
     }
+    if (!_is_segment_overlapping(segments_encoded_key_bounds)) {
+        rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    }
 
+    rowset_meta->set_num_segments(num_seg);
+    _segment_num_rows = segment_num_rows;
     // TODO(zhangzhengyu): key_bounds.size() should equal num_seg, but currently not always
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
@@ -979,7 +980,6 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     DCHECK_LE(min_key.compare(max_key), 0);
     key_bounds.set_min_key(min_key.to_string());
     key_bounds.set_max_key(max_key.to_string());
-    _segments_encoded_key_bounds.emplace_back(key_bounds);
 
     Statistics segstat;
     segstat.row_num = row_num;
