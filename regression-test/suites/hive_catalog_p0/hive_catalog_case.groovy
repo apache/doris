@@ -69,7 +69,7 @@ suite("hive_catalog_case", "p0") {
             """
         sql """switch hive"""
         sql """use `default`"""
-        order_qt_show_tables """show tables"""
+        // order_qt_show_tables """show tables"""
 
         q01()
     }
