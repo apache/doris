@@ -118,9 +118,9 @@ void MemInfo::init() {
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
 
+    // max 6.4G, avoid wasting too much memory on machines with large memory larger than 64G.
     _s_sys_mem_available_min_reserve = std::min<int64_t>(
-            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
-            2147483648L); // max 2G
+            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1), 6871947673L);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
@@ -142,8 +142,6 @@ void MemInfo::init() {
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
-    _s_hard_mem_limit =
-            _s_physical_mem - std::max<int64_t>(209715200L, _s_physical_mem / 10); // 200M
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;

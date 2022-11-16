@@ -173,10 +173,13 @@ private:
 
     static std::string process_limit_exceeded_errmsg_str(int64_t bytes) {
         return fmt::format(
-                "process memory used {}, tc/jemalloc allocator cache {}, exceed limit {}, failed "
-                "alloc size {}",
-                PerfCounters::get_vm_rss_str(), MemInfo::allocator_cache_mem_str(),
-                MemInfo::mem_limit_str(), print_bytes(bytes));
+                "process memory used {} exceed limit {} or sys mem available {} less than min "
+                "reserve {}, failed "
+                "alloc size {}, tc/jemalloc allocator cache {}",
+                PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
+                MemInfo::sys_mem_available_str(),
+                PrettyPrinter::print(MemInfo::sys_mem_available_min_reserve(), TUnit::BYTES),
+                print_bytes(bytes), MemInfo::allocator_cache_mem_str());
     }
 
     static std::string process_mem_log_str() {
