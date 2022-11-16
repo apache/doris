@@ -47,12 +47,15 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     private static final String AK = "access_key";
     private static final String SK = "secret_key";
 
-    public static final String USE_PATH_STYLE = "use_path_style";
+    private static final String USE_PATH_STYLE = "use_path_style";
+    private static final String REGION = "region";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
                         .add(S3_URI)
                         .add(AK)
                         .add(SK)
+                        .add(USE_PATH_STYLE)
+                        .add(REGION)
                         .build();
     private S3URI s3uri;
     private String s3AK;
@@ -67,9 +70,15 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             validParams.put(key, params.get(key));
         }
 
-        s3uri = S3URI.create(validParams.get(S3_URI));
+        boolean forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
+        if (forceVirtualHosted) {
+            s3uri = S3URI.create(validParams.get(S3_URI), true);
+        } else {
+            s3uri = S3URI.create(validParams.get(S3_URI), false);
+        }
         s3AK = validParams.getOrDefault(AK, "");
         s3SK = validParams.getOrDefault(SK, "");
+        String usePathStyle = validParams.getOrDefault(USE_PATH_STYLE, "false");
 
         parseProperties(validParams);
 
@@ -79,8 +88,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         locationProperties.put(S3_ENDPOINT, s3uri.getBucketScheme());
         locationProperties.put(S3_AK, s3AK);
         locationProperties.put(S3_SK, s3SK);
-        locationProperties.put(S3_REGION, "");
-        locationProperties.put(USE_PATH_STYLE, "true");
+        locationProperties.put(S3_REGION, validParams.getOrDefault(REGION, ""));
+        locationProperties.put(USE_PATH_STYLE, usePathStyle);
 
         parseFile();
     }
