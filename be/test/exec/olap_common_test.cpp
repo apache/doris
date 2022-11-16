@@ -678,7 +678,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
         scan_keys.get_key_range(&key_range);
 
         EXPECT_EQ(key_range.size(), max_scan_key);
-        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "1");
+        EXPECT_EQ(OlapScanKeys::to_print_key(key_range[0]->begin_scan_range), "2");
         EXPECT_EQ(OlapScanKeys::to_print_key(key_range[max_scan_key - 1]->end_scan_range), "32765");
     }
 }

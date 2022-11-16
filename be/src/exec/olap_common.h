@@ -537,30 +537,35 @@ bool ColumnValueRange<primitive_type>::convert_to_close_range(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
         bool& begin_include, bool& end_include) {
     if constexpr (!_is_reject_split_type) {
-        begin_include = is_begin_include();
-        end_include = is_end_include();
+        begin_include = true;
+        end_include = true;
+
+        bool is_empty = false;
 
         if (!is_begin_include()) {
-            if (_low_value == TYPE_MAX) {
+            if (_low_value == TYPE_MIN) {
+                is_empty = true;
             } else {
-                begin_include = true;
                 ++_low_value;
             }
         }
         if (!is_end_include()) {
-            if (_high_value == TYPE_MIN) {
+            if (_high_value == TYPE_MAX) {
+                is_empty = true;
             } else {
-                end_include = true;
                 --_high_value;
             }
         }
 
-        if (_high_value < _low_value && !contain_null()) {
+        if (_high_value < _low_value) {
+            is_empty = true;
+        }
+
+        if (is_empty && !contain_null()) {
             begin_scan_keys.clear();
             end_scan_keys.clear();
             return true;
         }
-        return false;
     }
     return false;
 }
@@ -578,10 +583,14 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             max_value.set_type(TimeType::TIME_DATE);
         }
 
-        if (min_value > max_value) {
-            return false;
+        if (contain_null()) {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_null();
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_null();
         }
-        if (max_scan_key_num == 1) {
+
+        if (min_value > max_value || max_scan_key_num == 1) {
             begin_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(
                     cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
@@ -590,13 +599,6 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             end_scan_keys.back().add_value(
                     cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
             return true;
-        }
-
-        if (contain_null()) {
-            begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_null();
-            end_scan_keys.emplace_back();
-            end_scan_keys.back().add_null();
         }
 
         auto cast = [](const CppType& value) {
