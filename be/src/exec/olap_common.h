@@ -576,6 +576,17 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
         bool& begin_include, bool& end_include, int32_t max_scan_key_num) {
     if constexpr (!_is_reject_split_type) {
+        auto no_split = [&]() -> bool {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
+                    contain_null());
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
+            return true;
+        };
+
         CppType min_value = get_range_min_value();
         CppType max_value = get_range_max_value();
         if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
@@ -591,14 +602,7 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         }
 
         if (min_value > max_value || max_scan_key_num == 1) {
-            begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
-                    contain_null());
-            end_scan_keys.emplace_back();
-            end_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
-            return true;
+            return no_split();
         }
 
         auto cast = [](const CppType& value) {
@@ -613,6 +617,12 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         // When CppType is date, we can not convert it to integer number and calculate distance.
         // In other case, we convert element to int128 to avoit overflow.
         size_t step_size = (cast(max_value) - min_value) / max_scan_key_num;
+
+        constexpr size_t MAX_STEP_SIZE = 1 << 20;
+        // When the step size is too large, the range is easy to not really contain data.
+        if (step_size > MAX_STEP_SIZE) {
+            return no_split();
+        }
 
         while (true) {
             begin_scan_keys.emplace_back();
