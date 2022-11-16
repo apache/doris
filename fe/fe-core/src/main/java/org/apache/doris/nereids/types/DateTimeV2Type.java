@@ -19,7 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import com.google.common.base.Preconditions;
 
@@ -28,7 +28,7 @@ import java.util.Objects;
 /**
  * Datetime type in Nereids.
  */
-public class DateTimeV2Type extends PrimitiveType {
+public class DateTimeV2Type extends DateLikeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type INSTANCE = new DateTimeV2Type(0);
 
