@@ -70,7 +70,7 @@ public class PartialAggType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        if (intermediateTypes.size() == 0) {
+        if (intermediateTypes.size() == 1) {
             return intermediateTypes.get(0).toCatalogDataType();
         }
         return ScalarType.createVarcharType(-1);
