@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -46,19 +47,9 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
     }
 
     @Override
-    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
-        DataType dataType = argumentTypes.get(0);
-        if (dataType instanceof LargeIntType) {
-            return dataType;
-        } else if (dataType instanceof DecimalV2Type) {
-            return DecimalV2Type.SYSTEM_DEFAULT;
-        } else if (dataType instanceof IntegralType) {
-            return BigIntType.INSTANCE;
-        } else if (dataType instanceof FractionalType) {
-            return DoubleType.INSTANCE;
-        } else {
-            throw new IllegalStateException("Unsupported sum type: " + dataType);
-        }
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        DataType implicitCastType = implicitCast(argumentTypes.get(0));
+        return FunctionSignature.ret(implicitCastType).args(implicitCastType);
     }
 
     @Override
@@ -80,5 +71,17 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSum(this, context);
+    }
+
+    private DataType implicitCast(DataType dataType) {
+        if (dataType instanceof LargeIntType) {
+            return dataType;
+        } else if (dataType instanceof DecimalV2Type) {
+            return DecimalV2Type.SYSTEM_DEFAULT;
+        } else if (dataType instanceof IntegralType) {
+            return BigIntType.INSTANCE;
+        } else {
+            return DoubleType.INSTANCE;
+        }
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
@@ -61,8 +62,8 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     }
 
     @Override
-    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
-        return BigIntType.INSTANCE;
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        return FunctionSignature.of(BigIntType.INSTANCE, (List) argumentTypes);
     }
 
     @Override

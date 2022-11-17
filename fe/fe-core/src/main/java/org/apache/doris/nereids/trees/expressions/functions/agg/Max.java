@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -39,8 +40,8 @@ public class Max extends AggregateFunction implements UnaryExpression, Propagate
     }
 
     @Override
-    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
-        return argumentTypes.get(0);
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        return FunctionSignature.ret(argumentTypes.get(0)).args(argumentTypes.get(0));
     }
 
     @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.NereidsException;
@@ -46,8 +47,8 @@ public class Numbers extends TableValuedFunction {
     }
 
     @Override
-    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
-        return BigIntType.INSTANCE;
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        return FunctionSignature.of(BigIntType.INSTANCE, (List) argumentTypes);
     }
 
     @Override

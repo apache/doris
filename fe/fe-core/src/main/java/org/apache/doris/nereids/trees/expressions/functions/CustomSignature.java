@@ -34,10 +34,6 @@ public interface CustomSignature extends ComputeSignature {
         return ImmutableList.of(customSignature(originArgumentTypes, originArguments));
     }
 
-    // custom data type. this method is used to build the custom signature's return type,
-    // so you don't get any signature in this method, or else run into dead loop.
-    DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments);
-
     // override hasVarArguments method and set to false, or else run into dead loop.
     @Override
     default boolean hasVarArguments() {
@@ -45,11 +41,7 @@ public interface CustomSignature extends ComputeSignature {
     }
 
     // custom generate a function signature.
-    default FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.of(
-                signatureReturnType(argumentTypes, arguments), hasVarArguments(), (List) argumentTypes
-        );
-    }
+    FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments);
 
     // use the first signature as the candidate signature.
     @Override

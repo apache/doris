@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -46,17 +47,9 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
     }
 
     @Override
-    public DataType signatureReturnType(List<DataType> argumentTypes, List<Expression> arguments) {
-        DataType argumentType = argumentTypes.get(0);
-        if (argumentType instanceof DecimalV2Type) {
-            return DecimalV2Type.SYSTEM_DEFAULT;
-        } else if (argumentType.isDate()) {
-            return DateType.INSTANCE;
-        } else if (argumentType.isDateTime()) {
-            return DateTimeType.INSTANCE;
-        } else {
-            return DoubleType.INSTANCE;
-        }
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        DataType implicitCastType = implicitCast(argumentTypes.get(0));
+        return FunctionSignature.ret(implicitCastType).args(implicitCastType);
     }
 
     @Override
@@ -80,5 +73,17 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAvg(this, context);
+    }
+
+    private DataType implicitCast(DataType dataType) {
+        if (dataType instanceof DecimalV2Type) {
+            return DecimalV2Type.SYSTEM_DEFAULT;
+        } else if (dataType.isDate()) {
+            return DateType.INSTANCE;
+        } else if (dataType.isDateTime()) {
+            return DateTimeType.INSTANCE;
+        } else {
+            return DoubleType.INSTANCE;
+        }
     }
 }
