@@ -1027,6 +1027,21 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     UniqueId queryid = request->query_id();
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
+    auto fragment_instance_id = filter_controller->instance_id();
+    TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
+    std::shared_ptr<FragmentExecState> fragment_state;
+    {
+        std::unique_lock<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(tfragment_instance_id);
+        if (iter == _fragment_map.end()) {
+            VLOG_CRITICAL << "unknown fragment-id:" << fragment_instance_id;
+            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
+        }
+
+        // hold reference to fragment_state, or else runtime_state can be destroyed
+        // when filter_controller->merge is still in progress
+        fragment_state = iter->second;
+    }
     RETURN_IF_ERROR(filter_controller->merge(request, attach_data));
     return Status::OK();
 }
