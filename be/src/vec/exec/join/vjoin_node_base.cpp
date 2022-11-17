@@ -109,6 +109,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         } else {
             DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
+            SCOPED_TIMER(_projection_timer);
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
