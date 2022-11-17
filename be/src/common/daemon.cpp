@@ -74,28 +74,49 @@ void Daemon::tcmalloc_gc_thread() {
 
     size_t tc_use_memory_min = MemInfo::mem_limit();
     if (config::memory_mode == std::string("performance")) {
+        // a higher tc_use_memory_min to use memory as tcmalloc cache as much as possible
         tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9,
                                      tc_use_memory_min - (size_t)10 * 1024 * 1024 * 1024);
+    } else if (config::memory_mode == std::string("compact")) {
+        // a limited tc_use_memory_min to limit memory used as cache of tcmalloc
+        tc_use_memory_min = std::min((size_t)10 * 1024 * 1024 * 1024, tc_use_memory_min >> 1);
     } else {
+        // a moderate tc_use_memory_min
         tc_use_memory_min >>= 1;
     }
 
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
+    int32_t interval_seconds = 2;
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
         size_t used_size = 0;
-        size_t free_size = 0;
+        size_t alloc_size = 0;
 
+        MallocExtension::instance()->GetNumericProperty("generic.total_physical_bytes",
+                                                        &alloc_size);
         MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
                                                         &used_size);
-        MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes", &free_size);
-        size_t alloc_size = used_size + free_size;
-        LOG(INFO) << "tcmalloc.pageheap_free_bytes " << free_size
-                  << ", generic.current_allocated_bytes " << used_size << ", tc_use_memory_min "
+
+        LOG(INFO) << "generic.current_allocated_bytes " << used_size
+                  << ", generic.total_physical_bytes " << alloc_size << ", tc_use_memory_min "
                   << tc_use_memory_min;
 
         if (alloc_size > tc_use_memory_min) {
-            size_t max_free_size = alloc_size * 20 / 100;
-            if (free_size > max_free_size) {
-                MallocExtension::instance()->ReleaseToSystem(free_size - max_free_size);
+            // Limit size of cache of tcmalloc to avoid oom. 
+            // alloc_size > mem_limit: release memory aggressively because we are reaching oom.
+            // alloc_size < mem_limit: limit cache size of tcmalloc under  used_size * 20%.
+            size_t max_free_size = 0;
+
+            if (MemInfo::mem_limit() > alloc_size) {
+                max_free_size = MemInfo::mem_limit() - alloc_size;
+                interval_seconds = 2;
+            } else {
+                interval_seconds = 1;
+            }
+
+            max_free_size = std::min(used_size * 20 / 100, max_free_size);
+            size_t free_size = alloc_size - used_size - max_free_size;
+            if (free_size > 0) {
+                LOG(INFO) << "try to release cache of tcmalloc, bytes " << free_size;
+                MallocExtension::instance()->ReleaseToSystem(free_size);
             }
         }
     }
