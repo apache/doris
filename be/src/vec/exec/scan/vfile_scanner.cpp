@@ -151,10 +151,13 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         if (read_rows > 0) {
             // Convert the src block columns type to string in-place.
             RETURN_IF_ERROR(_cast_to_input_block(block));
-            // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
-            RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
-            // Fill columns not exist in file with null or default value
-            RETURN_IF_ERROR(_fill_missing_columns(read_rows));
+            // FileReader can fill partition and missing columns itself
+            if (!_cur_reader->fill_all_columns()) {
+                // Fill rows in src block with partition columns from path. (e.g. Hive partition columns)
+                RETURN_IF_ERROR(_fill_columns_from_path(read_rows));
+                // Fill columns not exist in file with null or default value
+                RETURN_IF_ERROR(_fill_missing_columns(read_rows));
+            }
             // Apply _pre_conjunct_ctx_ptr to filter src block.
             RETURN_IF_ERROR(_pre_filter_src_block());
             // Convert src block to output block (dest block), string to dest data type and apply filters.
@@ -261,10 +264,11 @@ Status VFileScanner::_fill_columns_from_path(size_t rows) {
             auto doris_column = _src_block_ptr->get_by_name(slot_desc->col_name()).column;
             IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
 
-            for (size_t j = 0; j < rows; ++j) {
-                _text_converter->write_vec_column(slot_desc, col_ptr,
-                                                  const_cast<char*>(column_from_path.c_str()),
-                                                  column_from_path.size(), true, false);
+            if (!_text_converter->write_vec_column(slot_desc, col_ptr,
+                                                   const_cast<char*>(column_from_path.c_str()),
+                                                   column_from_path.size(), true, false, rows)) {
+                return Status::InternalError("Failed to fill partition column: {}={}",
+                                             slot_desc->col_name(), column_from_path);
             }
         }
     }
@@ -473,8 +477,7 @@ Status VFileScanner::_get_next_reader() {
             _cur_reader.reset(new ParquetReader(
                     _profile, _params, range, _file_col_names, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj())));
-            if (_push_down_expr == nullptr && _vconjunct_ctx != nullptr &&
-                _partition_slot_descs.empty()) { // TODO: support partition columns
+            if (_push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
                 _discard_conjuncts();
             }
@@ -521,6 +524,7 @@ Status VFileScanner::_get_next_reader() {
         _name_to_col_type.clear();
         _missing_cols.clear();
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;
             for (auto& col : _missing_cols) {
@@ -533,6 +537,48 @@ Status VFileScanner::_get_next_reader() {
         break;
     }
     return Status::OK();
+}
+
+Status VFileScanner::_generate_fill_columns() {
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContext*> missing_columns;
+
+    const TFileRangeDesc& range = _ranges.at(_next_range - 1);
+    if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
+        for (const auto& slot_desc : _partition_slot_descs) {
+            if (slot_desc) {
+                auto it = _partition_slot_index_map.find(slot_desc->id());
+                if (it == std::end(_partition_slot_index_map)) {
+                    return Status::InternalError("Unknown source slot descriptor, slot_id={}",
+                                                 slot_desc->id());
+                }
+                const std::string& column_from_path = range.columns_from_path[it->second];
+                partition_columns.emplace(slot_desc->col_name(),
+                                          std::make_tuple(column_from_path, slot_desc));
+            }
+        }
+    }
+
+    if (!_missing_cols.empty()) {
+        for (auto slot_desc : _real_tuple_desc->slots()) {
+            if (!slot_desc->is_materialized()) {
+                continue;
+            }
+            if (_missing_cols.find(slot_desc->col_name()) == _missing_cols.end()) {
+                continue;
+            }
+
+            auto it = _col_default_value_ctx.find(slot_desc->col_name());
+            if (it == _col_default_value_ctx.end()) {
+                return Status::InternalError("failed to find default value expr for slot: {}",
+                                             slot_desc->col_name());
+            }
+            missing_columns.emplace(slot_desc->col_name(), it->second);
+        }
+    }
+
+    return _cur_reader->set_fill_columns(partition_columns, missing_columns);
 }
 
 Status VFileScanner::_init_expr_ctxes() {

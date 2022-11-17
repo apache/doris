@@ -82,6 +82,11 @@ public:
 
     Statistics& statistics() { return _statistics; }
 
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+
 private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups;
@@ -108,7 +113,6 @@ private:
 
     void _init_profile();
     bool _next_row_group_reader();
-    void _init_lazy_read();
     Status _init_read_columns();
     Status _init_row_group_readers();
     // Page Index Filter

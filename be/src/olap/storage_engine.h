@@ -179,8 +179,8 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    MemTracker* segment_meta_mem_tracker() { return _segment_meta_mem_tracker.get(); }
-    MemTracker* segcompaction_mem_tracker() { return _segcompaction_mem_tracker.get(); }
+    std::shared_ptr<MemTracker> segment_meta_mem_tracker() { return _segment_meta_mem_tracker; }
+    std::shared_ptr<MemTracker> segcompaction_mem_tracker() { return _segcompaction_mem_tracker; }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
@@ -326,10 +326,10 @@ private:
     // StorageEngine oneself
     std::shared_ptr<MemTracker> _mem_tracker;
     // Count the memory consumption of segment compaction tasks.
-    std::unique_ptr<MemTracker> _segcompaction_mem_tracker;
+    std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
-    std::unique_ptr<MemTracker> _segment_meta_mem_tracker;
+    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;

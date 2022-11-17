@@ -82,3 +82,10 @@ pg_14_port=5442
 enableHiveTest=false
 hms_port=9183
 hdfs_port=8120
+
+// elasticsearch catalog test config
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableEsTest=false
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200

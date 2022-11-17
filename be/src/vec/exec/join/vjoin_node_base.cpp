@@ -66,6 +66,7 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
 Status VJoinNodeBase::close(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::close");
     VExpr::close(_output_expr_ctxs, state);
+    _join_block.clear();
     return ExecNode::close(state);
 }
 

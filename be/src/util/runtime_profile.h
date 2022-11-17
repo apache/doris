@@ -478,7 +478,7 @@ private:
 
     // Helper function to compute compute the fraction of the total time spent in
     // this profile and its children.
-    // Called recusively.
+    // Called recursively.
     void compute_time_in_profile(int64_t total_time);
 
     // Print the child counters of the given counter name

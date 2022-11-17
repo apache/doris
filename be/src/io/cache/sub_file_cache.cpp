@@ -19,6 +19,7 @@
 
 #include "common/config.h"
 #include "io/fs/local_file_system.h"
+#include "olap/iterators.h"
 
 namespace doris {
 namespace io {
@@ -35,7 +36,11 @@ SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
 
 SubFileCache::~SubFileCache() {}
 
-Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
+Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
+                             size_t* bytes_read) {
+    if (io_ctx.reader_type != READER_QUERY) {
+        return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);
+    }
     std::vector<size_t> need_cache_offsets;
     RETURN_IF_ERROR(_get_need_cache_offsets(offset, result.size, &need_cache_offsets));
     bool need_download = false;
@@ -96,7 +101,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, size_t* bytes_read) {
             Slice read_slice(result.mutable_data() + offset_begin - offset, req_size);
             size_t sub_bytes_read = -1;
             RETURN_NOT_OK_STATUS_WITH_WARN(
-                    _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice,
+                    _cache_file_readers[*iter]->read_at(offset_begin - *iter, read_slice, io_ctx,
                                                         &sub_bytes_read),
                     fmt::format("Read local cache file failed: {}",
                                 _cache_file_readers[*iter]->path().native()));

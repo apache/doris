@@ -20,7 +20,6 @@ package org.apache.doris.statistics;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
-import org.apache.doris.persist.AnalysisJobScheduler;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 import org.apache.doris.statistics.util.BlockingCounter;
 
@@ -76,8 +75,7 @@ public class AnalysisJobExecutor extends Thread {
             try {
                 AnalysisJobWrapper jobWrapper = jobQueue.take();
                 try {
-                    long timeout = TimeUnit.MINUTES.toMillis(5)
-                            - (System.currentTimeMillis() - jobWrapper.getStartTime());
+                    long timeout = StatisticConstants.STATISTICS_TASKS_TIMEOUT_IN_MS;
                     jobWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
                 } catch (Exception e) {
                     jobWrapper.cancel();

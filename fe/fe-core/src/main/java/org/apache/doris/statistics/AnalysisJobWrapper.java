@@ -73,7 +73,7 @@ public class AnalysisJobWrapper extends FutureTask<Void> {
         } finally {
             executor.decr();
         }
-        return super.cancel(true);
+        return super.cancel(false);
     }
 
     public long getStartTime() {

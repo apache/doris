@@ -44,6 +44,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
+  aggregate_functions/aggregate_function_avg_weighted.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
@@ -112,6 +113,16 @@ set(VEC_FILES
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
+  exec/join/inner_join_impl.cpp
+  exec/join/left_semi_join_impl.cpp
+  exec/join/left_anti_join_impl.cpp
+  exec/join/left_outer_join_impl.cpp
+  exec/join/full_outer_join_impl.cpp
+  exec/join/right_outer_join_impl.cpp
+  exec/join/cross_join_impl.cpp
+  exec/join/right_semi_join_impl.cpp
+  exec/join/right_anti_join_impl.cpp
+  exec/join/null_aware_left_anti_join_impl.cpp
   exec/data_gen_functions/vnumbers_tvf.cpp
   exec/vdata_gen_scan_node.cpp
   exprs/vectorized_agg_fn.cpp
@@ -149,7 +160,9 @@ set(VEC_FILES
   functions/array/function_array_difference.cpp
   functions/array/function_array_enumerate.cpp
   functions/array/function_array_range.cpp
+  functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
+  functions/array/function_array_with_constant.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
@@ -199,6 +212,7 @@ set(VEC_FILES
   functions/uuid.cpp
   functions/function_coalesce.cpp
   functions/function_date_or_datetime_computation.cpp
+  functions/function_date_or_datetime_computation_v2.cpp
   functions/function_date_or_datetime_to_string.cpp
   functions/function_datetime_string_to_string.cpp
   functions/function_grouping.cpp
@@ -210,6 +224,7 @@ set(VEC_FILES
   functions/url/function_url.cpp
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp
+  functions/function_running_difference.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

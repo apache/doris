@@ -82,6 +82,7 @@ public:
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
     Status cancel();
+    Status cancel_with_status(const Status& st);
 
     // submit current memtable to flush queue, and wait all memtables in flush queue
     // to be flushed.
@@ -128,6 +129,7 @@ private:
 
     bool _is_init = false;
     bool _is_cancelled = false;
+    Status _cancel_status;
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;

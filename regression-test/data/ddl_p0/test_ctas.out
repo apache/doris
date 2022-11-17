@@ -11,3 +11,7 @@ test_ctas2	CREATE TABLE `test_ctas2` (\n  `test_varchar` varchar(150) NULL,\n  `
 -- !select --
 2
 
+-- !select --
+r1	{"title":"Amount","value":1.1}
+r2	{"title":"Amount","value":2.1}
+

@@ -22,6 +22,7 @@
 
 #include "exprs/runtime_filter_slots.h"
 #include "join_op.h"
+#include "process_hash_table_probe.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_map.h"
 #include "vjoin_node_base.h"
@@ -165,62 +166,6 @@ using HashTableVariants = std::variant<
 class VExprContext;
 class HashJoinNode;
 
-template <int JoinOpType>
-struct ProcessHashTableProbe {
-    ProcessHashTableProbe(HashJoinNode* join_node, int batch_size);
-
-    // output build side result column
-    template <bool have_other_join_conjunct = false>
-    void build_side_output_column(MutableColumns& mcol, int column_offset, int column_length,
-                                  const std::vector<bool>& output_slot_flags, int size);
-
-    void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
-                                  int size, int last_probe_index, size_t probe_size,
-                                  bool all_match_one, bool have_other_join_conjunct);
-    // Only process the join with no other join conjunt, because of no other join conjunt
-    // the output block struct is same with mutable block. we can do more opt on it and simplify
-    // the logic of probe
-    // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
-    Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
-                      MutableBlock& mutable_block, Block* output_block, size_t probe_rows);
-    // In the presence of other join conjunt, the process of join become more complicated.
-    // each matching join column need to be processed by other join conjunt. so the sturct of mutable block
-    // and output block may be different
-    // The output result is determined by the other join conjunt result and same_to_prev struct
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
-    Status do_process_with_other_join_conjuncts(HashTableType& hash_table_ctx,
-                                                ConstNullMapPtr null_map,
-                                                MutableBlock& mutable_block, Block* output_block,
-                                                size_t probe_rows);
-
-    // Process full outer join/ right join / right semi/anti join to output the join result
-    // in hash table
-    template <typename HashTableType>
-    Status process_data_in_hashtable(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
-                                     Block* output_block, bool* eos);
-
-    vectorized::HashJoinNode* _join_node;
-    const int _batch_size;
-    const std::vector<Block>& _build_blocks;
-    Arena _arena;
-
-    std::vector<uint32_t> _items_counts;
-    std::vector<int8_t> _build_block_offsets;
-    std::vector<int> _build_block_rows;
-    // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
-    ColumnUInt8::Container* _tuple_is_null_left_flags;
-    // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
-    ColumnUInt8::Container* _tuple_is_null_right_flags;
-
-    RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::Counter* _search_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_output_timer;
-    RuntimeProfile::Counter* _probe_side_output_timer;
-
-    static constexpr int PROBE_SIDE_EXPLODE_RATE = 3;
-};
-
 using HashTableCtxVariants =
         std::variant<std::monostate, ProcessHashTableProbe<TJoinOp::INNER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::LEFT_SEMI_JOIN>,
@@ -235,8 +180,11 @@ using HashTableCtxVariants =
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
+    // TODO: Best prefetch step is decided by machine. We should also provide a
+    //  SQL hint to allow users to tune by hand.
+    static constexpr int PREFETCH_STEP = 64;
+
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~HashJoinNode() override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
@@ -285,10 +233,10 @@ private:
 
     int64_t _mem_used;
 
-    Arena _arena;
-    HashTableVariants _hash_table_variants;
+    std::unique_ptr<Arena> _arena;
+    std::unique_ptr<HashTableVariants> _hash_table_variants;
 
-    HashTableCtxVariants _process_hashtable_ctx_variants;
+    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
     std::vector<Block> _build_blocks;
     Block _probe_block;
@@ -353,6 +301,8 @@ private:
     void _reset_tuple_is_null_column();
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
+
+    void _release_mem();
 
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;

@@ -259,7 +259,7 @@ public:
     ///   unpinning the stream.
     /// c) The append fails with a runtime error. Returns false and sets 'status' to an
     ///   error.
-    /// d) The append fails becase the row is too large to fit in a page of a stream.
+    /// d) The append fails because the row is too large to fit in a page of a stream.
     ///   Returns false and sets 'status' to an error.
     ///
     /// Unpinned streams can only encounter case b) when appending a row larger than

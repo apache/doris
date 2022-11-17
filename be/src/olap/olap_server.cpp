@@ -495,7 +495,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
     std::shuffle(data_dirs.begin(), data_dirs.end(), g);
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
-    // when travesing the data dir
+    // when traversing the data dir
     std::map<DataDir*, std::unordered_set<TTabletId>> copied_cumu_map;
     std::map<DataDir*, std::unordered_set<TTabletId>> copied_base_map;
     {

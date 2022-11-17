@@ -506,7 +506,7 @@ int main(int argc, char** argv) {
         doris::MemInfo::refresh_allocator_mem();
 #endif
         if (doris::config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage("memory_debug");
+            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
         }
         doris::MemTrackerLimiter::enable_print_log_process_usage();
         sleep(1);

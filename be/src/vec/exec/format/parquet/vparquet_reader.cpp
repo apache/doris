@@ -160,13 +160,15 @@ Status ParquetReader::init_reader(
     RETURN_IF_ERROR(_init_read_columns());
     // build column predicates for column lazy read
     _lazy_read_ctx.vconjunct_ctx = vconjunct_ctx;
-    _init_lazy_read();
-    RETURN_IF_ERROR(_init_row_group_readers());
 
-    return Status::OK();
+    return _init_row_group_readers();
 }
 
-void ParquetReader::_init_lazy_read() {
+Status ParquetReader::set_fill_columns(
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContext*>& missing_columns) {
+    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     std::unordered_map<std::string, uint32_t> predicate_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (VSlotRef* slot_ref = typeid_cast<VSlotRef*>(expr)) {
@@ -183,7 +185,9 @@ void ParquetReader::_init_lazy_read() {
                     visit_slot(child);
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                visit_slot(in_predicate->children()[0]);
+                if (in_predicate->children().size() > 0) {
+                    visit_slot(in_predicate->children()[0]);
+                }
             } else {
                 for (VExpr* child : filter_impl->children()) {
                     visit_slot(child);
@@ -198,27 +202,62 @@ void ParquetReader::_init_lazy_read() {
     if (_lazy_read_ctx.vconjunct_ctx != nullptr) {
         visit_slot(_lazy_read_ctx.vconjunct_ctx->root());
     }
+
+    bool has_complex_type = false;
+    const FieldDescriptor& schema = _file_metadata->schema();
     for (auto& read_col : _read_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col._file_slot_name);
+        PrimitiveType column_type = schema.get_column(read_col._file_slot_name)->type.type;
+        if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
+            has_complex_type = true;
+        }
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_col._file_slot_name);
             if (iter == predicate_columns.end()) {
                 _lazy_read_ctx.lazy_read_columns.emplace_back(read_col._file_slot_name);
             } else {
                 _lazy_read_ctx.predicate_columns.emplace_back(iter->first);
-                _lazy_read_ctx.predicate_col_ids.emplace_back(iter->second);
+                _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second);
             }
         }
     }
-    if (_lazy_read_ctx.predicate_columns.size() > 0 &&
-        _lazy_read_ctx.lazy_read_columns.size() > 0) {
-        if (predicate_columns.size() == _lazy_read_ctx.predicate_columns.size()) {
-            // TODO: support partition columns
-            // _vconjunct_ctx has partition columns, and will push down to row group reader.
-            // However, row group reader can't get partition column values now.
-            _lazy_read_ctx.can_lazy_read = true;
+
+    for (auto& kv : partition_columns) {
+        auto iter = predicate_columns.find(kv.first);
+        if (iter == predicate_columns.end()) {
+            _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
+        } else {
+            _lazy_read_ctx.predicate_partition_columns.emplace(kv.first, kv.second);
+            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second);
         }
     }
+
+    for (auto& kv : missing_columns) {
+        auto iter = predicate_columns.find(kv.first);
+        if (iter == predicate_columns.end()) {
+            _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
+        } else {
+            _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
+            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second);
+        }
+    }
+
+    if (!has_complex_type && _lazy_read_ctx.predicate_columns.size() > 0 &&
+        _lazy_read_ctx.lazy_read_columns.size() > 0) {
+        _lazy_read_ctx.can_lazy_read = true;
+    }
+
+    if (!_lazy_read_ctx.can_lazy_read) {
+        for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+            _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
+        }
+        for (auto& kv : _lazy_read_ctx.predicate_missing_columns) {
+            _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
+        }
+    }
+
+    _fill_all_columns = true;
+    return Status::OK();
 }
 
 Status ParquetReader::_init_read_columns() {

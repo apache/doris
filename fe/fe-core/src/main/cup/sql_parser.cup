@@ -601,7 +601,8 @@ terminal String
     KW_WITH,
     KW_WORK,
     KW_WRITE,
-    KW_YEAR;
+    KW_YEAR,
+    KW_MTMV;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -626,7 +627,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt;
+    import_preceding_filter_stmt, unlock_tables_stmt, lock_tables_stmt, refresh_stmt, clean_stmt, analyze_stmt, show_mtmv_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -781,8 +782,10 @@ nonterminal List<PartitionValue> partition_value_list;
 nonterminal List<PartitionValue> partition_key_item_list;
 nonterminal List<List<PartitionValue>> list_partition_values_list;
 nonterminal SinglePartitionDesc single_partition_desc;
-nonterminal List<SinglePartitionDesc> opt_single_partition_desc_list;
-nonterminal List<SinglePartitionDesc> single_partition_desc_list;
+nonterminal List<AllPartitionDesc> opt_all_partition_desc_list;
+nonterminal List<AllPartitionDesc> all_partition_desc_list;
+nonterminal PartitionKeyDesc fixed_multi_partition_key_desc;
+nonterminal MultiPartitionDesc multi_partition_desc;
 
 nonterminal List<AccessPrivilege> privilege_list;
 nonterminal List<String> string_list;
@@ -1098,6 +1101,8 @@ stmt ::=
     | clean_stmt:stmt
     {: RESULT = stmt; :}
     | analyze_stmt:stmt
+    {: RESULT = stmt; :}
+    | show_mtmv_stmt : stmt
     {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
@@ -2558,6 +2563,49 @@ show_routine_load_task_stmt ::=
     :}
     ;
 
+show_mtmv_stmt ::=
+    KW_SHOW KW_MTMV KW_JOB
+    {:
+        RESULT = new ShowMTMVJobStmt();
+    :}
+    | KW_SHOW KW_MTMV KW_JOB KW_FOR ident:jobName
+    {:
+        RESULT = new ShowMTMVJobStmt(jobName);
+    :}
+    | KW_SHOW KW_MTMV KW_JOB KW_FROM ident:dbName
+    {:
+        RESULT = new ShowMTMVJobStmt(dbName, null);
+    :}
+    | KW_SHOW KW_MTMV KW_JOB KW_ON table_name:tbl
+    {:
+        RESULT = new ShowMTMVJobStmt(null, tbl);
+    :}
+    | KW_SHOW KW_MTMV KW_JOB KW_FROM ident:dbName KW_ON table_name:tbl
+    {:
+        RESULT = new ShowMTMVJobStmt(dbName, tbl);
+    :}
+    | KW_SHOW KW_MTMV KW_TASK
+    {:
+        RESULT = new ShowMTMVTaskStmt();
+    :}
+    | KW_SHOW KW_MTMV KW_TASK KW_FOR ident:taskId
+    {:
+        RESULT = new ShowMTMVTaskStmt(taskId);
+    :}
+    | KW_SHOW KW_MTMV KW_TASK KW_FROM ident:dbName
+    {:
+        RESULT = new ShowMTMVTaskStmt(dbName, null);
+    :}
+    | KW_SHOW KW_MTMV KW_TASK KW_ON table_name:tbl
+    {:
+        RESULT = new ShowMTMVTaskStmt(null, tbl);
+    :}
+    | KW_SHOW KW_MTMV KW_TASK KW_FROM ident:dbName KW_ON table_name:tbl
+    {:
+        RESULT = new ShowMTMVTaskStmt(dbName, tbl);
+    :}
+    ;
+
 show_create_routine_load_stmt ::=
     KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
@@ -2812,13 +2860,13 @@ opt_partition ::=
     :}
     /* Range partition */
     | KW_PARTITION KW_BY KW_RANGE LPAREN ident_list:columns RPAREN
-            LPAREN opt_single_partition_desc_list:list RPAREN
+            LPAREN opt_all_partition_desc_list:list RPAREN
     {:
         RESULT = new RangePartitionDesc(columns, list);
     :}
     /* List partition */
     | KW_PARTITION KW_BY KW_LIST LPAREN ident_list:columns RPAREN
-            LPAREN opt_single_partition_desc_list:list RPAREN
+            LPAREN opt_all_partition_desc_list:list RPAREN
     {:
         RESULT = new ListPartitionDesc(columns, list);
     :}
@@ -2886,24 +2934,33 @@ opt_keys ::=
     :}
     ;
 
-opt_single_partition_desc_list ::=
+opt_all_partition_desc_list ::=
     /* Empty */
     {:
         RESULT = null;
     :}
-    | single_partition_desc_list:list
+    | all_partition_desc_list:list
     {:
         RESULT = list;
     :}
     ;
 
-single_partition_desc_list ::=
-    single_partition_desc_list:list COMMA single_partition_desc:desc
+all_partition_desc_list ::=
+    all_partition_desc_list:list COMMA single_partition_desc:desc
     {:
         list.add(desc);
         RESULT = list;
     :}
     | single_partition_desc:desc
+    {:
+        RESULT = Lists.newArrayList(desc);
+    :}
+    | all_partition_desc_list:list COMMA multi_partition_desc:desc
+    {:
+        list.add(desc);
+        RESULT = list;
+    :}
+    | multi_partition_desc:desc
     {:
         RESULT = Lists.newArrayList(desc);
     :}
@@ -2925,6 +2982,22 @@ single_partition_desc ::=
         opt_key_value_map:properties
     {:
         RESULT = new SinglePartitionDesc(ifNotExists, partName, desc, properties);
+    :}
+    ;
+
+multi_partition_desc ::=
+    fixed_multi_partition_key_desc:desc
+        opt_key_value_map:properties
+    {:
+        RESULT = new MultiPartitionDesc(desc, properties);
+    :}
+    ;
+
+fixed_multi_partition_key_desc ::=
+    // FROM (lower) TO (upper) INTERVAL time_interval time_type
+    KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit
+    {:
+        RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit);
     :}
     ;
 
@@ -6747,6 +6820,8 @@ keyword ::=
     | KW_CATALOGS:id
     {: RESULT = id; :}
     | KW_RECYCLE:id
+    {: RESULT = id; :}
+    | KW_MTMV:id
     {: RESULT = id; :}
     ;
 

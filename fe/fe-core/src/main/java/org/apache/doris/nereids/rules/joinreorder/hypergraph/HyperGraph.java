@@ -53,6 +53,10 @@ public class HyperGraph {
         return edges;
     }
 
+    public List<Node> getNodes() {
+        return nodes;
+    }
+
     public Edge getEdge(int index) {
         return edges.get(index);
     }
@@ -141,8 +145,8 @@ public class HyperGraph {
                     join.right());
             Edge edge = new Edge(singleJoin, edges.size());
             BitSet bitSet = findNodes(expression.getInputSlots());
-            assert bitSet.cardinality() == 2 : String.format("HyperGraph has not supported polynomial %s yet",
-                    expression);
+            Preconditions.checkArgument(bitSet.cardinality() == 2,
+                    String.format("HyperGraph has not supported polynomial %s yet", expression));
             int leftIndex = bitSet.nextSetBit(0);
             BitSet left = new BitSet();
             left.set(leftIndex);

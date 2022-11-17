@@ -28,7 +28,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class AlterMTMVTask implements Writable {
+public class ChangeMTMVTask implements Writable {
 
     @SerializedName("jobId")
     private long jobId;
@@ -52,7 +52,7 @@ public class AlterMTMVTask implements Writable {
     private String errorMessage = "";
 
 
-    public AlterMTMVTask(long jobId, MTMVTask task, TaskState fromStatus, TaskState toStatus) {
+    public ChangeMTMVTask(long jobId, MTMVTask task, TaskState fromStatus, TaskState toStatus) {
         this.jobId = jobId;
         this.taskId = task.getTaskId();
         this.fromStatus = fromStatus;
@@ -60,7 +60,7 @@ public class AlterMTMVTask implements Writable {
         this.finishTime = task.getFinishTime();
         if (toStatus == TaskState.FAILED) {
             errorCode = task.getErrorCode();
-            errorMessage = task.getErrorMessage();
+            errorMessage = task.getMessage();
         }
     }
 
@@ -120,9 +120,9 @@ public class AlterMTMVTask implements Writable {
         this.finishTime = finishTime;
     }
 
-    public static AlterMTMVTask read(DataInput in) throws IOException {
+    public static ChangeMTMVTask read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, AlterMTMVTask.class);
+        return GsonUtils.GSON.fromJson(json, ChangeMTMVTask.class);
     }
 
     @Override

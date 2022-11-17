@@ -39,8 +39,8 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Joiner;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.InputSplit;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
@@ -56,6 +56,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
     @Override
     public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException {
+        long start = System.currentTimeMillis();
         try {
             List<InputSplit> inputSplits = getSplits(context.conjuncts);
             this.inputSplitNum = inputSplits.size();
@@ -100,10 +101,9 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
 
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-                LOG.info(
-                        "Assign to backend " + curLocations.getLocations().get(0).getBackendId() + " with table split: "
-                                + fileSplit.getPath() + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")"
-                                + " loaction: " + Joiner.on("|").join(split.getLocations()));
+                LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
+                        curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),
+                        fileSplit.getLength(), Joiner.on("|").join(split.getLocations()));
 
                 fileSplitStrategy.update(fileSplit);
                 // Add a new location when it's can be split
@@ -117,6 +117,8 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             if (curLocations.getScanRange().getExtScanRange().getFileScanRange().getRangesSize() > 0) {
                 scanRangeLocations.add(curLocations);
             }
+            LOG.debug("create #{} ScanRangeLocations cost: {} ms",
+                    scanRangeLocations.size(), (System.currentTimeMillis() - start));
         } catch (IOException e) {
             throw new UserException(e);
         }
