@@ -158,7 +158,7 @@ void MemInfo::init() {
     _s_initialized = true;
 }
 #else
-MemInfo::refresh_proc_meminfo() {};
+void MemInfo::refresh_proc_meminfo() {}
 
 void MemInfo::init() {
     size_t size = sizeof(_s_physical_mem);
