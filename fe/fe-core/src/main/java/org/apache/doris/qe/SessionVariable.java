@@ -223,6 +223,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
 
+    public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
+
     public static final String INTERNAL_SESSION = "internal_session";
 
     // session origin value
@@ -585,6 +587,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
     public boolean enableNereidsStatsDeriveV2 = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
+    public boolean enableEliminateSortNode = true;
 
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
