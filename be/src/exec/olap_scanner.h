@@ -33,9 +33,9 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
-#include "olap/tuple_reader.h"
 #include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
+#include "olap/tuple_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "runtime/vectorized_row_batch.h"
@@ -142,6 +142,9 @@ protected:
     int64_t _num_rows_read = 0;
     int64_t _raw_rows_read = 0;
     int64_t _compressed_bytes_read = 0;
+    int64_t _avg_row_size = 0;
+    int64_t _first_batch_row_num = 0;
+    int64_t _first_batch_size = 0;
 
     size_t _batch_size = 0;
 
