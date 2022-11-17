@@ -43,13 +43,19 @@ import java.util.Set;
 
 public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
     public RangePartitionPrunerV2(Map<Long, PartitionItem> idToPartitionItem,
-                                  List<Column> partitionColumns,
-                                  Map<String, ColumnRange> columnNameToRange) {
+            List<Column> partitionColumns,
+            Map<String, ColumnRange> columnNameToRange) {
         super(idToPartitionItem, partitionColumns, columnNameToRange);
     }
 
     @Override
-    RangeMap<ColumnBound, UniqueId> getCandidateRangeMap() {
+    void genSingleColumnRangeMap() {
+        if (singleColumnRangeMap == null) {
+            singleColumnRangeMap = genSingleColumnRangeMap(idToPartitionItem);
+        }
+    }
+
+    public static RangeMap<ColumnBound, UniqueId> genSingleColumnRangeMap(Map<Long, PartitionItem> idToPartitionItem) {
         RangeMap<ColumnBound, UniqueId> candidate = TreeRangeMap.create();
         idToPartitionItem.forEach((id, item) -> {
             Range<PartitionKey> range = item.getItems();

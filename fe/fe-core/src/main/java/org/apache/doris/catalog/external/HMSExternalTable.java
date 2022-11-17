@@ -78,7 +78,7 @@ public class HMSExternalTable extends ExternalTable {
         return dlaType != DLAType.UNKNOWN;
     }
 
-    public synchronized void makeSureInitialized() {
+    protected synchronized void makeSureInitialized() {
         if (!objectCreated) {
             try {
                 getRemoteTable();
@@ -98,8 +98,27 @@ public class HMSExternalTable extends ExternalTable {
                     dlaType = DLAType.UNKNOWN;
                 }
             }
+
+            initPartitionColumns();
             objectCreated = true;
         }
+    }
+
+    private void initPartitionColumns() {
+        Set<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+                .collect(Collectors.toSet());
+        partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
+        for (String partitionKey : partitionKeys) {
+            // Do not use "getColumn()", which will cause dead loop
+            List<Column> schema = getFullSchema();
+            for (Column column : schema) {
+                if (partitionKey.equals(column.getName())) {
+                    partitionColumns.add(column);
+                    break;
+                }
+            }
+        }
+        LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
     }
 
     /**
@@ -161,13 +180,11 @@ public class HMSExternalTable extends ExternalTable {
 
     public List<Type> getPartitionColumnTypes() {
         makeSureInitialized();
-        initPartitionColumns();
         return partitionColumns.stream().map(c -> c.getType()).collect(Collectors.toList());
     }
 
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
-        initPartitionColumns();
         return partitionColumns;
     }
 
@@ -267,31 +284,6 @@ public class HMSExternalTable extends ExternalTable {
 
     public Map<String, String> getS3Properties() {
         return catalog.getCatalogProperty().getS3Properties();
-    }
-
-    private void initPartitionColumns() {
-        if (partitionColumns != null) {
-            return;
-        }
-        synchronized (this) {
-            if (partitionColumns != null) {
-                return;
-            }
-            Set<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
-                    .collect(Collectors.toSet());
-            partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
-            for (String partitionKey : partitionKeys) {
-                // Do not use "getColumn()", which will cause dead loop
-                List<Column> schema = getFullSchema();
-                for (Column column : schema) {
-                    if (partitionKey.equals(column.getName())) {
-                        partitionColumns.add(column);
-                        break;
-                    }
-                }
-            }
-            LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
-        }
     }
 }
 
