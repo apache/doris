@@ -120,7 +120,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
-import org.apache.doris.cooldown.CooldownSingleRemoteHandler;
+import org.apache.doris.cooldown.CooldownHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -315,7 +315,7 @@ public class Env {
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
-    private CooldownSingleRemoteHandler cooldownSingleRemoteHandler;
+    private CooldownHandler cooldownHandler;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -544,7 +544,7 @@ public class Env {
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
-        this.cooldownSingleRemoteHandler = new CooldownSingleRemoteHandler();
+        this.cooldownHandler = new CooldownHandler();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -1412,7 +1412,7 @@ public class Env {
         // start daemon thread to update global partition in memory information periodically
         partitionInMemoryInfoCollector.start();
         if (Config.cooldown_single_remote_file) {
-            cooldownSingleRemoteHandler.start();
+            cooldownHandler.start();
         }
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
@@ -1796,7 +1796,7 @@ public class Env {
     }
 
     public long loadCooldownJob(DataInputStream dis, long checksum) throws IOException {
-        cooldownSingleRemoteHandler.readField(dis);
+        cooldownHandler.readField(dis);
         LOG.info("finished replay loadCooldownJob from image");
         return checksum;
     }
@@ -3448,8 +3448,8 @@ public class Env {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
     }
 
-    public CooldownSingleRemoteHandler getCooldownSingleRemoteHandler() {
-        return cooldownSingleRemoteHandler;
+    public CooldownHandler getCooldownHandler() {
+        return cooldownHandler;
     }
 
     public SystemHandler getClusterHandler() {

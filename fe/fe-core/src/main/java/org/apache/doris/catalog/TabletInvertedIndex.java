@@ -189,8 +189,8 @@ public class TabletInvertedIndex {
                                 }
                             }
 
-                            if (Config.cooldown_single_remote_file &&
-                                    needChangeCooldownConf(replica, backendTabletInfo)) {
+                            if (Config.cooldown_single_remote_file
+                                    && needChangeCooldownConf(replica, backendTabletInfo)) {
                                 syncCooldownTabletMap.put(backendTabletInfo.getTabletId(), tabletMeta);
                             }
 

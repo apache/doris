@@ -130,13 +130,13 @@ public class CooldownJob implements Writable {
         try {
             Partition partition = tbl.getPartition(partitionId);
             if (partition == null) {
-                throw new CooldownException("Partition doesn't exist. tabletId: " + tableId + ", partitionId: " +
-                        partitionId);
+                throw new CooldownException("Partition doesn't exist. tabletId: " + tableId + ", partitionId: "
+                        + partitionId);
             }
             MaterializedIndex index = partition.getIndex(indexId);
             if (index == null) {
-                throw new CooldownException("Index doesn't exist. tabletId: " + tableId + ", partitionId: " +
-                        partitionId + ", indexId: " + indexId);
+                throw new CooldownException("Index doesn't exist. tabletId: " + tableId + ", partitionId: "
+                        + partitionId + ", indexId: " + indexId);
             }
             Tablet tablet = index.getTablet(tabletId);
             if (tablet == null) {
@@ -144,8 +144,8 @@ public class CooldownJob implements Writable {
             }
             Replica replica = tablet.getReplicaById(replicaId);
             if (replica == null) {
-                throw new CooldownException("Replica doesn't exist. tabletId: " + tableId + ", tabletId: " + tabletId +
-                        ", replicaId: " + replicaId);
+                throw new CooldownException("Replica doesn't exist. tabletId: " + tableId + ", tabletId: " + tabletId
+                        + ", replicaId: " + replicaId);
             }
             backendId = replica.getBackendId();
         } finally {

@@ -38,8 +38,8 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ThreadPoolExecutor;
 
-public class CooldownSingleRemoteHandler extends MasterDaemon {
-    private static final Logger LOG = LogManager.getLogger(CooldownSingleRemoteHandler.class);
+public class CooldownHandler extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(CooldownHandler.class);
     private static final int MAX_ACTIVE_COOLDOWN_JOB_SIZE = 10;
 
     private static final int MAX_RUNABLE_COOLDOWN_JOB_SIZE = 100;
@@ -54,13 +54,13 @@ public class CooldownSingleRemoteHandler extends MasterDaemon {
     public final ThreadPoolExecutor cooldownThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
             MAX_ACTIVE_COOLDOWN_JOB_SIZE, "cooldown-pool", true);
 
-    private static volatile CooldownSingleRemoteHandler INSTANCE = null;
+    private static volatile CooldownHandler INSTANCE = null;
 
-    public static CooldownSingleRemoteHandler getInstance() {
+    public static CooldownHandler getInstance() {
         if (INSTANCE == null) {
-            synchronized (CooldownSingleRemoteHandler.class) {
+            synchronized (CooldownHandler.class) {
                 if (INSTANCE == null) {
-                    INSTANCE = new CooldownSingleRemoteHandler();
+                    INSTANCE = new CooldownHandler();
                 }
             }
         }
