@@ -51,7 +51,7 @@ public class FeNameFormat {
                     COMMON_TABLE_NAME_REGEX);
         }
         if (tableName.length() > Config.table_name_length_limit) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME, tableName,
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_NAME_LENGTH_LIMIT, tableName,
                     tableName.length(), Config.table_name_length_limit);
         }
     }
