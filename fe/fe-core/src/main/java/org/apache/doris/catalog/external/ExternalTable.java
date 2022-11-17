@@ -100,7 +100,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
-    public void makeSureInitialized() {
+    protected void makeSureInitialized() {
         throw new NotImplementedException();
     }
 
@@ -213,7 +213,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getFullSchema() {
-        makeSureInitialized();
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         return cache.getSchema(dbName, name);
     }

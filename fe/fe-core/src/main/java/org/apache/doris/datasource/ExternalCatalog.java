@@ -102,7 +102,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
                 // Forward to master and wait the journal to replay.
                 MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
                 try {
-                    remoteExecutor.forward(id, -1, -1);
+                    remoteExecutor.forward(id, -1);
                 } catch (Exception e) {
                     Util.logAndThrowRuntimeException(LOG,
                             String.format("failed to forward init catalog %s operation to master.", name), e);

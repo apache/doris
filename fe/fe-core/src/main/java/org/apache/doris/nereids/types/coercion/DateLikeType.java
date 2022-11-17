@@ -15,31 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
-
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.DateLikeType;
+package org.apache.doris.nereids.types.coercion;
 
 /**
- * Date type in Nereids.
+ * date like type.
  */
-public class DateV2Type extends DateLikeType {
-
-    public static final DateV2Type INSTANCE = new DateV2Type();
-
-    private static final int WIDTH = 4;
-
-    private DateV2Type() {
-    }
-
-    @Override
-    public Type toCatalogDataType() {
-        return Type.DATEV2;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
-    }
+public abstract class DateLikeType extends PrimitiveType {
 }
-
