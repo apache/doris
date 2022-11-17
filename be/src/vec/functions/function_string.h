@@ -1353,15 +1353,8 @@ public:
 };
 
 class FunctionSplitByString : public IFunction {
-    /**
- * explain              :Used to split the string to get the offset and length of each element in the string
- * parameter s          :The string to be split
- * parameter c          :delimiter(type of string)
- * parameter v_offset   :A container used to store the offset of each element in a string
- * parameter v_charlen  :A container used to store the length of each element
-*/
 private:
-    void getOffsetsAndLen(const std::string& s, const std::string& c, std::vector<size_t>& v_offset,
+    void get_offsets_and_len(const std::string& s, const std::string& c, std::vector<size_t>& v_offset,
                           std::vector<size_t>& v_charlen) {
         v_offset.clear();
         v_charlen.clear();
