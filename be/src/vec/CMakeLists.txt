@@ -227,6 +227,7 @@ set(VEC_FILES
   functions/functions_multi_string_position.cpp
   functions/functions_multi_string_search.cpp
   functions/function_running_difference.cpp
+  functions/function_width_bucket.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
