@@ -33,7 +33,6 @@ import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -66,8 +65,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -258,64 +257,48 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     // TODO: Supports for `distinct`
     @Override
     public Expr visitAggregateFunction(AggregateFunction function, PlanTranslatorContext context) {
-        // argTypesBeforeDisassembled is used to find the origin function's input type before disassemble aggregate.
-        //
-        // For example, 'double avg(int)' will be disassembled to 'varchar avg(int)' and 'double avg(varchar)'
-        // which the varchar contains sum(double) and count(int).
-        //
-        // We save the origin input type 'int' for the global aggregate 'varchar avg(int)', and get it in the
-        // 'argTypesBeforeDisassembled' variable, so we can find the catalog function 'avg(int)' in **frontend**.
-        //
-        // Vectorized engine in backend will find the 'avg(int)' function, and forwarding to the correct global
-        // aggregate function 'double avg(varchar)' by FunctionCallExpr.isMergeAggFn.
-        List<DataType> argTypesBeforeDisassembled = function.getArgumentTypesBeforeDisassembled();
+        List<Expr> catalogArguments = function.getArguments()
+                .stream()
+                .map(arg -> arg.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
 
-        // We should change the global aggregate function's temporary input type(varchar) to the origin input type.
-        //
-        // For example: the global aggregate function expression 'avg(slotRef(type=varchar))' of the origin function
-        // 'avg(int)' should change to 'avg(slotRef(type=int))', because FunctionCallExpr will be converted to thrift
-        // format, and compute signature string by the children's type, we should pass the signature 'avg(int)' to
-        // **backend**. If we pass 'avg(varchar)' to backend, it will throw an exception: 'Agg Function avg is not
-        // implemented'.
-        List<Expr> catalogArguments = new ArrayList<>();
-        for (int i = 0; i < function.getArguments().size(); i++) {
-            Expr catalogExpr = function.getArgument(i).accept(this, context);
-            if (catalogExpr instanceof SlotRef
-                    // count(*) in local aggregate contains empty children
-                    // but contains one child in global aggregate: 'count(count(*))'.
-                    // so the size of argTypesBeforeDisassembled maybe less than global aggregate param.
-                    && argTypesBeforeDisassembled.size() > i) {
-                SlotRef intermediateSlot = (SlotRef) catalogExpr.clone();
-                // change the slot type to origin input type
-                intermediateSlot.setType(argTypesBeforeDisassembled.get(i).toCatalogDataType());
-                catalogExpr = intermediateSlot;
-            }
-            catalogArguments.add(catalogExpr);
-        }
+        // aggFnArguments is used to build TAggregateExpr.param_types, so backend can find the aggregate function
+        List<Expr> aggFnArguments = function.getArgumentsBeforeDisassembled()
+                .stream()
+                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
+                .collect(ImmutableList.toImmutableList());
 
         FunctionParams aggFnParams;
         if (function instanceof Count && ((Count) function).isStar()) {
             aggFnParams = FunctionParams.createStarParam();
         } else {
-            aggFnParams = new FunctionParams(function.isDistinct(), catalogArguments);
+            aggFnParams = new FunctionParams(function.isDistinct(), aggFnArguments);
         }
-
-        boolean returnNonNullOnEmpty = !function.nullable();
 
         ImmutableList<Type> argTypes = catalogArguments.stream()
                 .map(arg -> arg.getType())
                 .collect(ImmutableList.toImmutableList());
 
-        org.apache.doris.catalog.AggregateFunction catalogFunction =
-                org.apache.doris.catalog.AggregateFunction.createBuiltin(function.getName(),
-                    argTypes, function.getFinalType().toCatalogDataType(),
-                    function.getIntermediateTypes().toCatalogDataType(),
-                    "", "", "", null, null,
-                    "", null, false, true,
-                        returnNonNullOnEmpty, true);
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+
+        boolean isAnalyticFunction = false;
+        org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
+                new FunctionName(function.getName()), argTypes,
+                function.getDataType().toCatalogDataType(),
+                function.getIntermediateTypes().toCatalogDataType(),
+                function.hasVarArguments(),
+                null, "", "", null, "",
+                null, "", null, false,
+                isAnalyticFunction, false, TFunctionBinaryType.BUILTIN,
+                true, true, nullableMode
+        );
+
+        boolean isMergeFn = function.isGlobal();
 
         // create catalog FunctionCallExpr without analyze again
-        return new FunctionCallExpr(catalogFunction.getFunctionName(), catalogFunction, aggFnParams, aggFnParams);
+        return new FunctionCallExpr(catalogFunction, aggFnParams, aggFnParams, isMergeFn, catalogArguments);
     }
 
     @Override
@@ -332,12 +315,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
-        Function catalogFunction = new Function(new FunctionName(function.getName()), argTypes,
-                function.getDataType().toCatalogDataType(), function.hasVarArguments(), true, nullableMode);
+        org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(function.getName()), argTypes,
+                function.getDataType().toCatalogDataType(), function.hasVarArguments(),
+                TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
-        return new FunctionCallExpr(catalogFunction.getFunctionName(), catalogFunction,
-                new FunctionParams(false, arguments));
+        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 
     @Override
