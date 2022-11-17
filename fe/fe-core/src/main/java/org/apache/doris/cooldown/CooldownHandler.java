@@ -122,7 +122,10 @@ public class CooldownHandler extends MasterDaemon {
 
     public void replayCooldownJob(CooldownJob cooldownJob) {
         if (!cooldownJob.isDone() && !runableCooldownJobs.containsKey(cooldownJob.getTabletId())) {
-            cooldownJob.replay(cooldownJob);
+            CooldownJob replayCooldownJob = new CooldownJob(cooldownJob.jobId, cooldownJob.dbId, cooldownJob.tableId,
+                    cooldownJob.partitionId, cooldownJob.indexId, cooldownJob.tabletId, cooldownJob.replicaId,
+                    cooldownJob.cooldownType, cooldownJob.timeoutMs);
+            replayCooldownJob.replay(cooldownJob);
             runableCooldownJobs.put(cooldownJob.getTabletId(), cooldownJob);
         }
     }
