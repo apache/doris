@@ -129,16 +129,7 @@ public class HMSExternalTable extends ExternalTable {
         if (paras == null) {
             return false;
         }
-        boolean isIcebergTable = paras.containsKey("table_type")
-                && paras.get("table_type").equalsIgnoreCase("ICEBERG");
-        boolean isMorInDelete = paras.containsKey("write.delete.mode")
-                && paras.get("write.delete.mode").equalsIgnoreCase("merge-on-read");
-        boolean isMorInUpdate = paras.containsKey("write.update.mode")
-                && paras.get("write.update.mode").equalsIgnoreCase("merge-on-read");
-        boolean isMorInMerge = paras.containsKey("write.merge.mode")
-                && paras.get("write.merge.mode").equalsIgnoreCase("merge-on-read");
-        boolean isCowTable = !(isMorInDelete || isMorInUpdate || isMorInMerge);
-        return isIcebergTable && isCowTable;
+        return paras.containsKey("table_type") && paras.get("table_type").equalsIgnoreCase("ICEBERG");
     }
 
     /**
