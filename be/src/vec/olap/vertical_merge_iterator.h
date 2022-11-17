@@ -132,7 +132,6 @@ public:
               _ori_return_cols(ori_return_cols),
               _order(order),
               _seq_col_idx(seq_col_idx),
-              _num_columns(iter->schema().num_column_ids()),
               _num_key_columns(iter->schema().num_key_columns()) {}
 
     VerticalMergeIteratorContext(const VerticalMergeIteratorContext&) = delete;
@@ -193,7 +192,6 @@ private:
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
-    int _num_columns;
     int _num_key_columns;
     size_t _cur_batch_num = 0;
 
