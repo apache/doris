@@ -700,7 +700,7 @@ public class DistributedPlanner {
     private PlanFragment createNestedLoopJoinFragment(
             NestedLoopJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
             throws UserException {
-        if (node.getJoinOp() == JoinOperator.CROSS_JOIN || node.getJoinOp() == JoinOperator.INNER_JOIN) {
+        if (node.canParallelize()) {
             // The rhs tree is going to send data through an exchange node which effectively
             // compacts the data. No reason to do it again at the rhs root node.
             rightChildFragment.getPlanRoot().setCompactData(false);

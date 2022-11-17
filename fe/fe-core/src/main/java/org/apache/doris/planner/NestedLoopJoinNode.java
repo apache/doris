@@ -60,6 +60,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         tupleIds.addAll(inner.getTupleIds());
     }
 
+    public boolean canParallelize() {
+        return joinOp == JoinOperator.CROSS_JOIN || joinOp == JoinOperator.INNER_JOIN
+                || joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.LEFT_ANTI_JOIN
+                || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+    }
+
     @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         Set<SlotId> result = Sets.newHashSet();
