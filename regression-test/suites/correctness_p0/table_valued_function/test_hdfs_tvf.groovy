@@ -23,174 +23,177 @@ suite("test_hdfs_tvf") {
     def defaultFS = "hdfs://127.0.0.1:${hdfs_port}"
     def uri = ""
 
-    try {
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
+    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        try {
+            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
 
-        // test csv foramt
-        uri = "${defaultFS}" + "/user/doris/csv_format_test/all_types.csv"
-        format = "csv"
-        qt_csv_all_types """ select * from HDFS(
-                    "uri" = "${uri}",
-                    "fs.defaultFS"= "${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}") order by c1; """
+            // test csv foramt
+            uri = "${defaultFS}" + "/user/doris/csv_format_test/all_types.csv"
+            format = "csv"
+            qt_csv_all_types """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}") order by c1; """
 
 
-        uri = "${defaultFS}" + "/user/doris/csv_format_test/student.csv"
-        format = "csv"
-        qt_csv_student """ select cast(c1 as INT) as id, c2 as name, c3 as age from HDFS(
-                    "uri" = "${uri}",
-                    "fs.defaultFS"= "${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}") order by id; """
-
-        uri = "${defaultFS}" + "/user/doris/csv_format_test/array_malformat.csv"
-        format = "csv"
-        qt_csv_array_malformat """ select * from HDFS(
-                                    "URI" = "${uri}",
-                                    "fs.defaultFS"= "${defaultFS}",
-                                    "hadoop.username" = "${hdfsUserName}",
-                                    "format" = "csv",
-                                    "column_separator" = "|") order by c1; """
-
-        uri = "${defaultFS}" + "/user/doris/csv_format_test/array_normal.csv"
-        format = "csv"
-        qt_csv_array_normal """ select * from HDFS("URI" = "${uri}",
-                                "fs.defaultFS"= "${defaultFS}",
-                                "hadoop.username" = "${hdfsUserName}",
-                                "format" = "csv",
-                                "column_separator" = "|") order by c1; """
-
-        // test csv_with_names file format
-        uri = "${defaultFS}" + "/user/doris/csv_format_test/student_with_names.csv"
-        format = "csv_with_names"
-        qt_csv_names """ select cast(id as INT) as id, name, age from HDFS(
+            uri = "${defaultFS}" + "/user/doris/csv_format_test/student.csv"
+            format = "csv"
+            qt_csv_student """ select cast(c1 as INT) as id, c2 as name, c3 as age from HDFS(
                         "uri" = "${uri}",
                         "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}") order by id; """
 
-        // test csv_with_names_and_types file format
-        uri = "${defaultFS}" + "/user/doris/csv_format_test/student_with_names_and_types.csv"
-        format = "csv_with_names_and_types"
-        qt_csv_names_types """ select cast(id as INT) as id, name, age from HDFS(
-                                "uri" = "${uri}",
-                                "fs.defaultFS"= "${defaultFS}",
-                                "hadoop.username" = "${hdfsUserName}",
-                                "format" = "${format}") order by id; """
+            uri = "${defaultFS}" + "/user/doris/csv_format_test/array_malformat.csv"
+            format = "csv"
+            qt_csv_array_malformat """ select * from HDFS(
+                                        "URI" = "${uri}",
+                                        "fs.defaultFS"= "${defaultFS}",
+                                        "hadoop.username" = "${hdfsUserName}",
+                                        "format" = "csv",
+                                        "column_separator" = "|") order by c1; """
+
+            uri = "${defaultFS}" + "/user/doris/csv_format_test/array_normal.csv"
+            format = "csv"
+            qt_csv_array_normal """ select * from HDFS("URI" = "${uri}",
+                                    "fs.defaultFS"= "${defaultFS}",
+                                    "hadoop.username" = "${hdfsUserName}",
+                                    "format" = "csv",
+                                    "column_separator" = "|") order by c1; """
+
+            // test csv_with_names file format
+            uri = "${defaultFS}" + "/user/doris/csv_format_test/student_with_names.csv"
+            format = "csv_with_names"
+            qt_csv_names """ select cast(id as INT) as id, name, age from HDFS(
+                            "uri" = "${uri}",
+                            "fs.defaultFS"= "${defaultFS}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}") order by id; """
+
+            // test csv_with_names_and_types file format
+            uri = "${defaultFS}" + "/user/doris/csv_format_test/student_with_names_and_types.csv"
+            format = "csv_with_names_and_types"
+            qt_csv_names_types """ select cast(id as INT) as id, name, age from HDFS(
+                                    "uri" = "${uri}",
+                                    "fs.defaultFS"= "${defaultFS}",
+                                    "hadoop.username" = "${hdfsUserName}",
+                                    "format" = "${format}") order by id; """
 
 
-        // test parquet
-        uri = "${defaultFS}" + "/user/doris/tpch1.db/hdfs_tvf/test_parquet.snappy.parquet"
-        format = "parquet"
-        qt_parquet """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "${format}") order by s_suppkey limit 20; """
+            // test parquet
+            uri = "${defaultFS}" + "/user/doris/tpch1.db/hdfs_tvf/test_parquet.snappy.parquet"
+            format = "parquet"
+            qt_parquet """ select * from HDFS(
+                            "uri" = "${uri}",
+                            "fs.defaultFS"= "${defaultFS}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}") order by s_suppkey limit 20; """
 
-        // test orc
-        uri = "${defaultFS}" + "/user/doris/tpch1.db/hdfs_tvf/test_orc.snappy.orc"
-        format = "orc"
-        qt_orc """ select * from HDFS(
-                        "uri" = "${uri}",
-                        "fs.defaultFS"= "${defaultFS}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "${format}") order by p_partkey limit 20; """
+            // test orc
+            uri = "${defaultFS}" + "/user/doris/tpch1.db/hdfs_tvf/test_orc.snappy.orc"
+            format = "orc"
+            qt_orc """ select * from HDFS(
+                            "uri" = "${uri}",
+                            "fs.defaultFS"= "${defaultFS}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}") order by p_partkey limit 20; """
 
 
-        // test josn format
-        uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
-        format = "json"
-        qt_json """ select * from HDFS(
-                    "uri" = "${uri}",
-                    "fs.defaultFS"= "${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}",
-                    "strip_outer_array" = "false",
-                    "read_json_by_line" = "true") order by id; """
-
-        // test json root
-        uri = "${defaultFS}" + "/user/doris/json_format_test/nest_json.json"
-        format = "json"
-        qt_json_root """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
-                    "uri" = "${uri}",
-                    "fs.defaultFS"= "${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}",
-                    "strip_outer_array" = "false",
-                    "read_json_by_line" = "true",
-                    "json_root" = "\$.item") order by id; """
-
-        // test json paths
-        uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
-        format = "json"
-        qt_json_paths """ select cast(id as INT) as id, cast(code as INT) as code from HDFS(
-                    "uri" = "${uri}",
-                    "fs.defaultFS"= "${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}",
-                    "strip_outer_array" = "false",
-                    "read_json_by_line" = "true",
-                    "jsonpaths" = "[\\"\$.id\\", \\"\$.code\\"]") order by id; """
-
-        // test non read_json_by_line
-        uri = "${defaultFS}" + "/user/doris/json_format_test/one_array_json.json"
-        format = "json"
-        qt_one_array """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
+            // test josn format
+            uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
+            format = "json"
+            qt_json """ select * from HDFS(
                         "uri" = "${uri}",
                         "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
-                        "strip_outer_array" = "true",
-                        "read_json_by_line" = "false") order by id; """
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by id; """
+
+            // test json root
+            uri = "${defaultFS}" + "/user/doris/json_format_test/nest_json.json"
+            format = "json"
+            qt_json_root """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true",
+                        "json_root" = "\$.item") order by id; """
+
+            // test json paths
+            uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
+            format = "json"
+            qt_json_paths """ select cast(id as INT) as id, cast(code as INT) as code from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true",
+                        "jsonpaths" = "[\\"\$.id\\", \\"\$.code\\"]") order by id; """
+
+            // test non read_json_by_line
+            uri = "${defaultFS}" + "/user/doris/json_format_test/one_array_json.json"
+            format = "json"
+            qt_one_array """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
+                            "uri" = "${uri}",
+                            "fs.defaultFS"= "${defaultFS}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}",
+                            "strip_outer_array" = "true",
+                            "read_json_by_line" = "false") order by id; """
 
 
-        // test cast to int
-        uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
-        format = "json"
-        qt_cast """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
-                    "uri" = "${uri}",
-                    "fs.defaultFS"= "${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}",
-                    "strip_outer_array" = "false",
-                    "read_json_by_line" = "true") order by id; """
+            // test cast to int
+            uri = "${defaultFS}" + "/user/doris/json_format_test/simple_object_json.json"
+            format = "json"
+            qt_cast """ select cast(id as INT) as id, city, cast(code as INT) as code from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by id; """
 
-        // test insert into select
-        def testTable = "test_hdfs_tvf"
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        def result1 = sql """ CREATE TABLE IF NOT EXISTS ${testTable}
-            (
-                id int,
-                city varchar(50),
-                code int
-            )
-            COMMENT "test hdfs tvf table"
-            DISTRIBUTED BY HASH(id) BUCKETS 32
-            PROPERTIES("replication_num" = "1"); """
+            // test insert into select
+            def testTable = "test_hdfs_tvf"
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            def result1 = sql """ CREATE TABLE IF NOT EXISTS ${testTable}
+                (
+                    id int,
+                    city varchar(50),
+                    code int
+                )
+                COMMENT "test hdfs tvf table"
+                DISTRIBUTED BY HASH(id) BUCKETS 32
+                PROPERTIES("replication_num" = "1"); """
 
-        assertTrue(result1.size() == 1)
-        assertTrue(result1[0].size() == 1)
-        assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
+            assertTrue(result1.size() == 1)
+            assertTrue(result1[0].size() == 1)
+            assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
 
-        uri = "${defaultFS}" + "/user/doris/json_format_test/nest_json.json"
-        format = "json"
-        def result2 = sql """ insert into ${testTable}(id,city,code)
-                select cast (id as INT) as id, city, cast (code as INT) as code
-                from HDFS(
-                    "uri" = "${uri}",
-                    "fs.defaultFS"= "${defaultFS}",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}",
-                    "strip_outer_array" = "false",
-                    "read_json_by_line" = "true",
-                    "json_root" = "\$.item") """
-        
-        sql "sync"
-        assertTrue(result2[0][0] == 5, "Insert should update 12 rows")
-        qt_insert """ select * from test_hdfs_tvf order by id; """
-    } finally {
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
+            uri = "${defaultFS}" + "/user/doris/json_format_test/nest_json.json"
+            format = "json"
+            def result2 = sql """ insert into ${testTable}(id,city,code)
+                    select cast (id as INT) as id, city, cast (code as INT) as code
+                    from HDFS(
+                        "uri" = "${uri}",
+                        "fs.defaultFS"= "${defaultFS}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true",
+                        "json_root" = "\$.item") """
+            
+            sql "sync"
+            assertTrue(result2[0][0] == 5, "Insert should update 12 rows")
+            qt_insert """ select * from test_hdfs_tvf order by id; """
+        } finally {
+            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
+        }
     }
 }
