@@ -100,7 +100,7 @@ void Daemon::tcmalloc_gc_thread() {
                   << tc_use_memory_min;
 
         if (alloc_size > tc_use_memory_min) {
-            // Limit size of cache of tcmalloc to avoid oom. 
+            // Limit size of cache of tcmalloc to avoid oom.
             // alloc_size > mem_limit: release memory aggressively because we are reaching oom.
             // alloc_size < mem_limit: limit cache size of tcmalloc under  used_size * 20%.
             size_t max_free_size = 0;
