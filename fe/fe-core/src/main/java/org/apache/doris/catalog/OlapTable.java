@@ -896,6 +896,21 @@ public class OlapTable extends Table {
         this.bfFpp = bfFpp;
     }
 
+    public String getSequenceMapCol() {
+        if (tableProperty == null) {
+            return null;
+        }
+        return tableProperty.getSequenceMapCol();
+    }
+
+    // map the sequence column to other column
+    public void setSequenceMapCol(String colName) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setSequenceMapCol(colName);
+    }
+
     public void setSequenceInfo(Type type) {
         this.hasSequenceCol = true;
         this.sequenceType = type;
