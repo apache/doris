@@ -792,7 +792,7 @@ public class QueryPlanTest {
                 "left join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
@@ -879,7 +879,7 @@ public class QueryPlanTest {
                 "left anti join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
@@ -1638,15 +1638,15 @@ public class QueryPlanTest {
         //valid date
         String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 2> | <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 2> | <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | `b`.`bid`"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 2> | <slot 3>"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
@@ -1654,16 +1654,15 @@ public class QueryPlanTest {
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
+        Assert.assertTrue(explainString.contains("output slot ids: 5 7"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
+        Assert.assertTrue(explainString.contains("output slot ids: 5 7"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
-        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
+        Assert.assertTrue(explainString.contains("output slot ids: 5 7"));
     }
 
     @Test
@@ -2054,7 +2053,7 @@ public class QueryPlanTest {
                 "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:<slot 4> | <slot 5>"));
     }
 
     @Test
