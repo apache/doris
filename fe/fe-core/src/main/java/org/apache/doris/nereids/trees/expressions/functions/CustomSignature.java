@@ -27,21 +27,16 @@ import java.util.List;
 
 /** CustomSignature */
 public interface CustomSignature extends ComputeSignature {
+
+    // custom generate a function signature.
+    FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments);
+
     @Override
     default List<FunctionSignature> getSignatures() {
         List<DataType> originArgumentTypes = getOriginArgumentTypes();
         List<Expression> originArguments = getOriginArguments();
         return ImmutableList.of(customSignature(originArgumentTypes, originArguments));
     }
-
-    // override hasVarArguments method and set to false, or else run into dead loop.
-    @Override
-    default boolean hasVarArguments() {
-        return false;
-    }
-
-    // custom generate a function signature.
-    FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments);
 
     // use the first signature as the candidate signature.
     @Override
