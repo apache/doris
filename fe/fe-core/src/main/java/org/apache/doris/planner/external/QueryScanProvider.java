@@ -63,9 +63,9 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             if (inputSplits.isEmpty()) {
                 return;
             }
-
-            String fullPath = ((FileSplit) inputSplits.get(0)).getPath().toUri().toString();
-            String filePath = ((FileSplit) inputSplits.get(0)).getPath().toUri().getPath();
+            InputSplit inputSplit = inputSplits.get(0);
+            String fullPath = ((FileSplit) inputSplit).getPath().toUri().toString();
+            String filePath = ((FileSplit) inputSplit).getPath().toUri().getPath();
             // eg:
             // hdfs://namenode
             // s3://buckets
@@ -78,6 +78,9 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 context.params.setFileAttributes(getFileAttributes());
             }
 
+            if (inputSplit instanceof IcebergSplit) {
+                IcebergScanProvider.setIcebergParams(context, (IcebergSplit) inputSplit);
+            }
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
             if (locationType == TFileType.FILE_HDFS) {

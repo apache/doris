@@ -276,7 +276,8 @@ set(VEC_FILES
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
-  )
+  exec/format/table/table_format_reader.cpp
+  exec/format/table/iceberg_reader.cpp)
 
 add_library(Vec STATIC
         ${VEC_FILES}
