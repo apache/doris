@@ -31,6 +31,13 @@ public class EventProducer {
     private final List<EventFilter> filters;
     private final Class<? extends Event> eventClass;
 
+    /**
+     * constructor
+     * @param eventClass event's class info for the producer, a producer can only supply one type of event.
+     * @param filters event's filter, the event that satisfy the filter's condition can be submitted to the channel.
+     *        the filters are AND in logic, see checkAndLog for detail.
+     * @param channel the channel to transport event to consumer.
+     */
     public EventProducer(Class<? extends Event> eventClass, List<EventFilter> filters, EventChannel channel) {
         this.channel = channel;
         Preconditions.checkArgument(filters.stream().allMatch(f -> f.getTargetClass().equals(eventClass)));
