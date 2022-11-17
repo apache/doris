@@ -319,8 +319,8 @@ Status VerticalMergeIteratorContext::_load_next_block() {
             }
         }
         // erase delete handler columns
-        if (_num_columns > _ori_return_cols) {
-            for (auto i = _num_columns - 1; i >= _ori_return_cols; --i) {
+        if (_block->columns() > _ori_return_cols) {
+            for (auto i = _block->columns() - 1; i >= _ori_return_cols; --i) {
                 _block->erase(i);
             }
         }
