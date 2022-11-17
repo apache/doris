@@ -17,7 +17,6 @@
 
 package org.apache.doris.cooldown;
 
-import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -266,7 +265,7 @@ public class CooldownJob implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
+        String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
     }
 
