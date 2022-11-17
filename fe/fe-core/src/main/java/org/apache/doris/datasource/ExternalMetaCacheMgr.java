@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 
@@ -80,16 +81,41 @@ public class ExternalMetaCacheMgr {
         }
     }
 
-    public void removeCache(long catalogId, String dbName, String tblName) {
+    public void invalidateTableCache(long catalogId, String dbName, String tblName) {
+        dbName = ClusterNamespace.getNameFromFullName(dbName);
         ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
         if (schemaCache != null) {
-            schemaCache.invalidateCache(dbName, tblName);
-            LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+            schemaCache.invalidateTableCache(dbName, tblName);
         }
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
-            metaCache.invalidateCache(dbName, tblName);
-            LOG.debug("invalid meta cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+            metaCache.invalidateTableCache(dbName, tblName);
         }
+        LOG.debug("invalid table cache for {}.{} in catalog {}", dbName, tblName, catalogId);
+    }
+
+    public void invalidateDbCache(long catalogId, String dbName) {
+        dbName = ClusterNamespace.getNameFromFullName(dbName);
+        ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
+        if (schemaCache != null) {
+            schemaCache.invalidateDbCache(dbName);
+        }
+        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        if (metaCache != null) {
+            metaCache.invalidateDbCache(dbName);
+        }
+        LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
+    }
+
+    public void invalidateCatalogCache(long catalogId) {
+        ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
+        if (schemaCache != null) {
+            schemaCache.invalidateAll();
+        }
+        HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
+        if (metaCache != null) {
+            metaCache.invalidateAll();
+        }
+        LOG.debug("invalid catalog cache for {}", catalogId);
     }
 }

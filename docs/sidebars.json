@@ -922,7 +922,7 @@
                                 "sql-manual/sql-reference/Utility-Statements/USE",
                                 "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
-                                "sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG"
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH"
                             ]
                         }
                     ]
