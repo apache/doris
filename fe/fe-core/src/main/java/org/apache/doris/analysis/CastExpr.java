@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.math.RoundingMode;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -421,7 +422,12 @@ public class CastExpr extends Expr {
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            return new DecimalLiteral(value.getStringValue());
+            Expr result = new DecimalLiteral(
+                    ((DecimalLiteral) value).getValue().setScale(((ScalarType) type).getScalarScale(),
+                            RoundingMode.HALF_UP));
+            result.setType(ScalarType.createDecimalType(((ScalarType) type).decimalPrecision(),
+                    ((ScalarType) type).getScalarScale()));
+            return result;
         } else if (type.isFloatingPointType()) {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
