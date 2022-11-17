@@ -106,8 +106,10 @@ void ParquetReader::close() {
             COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
             COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
             COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
-            COUNTER_UPDATE(_parquet_profile.page_index_filter_time, _statistics.page_index_filter_time);
-            COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
+            COUNTER_UPDATE(_parquet_profile.page_index_filter_time,
+                           _statistics.page_index_filter_time);
+            COUNTER_UPDATE(_parquet_profile.row_group_filter_time,
+                           _statistics.row_group_filter_time);
 
             COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
             COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
