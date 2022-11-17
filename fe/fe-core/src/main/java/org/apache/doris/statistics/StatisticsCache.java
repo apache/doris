@@ -68,8 +68,10 @@ public class StatisticsCache {
             columnStatCache = StatisticsCacheLoader.load();
         }
         ColumnStatistic stat = columnStatCache.get(tblId + "-" + colName);
-        if (stat == null) {
-            LOG.error("column stats missing: " + tblId + "-" + colName);
+        if (stat == null || (stat.ndv == 1 && stat.minValue == Double.MIN_VALUE && stat.maxValue == Double.MAX_VALUE
+                && stat.avgSizeByte == 1)) {
+            LOG.info("column statistics missing: " + tblId + "-" + colName + " reload");
+            columnStatCache = StatisticsCacheLoader.load();
             stat = ColumnStatistic.DEFAULT;
         }
         return stat;
