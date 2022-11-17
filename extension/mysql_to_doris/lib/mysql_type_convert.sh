@@ -26,8 +26,9 @@ sed -i 's/CHARACTER SET utf8 COLLATE utf8_general_ci//g' $path
 sed -i 's/DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP//g' $path
 sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' $path
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' $path
-sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' $path
+sed -i "s/DEFAULT '0000-00-00 00:00:00'//g" $path
 sed -i 's/DEFAULT CURRENT_TIMESTAMP//g' $path
+sed -i 's/DEFAULT b/DEFAULT/g' $path
 sed -i 's/CHARACTER SET utf8mb4//g' $path
 sed -i 's/CHARACTER SET utf8//g' $path
 sed -i 's/COLLATE utf8mb4_general_ci//g' $path
@@ -50,6 +51,7 @@ sed -i 's/\<zerofill\>//g' $path
 sed -i 's/\<json\>/varchar(65533)/g' $path
 sed -i 's/enum([^)]*)/varchar(65533)/g' $path
 sed -i 's/\<set\>/varchar(65533)/g' $path
+sed -i 's/bit([^)]*)/varchar(65533)/g' $path
 sed -i 's/\<bit\>/varchar(65533)/g' $path
 sed -i 's/\<string\>/varchar(65533)/g' $path
 sed -i 's/\<binary\>/varchar(65533)/g' $path

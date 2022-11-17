@@ -34,7 +34,7 @@ rm -f $path
 for table in $(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk -F '\n' '{print $1}' | sed 's/ //g' | sed '/^$/d'); do
   m_d=$(echo $table | awk -F '.' '{print $1}')
   m_t=$(echo $table | awk -F '.' '{print $2}')
-  echo "show create table \`$m_d\`.\`$m_t\`;" | mysql -h$mysql_host -u$mysql_username -p$mysql_password >>$path
+  echo "show create table \`$m_d\`.\`$m_t\`;" | mysql -h$mysql_host -P$mysql_port -u$mysql_username -p$mysql_password >>$path
 done
 
 #adjust sql

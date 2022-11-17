@@ -23,6 +23,7 @@ function usage() {
   echo "    -i, --insert-data: insert data into doris olap table from doris external table"
   echo "    -d, --drop-external-table: drop doris external table"
   echo "    -a, --auto-external-table: create doris external table and auto check mysql schema change"
+  echo "    --database: specify the database name to process all tables under the entire database, and separate multiple databases with \",\""
   echo "    -h, --help: show usage"
   exit 1
 }
@@ -38,6 +39,7 @@ opts=$(getopt -o eaoidh \
   -l create-olap-table \
   -l insert-datadrop-external-table \
   -l auto-external-table \
+  -l database: \
   -l help \
   -n "$0" \
   -- "$@")
@@ -49,6 +51,7 @@ CREATE_OLAP_TABLE=0
 INSERT_DATA=0
 DROP_EXTERNAL_TABLE=0
 AUTO_EXTERNAL_TABLE=0
+DATABASE=''
 
 while true; do
   case "$1" in
@@ -72,6 +75,10 @@ while true; do
     AUTO_EXTERNAL_TABLE=1
     shift
     ;;
+  --database)
+    DATABASE="$2"
+    shift 2
+    ;;
   -h | --help)
     usage
     shift
@@ -93,6 +100,10 @@ source "${home_dir}"/conf/env.conf
 
 # when fe_password is not set or is empty, do not put -p option
 use_passwd=$([ -z "${fe_password}" ] && echo "" || echo "-p${fe_password}")
+
+if [ -n "${DATABASE}" ]; then
+  sh "${home_dir}"/lib/get_tables.sh "${DATABASE}"
+fi
 
 # create doris external table
 if [[ "${CREATE_EXTERNAL_TABLE}" -eq 1 ]]; then
@@ -131,6 +142,14 @@ if [[ "${INSERT_DATA}" -eq 1 ]]; then
     exit "${res}"
   fi
   echo "====================== insert data finished ======================"
+  echo "====================== start sync check ======================"
+  sh "${home_dir}"/lib/sync_check.sh "${home_dir}"/result/mysql/sync_check 2>error.log
+  res=$?
+  if [ "${res}" != 0 ]; then
+    echo "====================== sync check failed ======================"
+    exit "${res}"
+  fi
+  echo "====================== sync check finished ======================"
 fi
 
 # drop doris external table
@@ -151,6 +170,6 @@ fi
 if [[ "${AUTO_EXTERNAL_TABLE}" -eq 1 ]]; then
   echo "====================== start auto doris external table ======================"
   nohup sh ${home_dir}/lib/e_auto.sh &
-  echo $! > e_auto.pid
+  echo $! >e_auto.pid
   echo "====================== create doris external table started ======================"
 fi

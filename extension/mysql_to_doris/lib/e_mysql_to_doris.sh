@@ -34,7 +34,7 @@ rm -f $path
 for table in $(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk -F '\n' '{print $1}'); do
     d_d=$(echo $table | awk -F '.' '{print $1}')
     d_t=$(echo $table | awk -F '.' '{print $2}')
-    echo "show create table \`$d_d\`.\`$d_t\`;" | mysql -h$mysql_host -u$mysql_username -p$mysql_password >>$path
+    echo "show create table \`$d_d\`.\`$d_t\`;" | mysql -h$mysql_host -P$mysql_port -u$mysql_username -p$mysql_password >>$path
 done
 
 #adjust sql
@@ -50,8 +50,10 @@ rm -rf ${home_dir}/result/mysql/tmp1.sql
 mv ${home_dir}/result/mysql/tmp2.sql $path
 
 #start transform tables struct
-sed -i '/ENGINE=/a) ENGINE=ODBC\n COMMENT "ODBC"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "3306",\n"user" = "$mysql_username",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables",\n"driver" = "MySQL",\n"odbc_type" = "mysql");' $path
+sed -i '/ENGINE=/a) ENGINE=ODBC\n COMMENT "ODBC"\nPROPERTIES (\n"host" = "ApacheDorisHostIp",\n"port" = "MysqlPort",\n"user" = "MysqlUsername",\n"password" = "ApacheDorisHostPassword",\n"database" = "ApacheDorisDataBases",\n"table" = "ApacheDorisTables",\n"driver" = "MySQL",\n"odbc_type" = "mysql");' $path
 sed -i "s/\"driver\" = \"MySQL\"/\"driver\" = \"$doris_odbc_name\"/g" $path
+sed -i "s/MysqlUsername/${mysql_username}/g" $path
+sed -i "s/MysqlPort/${mysql_port}/g" $path
 
 #delete match line
 sed -i '/PRIMARY KEY/d' $path

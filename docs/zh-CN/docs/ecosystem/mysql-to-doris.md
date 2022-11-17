@@ -36,17 +36,19 @@ mysql to doris 代码[这里](https://github.com/apache/doris/tree/master/extens
 
 ```text
 ├── bin
-│   └── run.sh
+│   └── run.sh
 ├── conf
-│   ├── doris_external_tables
-│   ├── doris_tables
-│   ├── env.conf
-│   └── mysql_tables
+│   ├── doris_external_tables
+│   ├── doris_tables
+│   ├── env.conf
+│   └── mysql_tables
 └── lib
     ├── e_auto.sh
     ├── e_mysql_to_doris.sh
+    ├── get_tables.sh
     ├── mysql_to_doris.sh
     ├── mysql_type_convert.sh
+    ├── sync_check.sh
     └── sync_to_doris.sh
 ```
 
@@ -54,7 +56,7 @@ mysql to doris 代码[这里](https://github.com/apache/doris/tree/master/extens
 
 所有配置文件都在`conf`目录下。
 
-#### env.conf
+### env.conf
 在这里配置 MySQL 和 Doris 的相关配置信息。
 ```text
 # doris env
@@ -71,7 +73,7 @@ mysql_username=<your_mysql_username>
 mysql_password=<your_mysql_password>
 ```
 
-#### mysql_tables
+### mysql_tables
 在这里配置 MySQL 表信息，以`database.table`的形式。
 ```text
 db1.table1
@@ -79,7 +81,7 @@ db1.table2
 db2.table3
 ```
 
-#### doris_tables
+### doris_tables
 在这里配置 Doris Olap 表信息，以`database.table`的形式。
 ```text
 doris_db.table1
@@ -87,7 +89,7 @@ doris_db.table2
 doris_db.table3
 ```
 
-#### doris_external_tables
+### doris_external_tables
 在这里配置 Doris ODBC 外部表信息，以`database.table`的形式。
 ```text
 doris_db.e_table1
@@ -95,7 +97,7 @@ doris_db.e_table2
 doris_db.e_table3
 ```
 
-### How to use
+## 如何使用
 bin/run.sh 是启动的 shell 脚本，下面是脚本的参数选项：
 ```shell
 Usage: run.sh [option]
@@ -107,7 +109,7 @@ Usage: run.sh [option]
     -h, --help: show usage
 ```
 
-#### 1. 创建 Doris ODBC 外部表
+### 创建 Doris ODBC 外部表
 使用方法如下：
 ```shell
 sh bin/run.sh --create-external-table
@@ -118,7 +120,7 @@ sh bin/run.sh -e
 ```
 执行完成后 ODBC 外部表就创建完成，同时建表语句会被生成到`result/mysql/e_mysql_to_doris.sql`文件中。
 
-#### 2. 创建 Doris OLAP 表
+### 创建 Doris OLAP 表
 使用方法如下：
 ```shell
 sh bin/run.sh --create-olap-table
@@ -129,7 +131,7 @@ sh bin/run.sh -o
 ```
 执行完成后 ODBC OLAP 表就创建完成，同时建表语句会被生成到`result/mysql/mysql_to_doris.sql`文件中。
 
-#### 3. 创建 Doris OLAP 表同时从 ODBC 外部表同步数据
+### 创建 Doris OLAP 表同时从 ODBC 外部表同步数据
 前提是你已经创建外部表，如果没有，请先创建外部表。
 
 使用方法如下：
@@ -141,7 +143,13 @@ sh bin/run.sh --create-olap-table --insert-data
 sh bin/run.sh -o -i
 ```
 执行完成后 ODBC OLAP 表就创建完成，同时建表语句会被生成到`result/mysql/mysql_to_doris.sql`文件中，并且同步语句会被生成到`result/mysql/sync_to_doris.sql`文件中。
-如果在数据同步执行完成后想要删除外部表，添加`--drop-external-table`或`-d`选项。
+
+#### 同步结果检查
+同步数据之后会执行同步结果检查任务，对olap表和mysql表的数据量进行对比，检查结果保存在 `result/mysql/sync_check` 文件中。
+
+#### 删除 ODBC 外部表
+如果在数据同步执行完成后想要删除 ODBC 外部表，添加`--drop-external-table`或`-d`选项。
+
 使用方式如下：
 ```shell
 sh bin/run.sh --create-olap-table --insert-data --drop-external-table
@@ -151,7 +159,7 @@ sh bin/run.sh --create-olap-table --insert-data --drop-external-table
 sh bin/run.sh -o -i -d
 ```
 
-#### 4. 创建 Doris OLAP 表并且自动同步表结构变化
+### 创建 Doris OLAP 表并且自动同步表结构变化
 使用方式如下：
 ```shell
 sh bin/run.sh --auto-external-table
@@ -162,3 +170,22 @@ sh bin/run.sh -a
 ```
 
 程序会在后台执行，进程 ID 被保存到`e_auto.pid`文件。 
+
+### 通过指定数据库来处理
+
+如果你的表比较多，并且不需要自定义doris表名，可以通过`--databases`选项指定要处理的数据库名，无需手动配置。
+
+使用方式如下：
+```shell
+# 单个数据库
+sh bin/run.sh --databases db1
+```
+或者
+```shell
+# 多个数据库 
+sh bin/run.sh --databases db1,db2,db3
+```
+
+通过这个选项，程序会自动获取mysql指定数据库下的全部表，并生成mysql_tables, doris_tables和doris_external_tables的配置。
+
+**请注意，该选项需要配合其他选项一起使用。**

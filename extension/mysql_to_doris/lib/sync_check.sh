@@ -25,19 +25,29 @@ source ${home_dir}/conf/env.conf
 mkdir -p ${home_dir}/result/mysql
 
 #The default path is ../result/mysql_to_doris.sql for create table sql
-path=${1:-${home_dir}/result/mysql/sync_to_doris.sql}
+path=${1:-${home_dir}/result/mysql/sync_check}
 
 rm -f $path
+
+# when fe_password is not set or is empty, do not put -p option
+use_passwd=$([ -z "${fe_password}" ] && echo "" || echo "-p${fe_password}")
 
 # generate insert into select statement
 idx=0
 for table in $(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk -F '\n' '{print $1}' | sed 's/ //g' | sed '/^$/d'); do
         m_d=$(echo $table | awk -F '.' '{print $1}')
         m_t=$(echo $table | awk -F '.' '{print $2}')
-        # get mysql table columns
-        columns=$(echo "SELECT group_concat(COLUMN_NAME) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '$m_d' AND TABLE_NAME = '$m_t';" | mysql -N -h"${mysql_host}" -P"${mysql_port}" -u"${mysql_username}" -p"${mysql_password}")
         let idx++
         i_t=$(cat ${home_dir}/conf/doris_tables | grep -v '#' | awk "NR==$idx{print}" | sed 's/ //g' | sed 's/\./`.`/g')
-        e_t=$(cat ${home_dir}/conf/doris_external_tables | grep -v '#' | awk "NR==$idx{print}" | sed 's/ //g' | sed 's/\./`.`/g')
-        echo "INSERT INTO \`${i_t}\` (${columns}) SELECT ${columns} FROM \`${e_t}\`;" >> $path
+        # get mysql table count
+        m_count=$(echo "SELECT count(*) FROM \`${m_d}\`.\`${m_t}\`;" | mysql -N -h"${mysql_host}" -P"${mysql_port}" -u"$mysql_username" -p"$mysql_password")
+        d_count=$(echo "SELECT count(*) FROM \`${i_t}\`;" | mysql -N -h"${fe_master_host}" -P"${fe_master_port}" -u"${doris_username}" "${use_passwd}")
+        check=''
+        if [ $m_count -eq $d_count ]; then
+            check="${m_d}.${m_t}: ${m_count} ==> ${d_count}, ok"
+        else
+            check="${m_d}.${m_t}: ${m_count} ==> ${d_count}, check failed"
+        fi
+        echo "${check}" >> $path
 done
+exit $(grep "check failed" "${path}" | wc -l)
