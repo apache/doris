@@ -1106,7 +1106,7 @@ Status IRuntimeFilter::apply_from_other(IRuntimeFilter* other) {
         _wrapper->_bloomfilter_func->light_copy(other->_wrapper->get_bloomfilter());
         break;
     case RuntimeFilterType::MINMAX_FILTER:
-        *(_wrapper->_minmax_func) = *(other->_wrapper->_minmax_func);
+        _wrapper->_minmax_func = other->_wrapper->_minmax_func->deep_copy();
         break;
     case RuntimeFilterType::IN_OR_BLOOM_FILTER:
         copy_hybrid_set(other->_wrapper->_hybrid_set.get(), _wrapper->_hybrid_set.get());
