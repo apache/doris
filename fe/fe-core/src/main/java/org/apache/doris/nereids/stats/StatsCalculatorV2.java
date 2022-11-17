@@ -289,9 +289,6 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
             }
             ColumnStatistic statistic =
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
-            if (statistic == ColumnStatistic.DEFAULT) {
-                statistic = ColumnStatistic.DEFAULT;
-            }
             rowCount = statistic.count;
             columnStatisticMap.put(slotReference.getExprId(), statistic);
         }
