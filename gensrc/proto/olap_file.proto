@@ -244,6 +244,11 @@ enum StorageMediumPB {
     REMOTE_CACHE = 99;
 }
 
+enum CooldownTypePB {
+    USE_REMOTE_DATA = 0;
+    UPLOAD_DATA = 1;
+}
+
 message S3StorageParamPB {
     optional string s3_endpoint = 1;
     optional string s3_region = 2;
@@ -286,6 +291,7 @@ message TabletMetaPB {
     optional DeleteBitmapPB delete_bitmap = 23;
     // Use primary key index to speed up tabel unique key model
     optional bool enable_unique_key_merge_on_write = 24 [default = false];
+    optional CooldownTypePB cooldown_type = 25 [default = USE_REMOTE_DATA];
 }
 
 message OLAPRawDeltaHeaderMessage {

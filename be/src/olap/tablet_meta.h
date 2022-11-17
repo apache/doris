@@ -200,6 +200,18 @@ public:
         _storage_policy = policy;
     }
 
+    const CooldownTypePB& cooldown_type() const {
+        std::shared_lock<std::shared_mutex> rlock(_meta_lock);
+        return _cooldown_type;
+    }
+
+    void set_cooldown_type(const CooldownTypePB& cooldown_type) {
+        std::unique_lock<std::shared_mutex> wlock(_meta_lock);
+        VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown type from " << _cooldown_type
+                    << " to " << cooldown_type;
+        _cooldown_type = cooldown_type;
+    }
+
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
@@ -243,6 +255,7 @@ private:
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
     std::string _storage_policy;
+    CooldownTypePB _cooldown_type;
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
