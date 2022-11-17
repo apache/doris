@@ -87,8 +87,8 @@ suite("test_materialized_view") {
     }
     qt_sql "SELECT * FROM ${tbName1} order by record_id;"
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id order by store_id;"
-    qt_sql "SELECT * FROM ${tbName2} order by record_id;"
-    qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id order by store_id;"
+    // qt_sql "SELECT * FROM ${tbName2} order by record_id;"
+    // qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id order by store_id;"
 
     sql "CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     max_try_secs = 60
