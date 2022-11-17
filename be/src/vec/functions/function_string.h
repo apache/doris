@@ -1471,7 +1471,7 @@ public:
             }
             vector<size_t> v_len;
             vector<size_t> v_offset;
-            getOffsetsAndLen(str, delimiter, v_offset, v_len);
+            get_offsets_and_len(str, delimiter, v_offset, v_len);
             for (int j = 0; j < v_len.size(); j++) {
                 const size_t old_size = column_string_chars.size();
                 const size_t new_size = old_size + v_len[j];
