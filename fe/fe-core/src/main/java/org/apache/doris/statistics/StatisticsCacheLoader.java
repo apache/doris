@@ -42,6 +42,31 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
             + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
             + "id = CONCAT('${tblId}', '-', '${colId}')";
 
+    private static final String QUERY_COLUMN_ALL = "SELECT * FROM " + StatisticConstants.STATISTIC_DB_NAME
+            + "." + StatisticConstants.STATISTIC_TBL_NAME;
+
+    public static Map<String, ColumnStatistic> load() {
+        List<ResultRow> resultBatches = StatisticsUtil.execStatisticQuery(QUERY_COLUMN_ALL);
+        Map<String, ColumnStatistic> map = new HashMap<>();
+        try {
+            resultBatches.stream().forEach(
+                    row -> {
+                        try {
+                            ColumnStatistic stat = ColumnStatistic.fromResultRow(row);
+                            String key = row.getColumnValue("id");
+                            map.put(key, stat);
+                        } catch (Exception e) {
+                            LOG.info("Failed to deserialize column statistics");
+                        }
+                    }
+            );
+        } catch (Exception e) {
+            LOG.warn("Failed to deserialize column statistics", e);
+            throw new CompletionException(e);
+        }
+        return map;
+    }
+
     // TODO: Maybe we should trigger a analyze job when the required ColumnStatistic doesn't exists.
     @Override
     public @NonNull CompletableFuture<ColumnStatistic> asyncLoad(@NonNull StatisticsCacheKey key,

@@ -54,10 +54,10 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
+        ColumnStatistic c = statisticsCache.getColumnStatisticsAsync(1, "col");
         Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
         Thread.sleep(100);
-        c = statisticsCache.getColumnStatistics(1, "col");
+        c = statisticsCache.getColumnStatisticsAsync(1, "col");
         Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
     }
 
@@ -117,10 +117,10 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
+        ColumnStatistic columnStatistic = statisticsCache.getColumnStatisticsAsync(0, "col");
         Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
         Thread.sleep(100);
-        columnStatistic = statisticsCache.getColumnStatistics(0, "col");
+        columnStatistic = statisticsCache.getColumnStatisticsAsync(0, "col");
         Assertions.assertEquals(1, columnStatistic.count);
         Assertions.assertEquals(2, columnStatistic.ndv);
         Assertions.assertEquals(10, columnStatistic.maxValue);

@@ -288,7 +288,7 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
                 throw new RuntimeException("Column name of SlotReference shouldn't be null here");
             }
             ColumnStatistic statistic =
-                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+                    Env.getCurrentEnv().getStatisticsCache().getColumnStatisticsSync(table.getId(), colName);
             if (statistic == ColumnStatistic.UNKNOWN) {
                 statistic = ColumnStatistic.DEFAULT;
             }

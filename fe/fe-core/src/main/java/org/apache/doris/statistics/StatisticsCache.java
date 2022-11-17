@@ -25,11 +25,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class StatisticsCache {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
+    private Map<String, ColumnStatistic> columnStatCache = new HashMap();
 
     private final AsyncLoadingCache<StatisticsCacheKey, ColumnStatistic> cache = Caffeine.newBuilder()
             .maximumSize(StatisticConstants.STATISTICS_RECORDS_CACHE_SIZE)
@@ -37,9 +40,12 @@ public class StatisticsCache {
             .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
             .buildAsync(new StatisticsCacheLoader());
 
-    public ColumnStatistic getColumnStatistics(long tblId, String colName) {
+    public ColumnStatistic getColumnStatisticsAsync(long tblId, String colName) {
         if (ConnectContext.get().getSessionVariable().internalSession) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
+        }
+        if (ConnectContext.get().getSessionVariable().internalSession) {
+            return ColumnStatistic.DEFAULT;
         }
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
         CompletableFuture<ColumnStatistic> f = cache.get(k);
@@ -48,10 +54,25 @@ public class StatisticsCache {
                 return f.get();
             } catch (Exception e) {
                 LOG.warn("Unexpected exception while returning ColumnStatistic", e);
-                return ColumnStatistic.UNKNOWN;
+                return ColumnStatistic.DEFAULT;
             }
         }
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.DEFAULT;
+    }
+
+    public ColumnStatistic getColumnStatisticsSync(long tblId, String colName) {
+        if (ConnectContext.get().getSessionVariable().internalSession) {
+            return ColumnStatistic.DEFAULT;
+        }
+        if (columnStatCache.isEmpty()) {
+            columnStatCache = StatisticsCacheLoader.load();
+        }
+        ColumnStatistic stat = columnStatCache.get(tblId + "-" + colName);
+        if (stat == null) {
+            LOG.error("column stats missing: " + tblId + "-" + colName);
+            stat = ColumnStatistic.DEFAULT;
+        }
+        return stat;
     }
 
     // TODO: finish this method.

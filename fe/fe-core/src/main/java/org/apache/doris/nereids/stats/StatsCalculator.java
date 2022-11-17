@@ -294,7 +294,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                 throw new RuntimeException("Column name of SlotReference shouldn't be null here");
             }
             ColumnStatistic statistic =
-                    Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+                    Env.getCurrentEnv().getStatisticsCache().getColumnStatisticsSync(table.getId(), colName);
             if (statistic == ColumnStatistic.UNKNOWN) {
                 if (card == -1) {
                     card = roughlyEstimatedCard(scan);
