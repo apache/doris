@@ -103,7 +103,10 @@ void Daemon::tcmalloc_gc_thread() {
 
         size_t cached_bytes = alloc_bytes - used_bytes;
         size_t to_free_bytes = cached_bytes - (used_bytes * max_free_percent / 100);
-        if (MemInfo::mem_limit() <= alloc_bytes) {
+
+        size_t physical_limit = MemInfo::physical_mem() * 90 / 100;
+        physical_limit = std::min(physical_limit, MemInfo::physical_mem() - (size_t)3 * 1024 * 1024 * 1024);
+        if (MemInfo::mem_limit() <= alloc_bytes || physical_limit <= alloc_bytes) {
             // We are reaching oom, so release cache aggressively.
             // Ideally, we should reuse cache and not allocate from system any more,
             // however, it is hard to set limit on cache of tcmalloc and doris
