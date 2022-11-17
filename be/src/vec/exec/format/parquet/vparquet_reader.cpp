@@ -325,11 +325,13 @@ Status ParquetReader::get_parsered_schema(std::vector<std::string>* col_names,
                                                         _scan_range.start_offset,
                                                         _scan_range.file_size, 0, _file_reader));
     }
-    RETURN_IF_ERROR(_file_reader->open());
-    if (_file_reader->size() == 0) {
-        return Status::EndOfFile("Empty Parquet File");
+    if (_file_metadata == nullptr) {
+        RETURN_IF_ERROR(_file_reader->open());
+        if (_file_reader->size() == 0) {
+            return Status::EndOfFile("Empty Parquet File");
+        }
+        RETURN_IF_ERROR(parse_thrift_footer(_file_reader.get(), _file_metadata));
     }
-    RETURN_IF_ERROR(parse_thrift_footer(_file_reader.get(), _file_metadata));
     _t_metadata = &_file_metadata->to_thrift();
 
     _total_groups = _t_metadata->row_groups.size();
@@ -361,57 +363,64 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
-void ParquetReader::merge_delete_row_ranges(const std::vector<RowRange>& delete_row_ranges) {
+void ParquetReader::merge_delete_row_ranges(const std::set<RowRange>& delete_row_ranges) {
     if (_row_ranges.empty()) {
+        _current_group_reader->set_row_ranges(_row_ranges);
         return;
     }
-    std::vector<RowRange> candidate_ranges;
-    auto start_range = _row_ranges.begin();
     if (!delete_row_ranges.empty()) {
+        std::vector<RowRange> candidate_ranges;
+        auto start_range = _row_ranges.begin();
         auto delete_range = delete_row_ranges.begin();
-        int64_t range_start_idx = start_range->first_row;
+        int64_t processed_range_start_idx = start_range->first_row;
         while (start_range != _row_ranges.end() && delete_range != delete_row_ranges.end()) {
             int64_t delete_start = delete_range->first_row;
             int64_t delete_end = delete_range->last_row;
             int64_t range_start = start_range->first_row;
             int64_t range_end = start_range->last_row;
-
-            if (delete_end >= range_end) {
-                if (range_start < delete_start) {
+            if (delete_end > range_end) {
+                if (range_start < processed_range_start_idx) {
+                    // rows before processed_range_start_idx have been processed
+                    range_start = processed_range_start_idx;
+                }
+                if (range_end < delete_start) {
+                    /**
+                     *      start_range
+                     *    || --------- || - |--------- |
+                     *                      delete_range
+                     */
+                    candidate_ranges.emplace_back(range_start, range_end);
+                } else if (range_start < delete_start) {
                     /**
                      *          row_range
                      *    || --------|-------- || ----- |
                      *         delete_start       delete_end
                      */
                     candidate_ranges.emplace_back(range_start, delete_start);
-                } else if (range_end <= delete_start) {
-                    /**
-                     *      start_range
-                     *    || --------- || ----------- |
-                     *                   delete_range
-                     */
-                    candidate_ranges.emplace_back(range_start, range_end);
                 }
+                // range_end > delete_end && range_start > delete_start
                 start_range++;
             } else {
                 // delete_end < range_end，most of the time, we will use this branch
-                if (range_start <= delete_start) {
+                if (processed_range_start_idx < delete_start) {
                     /**
                      *   row_range_start           row_range_end
                      *       || --- | --------- | --- ||
                      *               delete_range
                      */
-                    candidate_ranges.emplace_back(range_start_idx, delete_start);
-                    range_start_idx = delete_end + 1;
+                    candidate_ranges.emplace_back(processed_range_start_idx, delete_start);
                 }
+                // delete_end is in row_range, so it can assign to processed_range_start_idx
+                processed_range_start_idx = delete_end;
                 delete_range++;
                 if (delete_range == delete_row_ranges.end()) {
-                    candidate_ranges.emplace_back(delete_end + 1, range_end);
+                    range_end = _row_ranges[_row_ranges.size() - 1].last_row;
+                    if (processed_range_start_idx != range_end) {
+                        candidate_ranges.emplace_back(processed_range_start_idx, range_end);
+                    }
                 }
             }
         }
-    }
-    if (!candidate_ranges.empty()) {
         _row_ranges.assign(candidate_ranges.begin(), candidate_ranges.end());
     }
     _current_group_reader->set_row_ranges(_row_ranges);

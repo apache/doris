@@ -72,9 +72,6 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 context.params.setFileAttributes(getFileAttributes());
             }
 
-            if (inputSplit instanceof IcebergSplit) {
-                IcebergScanProvider.setIcebergParams(context, (IcebergSplit) inputSplit);
-            }
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
             if (locationType == TFileType.FILE_HDFS) {
@@ -95,7 +92,6 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             } else if (locationType == TFileType.FILE_S3) {
                 context.params.setProperties(locationProperties);
             }
-
             TScanRangeLocations curLocations = newLocations(context.params, backendPolicy);
 
             FileSplitStrategy fileSplitStrategy = new FileSplitStrategy();
@@ -107,7 +103,10 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                         pathPartitionKeys, false);
 
                 TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
-
+                // external data lake table
+                if (split instanceof IcebergSplit) {
+                    IcebergScanProvider.setIcebergParams(rangeDesc, (IcebergSplit) inputSplit);
+                }
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
                         curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),

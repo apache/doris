@@ -23,21 +23,24 @@
 
 #include "table_format_reader.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 
 class IcebergTableReader : public TableFormatReader {
 public:
     IcebergTableReader(GenericReader* file_format_reader, RuntimeProfile* profile,
-                       RuntimeState* state, const TFileScanRangeParams& params)
-            : TableFormatReader(file_format_reader),
-              _profile(profile),
-              _state(state),
-              _params(params) {}
-    Status init_row_filters();
-    void filter_rows() override;
+                       RuntimeState* state, const TFileScanRangeParams& params);
+    ~IcebergTableReader() override;
+    Status init_row_filters(const TFileRangeDesc& range);
+    void filter_rows(const TFileRangeDesc& range) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -52,13 +55,20 @@ public:
     };
 
 private:
+    struct IcebergProfile {
+        RuntimeProfile::Counter* _delete_files_init_time;
+        RuntimeProfile::Counter* _delete_files_read_total_time;
+    };
     RuntimeProfile* _profile;
     RuntimeState* _state;
     const TFileScanRangeParams& _params;
-    std::vector<const FieldSchema*> _column_schemas;
+    std::vector<FieldSchema> _column_schemas;
     std::deque<std::unique_ptr<GenericReader>> _delete_file_readers;
     std::unique_ptr<GenericReader> _cur_delete_file_reader;
     PositionDeleteParams _position_delete_params;
+    const FieldDescriptor* _delete_file_schema = nullptr;
+    VExprContext* _data_path_conjunct_ctx = nullptr;
+    IcebergProfile _iceberg_profile;
 };
 
 } // namespace doris::vectorized

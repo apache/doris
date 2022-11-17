@@ -206,7 +206,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                scanProvider = new IcebergScanProvider(hmsTable, desc, columnNameToRange);
+                scanProvider = new IcebergScanProvider(hmsTable, analyzer, desc, columnNameToRange);
                 break;
             case HIVE:
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
