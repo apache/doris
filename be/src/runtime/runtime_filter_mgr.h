@@ -122,7 +122,9 @@ public:
     Status merge(const PMergeFilterRequest* request,
                  butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    UniqueId query_id() { return _query_id; }
+    UniqueId query_id() const { return _query_id; }
+
+    UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t create_time;
