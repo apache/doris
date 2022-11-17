@@ -25,8 +25,8 @@ namespace doris {
 namespace vectorized {
 class NewJdbcScanner : public VScanner {
 public:
-    NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit, TupleId tuple_id,
-                   std::string query_string);
+    NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
+                   const TupleId& tuple_id, const std::string& query_string);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
