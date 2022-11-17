@@ -106,6 +106,8 @@ void ParquetReader::close() {
             COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
             COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
             COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
+            COUNTER_UPDATE(_parquet_profile.page_index_filter_time, _statistics.page_index_filter_time);
+            COUNTER_UPDATE(_parquet_profile.row_group_filter_time, _statistics.row_group_filter_time);
 
             COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
             COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
@@ -133,6 +135,7 @@ Status ParquetReader::_open_file() {
                                                         _scan_range.file_size, 0, _file_reader));
     }
     if (_file_metadata == nullptr) {
+        SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
         RETURN_IF_ERROR(_file_reader->open());
         if (_file_reader->size() == 0) {
             return Status::EndOfFile("Empty Parquet File");
@@ -470,6 +473,7 @@ Status ParquetReader::_init_row_group_readers(const bool& filter_groups) {
 
 Status ParquetReader::_filter_row_groups(const bool& enabled,
                                          std::vector<RowGroupIndex>& group_indexes) {
+    SCOPED_RAW_TIMER(&_statistics.row_group_filter_time);
     if (enabled && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
         return Status::EndOfFile("No row group need read");
     }
@@ -528,6 +532,7 @@ bool ParquetReader::_has_page_index(const std::vector<tparquet::ColumnChunk>& co
 }
 
 Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group) {
+    SCOPED_RAW_TIMER(&_statistics.page_index_filter_time);
     if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         return Status::OK();
     }
