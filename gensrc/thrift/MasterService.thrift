@@ -42,7 +42,7 @@ struct TTabletInfo {
     15: optional Types.TReplicaId replica_id
     // data size on remote storage
     16: optional Types.TSize remote_data_size
-    17: optional AgentService.TCooldownType cooldown_type
+    17: optional AgentService.TCooldownType cooldown_type = TCooldownType.USE_REMOTE_DATA
 }
 
 struct TFinishTaskRequest {

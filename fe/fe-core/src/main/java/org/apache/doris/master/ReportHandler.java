@@ -327,7 +327,7 @@ public class ReportHandler extends Daemon {
 
         // 10. send cooldownType which need sync to CooldownHandler
         if (!syncCooldownTabletMap.isEmpty()) {
-            CooldownHandler.getInstance().handleCooldownConf(syncCooldownTabletMap);
+            Env.getCurrentEnv().getCooldownHandler().handleCooldownConf(syncCooldownTabletMap);
         }
 
         final SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();

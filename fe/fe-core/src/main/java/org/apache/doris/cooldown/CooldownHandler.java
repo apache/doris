@@ -54,19 +54,6 @@ public class CooldownHandler extends MasterDaemon {
     public final ThreadPoolExecutor cooldownThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
             MAX_ACTIVE_COOLDOWN_JOB_SIZE, "cooldown-pool", true);
 
-    private static volatile CooldownHandler INSTANCE = null;
-
-    public static CooldownHandler getInstance() {
-        if (INSTANCE == null) {
-            synchronized (CooldownHandler.class) {
-                if (INSTANCE == null) {
-                    INSTANCE = new CooldownHandler();
-                }
-            }
-        }
-        return INSTANCE;
-    }
-
     // syncCooldownTabletMap: tabletId -> TabletMeta
     public void handleCooldownConf(Map<Long, TabletMeta> syncCooldownTabletMap) {
         for (Map.Entry<Long, TabletMeta> entry : syncCooldownTabletMap.entrySet()) {
