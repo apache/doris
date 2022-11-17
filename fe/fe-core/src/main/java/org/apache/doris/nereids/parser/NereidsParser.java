@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -53,19 +54,43 @@ public class NereidsParser {
     public List<StatementBase> parseSQL(String originStr) {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = parseMultiple(originStr);
         List<StatementBase> statementBases = Lists.newArrayList();
-        for (Pair<LogicalPlan, StatementContext> logicalPlan : logicalPlans) {
+        for (Pair<LogicalPlan, StatementContext> parsedPlan2Context : logicalPlans) {
             // TODO: this is a trick to support explain. Since we do not support any other command in a short time.
             //     It is acceptable. In the future, we need to refactor this.
-            if (logicalPlan.first instanceof ExplainCommand) {
-                ExplainCommand explainCommand = (ExplainCommand) logicalPlan.first;
+            StatementContext statementContext = parsedPlan2Context.second;
+            if (parsedPlan2Context.first instanceof ExplainCommand) {
+                ExplainCommand explainCommand = (ExplainCommand) parsedPlan2Context.first;
                 LogicalPlan innerPlan = explainCommand.getLogicalPlan();
-                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan, logicalPlan.second);
-                logicalPlanAdapter.setIsExplain(new ExplainOptions(
-                        explainCommand.getLevel() == ExplainLevel.VERBOSE,
-                        explainCommand.getLevel() == ExplainLevel.GRAPH));
+
+                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan, statementContext);
+
+                ExplainLevel explainLevel = explainCommand.getLevel();
+                ExplainOptions explainOptions;
+                switch (explainLevel) {
+                    case PARSED_PLAN:
+                        explainOptions = new ExplainOptions(innerPlan.treeString());
+                        break;
+                    case ANALYZED_PLAN:
+                        explainOptions = new ExplainOptions(
+                                NereidsPlanner.explainAnalyzedPlan(innerPlan, statementContext));
+                        break;
+                    case REWRITTEN_PLAN:
+                        explainOptions = new ExplainOptions(
+                                NereidsPlanner.explainRewrittenPlan(innerPlan, statementContext));
+                        break;
+                    case OPTIMIZED_PLAN:
+                        explainOptions = new ExplainOptions(
+                                NereidsPlanner.explainOptimizedPlan(innerPlan, statementContext));
+                        break;
+                    default:
+                        explainOptions = new ExplainOptions(
+                                explainLevel == ExplainLevel.VERBOSE,
+                                explainLevel == ExplainLevel.GRAPH);
+                }
+                logicalPlanAdapter.setIsExplain(explainOptions);
                 statementBases.add(logicalPlanAdapter);
             } else {
-                statementBases.add(new LogicalPlanAdapter(logicalPlan.first, logicalPlan.second));
+                statementBases.add(new LogicalPlanAdapter(parsedPlan2Context.first, statementContext));
             }
         }
         return statementBases;

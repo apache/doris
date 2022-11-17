@@ -48,6 +48,10 @@ public abstract class Planner {
 
     public String getExplainString(ExplainOptions explainOptions) {
         Preconditions.checkNotNull(explainOptions);
+        if (explainOptions.hasExplainString()) {
+            return explainOptions.getExplainString();
+        }
+
         if (explainOptions.isGraph()) {
             // print the plan graph
             PlanTreeBuilder builder = new PlanTreeBuilder(fragments);

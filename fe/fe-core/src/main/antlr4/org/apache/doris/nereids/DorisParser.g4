@@ -50,7 +50,15 @@ singleStatement
 
 statement
     : cte? query                                                        #statementDefault
-    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)? query        #explain
+    | (EXPLAIN planType? | DESC | DESCRIBE)
+      level=(VERBOSE | GRAPH | PLAN)? query                             #explain
+    ;
+
+planType
+    : PARSED
+    | ANALYZED
+    | REWRITTEN | LOGICAL  // same type
+    | OPTIMIZED | PHYSICAL   // same type, default type
     ;
 
 //  -----------------Query-----------------
@@ -335,6 +343,7 @@ ansiNonReserved
     | AFTER
     | ALTER
     | ANALYZE
+    | ANALYZED
     | ANTI
     | ARCHIVE
     | ARRAY
@@ -441,6 +450,7 @@ ansiNonReserved
     | NO
     | NULLS
     | OF
+    | OPTIMIZED
     | OPTION
     | OPTIONS
     | OUT
@@ -448,12 +458,15 @@ ansiNonReserved
     | OVER
     | OVERLAY
     | OVERWRITE
+    | PARSED
     | PARTITION
     | PARTITIONED
     | PARTITIONS
     | PERCENTLIT
+    | PHYSICAL
     | PIVOT
     | PLACING
+    | PLAN
     | POSITION
     | PRECEDING
     | PRINCIPALS
@@ -474,6 +487,7 @@ ansiNonReserved
     | RESPECT
     | RESTRICT
     | REVOKE
+    | REWRITTEN
     | RLIKE
     | ROLE
     | ROLES
@@ -575,6 +589,7 @@ nonReserved
     | ALL
     | ALTER
     | ANALYZE
+    | ANALYZED
     | AND
     | ANY
     | ARCHIVE
@@ -716,6 +731,7 @@ nonReserved
     | NULLS
     | OF
     | ONLY
+    | OPTIMIZED
     | OPTION
     | OPTIONS
     | OR
@@ -727,13 +743,16 @@ nonReserved
     | OVERLAPS
     | OVERLAY
     | OVERWRITE
+    | PARSED
     | PARTITION
     | PARTITIONED
     | PARTITIONS
     | PERCENTILE_CONT
     | PERCENTLIT
+    | PHYSICAL
     | PIVOT
     | PLACING
+    | PLAN
     | POSITION
     | PRECEDING
     | PRIMARY
@@ -756,6 +775,7 @@ nonReserved
     | RESPECT
     | RESTRICT
     | REVOKE
+    | REWRITTEN
     | RLIKE
     | ROLE
     | ROLES

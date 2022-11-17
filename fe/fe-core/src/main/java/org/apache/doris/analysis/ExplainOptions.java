@@ -22,6 +22,12 @@ public class ExplainOptions {
     private boolean isVerbose;
     private boolean isGraph;
 
+    private String explainString;
+
+    public ExplainOptions(String explainString) {
+        this.explainString = explainString;
+    }
+
     public ExplainOptions(boolean isVerbose, boolean isGraph) {
         this.isVerbose = isVerbose;
         this.isGraph = isGraph;
@@ -33,5 +39,13 @@ public class ExplainOptions {
 
     public boolean isGraph() {
         return isGraph;
+    }
+
+    public boolean hasExplainString() {
+        return explainString != null;
+    }
+
+    public String getExplainString() {
+        return explainString;
     }
 }

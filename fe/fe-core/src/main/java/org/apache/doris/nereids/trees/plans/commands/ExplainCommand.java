@@ -32,6 +32,10 @@ public class ExplainCommand implements Command {
         NORMAL,
         VERBOSE,
         GRAPH,
+        PARSED_PLAN,
+        ANALYZED_PLAN,
+        REWRITTEN_PLAN,
+        OPTIMIZED_PLAN
         ;
     }
 
