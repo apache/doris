@@ -23,12 +23,12 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -54,8 +54,8 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
 
     @Override
     protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        DataType sumType = implicitCast(argumentTypes.get(0));
-        IntegerType countType = IntegerType.INSTANCE;
+        DataType sumType = getFinalType();
+        BigIntType countType = BigIntType.INSTANCE;
         return ImmutableList.of(sumType, countType);
     }
 
