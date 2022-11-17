@@ -67,7 +67,7 @@ public class Cast extends Expression implements UnaryExpression {
 
     @Override
     public String toString() {
-        return toSql();
+        return "CAST(" + child() + " AS " + targetType + ")";
     }
 
     @Override
