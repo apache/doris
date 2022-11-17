@@ -50,8 +50,8 @@ public:
 
     static inline int64_t sys_mem_available() { return _s_sys_mem_available; }
     static inline std::string sys_mem_available_str() { return _s_sys_mem_available_str; }
-    static inline int64_t sys_mem_available_min_reserve() {
-        return _s_sys_mem_available_min_reserve;
+    static inline int64_t sys_mem_available_low_water_mark() {
+        return _s_sys_mem_available_low_water_mark;
     }
 
     static inline size_t current_mem() { return _s_allocator_physical_mem; }
@@ -118,7 +118,7 @@ private:
 
     static int64_t _s_sys_mem_available;
     static std::string _s_sys_mem_available_str;
-    static int64_t _s_sys_mem_available_min_reserve;
+    static int64_t _s_sys_mem_available_low_water_mark;
 };
 
 } // namespace doris

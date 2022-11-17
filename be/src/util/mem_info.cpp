@@ -59,7 +59,7 @@ int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 int64_t MemInfo::_s_sys_mem_available = 0;
 std::string MemInfo::_s_sys_mem_available_str = "";
-int64_t MemInfo::_s_sys_mem_available_min_reserve = 0;
+int64_t MemInfo::_s_sys_mem_available_low_water_mark = 0;
 
 #ifndef __APPLE__
 void MemInfo::refresh_proc_meminfo() {
@@ -118,15 +118,43 @@ void MemInfo::init() {
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
 
-    // max 6.4G, avoid wasting too much memory on machines with large memory larger than 64G.
-    _s_sys_mem_available_min_reserve = std::min<int64_t>(
-            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1), 6871947673L);
+    std::string line;
+    int64_t _s_vm_min_free_kbytes = 0;
+    std::ifstream vminfo("/proc/sys/vm/min_free_kbytes", std::ios::in);
+    if (vminfo.good() && !vminfo.eof()) {
+        getline(vminfo, line);
+        boost::algorithm::trim(line);
+        StringParser::ParseResult result;
+        int64_t mem_value = StringParser::string_to_int<int64_t>(line.data(), line.size(), &result);
+
+        if (result == StringParser::PARSE_SUCCESS) {
+            _s_vm_min_free_kbytes = mem_value * 1024L;
+        }
+    }
+    if (vminfo.is_open()) vminfo.close();
+
+    // MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))
+    // LowWaterMark = /proc/sys/vm/min_free_kbytes
+    // Ref:
+    // https://serverfault.com/questions/940196/why-is-memavailable-a-lot-less-than-memfreebufferscached
+    // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
+    //
+    // available_low_water_mark = p1 - p2
+    // p1: max 3.2G, avoid wasting too much memory on machines with large memory larger than 32G.
+    // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
+    //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
+    int64_t p1 = std::min<int64_t>(
+            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1), 3435973836L);
+    int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
+    _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
               << ", origin config value: " << config::mem_limit
               << ", System Mem Available Min Reserve: "
-              << PrettyPrinter::print(_s_sys_mem_available_min_reserve, TUnit::BYTES);
+              << PrettyPrinter::print(_s_sys_mem_available_low_water_mark, TUnit::BYTES)
+              << ", Vm Min Free KBytes: "
+              << PrettyPrinter::print(_s_vm_min_free_kbytes, TUnit::BYTES);
     _s_initialized = true;
 }
 #else

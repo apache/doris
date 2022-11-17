@@ -88,7 +88,7 @@ public:
         // because `new/malloc` will trigger mem hook when using tcmalloc/jemalloc allocator cache,
         // but it may not actually alloc physical memory, which is not expected in mem hook fail.
         if (MemInfo::proc_mem_no_allocator_cache() + bytes >= MemInfo::mem_limit() ||
-            MemInfo::sys_mem_available() < MemInfo::sys_mem_available_min_reserve()) {
+            MemInfo::sys_mem_available() < MemInfo::sys_mem_available_low_water_mark()) {
             print_log_process_usage(
                     fmt::format("System Mem Exceed Limit Check Faild, Try Alloc: {}", bytes));
             return true;
@@ -178,7 +178,7 @@ private:
                 "alloc size {}, tc/jemalloc allocator cache {}",
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
                 MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(MemInfo::sys_mem_available_min_reserve(), TUnit::BYTES),
+                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
                 print_bytes(bytes), MemInfo::allocator_cache_mem_str());
     }
 
@@ -188,7 +188,7 @@ private:
                 "allocator cache {}",
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
                 MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(MemInfo::sys_mem_available_min_reserve(), TUnit::BYTES),
+                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
                 MemInfo::allocator_cache_mem_str());
     }
 
