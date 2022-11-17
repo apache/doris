@@ -337,6 +337,9 @@ public class TabletInvertedIndex {
     }
 
     private boolean needChangeCooldownConf(Replica replicaInFe, TTabletInfo beTabletInfo) {
+        if (beTabletInfo.getStoragePolicy().isEmpty()) {
+            return false;
+        }
         // check cooldown type in fe and be, they need to be the same.
         if (replicaInFe.getCooldownType() != beTabletInfo.getCooldownType()) {
             LOG.warn("Cooldown type is wrong for tablet: {}, Fe: {}, Be: {}", beTabletInfo.getTabletId(),
