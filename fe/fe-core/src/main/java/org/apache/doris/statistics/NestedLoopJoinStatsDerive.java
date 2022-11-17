@@ -24,10 +24,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * Derive CrossJoinNode statistics.
+ * Derive NestedLoopJoinNode statistics.
  */
-public class CrossJoinStatsDerive extends BaseStatsDerive {
-    private static final Logger LOG = LogManager.getLogger(CrossJoinStatsDerive.class);
+public class NestedLoopJoinStatsDerive extends BaseStatsDerive {
+    private static final Logger LOG = LogManager.getLogger(NestedLoopJoinStatsDerive.class);
 
     @Override
     protected long deriveRowCount() {
