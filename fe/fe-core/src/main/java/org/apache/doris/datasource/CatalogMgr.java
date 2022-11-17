@@ -439,8 +439,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
         ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
         ExternalTable table = db.getTableForReplay(log.getTableId());
-        Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog)
-                .invalidateCache(db.getFullName(), table.getName());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
 
     @Override

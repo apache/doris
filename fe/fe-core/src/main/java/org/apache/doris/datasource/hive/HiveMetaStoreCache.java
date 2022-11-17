@@ -60,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -327,10 +328,43 @@ public class HiveMetaStoreCache {
         return partitions;
     }
 
-    public void invalidateCache(String dbName, String tblName) {
+    public void invalidateTableCache(String dbName, String tblName) {
         PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, null);
-        partitionValuesCache.invalidate(key);
-        // TODO: find a way to invalidate partitionCache and fileCache
+        HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
+        if (partitionValues != null) {
+            long start = System.currentTimeMillis();
+            for (List<String> values : partitionValues.partitionValuesMap.values()) {
+                PartitionCacheKey partKey = new PartitionCacheKey(dbName, tblName, values);
+                HivePartition partition = partitionCache.getIfPresent(partKey);
+                if (partition != null) {
+                    fileCache.invalidate(new FileCacheKey(partition.getPath(), null));
+                    partitionCache.invalidate(partKey);
+                }
+            }
+            partitionValuesCache.invalidate(key);
+            LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
+                    dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
+                    (System.currentTimeMillis() - start));
+        }
+    }
+
+    public void invalidateDbCache(String dbName) {
+        long start = System.currentTimeMillis();
+        Set<PartitionValueCacheKey> keys = partitionValuesCache.asMap().keySet();
+        for (PartitionValueCacheKey key : keys) {
+            if (key.dbName.equals(dbName)) {
+                invalidateTableCache(dbName, key.tblName);
+            }
+        }
+        LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
+                keys.size(), (System.currentTimeMillis() - start));
+    }
+
+    public void invalidateAll() {
+        partitionValuesCache.invalidateAll();
+        partitionCache.invalidateAll();
+        fileCache.invalidateAll();
+        LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
     }
 
     /**
@@ -444,7 +478,8 @@ public class HiveMetaStoreCache {
 
     @Data
     public static class HivePartitionValues {
-        private Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMap();
+        private Map<Long, PartitionItem> idToPartitionItem;
+        private Map<Long, List<String>> partitionValuesMap = Maps.newHashMap();
         private Map<UniqueId, Range<PartitionKey>> uidToPartitionRange;
         private Map<Range<PartitionKey>, UniqueId> rangeToId;
         private RangeMap<ColumnBound, UniqueId> singleColumnRangeMap;
@@ -454,6 +489,10 @@ public class HiveMetaStoreCache {
                 Map<Range<PartitionKey>, UniqueId> rangeToId,
                 RangeMap<ColumnBound, UniqueId> singleColumnRangeMap) {
             this.idToPartitionItem = idToPartitionItem;
+            for (Map.Entry<Long, PartitionItem> entry : this.idToPartitionItem.entrySet()) {
+                partitionValuesMap.put(entry.getKey(),
+                        ((ListPartitionItem) entry.getValue()).getItems().get(0).getPartitionValuesAsStringList());
+            }
             this.uidToPartitionRange = uidToPartitionRange;
             this.rangeToId = rangeToId;
             this.singleColumnRangeMap = singleColumnRangeMap;

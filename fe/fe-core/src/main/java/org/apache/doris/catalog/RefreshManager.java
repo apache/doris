@@ -159,7 +159,7 @@ public class RefreshManager {
         if (table == null) {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getId(), dbName, tableName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
