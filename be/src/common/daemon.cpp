@@ -72,52 +72,52 @@ void Daemon::tcmalloc_gc_thread() {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
 
-    size_t tc_use_memory_min = MemInfo::mem_limit();
+    // Limit size of tcmalloc cache via release_rate and max_free_percent.
+    // performance: release_rate = 1.0 and max_free_percent = 1000;
+    // compact: release_rate = 20.0 and max_free_percent = 20;
+    // moderate: release_rate = 5.0 and max_free_percent =40;
+    size_t max_free_percent = 40;
+    double release_rate = 5.0;
     if (config::memory_mode == std::string("performance")) {
-        // a higher tc_use_memory_min to use memory as tcmalloc cache as much as possible
-        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9,
-                                     tc_use_memory_min - (size_t)10 * 1024 * 1024 * 1024);
+        release_rate = 1.0;
+        max_free_percent = 1000;
     } else if (config::memory_mode == std::string("compact")) {
-        // a limited tc_use_memory_min to limit memory used as cache of tcmalloc
-        tc_use_memory_min = std::min((size_t)10 * 1024 * 1024 * 1024, tc_use_memory_min >> 1);
-    } else {
-        // a moderate tc_use_memory_min
-        tc_use_memory_min >>= 1;
+        release_rate = 20.0;
+        max_free_percent = 20;
     }
+    MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
 
     int32_t interval_seconds = 2;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
-        size_t used_size = 0;
-        size_t alloc_size = 0;
+        size_t used_bytes = 0;
+        size_t alloc_bytes = 0;
 
         MallocExtension::instance()->GetNumericProperty("generic.total_physical_bytes",
-                                                        &alloc_size);
+                                                        &alloc_bytes);
         MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
-                                                        &used_size);
+                                                        &used_bytes);
 
-        LOG(INFO) << "generic.current_allocated_bytes " << used_size
-                  << ", generic.total_physical_bytes " << alloc_size << ", tc_use_memory_min "
-                  << tc_use_memory_min;
+        LOG(INFO) << "generic.current_allocated_bytes " << used_bytes
+                  << ", generic.total_physical_bytes " << alloc_bytes << ", max_free_percent "
+                  << max_free_percent << ", release_rate " << release_rate;
 
-        if (alloc_size > tc_use_memory_min) {
-            // Limit size of cache of tcmalloc to avoid oom.
-            // alloc_size > mem_limit: release memory aggressively because we are reaching oom.
-            // alloc_size < mem_limit: limit cache size of tcmalloc under  used_size * 20%.
-            size_t max_free_size = 0;
-
-            if (MemInfo::mem_limit() > alloc_size) {
-                max_free_size = MemInfo::mem_limit() - alloc_size;
-                interval_seconds = 2;
-            } else {
-                interval_seconds = 1;
-            }
-
-            max_free_size = std::min(used_size * 20 / 100, max_free_size);
-            size_t free_size = alloc_size - used_size - max_free_size;
-            if (free_size > 0) {
-                LOG(INFO) << "try to release cache of tcmalloc, bytes " << free_size;
-                MallocExtension::instance()->ReleaseToSystem(free_size);
-            }
+        size_t cached_bytes = alloc_bytes - used_bytes;
+        size_t to_free_bytes = cached_bytes - (used_bytes * max_free_percent / 100);
+        if (MemInfo::mem_limit() <= alloc_bytes) {
+            // We are reaching oom, so release cache aggressively.
+            // Ideally, we should reuse cache and not allocate from system any more,
+            // however, it is hard to set limit on cache of tcmalloc and doris
+            // use mmap in vectorized mode.
+            to_free_bytes = cached_bytes;
+            MallocExtension::instance()->SetMemoryReleaseRate(100.0);
+            interval_seconds = 1;
+        } else if (interval_seconds == 1) {
+            MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
+            interval_seconds = 2;
+        }
+        if (to_free_bytes > 0) {
+            LOG(INFO) << "try to release cache of tcmalloc, bytes " << to_free_bytes;
+            MallocExtension::instance()->ReleaseToSystem(to_free_bytes);
         }
     }
 #endif
