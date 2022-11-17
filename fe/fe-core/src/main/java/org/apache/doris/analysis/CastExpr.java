@@ -422,12 +422,16 @@ public class CastExpr extends Expr {
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            Expr result = new DecimalLiteral(
-                    ((DecimalLiteral) value).getValue().setScale(((ScalarType) type).getScalarScale(),
-                            RoundingMode.HALF_UP));
-            result.setType(ScalarType.createDecimalType(((ScalarType) type).decimalPrecision(),
-                    ((ScalarType) type).getScalarScale()));
-            return result;
+            if (value instanceof DecimalLiteral) {
+                Expr result = new DecimalLiteral(
+                        ((DecimalLiteral) value).getValue().setScale(((ScalarType) type).getScalarScale(),
+                                RoundingMode.HALF_UP));
+                result.setType(ScalarType.createDecimalType(((ScalarType) type).decimalPrecision(),
+                        ((ScalarType) type).getScalarScale()));
+                return result;
+            } else {
+                return new DecimalLiteral(value.getStringValue());
+            }
         } else if (type.isFloatingPointType()) {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
