@@ -82,6 +82,11 @@ public class PaloFe {
             return;
         }
 
+        try {
+            Thread.sleep(10000L);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         CommandLineOptions cmdLineOpts = parseArgs(args);
 
         try {

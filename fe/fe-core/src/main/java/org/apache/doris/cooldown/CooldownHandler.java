@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.thrift.TCooldownType;
 
 import com.google.common.collect.Maps;
@@ -31,12 +32,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.stream.Collectors;
 
 public class CooldownHandler extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CooldownHandler.class);
@@ -110,6 +113,13 @@ public class CooldownHandler extends MasterDaemon {
                 }
             }
         });
+    }
+
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(runableCooldownJobs.size());
+        for (CooldownJob cooldownJob : runableCooldownJobs.values()) {
+            cooldownJob.write(out);
+        }
     }
 
     public void readField(DataInput in) throws IOException {

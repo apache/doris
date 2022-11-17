@@ -2242,6 +2242,14 @@ public class Env {
         return checksum;
     }
 
+    /**
+     * Save CooldownJob.
+     */
+    public long saveCooldownJob(CountingDataOutputStream out, long checksum) throws IOException {
+        Env.getCurrentEnv().getCooldownHandler().write(out);
+        return checksum;
+    }
+
     public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
         if (Config.enable_mtmv_scheduler_framework) {
             Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);

@@ -209,6 +209,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveMTMVJobManager",
                         CountingDataOutputStream.class, long.class);
                 break;
+            case "cooldownJob":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadCooldownJob", DataInputStream.class,
+                        long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveCooldownJob",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }
