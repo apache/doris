@@ -55,6 +55,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -62,7 +63,6 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/utils/util.hpp"
-#include "vec/data_types/data_type_array.h"
 
 namespace doris::vectorized {
 
@@ -707,7 +707,8 @@ public:
                 auto& current_chars = *chars_list[j];
 
                 int size = current_offsets[i] - current_offsets[i - 1];
-                memcpy(&res_data[res_offset[i - 1]] + current_length, &current_chars[current_offsets[i - 1]], size);
+                memcpy(&res_data[res_offset[i - 1]] + current_length,
+                       &current_chars[current_offsets[i - 1]], size);
                 current_length += size;
             }
             res_offset[i] = res_offset[i - 1] + current_length;
@@ -1352,8 +1353,7 @@ public:
 };
 
 class FunctionSplitByString : public IFunction {
-
-/**
+    /**
  * explain              :Used to split the string to get the offset and length of each element in the string
  * parameter s          :The string to be split
  * parameter c          :delimiter(type of string)
@@ -1361,53 +1361,51 @@ class FunctionSplitByString : public IFunction {
  * parameter v_charlen  :A container used to store the length of each element
 */
 private:
-    void getOffsetsAndLen(const std::string& s, const std::string& c, std::vector<size_t>& v_offset, std::vector<size_t>& v_charlen) {
-	    v_offset.clear();
-	    v_charlen.clear();
-	    if (c.size() == 0) {
-		    for (int i = 0; i < s.size(); i++) {
-			    v_offset.push_back(i);
-			    v_charlen.push_back(1);
-		    }
-	    }
-	    else if(c.size() < s.size()){
-            string::size_type start = 0, end = s.size()-c.size();
+    void getOffsetsAndLen(const std::string& s, const std::string& c, std::vector<size_t>& v_offset,
+                          std::vector<size_t>& v_charlen) {
+        v_offset.clear();
+        v_charlen.clear();
+        if (c.size() == 0) {
+            for (int i = 0; i < s.size(); i++) {
+                v_offset.push_back(i);
+                v_charlen.push_back(1);
+            }
+        } else if (c.size() < s.size()) {
+            string::size_type start = 0, end = s.size() - c.size();
             size_t end_delimiter_num = 0;
-            while(start<s.size() && start == s.find(c, start)) {
+            while (start < s.size() && start == s.find(c, start)) {
                 v_charlen.push_back(0);
                 v_offset.push_back(start);
                 start += c.size();
             }
-            if(start > s.size() - 1){
+            if (start > s.size() - 1) {
                 return;
             }
-            while(start < end && end == s.find(c, end)) {
+            while (start < end && end == s.find(c, end)) {
                 end_delimiter_num++;
                 end -= c.size();
             }
-		    string::size_type pos1 = start, pos2 = s.find(c,start);
-		    while (pos2 < end+c.size())
-	    	{
-			    v_offset.push_back(pos1);
-			    v_charlen.push_back(pos2 - pos1);
-			    pos1 = pos2 + c.size();
-			    pos2 = s.find(c, pos1);
-		    }
+            string::size_type pos1 = start, pos2 = s.find(c, start);
+            while (pos2 < end + c.size()) {
+                v_offset.push_back(pos1);
+                v_charlen.push_back(pos2 - pos1);
+                pos1 = pos2 + c.size();
+                pos2 = s.find(c, pos1);
+            }
             v_offset.push_back(pos1);
-			v_charlen.push_back(s.size() - end_delimiter_num*c.size() - pos1);
-            
-		    while(end_delimiter_num>0) {
+            v_charlen.push_back(s.size() - end_delimiter_num * c.size() - pos1);
+
+            while (end_delimiter_num > 0) {
                 v_charlen.push_back(0);
-                v_offset.push_back(s.size()-end_delimiter_num*c.size());
+                v_offset.push_back(s.size() - end_delimiter_num * c.size());
                 end_delimiter_num--;
             }
-	    }
-	    else {
-		    v_offset.push_back(0);
-		    v_charlen.push_back(s.size());
-	    }
-	      
-}
+        } else {
+            v_offset.push_back(0);
+            v_charlen.push_back(s.size());
+        }
+    }
+
 public:
     static constexpr auto name = "split_by_string";
 
@@ -1415,7 +1413,7 @@ public:
     using NullMapType = PaddedPODArray<UInt8>;
 
     String get_name() const override { return name; }
-    
+
     bool is_variadic() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 2; }
@@ -1428,11 +1426,14 @@ public:
                         size_t result, size_t input_rows_count) override {
         DCHECK_EQ(arguments.size(), 2);
 
-        ColumnPtr src_column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        ColumnPtr delimiter_column = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        ColumnPtr src_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr delimiter_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
-        auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(), ColumnArray::ColumnOffsets::create());
+        auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
+                                                   ColumnArray::ColumnOffsets::create());
 
         IColumn* dest_nested_column = &dest_column_ptr->get_data();
         auto& dest_offsets = dest_column_ptr->get_offsets();
@@ -1442,12 +1443,14 @@ public:
 
         NullMapType* dest_nested_null_map = nullptr;
         if (dest_nested_column->is_nullable()) {
-            ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
+            ColumnNullable* dest_nullable_col =
+                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
             dest_nested_column = dest_nullable_col->get_nested_column_ptr();
             dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
         }
 
-        _execute(*src_column, *delimiter_column, *dest_nested_column, dest_offsets, dest_nested_null_map);
+        _execute(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
+                 dest_nested_null_map);
         block.replace_by_position(result, std::move(dest_column_ptr));
         return Status::OK();
     }
@@ -1476,7 +1479,7 @@ public:
             vector<size_t> v_len;
             vector<size_t> v_offset;
             getOffsetsAndLen(str, delimiter, v_offset, v_len);
-            for(int j=0; j<v_len.size(); j++) {
+            for (int j = 0; j < v_len.size(); j++) {
                 const size_t old_size = column_string_chars.size();
                 const size_t new_size = old_size + v_len[j];
                 column_string_chars.resize(new_size);
@@ -1490,7 +1493,6 @@ public:
         }
     }
 };
-
 
 struct SM3Sum {
     static constexpr auto name = "sm3sum";
