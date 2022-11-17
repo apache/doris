@@ -81,6 +81,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * vectorization
         * docs
         * profile
+        * docker
 
         Some tips：
 
