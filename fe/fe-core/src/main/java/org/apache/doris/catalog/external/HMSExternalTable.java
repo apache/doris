@@ -21,13 +21,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.PooledHiveMetaStoreClient;
+import org.apache.doris.statistics.AnalysisJob;
+import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisJobScheduler;
+import org.apache.doris.statistics.HiveAnalysisJob;
+import org.apache.doris.statistics.IcebergAnalysisJob;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -266,6 +274,19 @@ public class HMSExternalTable extends ExternalTable {
         return tTableDescriptor;
     }
 
+    @Override
+    public AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info) {
+        makeSureInitialized();
+        switch (dlaType) {
+            case HIVE:
+                return new HiveAnalysisJob(scheduler, info);
+            case ICEBERG:
+                return new IcebergAnalysisJob(scheduler, info);
+            default:
+                throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
+        }
+    }
+
     public String getMetastoreUri() {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
@@ -276,6 +297,22 @@ public class HMSExternalTable extends ExternalTable {
 
     public Map<String, String> getS3Properties() {
         return catalog.getCatalogProperty().getS3Properties();
+    }
+
+    public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        return client.getTableColumnStatistics(dbName, name, columns);
+    }
+
+    public Map<String, List<ColumnStatisticsObj>> getHivePartitionColumnStats(
+            List<String> partNames, List<String> columns) {
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        return client.getPartitionColumnStatistics(dbName, name, partNames, columns);
+    }
+
+    public Partition getPartition(List<String> partitionValues) {
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        return client.getPartition(dbName, name, partitionValues);
     }
 }
 
