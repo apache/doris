@@ -267,15 +267,23 @@ public:
         _rowset_meta->get_segments_key_bounds(segments_key_bounds);
         return Status::OK();
     }
-    std::string min_key() {
+    bool min_key(std::string* min_key) {
         KeyBoundsPB key_bounds;
-        _rowset_meta->get_first_segment_key_bound(&key_bounds);
-        return key_bounds.min_key();
+        bool ret = _rowset_meta->get_first_segment_key_bound(&key_bounds);
+        if (!ret) {
+            return false;
+        }
+        *min_key = key_bounds.min_key();
+        return true;
     }
-    std::string max_key() {
+    bool max_key(std::string* max_key) {
         KeyBoundsPB key_bounds;
-        _rowset_meta->get_last_segment_key_bound(&key_bounds);
-        return key_bounds.max_key();
+        bool ret = _rowset_meta->get_last_segment_key_bound(&key_bounds);
+        if (!ret) {
+            return false;
+        }
+        *max_key = key_bounds.max_key();
+        return true;
     }
 
     bool check_rowset_segment();

@@ -120,12 +120,16 @@ bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr&
             return false;
         }
     }
-
-    auto min_key = rhs->min_key();
+    std::string min_key;
+    auto ret = rhs->min_key(&min_key);
+    if (!ret) {
+        return false;
+    }
     if (min_key < pre_max_key) {
         return false;
     }
-    pre_max_key = rhs->max_key();
+    DCHECK(rhs->max_key(&pre_max_key));
+
     return true;
 }
 
