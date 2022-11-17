@@ -20,6 +20,7 @@ package org.apache.doris.rewrite;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -158,7 +159,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         // 3. find merge cross the clause
         if (analyzer.getContext() != null && analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
             Expr wideCommonExpr = findWideRangeExpr(clearExprs);
-            if (wideCommonExpr != null) {
+            if (wideCommonExpr != null && !(wideCommonExpr instanceof CompoundPredicate
+                    && ((CompoundPredicate) wideCommonExpr).getOp() == Operator.OR)) {
                 commonFactorList.add(wideCommonExpr);
             }
         }
