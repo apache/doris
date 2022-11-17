@@ -339,7 +339,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     auto cumu_policy = _tablet->cumulative_compaction_policy();
     DCHECK(cumu_policy);
     LOG(INFO) << "succeed to do " << merge_type << compaction_name()
-              << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
+              << " is_vertical=" << vertical_compaction << ". tablet=" << _tablet->full_name()
+              << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << _input_num_segments
               << ", input_row_num=" << _input_row_num
