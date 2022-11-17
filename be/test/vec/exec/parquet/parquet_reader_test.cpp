@@ -112,7 +112,11 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.init_mem_trackers();
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    p_reader->init_reader(&colname_to_value_range);
+    p_reader->init_reader(&colname_to_value_range, nullptr);
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContext*> missing_columns;
+    p_reader->set_fill_columns(partition_columns, missing_columns);
     Block* block = new Block();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type =

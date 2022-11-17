@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
+import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileFormatType;
 
 import org.apache.hadoop.conf.Configuration;
@@ -36,7 +37,6 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -48,8 +48,9 @@ import java.util.Map;
  */
 public class IcebergScanProvider extends HiveScanProvider {
 
-    public IcebergScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc) {
-        super(hmsTable, desc);
+    public IcebergScanProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
+            Map<String, ColumnRange> columnNameToRange) {
+        super(hmsTable, desc, columnNameToRange);
     }
 
     @Override
@@ -69,7 +70,7 @@ public class IcebergScanProvider extends HiveScanProvider {
     }
 
     @Override
-    public List<InputSplit> getSplits(List<Expr> exprs) throws IOException, UserException {
+    public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
         List<Expression> expressions = new ArrayList<>();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);

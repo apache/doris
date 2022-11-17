@@ -92,8 +92,7 @@ public:
     // eg. flush the largest memtable immediately.
     // return Status::OK if mem is reduced.
     // no-op when this channel has been closed or cancelled
-    template <typename TabletWriterAddResult>
-    Status reduce_mem_usage(TabletWriterAddResult* response);
+    void reduce_mem_usage();
 
     int64_t mem_consumption();
 

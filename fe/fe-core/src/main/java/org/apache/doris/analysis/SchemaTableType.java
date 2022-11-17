@@ -68,6 +68,7 @@ public enum SchemaTableType {
     SCH_INVALID("NULL", "NULL", TSchemaTableType.SCH_INVALID),
     SCH_ROWSETS("ROWSETS", "ROWSETS", TSchemaTableType.SCH_ROWSETS),
     SCH_BACKENDS("BACKENDS", "BACKENDS", TSchemaTableType.SCH_BACKENDS);
+
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;
 

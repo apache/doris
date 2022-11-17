@@ -72,7 +72,7 @@ public class AnalyzeStmt extends DdlStmt {
 
     private final TableName optTableName;
     private final PartitionNames optPartitionNames;
-    private final List<String> optColumnNames;
+    private List<String> optColumnNames;
     private Map<String, String> optProperties;
 
     // after analyzed
@@ -230,6 +230,9 @@ public class AnalyzeStmt extends DdlStmt {
                 } finally {
                     table.readUnlock();
                 }
+            } else {
+                optColumnNames = table.getBaseSchema(false)
+                        .stream().map(Column::getName).collect(Collectors.toList());
             }
 
             dbId = db.getId();
@@ -364,5 +367,21 @@ public class AnalyzeStmt extends DdlStmt {
         }
 
         return sb.toString();
+    }
+
+    public String getCatalogName() {
+        return optTableName.getCtl();
+    }
+
+    public String getDBName() {
+        return optTableName.getDb();
+    }
+
+    public String getTblName() {
+        return optTableName.getTbl();
+    }
+
+    public List<String> getOptColumnNames() {
+        return optColumnNames;
     }
 }

@@ -867,7 +867,7 @@ public class OlapTable extends Table {
     }
 
     public List<Long> getPartitionIds() {
-        return getPartitions().stream().map(entity -> entity.getId()).collect(Collectors.toList());
+        return new ArrayList<>(idToPartition.keySet());
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -1930,5 +1930,9 @@ public class OlapTable extends Table {
         for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
             indexMeta.initSchemaColumnUniqueId();
         }
+    }
+
+    public Set<Long> getPartitionKeys() {
+        return idToPartition.keySet();
     }
 }

@@ -68,6 +68,12 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request.set_eos(false);
 
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
+    // The node channel will send _batch_size rows of data each rpc. When the
+    // number of tablets is large, the number of data rows received by each
+    // tablet is small, TabletsChannel need to traverse each tablet for import.
+    // so the import performance is poor. Therefore, we set _batch_size to
+    // a relatively large value to improve the import performance.
+    _batch_size = std::max(_batch_size, 8192);
 
     return Status::OK();
 }
@@ -247,7 +253,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 
 void VNodeChannel::try_send_block(RuntimeState* state) {
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {

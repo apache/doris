@@ -21,7 +21,6 @@
 
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
-#include "util/jsonb_document.h"
 #include "util/string_parser.hpp"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -187,7 +186,7 @@ void VLiteral::init(const TExprNode& node) {
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
     // Literal expr should return least one row.
-    size_t row_size = std::max(block->rows(), size_t(1));
+    size_t row_size = std::max(block->rows(), _column_ptr->size());
     *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name}, row_size);
     return Status::OK();
 }
@@ -196,9 +195,12 @@ std::string VLiteral::debug_string() const {
     std::stringstream out;
     out << "VLiteral (name = " << _expr_name;
     out << ", type = " << _data_type->get_name();
-    out << ", value = ";
-    if (_column_ptr->size() > 0) {
-        StringRef ref = _column_ptr->get_data_at(0);
+    out << ", value = (";
+    for (size_t i = 0; i < _column_ptr->size(); i++) {
+        if (i != 0) {
+            out << ", ";
+        }
+        StringRef ref = _column_ptr->get_data_at(i);
         if (ref.data == nullptr) {
             out << "null";
         } else {
@@ -234,7 +236,17 @@ std::string VLiteral::debug_string() const {
             case TYPE_DATETIME: {
                 auto value = *(reinterpret_cast<const int64_t*>(ref.data));
                 auto date_value = (VecDateTimeValue*)&value;
-                out << date_value;
+                out << *date_value;
+                break;
+            }
+            case TYPE_DATEV2: {
+                auto* value = (DateV2Value<DateV2ValueType>*)ref.data;
+                out << *value;
+                break;
+            }
+            case TYPE_DATETIMEV2: {
+                auto* value = (DateV2Value<DateTimeV2ValueType>*)ref.data;
+                out << *value;
                 break;
             }
             case TYPE_STRING:
@@ -271,7 +283,7 @@ std::string VLiteral::debug_string() const {
             }
         }
     }
-    out << ")";
+    out << "))";
     return out.str();
 }
 } // namespace vectorized

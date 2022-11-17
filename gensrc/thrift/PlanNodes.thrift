@@ -583,6 +583,16 @@ struct THashJoinNode {
   10: optional bool is_broadcast_join;
 }
 
+struct TNestedLoopJoinNode {
+  1: required TJoinOp join_op
+  // TODO: remove 2 and 3 in the version after the version include projection on ExecNode
+  2: optional list<Exprs.TExpr> srcExprList
+
+  3: optional Types.TTupleId voutput_tuple_id
+
+  4: optional list<Types.TTupleId> vintermediate_tuple_id_list
+}
+
 struct TMergeJoinNode {
   // anything from the ON, USING or WHERE clauses that's an equi-join predicate
   1: required list<TEqJoinCondition> cmp_conjuncts
@@ -974,6 +984,7 @@ struct TPlanNode {
   // file scan node
   44: optional TFileScanNode file_scan_node
   45: optional TJdbcScanNode jdbc_scan_node
+  46: optional TNestedLoopJoinNode nested_loop_join_node
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

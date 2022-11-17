@@ -29,6 +29,7 @@
 #include "io/file_reader.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vparquet_column_reader.h"
 #include "vparquet_file_metadata.h"
 #include "vparquet_group_reader.h"
@@ -43,6 +44,7 @@ public:
         int32_t read_row_groups = 0;
         int64_t filtered_group_rows = 0;
         int64_t filtered_page_rows = 0;
+        int64_t lazy_read_filtered_rows = 0;
         int64_t read_rows = 0;
         int64_t filtered_bytes = 0;
         int64_t read_bytes = 0;
@@ -54,12 +56,16 @@ public:
                   const TFileRangeDesc& range, const std::vector<std::string>& column_names,
                   size_t batch_size, cctz::time_zone* ctz);
 
+    ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                  const std::vector<std::string>& column_names);
+
     ~ParquetReader() override;
     // for test
     void set_file_reader(FileReader* file_reader) { _file_reader.reset(file_reader); }
 
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            VExprContext* vconjunct_ctx);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -71,7 +77,15 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    Status get_parsered_schema(std::vector<std::string>* col_names,
+                               std::vector<TypeDescriptor>* col_types) override;
+
     Statistics& statistics() { return _statistics; }
+
+    Status set_fill_columns(
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns,
+            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
 
 private:
     struct ParquetProfile {
@@ -79,6 +93,7 @@ private:
         RuntimeProfile::Counter* to_read_row_groups;
         RuntimeProfile::Counter* filtered_group_rows;
         RuntimeProfile::Counter* filtered_page_rows;
+        RuntimeProfile::Counter* lazy_read_filtered_rows;
         RuntimeProfile::Counter* filtered_bytes;
         RuntimeProfile::Counter* to_read_bytes;
         RuntimeProfile::Counter* column_read_time;
@@ -131,6 +146,10 @@ private:
     std::map<std::string, int> _map_column; // column-name <---> column-index
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
+
+    // Used for column lazy read.
+    RowGroupReader::LazyReadContext _lazy_read_ctx;
+
     std::list<int32_t> _read_row_groups;
     // parquet file reader object
     size_t _batch_size;

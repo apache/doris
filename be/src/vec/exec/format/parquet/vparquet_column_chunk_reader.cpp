@@ -216,23 +216,13 @@ size_t ColumnChunkReader::get_def_levels(level_t* levels, size_t n) {
 }
 
 Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                        RunLengthNullMap& null_map) {
+                                        ColumnSelectVector& select_vector) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    size_t num_nulls = 0;
-    size_t num_values = 0;
-    bool is_null = false;
-    for (auto& run_length : null_map) {
-        if (is_null) {
-            num_nulls += run_length;
-        }
-        num_values += run_length;
-        is_null = !is_null;
-    }
-    if (UNLIKELY(_remaining_num_values < num_values)) {
+    if (UNLIKELY(_remaining_num_values < select_vector.num_values())) {
         return Status::IOError("Decode too many values in current page");
     }
-    _remaining_num_values -= num_values;
-    return _page_decoder->decode_values(doris_column, data_type, null_map, num_values, num_nulls);
+    _remaining_num_values -= select_vector.num_values();
+    return _page_decoder->decode_values(doris_column, data_type, select_vector);
 }
 
 int32_t ColumnChunkReader::_get_type_length() {

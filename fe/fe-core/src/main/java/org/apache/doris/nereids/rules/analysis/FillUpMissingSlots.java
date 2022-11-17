@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -50,15 +51,34 @@ import java.util.stream.Collectors;
 
 /**
  * Resolve having clause to the aggregation.
+ * need Top to Down to traverse plan,
+ * because we need to process FILL_UP_SORT_HAVING_AGGREGATE before FILL_UP_HAVING_AGGREGATE.
  */
 public class FillUpMissingSlots implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.FILL_UP_SORT_AGGREGATE_FUNCTIONS.build(
+                RuleType.FILL_UP_SORT_PROJECT.build(
+                        logicalSort(logicalProject())
+                                .when(this::checkSort)
+                                .then(sort -> {
+                                    final Builder<NamedExpression> projectionsBuilder = ImmutableList.builder();
+                                    projectionsBuilder.addAll(sort.child().getProjects());
+                                    Set<Slot> notExistedInProject = sort.getExpressions().stream()
+                                            .map(Expression::getInputSlots)
+                                            .flatMap(Set::stream)
+                                            .filter(s -> !sort.child().getOutputSet().contains(s))
+                                            .collect(Collectors.toSet());
+                                    projectionsBuilder.addAll(notExistedInProject);
+                                    return new LogicalProject(sort.child().getOutput(),
+                                            new LogicalSort<>(sort.getOrderKeys(),
+                                                    new LogicalProject<>(projectionsBuilder.build(),
+                                                            sort.child().child())));
+                                })
+                ),
+                RuleType.FILL_UP_SORT_AGGREGATE.build(
                         logicalSort(logicalAggregate())
-                                .when(sort -> sort.getExpressions().stream()
-                                        .anyMatch(e -> e.containsType(AggregateFunction.class)))
+                                .when(this::checkSort)
                                 .then(sort -> {
                                     LogicalAggregate<GroupPlan> aggregate = sort.child();
                                     Resolver resolver = new Resolver(aggregate);
@@ -74,10 +94,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                     });
                                 })
                 ),
-                RuleType.FILL_UP_SORT_HAVING_AGGREGATE_FUNCTIONS.build(
+                RuleType.FILL_UP_SORT_HAVING_AGGREGATE.build(
                         logicalSort(logicalHaving(logicalAggregate()))
-                                .when(sort -> sort.getExpressions().stream()
-                                        .anyMatch(e -> e.containsType(AggregateFunction.class)))
+                                .when(this::checkSort)
                                 .then(sort -> {
                                     LogicalAggregate<GroupPlan> aggregate = sort.child().child();
                                     Resolver resolver = new Resolver(aggregate);
@@ -93,7 +112,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                     });
                                 })
                 ),
-                RuleType.FILL_UP_HAVING_AGGREGATE_FUNCTIONS.build(
+                RuleType.FILL_UP_HAVING_AGGREGATE.build(
                         logicalHaving(logicalAggregate()).then(having -> {
                             LogicalAggregate<GroupPlan> aggregate = having.child();
                             Resolver resolver = new Resolver(aggregate);
@@ -104,27 +123,6 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 return new LogicalFilter<>(newPredicates, a);
                             });
                         })
-                ),
-                RuleType.FILL_UP_SORT_PROJECT.build(
-                        logicalSort(logicalProject())
-                                .when(sort -> sort.getExpressions().stream()
-                                        .map(Expression::getInputSlots)
-                                        .flatMap(Set::stream)
-                                        .anyMatch(s -> !sort.child().getOutputSet().contains(s)))
-                                .then(sort -> {
-                                    final Builder<NamedExpression> projectionsBuilder = ImmutableList.builder();
-                                    projectionsBuilder.addAll(sort.child().getProjects());
-                                    Set<Slot> notExistedInProject = sort.getExpressions().stream()
-                                            .map(Expression::getInputSlots)
-                                            .flatMap(Set::stream)
-                                            .filter(s -> !sort.child().getOutputSet().contains(s))
-                                            .collect(Collectors.toSet());
-                                    projectionsBuilder.addAll(notExistedInProject);
-                                    return new LogicalProject(sort.child().getOutput(),
-                                            new LogicalSort<>(sort.getOrderKeys(),
-                                                    new LogicalProject<>(projectionsBuilder.build(),
-                                                            sort.child().child())));
-                                })
                 )
         );
     }
@@ -252,5 +250,15 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 aggregate.getGroupByExpressions(), newOutputExpressions);
         Plan plan = planGenerator.apply(resolver, newAggregate);
         return new LogicalProject<>(projections, plan);
+    }
+
+    private boolean checkSort(LogicalSort<? extends LogicalPlan> logicalSort) {
+        return logicalSort.getExpressions().stream()
+                .map(Expression::getInputSlots)
+                .flatMap(Set::stream)
+                .anyMatch(s -> !logicalSort.child().getOutputSet().contains(s))
+                || logicalSort.getOrderKeys().stream()
+                .map(OrderKey::getExpr)
+                .anyMatch(e -> e.containsType(AggregateFunction.class));
     }
 }

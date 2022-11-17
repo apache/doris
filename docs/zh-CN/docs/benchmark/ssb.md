@@ -26,13 +26,13 @@ under the License.
 
 # Star Schema Benchmark
 
-[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) 是一个轻量级的数仓场景下的性能测试集。SSB基于 [TPC-H](http://www.tpc.org/tpch/) 提供了一个简化版的星型模型数据集，主要用于测试在星型模型下，多表关联查询的性能表现。另外，业界内通常也会将SSB打平为宽表模型（以下简称：SSB flat），来测试查询引擎的性能，参考[Clickhouse](https://clickhouse.com/docs/zh/getting-started/example-datasets/star-schema)。
+[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) 是一个轻量级的数仓场景下的性能测试集。SSB 基于 [TPC-H](http://www.tpc.org/tpch/) 提供了一个简化版的星型模型数据集，主要用于测试在星型模型下，多表关联查询的性能表现。另外，业界内通常也会将 SSB 打平为宽表模型（以下简称：SSB flat），来测试查询引擎的性能，参考[Clickhouse](https://clickhouse.com/docs/zh/getting-started/example-datasets/star-schema)。
 
 本文档主要介绍 Doris 在 SSB 测试集上的性能表现。
 
-> 注1：包括 SSB 在内的标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
+> 注 1：包括 SSB 在内的标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
 >
-> 注2：本文档涉及的操作都在 Ubuntu Server 20.04 环境进行，CentOS 7 也可测试。
+> 注 2：本文档涉及的操作都在 Ubuntu Server 20.04 环境进行，CentOS 7 也可测试。
 
 在 SSB 标准测试数据集上的 13 个查询上，我们对即将发布的 Doris 1.1 版本和 Doris 0.15.0 RC04 版本进行了对别测试，整体性能提升了 2-3 倍。
 
@@ -49,9 +49,9 @@ under the License.
 
 ## 2. 软件环境
 
-- Doris部署 3BE 1FE；
+- Doris 部署 3BE 1FE；
 - 内核版本：Linux version 5.4.0-96-generic (buildd@lgw01-amd64-051)
-- 操作系统版本：Ubuntu Server 20.04 LTS 64位
+- 操作系统版本：Ubuntu Server 20.04 LTS 64 位
 - Doris 软件版本：Apache Doris 1.1 、Apache Doris 0.15.0 RC04
 - JDK：openjdk version "11.0.14" 2022-01-18
 
@@ -68,7 +68,7 @@ under the License.
 
 ## 4. 测试结果
 
-这里我们使用即将发布的 Doris-1.1版本和 Doris-0.15.0 RC04 版本进行对比测试，测试结果如下：
+这里我们使用即将发布的 Doris-1.1 版本和 Doris-0.15.0 RC04 版本进行对比测试，测试结果如下：
 
 | Query | Doris-1.1(ms) | Doris-0.15.0 RC04(ms) |
 | ----- | ------------- | --------------------- |
@@ -88,16 +88,16 @@ under the License.
 
 **结果说明**
 
-- 测试结果对应的数据集为scale 100, 约6亿条。
-- 测试环境配置为用户常用配置，云服务器4台，16核 64G SSD，1 FE 3 BE 部署。
+- 测试结果对应的数据集为 scale 100, 约 6 亿条。
+- 测试环境配置为用户常用配置，云服务器 4 台，16 核 64G SSD，1 FE 3 BE 部署。
 - 选用用户常见配置测试以降低用户选型评估成本，但整个测试过程中不会消耗如此多的硬件资源。
-- 测试结果为3次执行取平均值。并且数据经过充分的 compaction（如果在刚导入数据后立刻测试，则查询延迟可能高于本测试结果，compaction的速度正在持续优化中，未来会显著降低）。
+- 测试结果为 3 次执行取平均值。并且数据经过充分的 compaction（如果在刚导入数据后立刻测试，则查询延迟可能高于本测试结果，compaction 的速度正在持续优化中，未来会显著降低）。
 
 ## 5. 环境准备
 
 请先参照 [官方文档](../install/install-deploy.md) 进行 Doris 的安装部署，以获得一个正常运行中的 Doris 集群（至少包含 1 FE 1 BE，推荐 1 FE 3 BE）。
 
-可修改 BE 的配置文件 be.conf 添加以下配置项，重启BE，以获得更好的查询性能。
+可修改 BE 的配置文件 be.conf 添加以下配置项，重启 BE，以获得更好的查询性能。
 
 ```shell
 enable_storage_vectorization=true
@@ -130,11 +130,11 @@ bash bin/build-ssb-dbgen.sh
 bash bin/gen-ssb-data.sh
 ```
 
-> 注1：通过 `bash bin/gen-ssb-data.sh -h` 查看脚本帮助，默认 scale factor 为 100（简称sf100），默认生成 10 个数据文件，即 `bash bin/gen-ssb-data.sh -s 100 -c 10`，耗时数分钟。
+> 注 1：通过 `bash bin/gen-ssb-data.sh -h` 查看脚本帮助，默认 scale factor 为 100（简称 sf100），默认生成 10 个数据文件，即 `bash bin/gen-ssb-data.sh -s 100 -c 10`，耗时数分钟。
 >
-> 注2：数据会以 `.tbl` 为后缀生成在  `bin/ssb-data/` 目录下。文件总大小约60GB。生成时间可能在数分钟到1小时不等，生成完成后会列出生成文件的信息。
+> 注 2：数据会以 `.tbl` 为后缀生成在 `bin/ssb-data/` 目录下。文件总大小约 60GB。生成时间可能在数分钟到 1 小时不等，生成完成后会列出生成文件的信息。
 >
-> 注3：`-s 100` 表示测试集大小系数为 100，`-c 10` 表示并发10个线程生成 lineorder 表的数据。`-c` 参数也决定了最终 lineorder 表的文件数量。参数越大，文件数越多，每个文件越小。测试sf100用默认参数即可，测试sf1000用 `-s 1000 -c 100` 。
+> 注 3：`-s 100` 表示测试集大小系数为 100，`-c 10` 表示并发 10 个线程生成 lineorder 表的数据。`-c` 参数也决定了最终 lineorder 表的文件数量。参数越大，文件数越多，每个文件越小。测试 sf100 用默认参数即可，测试 sf1000 用 `-s 1000 -c 100` 。
 
 在 `-s 100` 参数下，生成的数据集大小为：
 
@@ -168,10 +168,11 @@ export DB="ssb"
 ```shell
 bash bin/create-ssb-tables.sh
 ```
-或者复制 [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) 中的建表语句，在 Doris 中执行。
-复制 [create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) 中的建表语句，在 Doris 中执行。
 
-下面是 `lineorder_flat` 表建表语句。在上面的 `bin/create-ssb-table.sh`  脚本中创建"lineorder_flat"表，并进行了默认分桶数（48个桶)。您可以删除该表，根据您的集群规模节点配置对这个分桶数进行调整，这样可以获取到更好的一个测试效果。
+或者复制 [create-ssb-tables.sql](https://github.com/apache/doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) 中的建表语句，在 Doris 中执行。
+复制 [create-ssb-flat-table.sql](https://github.com/apache/doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) 中的建表语句，在 Doris 中执行。
+
+下面是 `lineorder_flat` 表建表语句。在上面的 `bin/create-ssb-table.sh` 脚本中创建"lineorder_flat"表，并进行了默认分桶数（48 个桶)。您可以删除该表，根据您的集群规模节点配置对这个分桶数进行调整，这样可以获取到更好的一个测试效果。
 
 ```sql
 CREATE TABLE `lineorder_flat` (
@@ -233,22 +234,19 @@ PROPERTIES (
 );
 ```
 
-
-
-
 ### 6.4 导入数据
 
-下面的脚本根据 `conf/doris-cluster.conf` 中的参数连接Doirs进行导入，单线程导入数据量较小的 4 张维度表（customer, part, supplier and date），并发导入 1 张事实表（lineorder），以及采用 'INSERT INTO ... SELECT ... ' 的方式导入宽表（lineorder_flat）。
+下面的脚本根据 `conf/doris-cluster.conf` 中的参数连接 Doirs 进行导入，单线程导入数据量较小的 4 张维度表（customer, part, supplier and date），并发导入 1 张事实表（lineorder），以及采用 'INSERT INTO ... SELECT ... ' 的方式导入宽表（lineorder_flat）。
 
 ```shell
 bash bin/load-ssb-data.sh
 ```
 
-> 注1：通过 `bash bin/load-ssb-data.sh -h` 查看脚本帮助, 默认 5 线程并发导入 lineorder，即 `-c 5` 。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
+> 注 1：通过 `bash bin/load-ssb-data.sh -h` 查看脚本帮助, 默认 5 线程并发导入 lineorder，即 `-c 5` 。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
 >
-> 注2：为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
+> 注 2：为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启 BE。该配置表示每个数据目录的写盘线程数，默认为 2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1 块机械磁盘，在默认为 2 的情况下，导入过程中的 IO Util 约为 12%，设置为 5 时，IO Util 约为 26%。如果是 SSD 盘，则几乎为 0）。
 >
-> 注3：导入customer, part, supplier, date 及 lineorder 表耗时389s，打平到 lineorder_flat 耗时740s.
+> 注 3：导入 customer, part, supplier, date 及 lineorder 表耗时 389s，打平到 lineorder_flat 耗时 740s.
 
 ### 6.5 检查导入数据
 
@@ -276,13 +274,13 @@ select count(*) from lineorder_flat;
 
 #### 6.6.1 测试脚本
 
-下面脚本根据 `conf/doris-cluster.conf` 中的参数连接Doris，执行查询前会先打印出各表的数据行数。
+下面脚本根据 `conf/doris-cluster.conf` 中的参数连接 Doris，执行查询前会先打印出各表的数据行数。
 
 ```shell
 bash bin/run-ssb-flat-queries.sh
 ```
 
-#### 6.6.2 测试SQL
+#### 6.6.2 测试 SQL
 
 ```sql
 --Q1.1
@@ -368,4 +366,3 @@ WHERE S_NATION = 'UNITED STATES' AND LO_ORDERDATE >= 19970101 AND LO_ORDERDATE <
 GROUP BY YEAR, S_CITY, P_BRAND
 ORDER BY YEAR ASC, S_CITY ASC, P_BRAND ASC;
 ```
-

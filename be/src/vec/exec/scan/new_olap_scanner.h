@@ -20,6 +20,7 @@
 #include "exec/olap_utils.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
+#include "exprs/hybrid_set.h"
 #include "olap/reader.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/vscanner.h"
@@ -47,6 +48,7 @@ public:
                    VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
                    const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>&
                            bloom_filters,
+                   const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
                    const std::vector<FunctionFilter>& function_filters);
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
@@ -62,6 +64,7 @@ private:
             const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
             const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>&
                     bloom_filters,
+            const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
             const std::vector<FunctionFilter>& function_filters);
 
     Status _init_return_columns();

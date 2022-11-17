@@ -91,7 +91,7 @@ public:
         // TODO: In order to ensure no OOM, currently reserve 200M, and then use the free mem in /proc/meminfo to ensure no OOM.
         if (MemInfo::proc_mem_no_allocator_cache() + bytes >= MemInfo::mem_limit() ||
             PerfCounters::get_vm_rss() + bytes >= MemInfo::hard_mem_limit()) {
-            print_log_process_usage("sys_mem_exceed_limit_check");
+            print_log_process_usage("sys mem exceed limit check faild");
             return true;
         }
         return false;
@@ -131,11 +131,11 @@ public:
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
-    static void print_log_process_usage(const std::string& msg);
+    static void print_log_process_usage(const std::string& msg, bool with_stacktrace = true);
 
     // Log the memory usage when memory limit is exceeded.
     std::string mem_limit_exceeded(const std::string& msg,
-                                   const std::string& limit_exceeded_errmsg_prefix);
+                                   const std::string& limit_exceeded_errmsg);
     Status fragment_mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                                        int64_t failed_allocation_size = 0);
 
@@ -237,8 +237,6 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
         _consumption->add(bytes); // No limit at this tracker.
     } else {
         if (!_consumption->try_add(bytes, _limit)) {
-            // Failed for this mem tracker. Roll back the ones that succeeded.
-            _consumption->add(-bytes);
             failed_msg = tracker_limit_exceeded_errmsg_str(bytes, this);
             return false;
         }

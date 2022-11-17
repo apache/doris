@@ -144,7 +144,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     } else {
         (*output) << "<h4>*Note: (see documentation for details)</h4>\n";
         (*output) << "<h4>     1.`/mem_tracker?type=global` to view the memory statistics of each "
-                     "type</h4>\n";
+                     "type, `global`life cycle is the same as the process, e.g. each Cache, "
+                     "StorageEngine, each Manager.</h4>\n";
         (*output) << "<h4>     2.`/mem_tracker` counts virtual memory, which is equal to `Actual "
                      "memory used` in `/memz`</h4>\n";
         (*output) << "<h4>     3.`process` is equal to the sum of all types of memory, "

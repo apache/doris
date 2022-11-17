@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -77,7 +77,7 @@ public class SimplifyCastRule extends AbstractExpressionRewriteRule {
                 } else if (child instanceof CharLiteral) {
                     return new VarcharLiteral(((CharLiteral) child).getValue(), ((VarcharType) castType).getLen());
                 }
-            } else if (castType instanceof DecimalType) {
+            } else if (castType instanceof DecimalV2Type) {
                 if (child instanceof TinyIntLiteral) {
                     return new DecimalLiteral(new BigDecimal(((TinyIntLiteral) child).getValue()));
                 } else if (child instanceof SmallIntLiteral) {

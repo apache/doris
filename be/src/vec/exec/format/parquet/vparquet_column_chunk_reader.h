@@ -124,7 +124,7 @@ public:
 
     // Decode values in current page into doris column.
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         RunLengthNullMap& null_map);
+                         ColumnSelectVector& select_vector);
 
     // Get the repetition level decoder of current page.
     LevelDecoder& rep_level_decoder() { return _rep_level_decoder; }

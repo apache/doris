@@ -31,6 +31,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.external.ExternalFileScanNode.ParamCreateContext;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -59,18 +60,8 @@ public class TVFScanProvider extends QueryScanProvider {
 
     // =========== implement abstract methods of QueryScanProvider =================
     @Override
-    public String getColumnSeparator() throws UserException {
-        return tableValuedFunction.getColumnSeparator();
-    }
-
-    @Override
-    public String getLineSeparator() {
-        return tableValuedFunction.getLineSeparator();
-    }
-
-    @Override
-    public String getHeaderType() {
-        return tableValuedFunction.getHeaderType();
+    public TFileAttributes getFileAttributes() throws UserException {
+        return tableValuedFunction.getFileAttributes();
     }
 
 

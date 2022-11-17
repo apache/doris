@@ -99,7 +99,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkPrefix(String prefix) throws DdlException {
+    public static void checkPrefix(String prefix) throws DdlException {
         try {
             FeNameFormat.checkPartitionName(prefix);
         } catch (AnalysisException e) {
@@ -157,7 +157,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static boolean checkCreateHistoryPartition(String create) throws DdlException {
+    public static boolean checkCreateHistoryPartition(String create) throws DdlException {
         if (Strings.isNullOrEmpty(create)
                 || (!Boolean.TRUE.toString().equalsIgnoreCase(create)
                 && !Boolean.FALSE.toString().equalsIgnoreCase(create))) {
@@ -181,7 +181,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkStartDayOfMonth(String val) throws DdlException {
+    public static void checkStartDayOfMonth(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
         }
@@ -197,7 +197,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkStartDayOfWeek(String val) throws DdlException {
+    public static void checkStartDayOfWeek(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_WEEK);
         }

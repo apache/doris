@@ -147,7 +147,7 @@ static inline uint64 bswap_64(uint64 x) {
 #endif
 
 // define the macros IS_LITTLE_ENDIAN or IS_BIG_ENDIAN
-// using the above endian defintions from endian.h if
+// using the above endian definitions from endian.h if
 // endian.h was included
 #ifdef __BYTE_ORDER
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -280,7 +280,7 @@ inline void* memrchr(const void* bytes, int find_char, size_t len) {
 
 #endif
 
-// Klocwork static analysis tool's C/C++ complier kwcc
+// Klocwork static analysis tool's C/C++ compiler kwcc
 #if defined(__KLOCWORK__)
 #define STATIC_ANALYSIS
 #endif // __KLOCWORK__

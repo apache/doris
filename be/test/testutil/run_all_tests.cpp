@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
             std::make_shared<doris::MemTrackerLimiter>(doris::MemTrackerLimiter::Type::GLOBAL,
                                                        "Orphan");
     doris::ExecEnv::GetInstance()->set_orphan_mem_tracker(orphan_mem_tracker);
-    doris::thread_context()->_thread_mem_tracker_mgr->init();
+    doris::thread_context()->thread_mem_tracker_mgr->init();
     doris::TabletSchemaCache::create_global_schema_cache();
     doris::StoragePageCache::create_global_cache(1 << 30, 10);
     doris::SegmentLoader::create_global_instance(1000);

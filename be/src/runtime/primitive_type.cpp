@@ -17,8 +17,6 @@
 
 #include "runtime/primitive_type.h"
 
-#include <sstream>
-
 #include "gen_cpp/Types_types.h"
 #include "runtime/collection_value.h"
 #include "runtime/define_primitive_type.h"
@@ -86,65 +84,6 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
     }
 
     return PrimitiveType::INVALID_TYPE;
-}
-
-bool is_enumeration_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_NULL:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-    case TYPE_DATETIME:
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMEV2:
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL32:
-    case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128:
-    case TYPE_BOOLEAN:
-    case TYPE_ARRAY:
-    case TYPE_HLL:
-        return false;
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-    case TYPE_DATE:
-    case TYPE_DATEV2:
-        return true;
-
-    case INVALID_TYPE:
-    default:
-        DCHECK(false);
-    }
-
-    return false;
-}
-
-bool is_date_type(PrimitiveType type) {
-    return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
-           type == TYPE_DATEV2;
-}
-
-bool is_string_type(PrimitiveType type) {
-    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
-}
-
-bool is_float_or_double(PrimitiveType type) {
-    return type == TYPE_FLOAT || type == TYPE_DOUBLE;
-}
-
-bool is_int_or_bool(PrimitiveType type) {
-    return type == TYPE_BOOLEAN || type == TYPE_TINYINT || type == TYPE_SMALLINT ||
-           type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
-}
-
-bool has_variable_type(PrimitiveType type) {
-    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT ||
-           type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
 }
 
 // Returns the byte size of 'type'  Returns 0 for variable length types.

@@ -1451,7 +1451,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
     }
     // 1. already_set_date_part means _year, _month, _day be set, so we only set time part
     // 2. already_set_time_part means _hour, _minute, _second, _microsecond be set,
-    //    so we only neet to set date part
+    //    so we only need to set date part
     // 3. if both are true, means all part of date_time be set, no need check_range_and_set_time
     bool already_set_date_part = yearday > 0 || (week_num >= 0 && weekday > 0);
     if (already_set_date_part && already_set_time_part) return true;

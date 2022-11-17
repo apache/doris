@@ -260,7 +260,7 @@ protected:
     std::string _load_info;
     std::string _name;
 
-    std::unique_ptr<MemTracker> _node_channel_tracker;
+    std::shared_ptr<MemTracker> _node_channel_tracker;
 
     TupleDescriptor* _tuple_desc = nullptr;
     NodeInfo _node_info;
@@ -466,7 +466,7 @@ protected:
 
     bool _is_vectorized = false;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     ObjectPool* _pool;
     const RowDescriptor& _input_row_desc;

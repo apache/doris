@@ -165,8 +165,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (!opts.column_predicates.empty()) {
         _col_predicates = opts.column_predicates;
     }
-    // Read options will not change, so that just reserve here
-    _block_rowids.reserve(_opts.block_row_max);
+    // Read options will not change, so that just resize here
+    _block_rowids.resize(_opts.block_row_max);
     return Status::OK();
 }
 
@@ -273,6 +273,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.file_reader = _file_reader.get();
+            iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -385,6 +386,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
+            iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -697,7 +699,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     return Status::OK();
 }
 
-/* ---------------------- for vecterization implementation  ---------------------- */
+/* ---------------------- for vectorization implementation  ---------------------- */
 
 /**
  *  For storage layer data type, can be measured from two perspectives:
@@ -1135,14 +1137,14 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // step 1: evaluate vectorization predicate
         selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
 
-        // step 2: evaluate short ciruit predicate
+        // step 2: evaluate short circuit predicate
         // todo(wb) research whether need to read short predicate after vectorization evaluation
         //          to reduce cost of read short circuit columns.
         //          In SSB test, it make no difference; So need more scenarios to test
         selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
 
         if (UNLIKELY(_opts.record_rowids)) {
-            _sel_rowid_idx.reserve(selected_size);
+            _sel_rowid_idx.resize(selected_size);
             _selected_size = selected_size;
             for (auto i = 0; i < _selected_size; i++) {
                 _sel_rowid_idx[i] = sel_rowid_idx[i];

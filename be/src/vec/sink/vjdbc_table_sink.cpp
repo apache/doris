@@ -17,7 +17,6 @@
 
 #include "vec/sink/vjdbc_table_sink.h"
 
-#ifdef LIBJVM
 #include <gen_cpp/DataSinks_types.h>
 
 #include <sstream>
@@ -101,4 +100,3 @@ Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
 }
 } // namespace vectorized
 } // namespace doris
-#endif

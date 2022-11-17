@@ -16,7 +16,7 @@
 // under the License.
 
 #include "vec/exec/vjdbc_connector.h"
-#ifdef LIBJVM
+
 #include "common/status.h"
 #include "exec/table_connector.h"
 #include "gen_cpp/Types_types.h"
@@ -409,5 +409,3 @@ FUNC_IMPL_TO_CONVERT_DATA(double, double, D, Double)
 
 } // namespace vectorized
 } // namespace doris
-
-#endif

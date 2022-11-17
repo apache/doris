@@ -174,10 +174,18 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias                #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias       #aliasedQuery
-    | LEFT_PAREN relation RIGHT_PAREN tableAlias    #aliasedRelation
+    : multipartIdentifier tableAlias                                            #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
+    | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
+    | tvfName=identifier LEFT_PAREN
+      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
     ;
+
+tvfProperty
+    : key=tvfPropertyItem EQ value=tvfPropertyItem
+    ;
+
+tvfPropertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?

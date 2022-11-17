@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -57,8 +57,8 @@ public class Avg extends AggregateFunction implements UnaryExpression, ImplicitC
         DataType argumentType = inputTypesBeforeDissemble()
                 .map(types -> types.get(0))
                 .orElse(child().getDataType());
-        if (argumentType instanceof DecimalType) {
-            return DecimalType.SYSTEM_DEFAULT;
+        if (argumentType instanceof DecimalV2Type) {
+            return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (argumentType.isDate()) {
             return DateType.INSTANCE;
         } else if (argumentType.isDateTime()) {

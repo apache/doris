@@ -79,7 +79,8 @@ public class If extends ScalarFunction
                     .args(BooleanType.INSTANCE, DateTimeV2Type.INSTANCE, DateTimeV2Type.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE)
                     .args(BooleanType.INSTANCE, DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.MAX).args(BooleanType.INSTANCE, DecimalV2Type.MAX, DecimalV2Type.MAX),
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
+                    .args(BooleanType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(BitmapType.INSTANCE)
                     .args(BooleanType.INSTANCE, BitmapType.INSTANCE, BitmapType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)

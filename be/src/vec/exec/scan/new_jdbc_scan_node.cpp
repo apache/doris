@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/exec/scan/new_jdbc_scan_node.h"
-#ifdef LIBJVM
 
 #include "vec/exec/scan/new_jdbc_scanner.h"
 #include "vec/exec/scan/vscanner.h"
@@ -58,4 +57,3 @@ Status NewJdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     return Status::OK();
 }
 } // namespace doris::vectorized
-#endif

@@ -102,6 +102,13 @@ static constexpr size_t CHUNK_THRESHOLD = 1024;
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 
+#define RETURN_BAD_ALLOC(err)                                       \
+    do {                                                            \
+        if (!doris::enable_thread_cache_bad_alloc)                  \
+            doris::MemTrackerLimiter::print_log_process_usage(err); \
+        throw std::bad_alloc {};                                    \
+    } while (0)
+
 /** Responsible for allocating / freeing memory. Used, for example, in PODArray, Arena.
   * Also used in hash tables.
   * The interface is different from std::allocator
@@ -131,20 +138,14 @@ public:
             buf = mmap(get_mmap_hint(), size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
                 RELEASE_THREAD_MEM_TRACKER(size);
-                auto err = fmt::format("Allocator: Cannot mmap {}.", size);
-                doris::MemTrackerLimiter::print_log_process_usage(err);
-                doris::vectorized::throwFromErrno(err,
-                                                  doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot mmap {}.", size));
             }
 
             /// No need for zero-fill, because mmap guarantees it.
         } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
             doris::Chunk chunk;
             if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
-                auto err = fmt::format("Allocator: Cannot allocate chunk {}.", size);
-                doris::MemTrackerLimiter::print_log_process_usage(err);
-                doris::vectorized::throwFromErrno(err,
-                                                  doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot allocate chunk {}.", size));
             }
             buf = chunk.data;
             if constexpr (clear_memory) memset(buf, 0, chunk.size);
@@ -156,20 +157,15 @@ public:
                     buf = ::malloc(size);
 
                 if (nullptr == buf) {
-                    auto err = fmt::format("Allocator: Cannot malloc {}.", size);
-                    doris::MemTrackerLimiter::print_log_process_usage(err);
-                    doris::vectorized::throwFromErrno(
-                            err, doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+                    RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
             } else {
                 buf = nullptr;
                 int res = posix_memalign(&buf, alignment, size);
 
                 if (0 != res) {
-                    auto err = fmt::format("Cannot allocate memory (posix_memalign) {}.", size);
-                    doris::MemTrackerLimiter::print_log_process_usage(err);
-                    doris::vectorized::throwFromErrno(
-                            err, doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY, res);
+                    RETURN_BAD_ALLOC(
+                            fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
 
                 if constexpr (clear_memory) memset(buf, 0, size);
@@ -183,8 +179,10 @@ public:
         if (size >= MMAP_THRESHOLD) {
             if (0 != munmap(buf, size)) {
                 auto err = fmt::format("Allocator: Cannot munmap {}.", size);
-                doris::MemTrackerLimiter::print_log_process_usage(err);
-                doris::vectorized::throwFromErrno(err, doris::TStatusCode::VEC_CANNOT_MUNMAP);
+                LOG(ERROR) << err;
+                if (!doris::enable_thread_cache_bad_alloc)
+                    doris::MemTrackerLimiter::print_log_process_usage(err);
+                throw std::bad_alloc {};
             } else {
                 RELEASE_THREAD_MEM_TRACKER(size);
             }
@@ -210,11 +208,8 @@ public:
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
             if (nullptr == new_buf) {
-                auto err =
-                        fmt::format("Allocator: Cannot realloc from {} to {}.", old_size, new_size);
-                doris::MemTrackerLimiter::print_log_process_usage(err);
-                doris::vectorized::throwFromErrno(err,
-                                                  doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
+                                             new_size));
             }
 
             buf = new_buf;
@@ -230,10 +225,8 @@ public:
                                     mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
                 RELEASE_THREAD_MEM_TRACKER(new_size - old_size);
-                auto err = fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
-                                       old_size, new_size);
-                doris::MemTrackerLimiter::print_log_process_usage(err);
-                doris::vectorized::throwFromErrno(err, doris::TStatusCode::VEC_CANNOT_MREMAP);
+                RETURN_BAD_ALLOC(fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
+                                             old_size, new_size));
             }
 
             /// No need for zero-fill, because mmap guarantees it.

@@ -106,12 +106,23 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
     if (_chunk_reader->max_def_level() > 0) {
         LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
         size_t skipped = 0;
+        size_t null_size = 0;
+        size_t nonnull_size = 0;
         while (skipped < num_values) {
             level_t def_level;
             size_t loop_skip = def_decoder.get_next_run(&def_level, num_values - skipped);
-            RETURN_IF_ERROR(_chunk_reader->skip_values(loop_skip, def_level == 1));
+            if (loop_skip == 0) {
+                continue;
+            }
+            if (def_level == 0) {
+                null_size += loop_skip;
+            } else {
+                nonnull_size += loop_skip;
+            }
             skipped += loop_skip;
         }
+        RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
+        RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
     } else {
         RETURN_IF_ERROR(_chunk_reader->skip_values(num_values));
     }
@@ -119,42 +130,36 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
 }
 
 Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_column,
-                                        DataTypePtr& type) {
+                                        DataTypePtr& type, ColumnSelectVector& select_vector) {
     if (num_values == 0) {
         return Status::OK();
     }
     MutableColumnPtr data_column;
-    RunLengthNullMap null_map;
+    std::vector<uint16_t> null_map;
+    NullMap* map_data_column = nullptr;
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
                 (*std::move(doris_column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
-        NullMap& map_data_column = nullable_column->get_null_map_data();
-        auto origin_size = map_data_column.size();
-        map_data_column.resize(origin_size + num_values);
+        map_data_column = &(nullable_column->get_null_map_data());
         if (_chunk_reader->max_def_level() > 0) {
             LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
             size_t has_read = 0;
             bool prev_is_null = true;
             while (has_read < num_values) {
                 level_t def_level;
-                size_t max_read = std::min(num_values - has_read, (size_t)USHRT_MAX);
-                size_t loop_read = def_decoder.get_next_run(&def_level, max_read);
-                bool is_null = def_level == 0;
-                for (int i = 0; i < loop_read; ++i) {
-                    map_data_column[origin_size + has_read + i] = (UInt8)is_null;
+                size_t loop_read = def_decoder.get_next_run(&def_level, num_values - has_read);
+                if (loop_read == 0) {
+                    continue;
                 }
+                bool is_null = def_level == 0;
                 if (!(prev_is_null ^ is_null)) {
                     null_map.emplace_back(0);
                 }
-                null_map.emplace_back((u_short)loop_read);
+                null_map.emplace_back((uint16_t)loop_read);
                 prev_is_null = is_null;
                 has_read += loop_read;
-            }
-        } else {
-            for (int i = 0; i < num_values; ++i) {
-                map_data_column[origin_size + i] = (UInt8) false;
             }
         }
     } else {
@@ -164,19 +169,18 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         data_column = doris_column->assume_mutable();
     }
     if (null_map.size() == 0) {
-        size_t remaining = num_values;
-        while (remaining > USHRT_MAX) {
-            null_map.emplace_back(USHRT_MAX);
-            null_map.emplace_back(0);
-            remaining -= USHRT_MAX;
-        }
-        null_map.emplace_back((u_short)remaining);
+        null_map.emplace_back((uint16_t)num_values);
     }
-    return _chunk_reader->decode_values(data_column, type, null_map);
+    {
+        SCOPED_RAW_TIMER(&_decode_null_map_time);
+        select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
+    }
+    return _chunk_reader->decode_values(data_column, type, select_vector);
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            size_t batch_size, size_t* read_rows, bool* eof) {
+                                            ColumnSelectVector& select_vector, size_t batch_size,
+                                            size_t* read_rows, bool* eof) {
     if (_chunk_reader->remaining_num_values() == 0) {
         if (!_chunk_reader->has_next_page()) {
             *eof = true;
@@ -196,6 +200,33 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         RETURN_IF_ERROR(_chunk_reader->skip_page());
         *read_rows = 0;
     } else {
+        bool skip_whole_batch = false;
+        // Determining whether to skip page or batch will increase the calculation time.
+        // When the filtering effect is greater than 60%, it is possible to skip the page or batch.
+        if (select_vector.has_filter() && select_vector.filter_ratio() > 0.6) {
+            // lazy read
+            size_t remaining_num_values = 0;
+            for (auto& range : read_ranges) {
+                remaining_num_values = range.last_row - range.first_row;
+            }
+            if (batch_size >= remaining_num_values &&
+                select_vector.can_filter_all(remaining_num_values)) {
+                // We can skip the whole page if the remaining values is filtered by predicate columns
+                select_vector.skip(remaining_num_values);
+                _current_row_index += _chunk_reader->remaining_num_values();
+                RETURN_IF_ERROR(_chunk_reader->skip_page());
+                *read_rows = remaining_num_values;
+                if (!_chunk_reader->has_next_page()) {
+                    *eof = true;
+                }
+                return Status::OK();
+            }
+            skip_whole_batch =
+                    batch_size <= remaining_num_values && select_vector.can_filter_all(batch_size);
+            if (skip_whole_batch) {
+                select_vector.skip(batch_size);
+            }
+        }
         // load page data to decode or skip values
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
         size_t has_read = 0;
@@ -207,7 +238,11 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             // generate the read values
             size_t read_values =
                     std::min((size_t)(range.last_row - range.first_row), batch_size - has_read);
-            RETURN_IF_ERROR(_read_values(read_values, doris_column, type));
+            if (skip_whole_batch) {
+                RETURN_IF_ERROR(_skip_values(read_values));
+            } else {
+                RETURN_IF_ERROR(_read_values(read_values, doris_column, type, select_vector));
+            }
             has_read += read_values;
             _current_row_index += read_values;
             if (has_read == batch_size) {
@@ -262,7 +297,8 @@ Status ArrayColumnReader::init(FileReader* file, FieldSchema* field, tparquet::C
 }
 
 Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                           size_t batch_size, size_t* read_rows, bool* eof) {
+                                           ColumnSelectVector& select_vector, size_t batch_size,
+                                           size_t* read_rows, bool* eof) {
     if (_chunk_reader->remaining_num_values() == 0) {
         if (!_chunk_reader->has_next_page()) {
             *eof = true;
@@ -328,9 +364,9 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
                 NullMap& map_data_column = *map_data_ptr;
                 auto origin_size = map_data_column.size();
                 map_data_column.resize(origin_size + scan_rows);
-                for (int i = offset_index; i < offset_index + scan_rows; ++i) {
+                for (int i = 0; i < scan_rows; ++i) {
                     map_data_column[origin_size + i] =
-                            (UInt8)(definitions[element_offsets[i]] == _NULL_ARRAY);
+                            (UInt8)(definitions[element_offsets[offset_index + i]] == _NULL_ARRAY);
                 }
             } else {
                 for (int i = offset_index; i < offset_index + scan_rows; ++i) {
@@ -349,7 +385,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
                         const_cast<DataTypePtr&>((reinterpret_cast<const DataTypeArray*>(
                                                           remove_nullable(type).get()))
                                                          ->get_nested_type()),
-                        scan_values));
+                        scan_values, select_vector));
             }
             offset_index += scan_rows;
             has_read += scan_rows;
@@ -374,7 +410,8 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
 }
 
 Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
-                                              size_t read_values) {
+                                              size_t read_values,
+                                              ColumnSelectVector& select_vector) {
     level_t* definitions = _def_levels_buf.get();
     MutableColumnPtr data_column;
     if (doris_column->is_nullable()) {
@@ -409,7 +446,7 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
         }
     }
 
-    RunLengthNullMap null_map;
+    std::vector<uint16_t> null_map;
     bool map_prev_is_null = true;
     // column with null values
     int start_idx = _def_offset;
@@ -428,7 +465,8 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
         return Status::OK();
     }
     bool prev_is_null = definitions[start_idx] == _NULL_ELEMENT;
-    int num_values = 1;
+    size_t num_values = 1;
+    size_t total_values = 0;
     for (int i = start_idx + 1; i < _def_offset + read_values; ++i) {
         if (definitions[i] == _EMPTY_ARRAY || definitions[i] == _NULL_ARRAY) {
             // only decrease _remaining_num_values
@@ -444,10 +482,12 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
             while (remaining > USHRT_MAX) {
                 null_map.emplace_back(USHRT_MAX);
                 null_map.emplace_back(0);
+                remaining -= USHRT_MAX;
             }
             null_map.emplace_back((u_short)remaining);
             map_prev_is_null = prev_is_null;
             prev_is_null = curr_is_null;
+            total_values += num_values;
             num_values = 1;
         } else {
             num_values++;
@@ -460,10 +500,13 @@ Status ArrayColumnReader::_load_nested_column(ColumnPtr& doris_column, DataTypeP
     while (remaining > USHRT_MAX) {
         null_map.emplace_back(USHRT_MAX);
         null_map.emplace_back(0);
+        remaining -= USHRT_MAX;
     }
     null_map.emplace_back((u_short)remaining);
+    total_values += num_values;
     _def_offset += read_values;
-    return _chunk_reader->decode_values(data_column, type, null_map);
+    select_vector.set_run_length_null_map(null_map, total_values);
+    return _chunk_reader->decode_values(data_column, type, select_vector);
 }
 
 void ArrayColumnReader::close() {}
@@ -556,20 +599,32 @@ void ArrayColumnReader::_fill_array_offset(MutableColumnPtr& doris_column,
 
 Status ArrayColumnReader::_skip_values(size_t num_values) {
     if (LIKELY(num_values > 0)) {
+        size_t null_size = 0;
+        size_t nonnull_size = 0;
         level_t* definitions = _def_levels_buf.get();
         bool prev_is_null = definitions[_def_offset] != _CONCRETE_ELEMENT;
         int cnt = 1;
         for (int i = _def_offset + 1; i < _def_offset + num_values; ++i) {
             bool curr_is_null = definitions[i] != _CONCRETE_ELEMENT;
             if (prev_is_null ^ curr_is_null) {
-                RETURN_IF_ERROR(_chunk_reader->skip_values(cnt, !prev_is_null));
+                if (prev_is_null) {
+                    null_size += cnt;
+                } else {
+                    nonnull_size += cnt;
+                }
                 prev_is_null = curr_is_null;
                 cnt = 1;
             } else {
                 cnt++;
             }
         }
-        RETURN_IF_ERROR(_chunk_reader->skip_values(cnt, !prev_is_null));
+        if (prev_is_null) {
+            null_size += cnt;
+        } else {
+            nonnull_size += cnt;
+        }
+        RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
+        RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
         _def_offset += num_values;
     }
     return Status::OK();

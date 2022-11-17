@@ -149,6 +149,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     read_options.record_rowids = read_context->record_rowids;
     read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
     read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
+    read_options.io_ctx.reader_type = read_context->reader_type;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(

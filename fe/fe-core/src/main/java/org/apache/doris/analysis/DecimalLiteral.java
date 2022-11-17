@@ -110,10 +110,10 @@ public class DecimalLiteral extends LiteralExpr {
 
     public void checkPrecisionAndScale(int precision, int scale) throws AnalysisException {
         Preconditions.checkNotNull(this.value);
+        int realPrecision = this.value.precision();
+        int realScale = this.value.scale();
         boolean valid = true;
         if (precision != -1 && scale != -1) {
-            int realPrecision = this.value.precision();
-            int realScale = this.value.scale();
             if (precision < realPrecision || scale < realScale) {
                 valid = false;
             }
@@ -122,7 +122,9 @@ public class DecimalLiteral extends LiteralExpr {
         }
 
         if (!valid) {
-            throw new AnalysisException("Invalid precision and scale: " + precision + ", " + scale);
+            throw new AnalysisException(
+                    String.format("Invalid precision and scale - expect (%d, %d), but (%d, %d)",
+                            precision, scale, realPrecision, realScale));
         }
     }
 

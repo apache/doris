@@ -192,6 +192,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
         setChildren();
+        originChildSize = children.size();
     }
 
     private FunctionCallExpr(
@@ -228,6 +229,7 @@ public class FunctionCallExpr extends Expr {
         if (functionParams.exprs() != null) {
             this.children.addAll(functionParams.exprs());
         }
+        this.originChildSize = children.size();
         this.shouldFinalizeForNereids = false;
     }
 
@@ -246,6 +248,7 @@ public class FunctionCallExpr extends Expr {
         if (params.exprs() != null) {
             children.addAll(params.exprs());
         }
+        this.originChildSize = children.size();
     }
 
     protected FunctionCallExpr(FunctionCallExpr other) {
@@ -258,6 +261,7 @@ public class FunctionCallExpr extends Expr {
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
         fnParams = other.fnParams.clone(children);
+        originChildSize = other.originChildSize;
         aggFnParams = other.aggFnParams;
 
         this.isMergeAggFn = other.isMergeAggFn;
@@ -999,7 +1003,7 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException("The window params of " + fnName + " function must be integer");
             }
             if (!children.get(1).type.isStringType()) {
-                throw new AnalysisException("The mode params of " + fnName + " function must be integer");
+                throw new AnalysisException("The mode params of " + fnName + " function must be string");
             }
             if (!children.get(2).type.isDateType()) {
                 throw new AnalysisException("The 3rd param of " + fnName + " function must be DATE or DATETIME");
@@ -1039,12 +1043,55 @@ public class FunctionCallExpr extends Expr {
             for (int i = 0; i < children.size(); i++) {
                 if (children.get(i).type != Type.BOOLEAN) {
                     throw new AnalysisException("All params of "
-                            + fnName + " function must be boolean");
+                        + fnName + " function must be boolean");
                 }
                 childTypes[i] = children.get(i).type;
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_MATCH)
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.SEQUENCE_COUNT)) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
+                throw new AnalysisException("The " + fnName + " function must have at least four params");
+            }
+            if (!children.get(0).type.isStringType()) {
+                throw new AnalysisException("The pattern params of " + fnName + " function must be string");
+            }
+            if (!children.get(1).type.isDateType()) {
+                throw new AnalysisException("The timestamp params of " + fnName + " function must be DATE or DATETIME");
+            }
+            String pattern = children.get(0).toSql();
+            int patternLength = pattern.length();
+            pattern = pattern.substring(1, patternLength - 1);
+            if (!parsePattern(pattern)) {
+                throw new AnalysisException("The format of pattern params is wrong");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < 2; i++) {
+                childTypes[i] = children.get(i).type;
+            }
+            for (int i = 2; i < children.size(); i++) {
+                if (children.get(i).type != Type.BOOLEAN) {
+                    throw new AnalysisException("The 3th and subsequent params of "
+                        + fnName + " function must be boolean");
+                }
+                childTypes[i] = children.get(i).type;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), childTypes,
+                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn != null && fn.getArgs()[1].isDatetime() && childTypes[1].isDatetimeV2()) {
+                fn.setArgType(childTypes[1], 1);
+            } else if (fn != null && fn.getArgs()[1].isDatetime() && childTypes[1].isDateV2()) {
+                fn.setArgType(ScalarType.DATETIMEV2, 1);
+            }
+            if (fn != null && childTypes[1].isDate()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIME, 1);
+            } else if (fn != null && childTypes[1].isDateV2()) {
+                // cast date to datetime
+                uncheckedCastChild(ScalarType.DATETIMEV2, 1);
+            }
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
@@ -1333,6 +1380,73 @@ public class FunctionCallExpr extends Expr {
             }
             arrayType.setContainsNull(containsNull);
         }
+    }
+
+    private static boolean match(String pattern, int pos, String value) {
+        int length = value.length();
+        int end = pattern.length();
+        return pos + length <= end && pattern.substring(pos, pos + length).equals(value);
+    }
+
+    private static int parseNumber(String s) {
+
+        String[] n = s.split(""); //array of strings
+        int num = 0;
+        for (String value : n) {
+            // validating numbers
+            if ((value.matches("[0-9]+"))) {
+                num++;
+            } else {
+                return num;
+            }
+        }
+        return num;
+    }
+
+    private static boolean parsePattern(String pattern) {
+        int pos = 0;
+        int len = pattern.length();
+        while (pos < len) {
+            if (match(pattern, pos, "(?")) {
+                pos += 2;
+                if (match(pattern, pos, "t")) {
+                    pos += 1;
+                    if (match(pattern, pos, "<=") || match(pattern, pos, "==")
+                            || match(pattern, pos, ">=")) {
+                        pos += 2;
+                    } else if (match(pattern, pos, ">") || match(pattern, pos, "<")) {
+                        pos += 1;
+                    } else {
+                        return false;
+                    }
+
+                    int numLen = parseNumber(pattern.substring(pos));
+                    if (numLen == 0) {
+                        return false;
+                    } else {
+                        pos += numLen;
+                    }
+                } else {
+                    int numLen = parseNumber(pattern.substring(pos));
+                    if (numLen == 0) {
+                        return false;
+                    } else {
+                        pos += numLen;
+                    }
+                }
+                if (!match(pattern, pos, ")")) {
+                    return false;
+                }
+                pos += 1;
+            } else if (match(pattern, pos, ".*")) {
+                pos += 2;
+            } else if (match(pattern, pos, ".")) {
+                pos += 1;
+            } else {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

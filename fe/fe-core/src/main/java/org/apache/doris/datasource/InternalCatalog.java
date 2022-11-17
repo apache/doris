@@ -98,6 +98,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -143,6 +144,7 @@ import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
+import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -185,12 +187,12 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.mortbay.log.Log;
 
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -199,6 +201,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * The Internal catalog will manage all self-managed meta object in a Doris cluster.
@@ -318,6 +321,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public List<Long> getDbIds() {
         return Lists.newArrayList(idToDb.keySet());
+    }
+
+    public List<Database> getDbs() {
+        return Lists.newArrayList(idToDb.values());
     }
 
     private void unlock() {
@@ -946,12 +953,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        // TODO: impl real logic of drop multi-table MaterializedView here.
         if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
-            if (Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()) != null) {
-                long jobId = Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()).getId();
-                Env.getCurrentEnv().getMTMVJobManager().dropJobs(Collections.singletonList(jobId), false);
-            }
+            List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
+                    .stream().map(MTMVJob::getId).collect(Collectors.toList());
+            Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, false);
+            Log.info("Drop related {} mv job.", dropIds.size());
         }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
@@ -1206,7 +1212,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
                 if (resultType.isStringType() && resultType.getLength() < 0) {
-                    // alway set text length MAX_STRING_LENGTH
                     typeDef = new TypeDef(ScalarType.createStringType());
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
@@ -1220,9 +1225,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // If this is the first column, because olap table does not support the first column to be
                     // string, float, double or array, we should check and modify its type
                     // For string type, change it to varchar.
-                    // For other unsupport types, just remain unchanged, the analysis phash of create table stmt
+                    // For other unsupported types, just remain unchanged, the analysis phash of create table stmt
                     // will handle it.
-                    if (typeDef.getType() == Type.STRING) {
+                    if (typeDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
                         typeDef = TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH);
                     }
                 }
@@ -2182,10 +2187,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        // TODO: impl the real logic of create multi-table MaterializedView here.
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
-            Env.getCurrentEnv().getMTMVJobManager().createJob(MTMVJobFactory.buildJob((MaterializedView) olapTable),
-                    false);
+        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
+                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+            List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
+            for (MTMVJob job : jobs) {
+                Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
+            }
+            Log.info("Create related {} mv job.", jobs.size());
         }
     }
 

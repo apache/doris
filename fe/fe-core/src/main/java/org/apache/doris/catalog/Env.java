@@ -38,6 +38,7 @@ import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -123,6 +124,7 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
@@ -206,9 +208,13 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.AnalysisJobScheduler;
+import org.apache.doris.statistics.StatisticStorageInitializer;
+import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.statistics.StatisticsJobScheduler;
 import org.apache.doris.statistics.StatisticsManager;
+import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.StatisticsTaskScheduler;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -435,6 +441,12 @@ public class Env {
 
     private MTMVJobManager mtmvJobManager;
 
+    private final AnalysisJobScheduler analysisJobScheduler;
+
+    private final StatisticsCache statisticsCache;
+
+    private ExternalMetaCacheMgr extMetaCacheMgr;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -498,6 +510,10 @@ public class Env {
 
     public MTMVJobManager getMTMVJobManager() {
         return mtmvJobManager;
+    }
+
+    public ExternalMetaCacheMgr getExtMetaCacheMgr() {
+        return extMetaCacheMgr;
     }
 
     public CatalogIf getCurrentCatalog() {
@@ -629,6 +645,9 @@ public class Env {
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.mtmvJobManager = new MTMVJobManager();
+        this.analysisJobScheduler = new AnalysisJobScheduler();
+        this.statisticsCache = new StatisticsCache();
+        this.extMetaCacheMgr = new ExternalMetaCacheMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -1412,6 +1431,7 @@ public class Env {
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         this.statisticsJobScheduler.start();
         this.statisticsTaskScheduler.start();
+        new StatisticStorageInitializer().start();
     }
 
     // start threads that should running on all FE
@@ -1624,6 +1644,10 @@ public class Env {
                 connection.disconnect();
             }
         }
+    }
+
+    public StatisticsCache getStatisticsCache() {
+        return statisticsCache;
     }
 
     public boolean hasReplayer() {
@@ -5196,5 +5220,17 @@ public class Env {
             }
         }
         return count;
+    }
+
+    public AnalysisJobScheduler getAnalysisJobScheduler() {
+        return analysisJobScheduler;
+    }
+
+    // TODO:
+    //  1. handle partition level analysis statement properly
+    //  2. support sample job
+    //  3. support period job
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+        StatisticsRepository.createAnalysisJob(analyzeStmt);
     }
 }

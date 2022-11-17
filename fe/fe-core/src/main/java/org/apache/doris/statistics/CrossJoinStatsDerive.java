@@ -30,11 +30,6 @@ public class CrossJoinStatsDerive extends BaseStatsDerive {
     private static final Logger LOG = LogManager.getLogger(CrossJoinStatsDerive.class);
 
     @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
-
-    @Override
     protected long deriveRowCount() {
         Preconditions.checkState(childrenStatsResult.size() == 2);
         if (childrenStatsResult.get(0).getRowCount() == -1 || childrenStatsResult.get(1).getRowCount() == -1) {

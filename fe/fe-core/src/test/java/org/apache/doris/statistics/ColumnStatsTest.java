@@ -85,7 +85,7 @@ public class ColumnStatsTest {
         statsTypeToValue.put(StatsType.MAX_VALUE, "1000");
 
         columnStatsUnderTest.updateStats(columnType, statsTypeToValue);
-        String[] expectedInfo = {"1.0", "8.0", "8.0", "2.0", "0", "1000"};
+        String[] expectedInfo = {"1.0", "8.0", "8.0", "2.0", "0.0", "1000.0"};
 
         // Run the test
         List<String> showInfo = columnStatsUnderTest.getShowInfo();

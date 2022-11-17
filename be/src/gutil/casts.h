@@ -123,7 +123,7 @@ inline To down_cast(From& f) {
 //
 // This is true for any cast syntax, either *(int*)&f or
 // *reinterpret_cast<int*>(&f).  And it is particularly true for
-// conversions betweeen integral lvalues and floating-point lvalues.
+// conversions between integral lvalues and floating-point lvalues.
 //
 // The purpose of 3.10 -15- is to allow optimizing compilers to assume
 // that expressions with different types refer to different memory.  gcc
@@ -184,7 +184,7 @@ inline Dest bit_cast(const Source& source) {
 //   enum A { A_min = -18, A_max = 33 };
 //   MAKE_ENUM_LIMITS(A, A_min, A_max)
 //
-// Convert an enum to an int in one of two ways.  The prefered way is a
+// Convert an enum to an int in one of two ways.  The preferred way is a
 // tight conversion, which ensures that A_min <= value <= A_max.
 //
 //   A var = tight_enum_cast<A>(3);

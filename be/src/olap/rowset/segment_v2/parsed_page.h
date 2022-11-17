@@ -90,7 +90,7 @@ struct ParsedPage {
     // number of rows including nulls and not-nulls
     ordinal_t num_rows = 0;
     // record it to get the last array element's size
-    // should be none zero if setted in page
+    // should be none zero if set in page
     ordinal_t next_array_item_ordinal = 0;
 
     PagePointer page_pointer;
