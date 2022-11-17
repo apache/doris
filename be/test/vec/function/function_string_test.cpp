@@ -70,25 +70,6 @@ TEST(function_string_test, function_string_substr_test) {
     }
 }
 
-
-
-
-TEST(function_string_test, function_split_by_char_test) {
-    std::string func_name = "splitbychar";
-    {
-        Array vec1 = {Field("hello"), Field("world")};
-        Array vec2 = {Field("hello"), Field("world"), Field("my"), Field("baby")};
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-
-        DataSet data_set = {
-                {{Field("hello world"), Field(" ")}, vec1},
-                {{Field("helloswordsmysbaby"),Field("s")}, vec2}};
-
-        check_function<DataTypeArray, true>(func_name, input_types, data_set);
-    }
-}
-
-
 TEST(function_string_test, function_string_strright_test) {
     std::string func_name = "strright";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
