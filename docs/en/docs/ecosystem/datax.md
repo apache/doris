@@ -164,7 +164,7 @@ After compiling, you can see the datax.tar.gz package under `datax/target/Datax`
 
 
 * **maxBatchRows**
-  - Description: The maximum number of rows for each batch of imported data. Together with **maxBatchSize**, it controls the number of imported record rows per batch. When each batch of data reaches one of the two thresholds, the data of this batch will start to be imported.
+  - Description: The maximum number of rows for each batch of imported data. Together with **batchSize**, it controls the number of imported record rows per batch. When each batch of data reaches one of the two thresholds, the data of this batch will start to be imported.
   - Mandatory: No
   - Default: 500000
 
