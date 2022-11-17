@@ -42,7 +42,8 @@ private:
     Status _create_segment_writer(const std::vector<uint32_t>& column_ids, bool is_key,
                                   std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
-    Status _flush_columns(std::unique_ptr<segment_v2::SegmentWriter>* segment_writer);
+    Status _flush_columns(std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
+                          bool is_key = false);
 
 private:
     std::vector<std::unique_ptr<segment_v2::SegmentWriter>> _segment_writers;

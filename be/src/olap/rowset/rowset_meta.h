@@ -320,14 +320,21 @@ public:
             segments_key_bounds->push_back(key_range);
         }
     }
-    virtual void get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
-        DCHECK(_rowset_meta_pb.segments_key_bounds_size() > 0);
+    virtual bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
+        // for compatibility, old version has not segment key bounds
+        if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
+            return false;
+        }
         *key_bounds = _rowset_meta_pb.segments_key_bounds(0);
+        return true;
     }
-    virtual void get_last_segment_key_bound(KeyBoundsPB* key_bounds) {
-        DCHECK(_rowset_meta_pb.segments_key_bounds_size() > 0);
+    virtual bool get_last_segment_key_bound(KeyBoundsPB* key_bounds) {
+        if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
+            return false;
+        }
         *key_bounds =
                 _rowset_meta_pb.segments_key_bounds(_rowset_meta_pb.segments_key_bounds_size() - 1);
+        return true;
     }
 
     void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {

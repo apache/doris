@@ -60,7 +60,7 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
     } else if (is_key) {
         if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment) {
             // segment is full, need flush columns and create new segment writer
-            RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
+            RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], true));
             std::unique_ptr<segment_v2::SegmentWriter> writer;
             RETURN_IF_ERROR(_create_segment_writer(col_ids, is_key, &writer));
             _segment_writers.emplace_back(std::move(writer));
@@ -93,10 +93,20 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
 }
 
 Status VerticalBetaRowsetWriter::_flush_columns(
-        std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
+        std::unique_ptr<segment_v2::SegmentWriter>* segment_writer, bool is_key) {
     uint64_t index_size = 0;
     VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
     RETURN_IF_ERROR((*segment_writer)->finalize_columns(&index_size));
+    if (is_key) {
+        // record segment key bound
+        KeyBoundsPB key_bounds;
+        Slice min_key = (*segment_writer)->min_encoded_key();
+        Slice max_key = (*segment_writer)->max_encoded_key();
+        DCHECK_LE(min_key.compare(max_key), 0);
+        key_bounds.set_min_key(min_key.to_string());
+        key_bounds.set_max_key(max_key.to_string());
+        _segments_encoded_key_bounds.emplace_back(key_bounds);
+    }
     _total_index_size += static_cast<int64_t>(index_size);
     return Status::OK();
 }
