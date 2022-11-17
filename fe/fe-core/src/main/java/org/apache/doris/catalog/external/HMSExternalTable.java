@@ -146,7 +146,8 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * Now we only support three file input format hive tables: parquet/orc/text. And they must be managed_table.
+     * Now we only support three file input format hive tables: parquet/orc/text.
+     * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
         String inputFileFormat = remoteTable.getSd().getInputFormat();
