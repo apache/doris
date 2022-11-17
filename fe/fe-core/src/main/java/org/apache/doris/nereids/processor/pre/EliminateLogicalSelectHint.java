@@ -38,7 +38,7 @@ import java.util.Optional;
  * eliminate set var hint, and set var to session variables.
  */
 public class EliminateLogicalSelectHint extends PlanPreprocessor {
-    private Logger logger = LoggerFactory.getLogger(getClass());
+    private static Logger logger = LoggerFactory.getLogger(EliminateLogicalSelectHint.class);
 
     @Override
     public LogicalPlan visitLogicalSelectHint(

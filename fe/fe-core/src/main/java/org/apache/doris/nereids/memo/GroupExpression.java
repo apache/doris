@@ -239,15 +239,20 @@ public class GroupExpression {
         // run all the unit tests, we find:
         // if children are not equal, groupExpressions, plans and plans' logical properties will never be equal.
         // if plans are equal, children are always equal.
+        // if plans are equal and plans' logical properties are not equal, this.plan's logical properties will never
+        // be unboundLogicalProperties
         if (plan instanceof LogicalPlan && that.plan instanceof LogicalPlan) {
             if (plan.equals(that.plan)) {
                 if (!plan.getLogicalProperties().equals(that.plan.getLogicalProperties())) {
-                    if (plan.getLogicalProperties() instanceof UnboundLogicalProperties) {
-                        System.out.println("dbg7");
-                    }
                     System.out.println("dbg1");
-                    if (plan.getLogicalProperties() instanceof UnboundLogicalProperties) {
+                    if (that.plan.getLogicalProperties() instanceof UnboundLogicalProperties) {
                         System.out.println("dbg8");
+                        System.out.println(plan + " " + that.plan);
+                    } else {
+                        System.out.println("dbg9");
+                        System.out.println(plan + " " + that.plan);
+                        System.out.println(plan.getLogicalProperties().getOutput() + " "
+                                + that.plan.getLogicalProperties().getOutput());
                     }
                 }
                 if (!children.equals(that.children)) {
