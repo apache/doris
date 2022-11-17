@@ -248,12 +248,12 @@ suite("test_broker_load", "p0") {
                 i++
             }
 
-            order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
-            order_qt_parquet_s3_case3 """select count(*) from parquet_s3_case3 where p_partkey < 100000"""
-            order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
-            order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
-            order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
-            order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
+            // order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
+            // order_qt_parquet_s3_case3 """select count(*) from parquet_s3_case3 where p_partkey < 100000"""
+            // order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
+            // order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
+            // order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
+            // order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
 
         } finally {
             sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
