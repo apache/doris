@@ -1550,43 +1550,31 @@ private:
     void getOffsetsAndLen(const std::string& s, const std::string& c, std::vector<size_t>& v_offset, std::vector<size_t>& v_charlen) {
 	    v_offset.clear();
 	    v_charlen.clear();
-	    // string::size_type pos1 = 0;
-	    // string::size_type pos2;
-        if(c.size() == 0) {
-            for(int i=0; i<s.size(); i++) {
-                v_offset.push_back(i);
-                v_charlen.push_back(1);
-            }
-            return;
-        } else{
-            // while (true) {
-		    //     while (pos1 < s.size()-c.size() && s.find(c, pos1) == pos1) {
-			//         pos1 += c.size();
-		    //     }
-		    //     pos2 = s.find(c, pos1);
-            //     if (pos1 == s.size()-c.size() && pos1 == pos2) {
-			//         return;
-		    //     }
-		    //     if (string::npos != pos2) {
-			//         v_offset.push_back(pos1);
-			//         v_charlen.push_back(pos2 - pos1);
-			//         pos1 = pos2 + c.size();
-		    //     }
-		    //     else{
-			//         v_offset.push_back(pos1);
-			//         v_charlen.push_back(s.size() - pos1);
-			//         return;
-		    //     }
-            // }
-            string::size_type pos1 = 0, pos2 = s.find(c);
-	        while (string::npos != pos2)
-	        {
-		        v_offset.push_back(pos1);
-		        v_charlen.push_back(pos2 - pos1);
-		        pos1 = pos2 + c.size();
-		        pos2 = s.find(c, pos1);
-	        }
-	    }	    
+	    if (c.size() == 0) {
+		    for (int i = 0; i < s.size(); i++) {
+			    v_offset.push_back(i);
+			    v_charlen.push_back(1);
+		    }
+	    }
+	    else if(c.size() < s.size()){
+		    string::size_type pos1 = 0, pos2 = s.find(c);
+		    while (string::npos != pos2)
+	    	{
+			    v_offset.push_back(pos1);
+			    v_charlen.push_back(pos2 - pos1);
+			    pos1 = pos2 + c.size();
+			    pos2 = s.find(c, pos1);
+		    }
+		    if (pos1 != s.size()) {
+			    v_offset.push_back(pos1);
+	    		v_charlen.push_back(pos2 - pos1);
+		    }
+	    }
+	    else {
+		    v_offset.push_back(0);
+		    v_charlen.push_back(s.size());
+	    }
+	      
 }
 public:
     static constexpr auto name = "split_by_string";
@@ -1692,6 +1680,7 @@ private:
                 dest_pos++;
                 column_string_offsets.push_back(string_pos);
             }
+           
         }
         dest_offsets.push_back(dest_pos);
     }
