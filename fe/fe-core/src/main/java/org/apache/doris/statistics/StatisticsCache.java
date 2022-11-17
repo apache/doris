@@ -39,7 +39,7 @@ public class StatisticsCache {
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
         if (ConnectContext.get().getSessionVariable().internalSession) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
         }
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
         CompletableFuture<ColumnStatistic> f = cache.get(k);
@@ -48,10 +48,10 @@ public class StatisticsCache {
                 return f.get();
             } catch (Exception e) {
                 LOG.warn("Unexpected exception while returning ColumnStatistic", e);
-                return ColumnStatistic.UNKNOWN;
+                return ColumnStatistic.DEFAULT;
             }
         }
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.DEFAULT;
     }
 
     // TODO: finish this method.

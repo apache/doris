@@ -38,12 +38,8 @@ public class ColumnStatistic {
 
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
-    public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setCount(Double.NaN).setNdv(Double.NaN)
-            .setAvgSizeByte(Double.NaN).setNumNulls(Double.NaN).setDataSize(Double.NaN)
-            .setMinValue(Double.NaN).setMaxValue(Double.NaN).setMinExpr(null).setMaxExpr(null).build();
-
     public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
-            .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE)
+            .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE).setSelectivity(1.0)
             .build();
 
     public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
@@ -106,7 +102,7 @@ public class ColumnStatistic {
             if (col == null) {
                 LOG.warn("Failed to deserialize column statistics, column:{}.{}.{}.{} not exists",
                         catalogId, dbID, tblId, colName);
-                return ColumnStatistic.UNKNOWN;
+                return ColumnStatistic.DEFAULT;
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
@@ -119,7 +115,7 @@ public class ColumnStatistic {
         } catch (Exception e) {
             e.printStackTrace();
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
         }
     }
 
