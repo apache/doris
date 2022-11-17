@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -31,6 +32,9 @@ import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.planner.ColumnBound;
+import org.apache.doris.planner.ListPartitionPrunerV2;
+import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
@@ -38,6 +42,9 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+import com.google.common.collect.RangeMap;
 import lombok.Data;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
@@ -70,7 +77,7 @@ public class HiveMetaStoreCache {
     private HMSExternalCatalog catalog;
 
     // cache from <dbname-tblname> -> <values of partitions>
-    private LoadingCache<PartitionValueCacheKey, ImmutableList<ListPartitionItem>> partitionValuesCache;
+    private LoadingCache<PartitionValueCacheKey, HivePartitionValues> partitionValuesCache;
     // cache from <dbname-tblname-partition_values> -> <partition info>
     private LoadingCache<PartitionCacheKey, HivePartition> partitionCache;
     // cache from <location> -> <file list>
@@ -86,9 +93,9 @@ public class HiveMetaStoreCache {
         partitionValuesCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build(CacheLoader.asyncReloading(
-                        new CacheLoader<PartitionValueCacheKey, ImmutableList<ListPartitionItem>>() {
+                        new CacheLoader<PartitionValueCacheKey, HivePartitionValues>() {
                             @Override
-                            public ImmutableList<ListPartitionItem> load(PartitionValueCacheKey key) throws Exception {
+                            public HivePartitionValues load(PartitionValueCacheKey key) throws Exception {
                                 return loadPartitionValues(key);
                             }
                         }, executor));
@@ -148,17 +155,31 @@ public class HiveMetaStoreCache {
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(fileCacheGauge);
     }
 
-    private ImmutableList<ListPartitionItem> loadPartitionValues(PartitionValueCacheKey key) {
+    private HivePartitionValues loadPartitionValues(PartitionValueCacheKey key) {
         // partition name format: nation=cn/city=beijing
         List<String> partitionNames = catalog.getClient().listPartitionNames(key.dbName, key.tblName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("load #{} partitions for {} in catalog {}", partitionNames.size(), key, catalog.getName());
         }
-        List<ListPartitionItem> partitionValues = Lists.newArrayListWithExpectedSize(partitionNames.size());
+        Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        long idx = 0;
         for (String partitionName : partitionNames) {
-            partitionValues.add(toListPartitionItem(partitionName, key.types));
+            idToPartitionItem.put(idx++, toListPartitionItem(partitionName, key.types));
         }
-        return ImmutableList.copyOf(partitionValues);
+
+        Map<UniqueId, Range<PartitionKey>> uidToPartitionRange = null;
+        Map<Range<PartitionKey>, UniqueId> rangeToId = null;
+        RangeMap<ColumnBound, UniqueId> singleColumnRangeMap = null;
+        if (key.types.size() > 1) {
+            // uidToPartitionRange and rangeToId are only used for multi-column partition
+            uidToPartitionRange = ListPartitionPrunerV2.genUidToPartitionRange(idToPartitionItem);
+            rangeToId = ListPartitionPrunerV2.genRangeToId(uidToPartitionRange);
+        } else {
+            Preconditions.checkState(key.types.size() == 1, key.types);
+            // singleColumnRangeMap is only used for single-column partition
+            singleColumnRangeMap = ListPartitionPrunerV2.genSingleColumnRangeMap(idToPartitionItem);
+        }
+        return new HivePartitionValues(idToPartitionItem, uidToPartitionRange, rangeToId, singleColumnRangeMap);
     }
 
     private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
@@ -248,7 +269,7 @@ public class HiveMetaStoreCache {
         return configuration;
     }
 
-    public ImmutableList<ListPartitionItem> getPartitionValues(String dbName, String tblName, List<Type> types) {
+    public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {
         PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, types);
         try {
             return partitionValuesCache.get(key);
@@ -418,6 +439,24 @@ public class HiveMetaStoreCache {
         @Override
         public String toString() {
             return "FileCacheKey{" + "location='" + location + '\'' + ", inputFormat='" + inputFormat + '\'' + '}';
+        }
+    }
+
+    @Data
+    public static class HivePartitionValues {
+        private Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMap();
+        private Map<UniqueId, Range<PartitionKey>> uidToPartitionRange;
+        private Map<Range<PartitionKey>, UniqueId> rangeToId;
+        private RangeMap<ColumnBound, UniqueId> singleColumnRangeMap;
+
+        public HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
+                Map<UniqueId, Range<PartitionKey>> uidToPartitionRange,
+                Map<Range<PartitionKey>, UniqueId> rangeToId,
+                RangeMap<ColumnBound, UniqueId> singleColumnRangeMap) {
+            this.idToPartitionItem = idToPartitionItem;
+            this.uidToPartitionRange = uidToPartitionRange;
+            this.rangeToId = rangeToId;
+            this.singleColumnRangeMap = singleColumnRangeMap;
         }
     }
 }
