@@ -29,6 +29,7 @@ public class ExplainCommand implements Command {
      * explain level.
      */
     public enum ExplainLevel {
+        NONE,
         NORMAL,
         VERBOSE,
         GRAPH,

@@ -22,7 +22,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -61,32 +60,9 @@ public class NereidsParser {
             if (parsedPlan2Context.first instanceof ExplainCommand) {
                 ExplainCommand explainCommand = (ExplainCommand) parsedPlan2Context.first;
                 LogicalPlan innerPlan = explainCommand.getLogicalPlan();
-
                 LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan, statementContext);
-
                 ExplainLevel explainLevel = explainCommand.getLevel();
-                ExplainOptions explainOptions;
-                switch (explainLevel) {
-                    case PARSED_PLAN:
-                        explainOptions = new ExplainOptions(innerPlan.treeString());
-                        break;
-                    case ANALYZED_PLAN:
-                        explainOptions = new ExplainOptions(
-                                NereidsPlanner.explainAnalyzedPlan(innerPlan, statementContext));
-                        break;
-                    case REWRITTEN_PLAN:
-                        explainOptions = new ExplainOptions(
-                                NereidsPlanner.explainRewrittenPlan(innerPlan, statementContext));
-                        break;
-                    case OPTIMIZED_PLAN:
-                        explainOptions = new ExplainOptions(
-                                NereidsPlanner.explainOptimizedPlan(innerPlan, statementContext));
-                        break;
-                    default:
-                        explainOptions = new ExplainOptions(
-                                explainLevel == ExplainLevel.VERBOSE,
-                                explainLevel == ExplainLevel.GRAPH);
-                }
+                ExplainOptions explainOptions = new ExplainOptions(explainLevel);
                 logicalPlanAdapter.setIsExplain(explainOptions);
                 statementBases.add(logicalPlanAdapter);
             } else {

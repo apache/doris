@@ -295,7 +295,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 true, true, nullableMode
         );
 
-        boolean isMergeFn = function.isGlobal();
+        boolean isMergeFn = function.isGlobal() && function.isDisassembled();
 
         // create catalog FunctionCallExpr without analyze again
         return new FunctionCallExpr(catalogFunction, aggFnParams, aggFnParams, isMergeFn, catalogArguments);
