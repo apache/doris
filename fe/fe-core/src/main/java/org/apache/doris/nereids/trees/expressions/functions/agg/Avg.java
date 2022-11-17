@@ -54,7 +54,7 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
 
     @Override
     protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        DoubleType sumType = DoubleType.INSTANCE;
+        DataType sumType = implicitCast(argumentTypes.get(0));
         IntegerType countType = IntegerType.INSTANCE;
         return ImmutableList.of(sumType, countType);
     }
