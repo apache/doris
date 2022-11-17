@@ -36,8 +36,8 @@ suite("test_split_by_string") {
     sql """ 
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` int(11) NULL COMMENT "",
-              `v1` varchar(20) NULL COMMENT "",
-              `v2` varchar(1) NOT NULL COMMENT ""
+              `v1` varchar(50) NULL COMMENT "",
+              `v2` varchar(10) NOT NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -56,7 +56,7 @@ suite("test_split_by_string") {
     sql """ INSERT INTO ${tableName} VALUES(8, 'a,b,c', ',') """
     sql """ INSERT INTO ${tableName} VALUES(9, 'a,b,c,', ',') """
     sql """ INSERT INTO ${tableName} VALUES(10, null, ',') """
-    sql """ INSERT INTO ${tableName} VALUES(11, 'a,b,c,12345,', ',') """
+
 
     qt_sql "SELECT *, split_by_string(v1, v2) FROM ${tableName} ORDER BY k1"
 }
