@@ -191,7 +191,7 @@ suite("test_broker_load", "p0") {
 
     def set_be_config = { flag->
         String[][] backends = sql """ show backends; """
-        //assertTrue(backends.size() > 0)
+        assertTrue(backends.size() > 0)
         for (String[] backend in backends) {
             // No need to set this config anymore, but leave this code sample here
             // StringBuilder setConfigCommand = new StringBuilder();
@@ -232,28 +232,28 @@ suite("test_broker_load", "p0") {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
-                        // assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5])
+                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5])
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        // assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7])
+                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7])
                         break;
                     }
                     Thread.sleep(1000)
                     max_try_milli_secs -= 1000
                     if(max_try_milli_secs <= 0) {
-                        // assertTrue(1 == 2, "Load Timeout.")
+                        assertTrue(1 == 2, "Load Timeout.")
                     }
                 }
                 i++
             }
 
-            // order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
-            // order_qt_parquet_s3_case3 """select count(*) from parquet_s3_case3 where p_partkey < 100000"""
-            // order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
-            // order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
-            // order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
-            // order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
+            order_qt_parquet_s3_case1 """select count(*) from parquet_s3_case1 where col1=10"""
+            order_qt_parquet_s3_case3 """select count(*) from parquet_s3_case3 where p_partkey < 100000"""
+            order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
+            order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
+            order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
+            order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
 
         } finally {
             sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
@@ -264,4 +264,3 @@ suite("test_broker_load", "p0") {
         }
     }
 }
-

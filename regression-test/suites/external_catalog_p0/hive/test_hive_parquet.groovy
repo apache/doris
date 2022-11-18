@@ -191,23 +191,17 @@ suite("test_hive_parquet", "p0") {
             q10()
             q11()
             q12()
-            //q13()
-            //q14()
-            //q15()
-            //q16()
-            //q17()
-            //q18()
-            //q19()
-            //q20()
-            // q13()
-            // q14()
-            // q15()
-            // q16()
-            // q17()
+            q13()
+            q14()
+            q15()
+            q16()
+            q17()
+            q18()
+            q19()
+            q20()
         } finally {
             sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
             set_be_config.call('false')
         }
     }
 }
-
