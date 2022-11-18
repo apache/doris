@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -29,7 +28,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
-import org.apache.doris.catalog.TableIf.TableType;
+
 
 /**
  * Database interface.
@@ -176,4 +175,3 @@ public interface DatabaseIf<T extends TableIf> {
         return (OlapTable) table;
     }
 }
- 

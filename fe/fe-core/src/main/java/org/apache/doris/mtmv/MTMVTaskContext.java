@@ -17,9 +17,9 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 

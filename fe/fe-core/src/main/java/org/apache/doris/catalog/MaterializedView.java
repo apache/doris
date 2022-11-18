@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+
 import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.catalog.OlapTableFactory.MaterializedViewParams;
@@ -28,9 +29,8 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 
 public class MaterializedView extends OlapTable {

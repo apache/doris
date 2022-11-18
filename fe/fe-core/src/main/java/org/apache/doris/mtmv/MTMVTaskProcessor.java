@@ -118,7 +118,7 @@ public class MTMVTaskProcessor {
             }
 
             //step3  swap tmp table with origin table 
-            String swapStmt = genSwapStmt(context, tableName, tmpTableName);
+            String swapStmt = genSwapStmt(context, tableName, tmpTableName); 
             ConnectContext swapResult = execSQL(context, swapStmt);
             LOG.info("exec swap stmt, taskid:{}, stmt:{}, ret:{}, msg:{}", taskId, swapStmt, swapResult.getState(),
                     swapResult.getState().getInfoMessage());
