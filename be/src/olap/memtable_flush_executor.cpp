@@ -42,7 +42,10 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 OLAPStatus FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
     RETURN_NOT_OK(_flush_status.load());
     int64_t submit_task_time = MonotonicNanos();
-    _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
+    auto st = _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
+    if (UNLIKELY(!st.ok())) {
+        return OLAP_ERR_OTHER_ERROR;
+    }
     return OLAP_SUCCESS;
 }
 

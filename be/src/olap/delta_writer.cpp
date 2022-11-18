@@ -291,11 +291,16 @@ OLAPStatus DeltaWriter::close_wait() {
             << "delta writer is supposed be to initialized before close_wait() being called";
 
     if (_is_cancelled) {
+        LOG(WARNING) << "already canceled, tablet " << tablet_id();
         return OLAP_ERR_ALREADY_CANCELLED;
     }
 
     // return error if previous flush failed
-    RETURN_NOT_OK(_flush_token->wait());
+    auto st = _flush_token->wait();
+    if (OLAP_UNLIKELY(st != OLAP_SUCCESS)) {
+        LOG(WARNING) << "previous flush failed tablet " << _tablet->tablet_id();
+        return st;
+    }
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();

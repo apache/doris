@@ -137,6 +137,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
             if (handle != nullptr) {
                 _last_success_channel->release(handle);
                 if (request.has_eos() && request.eos()) {
+                    LOG(INFO) << "add batch succeeds due to eos, load_id=" << load_id.to_string();
                     return Status::OK();
                 }
             }
