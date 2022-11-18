@@ -330,6 +330,11 @@ template <>
 inline constexpr bool IsDataTypeDecimalV2<DataTypeDecimal<Decimal128>> = true;
 
 template <typename DataType>
+constexpr bool IsDataTypeDecimal128I = false;
+template <>
+inline constexpr bool IsDataTypeDecimal128I<DataTypeDecimal<Decimal128I>> = true;
+
+template <typename DataType>
 constexpr bool IsDataTypeDecimalOrNumber =
         IsDataTypeDecimal<DataType> || IsDataTypeNumber<DataType>;
 
@@ -371,9 +376,16 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
         }
     } else {
         if constexpr (IsDecimal128I<MaxFieldType>) {
-            converted_value = value.value.val / DataTypeDecimal<MaxFieldType>::get_scale_multiplier(
-                                                        scale_from - scale_to)
-                                                        .value.val;
+            if constexpr (IsDecimal128I<FromFieldType>) {
+                converted_value =
+                        value.value.val /
+                        DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to)
+                                .value.val;
+            } else {
+                converted_value = value / DataTypeDecimal<MaxFieldType>::get_scale_multiplier(
+                                                  scale_from - scale_to)
+                                                  .value.val;
+            }
         } else {
             converted_value = value / DataTypeDecimal<MaxFieldType>::get_scale_multiplier(
                                               scale_from - scale_to);
@@ -467,7 +479,12 @@ convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) 
             LOG(WARNING) << "Decimal convert overflow. Cannot convert infinity or NaN to decimal";
         }
 
-        auto out = value * ToDataType::get_scale_multiplier(scale);
+        FromFieldType out;
+        if constexpr (IsDataTypeDecimal128I<ToDataType>) {
+            out = value * ToDataType::get_scale_multiplier(scale).value.val;
+        } else {
+            out = value * ToDataType::get_scale_multiplier(scale);
+        }
         if (out <= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::min()) ||
             out >= static_cast<FromFieldType>(std::numeric_limits<ToNativeType>::max())) {
             LOG(WARNING) << "Decimal convert overflow. Float is out of Decimal range";
