@@ -285,7 +285,7 @@ protected:
         for (size_t k = 0; k < null_maps.size(); ++k) {
             if (null_maps[k] != nullptr) {
                 const auto& null_map = assert_cast<const ColumnUInt8&>(*null_maps[k]).get_data();
-                if (null_map[row] == 1) {
+                if (null_map[row] != 0) {
                     size_t bucket = k / 8;
                     size_t offset = k % 8;
                     bitmap[bucket] |= UInt8(1) << offset;
