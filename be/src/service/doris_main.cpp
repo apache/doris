@@ -16,7 +16,6 @@
 // under the License.
 
 #include <errno.h>
-#include <gperftools/malloc_extension.h>
 #include <libgen.h>
 #include <setjmp.h>
 #include <sys/file.h>
