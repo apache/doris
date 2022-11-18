@@ -258,6 +258,9 @@ public class S3Storage extends BlobStorage {
         } catch (UserException ue) {
             LOG.error("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
+        } catch (Exception e) {
+            LOG.error("connect to s3 failed: ", e);
+            return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + e.getMessage());
         }
     }
 
