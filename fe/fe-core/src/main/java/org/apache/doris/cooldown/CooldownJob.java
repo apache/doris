@@ -91,6 +91,10 @@ public class CooldownJob implements Writable {
 
     private AgentBatchTask cooldownBatchTask = new AgentBatchTask();
 
+    public long getJobId() {
+        return jobId;
+    }
+
     public long getTabletId() {
         return tabletId;
     }

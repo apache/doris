@@ -47,8 +47,9 @@ public class CooldownHandler extends MasterDaemon {
 
     private static final long timeoutMs = 1000L * Config.push_cooldown_conf_timeout_second;
 
-    // tabletId -> CooldownJob, it is used to hold CooldownJob which is used to sent conf to be.
+    // jobId -> CooldownJob, it is used to hold CooldownJob which is used to sent conf to be.
     private final Map<Long, CooldownJob> runableCooldownJobs = Maps.newConcurrentMap();
+    private final Map<Long, Boolean> resetingTablet = Maps.newConcurrentMap();
     // tabletId -> CooldownJob,
     public final Map<Long, CooldownJob> activeCooldownJobs = Maps.newConcurrentMap();
 
@@ -63,7 +64,7 @@ public class CooldownHandler extends MasterDaemon {
             }
             Long tabletId = entry.getKey();
             TabletMeta tabletMeta = entry.getValue();
-            if (runableCooldownJobs.containsKey(tabletId)) {
+            if (resetingTablet.containsKey(tabletId)) {
                 continue;
             }
             List<Replica> replicas = Env.getCurrentInvertedIndex().getReplicas(tabletId);
@@ -86,7 +87,8 @@ public class CooldownHandler extends MasterDaemon {
             CooldownJob cooldownJob = new CooldownJob(jobId, tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, replicaId,
                     TCooldownType.UPLOAD_DATA, timeoutMs);
-            runableCooldownJobs.put(tabletId, cooldownJob);
+            runableCooldownJobs.put(jobId, cooldownJob);
+            resetingTablet.put(tabletId, true);
         }
     }
 
@@ -129,12 +131,18 @@ public class CooldownHandler extends MasterDaemon {
     }
 
     public void replayCooldownJob(CooldownJob cooldownJob) {
-        if (!cooldownJob.isDone() && !runableCooldownJobs.containsKey(cooldownJob.getTabletId())) {
-            CooldownJob replayCooldownJob = new CooldownJob(cooldownJob.jobId, cooldownJob.dbId, cooldownJob.tableId,
+        CooldownJob replayCooldownJob = null;
+        if (!runableCooldownJobs.containsKey(cooldownJob.getJobId())) {
+            replayCooldownJob = new CooldownJob(cooldownJob.jobId, cooldownJob.dbId, cooldownJob.tableId,
                     cooldownJob.partitionId, cooldownJob.indexId, cooldownJob.tabletId, cooldownJob.replicaId,
                     cooldownJob.cooldownType, cooldownJob.timeoutMs);
-            replayCooldownJob.replay(cooldownJob);
-            runableCooldownJobs.put(cooldownJob.getTabletId(), cooldownJob);
+            runableCooldownJobs.put(cooldownJob.getJobId(), replayCooldownJob);
+        } else {
+            replayCooldownJob = runableCooldownJobs.get(cooldownJob.getJobId());
+        }
+        replayCooldownJob.replay(cooldownJob);
+        if (replayCooldownJob.isDone()) {
+            runableCooldownJobs.remove(cooldownJob.getJobId());
         }
     }
 
