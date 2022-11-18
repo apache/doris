@@ -84,9 +84,7 @@ public class NereidsPlanner extends Planner {
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
         Plan resultPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY, explainLevel);
-        if (explainLevel == ExplainLevel.PARSED_PLAN || explainLevel == ExplainLevel.ANALYZED_PLAN
-                || explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.OPTIMIZED_PLAN
-                || explainLevel == ExplainLevel.ALL_PLAN) {
+        if (explainLevel.isPlanLevel) {
             return;
         }
 

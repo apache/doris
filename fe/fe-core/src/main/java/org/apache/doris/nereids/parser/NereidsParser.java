@@ -53,12 +53,12 @@ public class NereidsParser {
     public List<StatementBase> parseSQL(String originStr) {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = parseMultiple(originStr);
         List<StatementBase> statementBases = Lists.newArrayList();
-        for (Pair<LogicalPlan, StatementContext> parsedPlan2Context : logicalPlans) {
+        for (Pair<LogicalPlan, StatementContext> parsedPlanToContext : logicalPlans) {
             // TODO: this is a trick to support explain. Since we do not support any other command in a short time.
             //     It is acceptable. In the future, we need to refactor this.
-            StatementContext statementContext = parsedPlan2Context.second;
-            if (parsedPlan2Context.first instanceof ExplainCommand) {
-                ExplainCommand explainCommand = (ExplainCommand) parsedPlan2Context.first;
+            StatementContext statementContext = parsedPlanToContext.second;
+            if (parsedPlanToContext.first instanceof ExplainCommand) {
+                ExplainCommand explainCommand = (ExplainCommand) parsedPlanToContext.first;
                 LogicalPlan innerPlan = explainCommand.getLogicalPlan();
                 LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan, statementContext);
                 ExplainLevel explainLevel = explainCommand.getLevel();
@@ -66,7 +66,7 @@ public class NereidsParser {
                 logicalPlanAdapter.setIsExplain(explainOptions);
                 statementBases.add(logicalPlanAdapter);
             } else {
-                statementBases.add(new LogicalPlanAdapter(parsedPlan2Context.first, statementContext));
+                statementBases.add(new LogicalPlanAdapter(parsedPlanToContext.first, statementContext));
             }
         }
         return statementBases;

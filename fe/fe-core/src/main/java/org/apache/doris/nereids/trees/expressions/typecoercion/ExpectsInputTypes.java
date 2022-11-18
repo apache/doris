@@ -35,8 +35,4 @@ import java.util.List;
 public interface ExpectsInputTypes {
 
     List<AbstractDataType> expectedInputTypes();
-
-    default void checkInputTypes() {
-
-    }
 }

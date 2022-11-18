@@ -38,13 +38,11 @@ public class HllUnion extends AggregateFunction
     );
 
     public HllUnion(Expression arg0) {
-        // TODO: change to hll_union in the future
-        super("hll_raw_agg", arg0);
+        super("hll_union", arg0);
     }
 
     public HllUnion(AggregateParam aggregateParam, Expression arg0) {
-        // TODO: change to hll_union in the future
-        super("hll_raw_agg", aggregateParam, arg0);
+        super("hll_union", aggregateParam, arg0);
     }
 
     @Override
