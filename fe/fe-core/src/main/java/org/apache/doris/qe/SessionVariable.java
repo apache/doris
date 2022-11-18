@@ -246,7 +246,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
     public boolean enableExchangeNodeParallelMerge = false;
 
-    // Default Order By Limit
+    // By default, the number of Limit items after OrderBy is changed from 65535 items
+    // before v1.2.0 (not included), to return all items by default
     @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
     public long defaultOrderByLimit = -1;
 
