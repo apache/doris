@@ -295,7 +295,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             }
             ColumnStatistic statistic =
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
-            if (statistic == ColumnStatistic.UNKNOWN) {
+            if (statistic == ColumnStatistic.DEFAULT) {
                 if (card == -1) {
                     card = roughlyEstimatedCard(scan);
                 }
