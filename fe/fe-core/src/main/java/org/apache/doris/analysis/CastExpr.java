@@ -421,7 +421,12 @@ public class CastExpr extends Expr {
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            return new DecimalLiteral(value.getStringValue(), ((ScalarType) type).getScalarScale());
+            if (targetTypeDef != null) {
+                return new DecimalLiteral(value.getStringValue(),
+                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
+            } else {
+                return new DecimalLiteral(value.getStringValue());
+            }
         } else if (type.isFloatingPointType()) {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
