@@ -41,6 +41,7 @@ import java.util.Optional;
  * Inspired by NoisePage and ORCA-Paper.
  */
 public class CostAndEnforcerJob extends Job implements Cloneable {
+
     // GroupExpression to optimize
     private final GroupExpression groupExpression;
 
@@ -165,7 +166,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
                 curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
                 if (curTotalCost > context.getCostUpperBound()) {
-                    break;
+                    curTotalCost = Double.POSITIVE_INFINITY;
                 }
                 // the request child properties will be covered by the output properties
                 // that corresponding to the request properties. so if we run a costAndEnforceJob of the same

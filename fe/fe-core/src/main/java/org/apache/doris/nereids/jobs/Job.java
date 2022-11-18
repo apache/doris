@@ -80,8 +80,7 @@ public abstract class Job {
      * @param candidateRules rules to be applied
      * @return all rules that can be applied on this group expression
      */
-    public List<Rule> getValidRules(GroupExpression groupExpression,
-            List<Rule> candidateRules) {
+    public List<Rule> getValidRules(GroupExpression groupExpression, List<Rule> candidateRules) {
         return candidateRules.stream()
                 .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchRoot(groupExpression.getPlan())
                         && groupExpression.notApplied(rule)).collect(Collectors.toList());

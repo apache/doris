@@ -31,6 +31,7 @@ import java.util.Set;
  */
 public class StatsDeriveResult {
     private final double rowCount;
+    private double computeSize = -1D;
 
     private int width = 1;
     private double penalty = 0.0;
@@ -59,8 +60,12 @@ public class StatsDeriveResult {
     }
 
     public double computeSize() {
-        return Math.max(1, slotIdToColumnStats.values().stream().map(s -> s.dataSize).reduce(0D, Double::sum))
-                * rowCount;
+        if (computeSize < 0) {
+            computeSize = Math.max(1, slotIdToColumnStats.values().stream()
+                    .map(s -> s.dataSize).reduce(0D, Double::sum)
+            ) * rowCount;
+        }
+        return computeSize;
     }
 
     /**
