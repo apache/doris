@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -52,7 +53,8 @@ public class CooldownJob implements Writable {
 
     public enum JobState {
         PENDING, // Job is created
-        RUNNING, // alter tasks are sent to BE, and waiting for them finished.
+        SEND_CONF, // send cooldown task to BE.
+        RUNNING, // cooldown tasks are sent to BE, and waiting for them finished.
         FINISHED, // job is done
         CANCELLED; // job is cancelled(failed or be cancelled by user)
 
@@ -77,6 +79,8 @@ public class CooldownJob implements Writable {
     protected long tabletId;
     @SerializedName(value = "replicaId")
     protected long replicaId;
+    @SerializedName(value = "backendId")
+    protected long backendId;
     @SerializedName(value = "cooldownType")
     TCooldownType cooldownType;
 
@@ -100,7 +104,7 @@ public class CooldownJob implements Writable {
     }
 
     public CooldownJob(long jobId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                       long replicaId, TCooldownType cooldownType, long timeoutMs) {
+                       long replicaId, long backendId, TCooldownType cooldownType, long timeoutMs) {
         this.jobId = jobId;
         this.jobState = JobState.PENDING;
         this.dbId = dbId;
@@ -109,6 +113,7 @@ public class CooldownJob implements Writable {
         this.indexId = indexId;
         this.tabletId = tabletId;
         this.replicaId = replicaId;
+        this.backendId = backendId;
         this.cooldownType = cooldownType;
         this.createTimeMs = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
@@ -116,51 +121,25 @@ public class CooldownJob implements Writable {
 
     protected void runPendingJob() throws CooldownException {
         Preconditions.checkState(jobState == CooldownJob.JobState.PENDING, jobState);
-        LOG.info("begin to send cooldown conf tasks. job: {}", jobId);
-        Database db = Env.getCurrentInternalCatalog()
-                .getDbOrException(dbId, s -> new CooldownException("Database " + s + " does not exist"));
-        OlapTable tbl;
-        try {
-            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableIf.TableType.OLAP);
-        } catch (MetaNotFoundException e) {
-            throw new CooldownException(e.getMessage());
-        }
-        if (tbl == null) {
-            throw new CooldownException("Table doesn't exist. tabletId: " + tableId);
-        }
-        long backendId = 0;
-        tbl.readLock();
-        try {
-            Partition partition = tbl.getPartition(partitionId);
-            if (partition == null) {
-                throw new CooldownException("Partition doesn't exist. tabletId: " + tableId + ", partitionId: "
-                        + partitionId);
-            }
-            MaterializedIndex index = partition.getIndex(indexId);
-            if (index == null) {
-                throw new CooldownException("Index doesn't exist. tabletId: " + tableId + ", partitionId: "
-                        + partitionId + ", indexId: " + indexId);
-            }
-            Tablet tablet = index.getTablet(tabletId);
-            if (tablet == null) {
-                throw new CooldownException("Tablet doesn't exist. tabletId: " + tableId + ", tabletId: " + tabletId);
-            }
-            Replica replica = tablet.getReplicaById(replicaId);
-            if (replica == null) {
-                throw new CooldownException("Replica doesn't exist. tabletId: " + tableId + ", tabletId: " + tabletId
-                        + ", replicaId: " + replicaId);
-            }
-            backendId = replica.getBackendId();
-        } finally {
-            tbl.readUnlock();
-        }
-        AgentBatchTask batchTask = new AgentBatchTask();
-        PushCooldownConfTask pushCooldownConfTask = new PushCooldownConfTask(backendId, dbId, tableId, partitionId,
-                indexId, tabletId, replicaId, cooldownType);
-        batchTask.addTask(pushCooldownConfTask);
+        this.jobState = JobState.SEND_CONF;
+        // write edit log
+        setCooldownType(cooldownType);
+        Env.getCurrentEnv().getEditLog().logCooldownJob(this);
+        LOG.info("send cooldown job {} state to {}", jobId, this.jobState);
+    }
 
-        AgentTaskQueue.addBatchTask(batchTask);
-        AgentTaskExecutor.submit(batchTask);
+    protected void runSendJob() throws CooldownException{
+        Preconditions.checkState(jobState == JobState.SEND_CONF, jobState);
+        LOG.info("begin to send cooldown conf tasks. job: {}", jobId);
+        if (!FeConstants.runningUnitTest) {
+            AgentBatchTask batchTask = new AgentBatchTask();
+            PushCooldownConfTask pushCooldownConfTask = new PushCooldownConfTask(backendId, dbId, tableId, partitionId,
+                    indexId, tabletId, replicaId, cooldownType);
+            batchTask.addTask(pushCooldownConfTask);
+
+            AgentTaskQueue.addBatchTask(batchTask);
+            AgentTaskExecutor.submit(batchTask);
+        }
 
         this.jobState = JobState.RUNNING;
         // write edit log
@@ -182,7 +161,6 @@ public class CooldownJob implements Writable {
             }
             return;
         }
-        setCooldownType(cooldownType);
         this.jobState = CooldownJob.JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
@@ -236,6 +214,9 @@ public class CooldownJob implements Writable {
                 case PENDING:
                     runPendingJob();
                     break;
+                case SEND_CONF:
+                    runSendJob();
+                    break;
                 case RUNNING:
                     runRunningJob();
                     break;
@@ -252,6 +233,9 @@ public class CooldownJob implements Writable {
             switch (replayedJob.jobState) {
                 case PENDING:
                     replayCreateJob(replayedJob);
+                    break;
+                case SEND_CONF:
+                    replayPengingJob();
                     break;
                 case FINISHED:
                     replayRunningJob(replayedJob);
@@ -299,11 +283,19 @@ public class CooldownJob implements Writable {
     }
 
     /**
+     * Replay job in PENDING state. set cooldown type in Replica
+     */
+    private void replayPengingJob() throws CooldownException {
+        setCooldownType(cooldownType);
+        jobState = JobState.SEND_CONF;
+        LOG.info("replay send cooldown conf, job: {}", jobId);
+    }
+
+    /**
      * Replay job in FINISHED state.
      * Should replay all changes in runRunningJob()
      */
     private void replayRunningJob(CooldownJob replayedJob) throws CooldownException {
-        setCooldownType(cooldownType);
         jobState = CooldownJob.JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished cooldown job: {}", jobId);

@@ -72,9 +72,11 @@ public class CooldownHandler extends MasterDaemon {
                 continue;
             }
             long replicaId = -1;
+            long backendId = -1;
             for (Replica replica : replicas) {
                 if (replica.getCooldownType() == TCooldownType.UPLOAD_DATA) {
                     replicaId = replica.getId();
+                    backendId = replica.getBackendId();
                 }
             }
             // All replica has no UPLOAD_DATA cooldown type.
@@ -82,10 +84,11 @@ public class CooldownHandler extends MasterDaemon {
                 Random rand = new Random(System.currentTimeMillis());
                 int index = rand.nextInt(replicas.size());
                 replicaId = replicas.get(index).getId();
+                backendId = replicas.get(index).getBackendId();
             }
             long jobId = Env.getCurrentEnv().getNextId();
             CooldownJob cooldownJob = new CooldownJob(jobId, tabletMeta.getDbId(), tabletMeta.getTableId(),
-                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, replicaId,
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, replicaId, backendId,
                     TCooldownType.UPLOAD_DATA, timeoutMs);
             runableCooldownJobs.put(jobId, cooldownJob);
             resetingTablet.put(tabletId, true);
@@ -135,7 +138,7 @@ public class CooldownHandler extends MasterDaemon {
         if (!runableCooldownJobs.containsKey(cooldownJob.getJobId())) {
             replayCooldownJob = new CooldownJob(cooldownJob.jobId, cooldownJob.dbId, cooldownJob.tableId,
                     cooldownJob.partitionId, cooldownJob.indexId, cooldownJob.tabletId, cooldownJob.replicaId,
-                    cooldownJob.cooldownType, cooldownJob.timeoutMs);
+                    cooldownJob.backendId, cooldownJob.cooldownType, cooldownJob.timeoutMs);
             runableCooldownJobs.put(cooldownJob.getJobId(), replayCooldownJob);
             resetingTablet.put(cooldownJob.getTabletId(), true);
         } else {

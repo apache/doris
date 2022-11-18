@@ -809,7 +809,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static boolean cooldown_single_remote_file = false;
     @ConfField(mutable = false, masterOnly = true)
-    public static int push_cooldown_conf_timeout_second = 180; // 3 min
+    public static int push_cooldown_conf_timeout_second = 600; // 10 min
     /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
