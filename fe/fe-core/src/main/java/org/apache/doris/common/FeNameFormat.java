@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloRole;
 
@@ -72,6 +73,10 @@ public class FeNameFormat {
                     columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }
         if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.COLUMN_NAME_REGEX);
+        }
+        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }
