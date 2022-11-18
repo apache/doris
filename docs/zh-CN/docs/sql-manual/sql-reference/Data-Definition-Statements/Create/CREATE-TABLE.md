@@ -325,6 +325,14 @@ distribution_desc
 
         `"compression"="zstd"`
 
+    * `function_column.sequence_col`
+
+        当使用 UNIQUE KEY 模型时，可以指定一个sequence列，当KEY列相同时，将按照 sequence 列进行 REPLACE(较大值替换较小值，否则无法替换)
+
+        `function_column.sequence_col`用来指定sequence列到表中某一列的映射，该列可以为整型和时间类型（DATE、DATETIME），创建后不能更改该列的类型。如果设置了`function_column.sequence_col`, `function_column.sequence_type`将被忽略。
+    
+        `"function_column.sequence_col" = 'column_name'`
+
     * `function_column.sequence_type`
 
         当使用 UNIQUE KEY 模型时，可以指定一个sequence列，当KEY列相同时，将按照 sequence 列进行 REPLACE(较大值替换较小值，否则无法替换)

@@ -135,6 +135,7 @@ private:
     Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
+    Status _generate_fill_columns();
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;

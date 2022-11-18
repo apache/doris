@@ -95,7 +95,7 @@ struct ProcessHashTableBuild {
         }
 
         _build_side_hash_values.resize(_rows);
-        auto& arena = _join_node->_arena;
+        auto& arena = *(_join_node->_arena);
         {
             SCOPED_TIMER(_build_side_compute_hash_timer);
             for (size_t k = 0; k < _rows; ++k) {
@@ -152,7 +152,7 @@ struct ProcessHashTableBuild {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                         inserted_rows.push_back(k);
                     } else {
-                        emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
+                        emplace_result.get_mapped().insert({k, _offset}, *(_join_node->_arena));
                         inserted_rows.push_back(k);
                     });
         } else if (!has_runtime_filter && build_unique) {
@@ -165,7 +165,7 @@ struct ProcessHashTableBuild {
                     if (emplace_result.is_inserted()) {
                         new (&emplace_result.get_mapped()) Mapped({k, _offset});
                     } else {
-                        emplace_result.get_mapped().insert({k, _offset}, _join_node->_arena);
+                        emplace_result.get_mapped().insert({k, _offset}, *(_join_node->_arena));
                     });
         }
 #undef EMPLACE_IMPL
@@ -230,7 +230,9 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}) {
     _runtime_filter_descs = tnode.runtime_filters;
-    _init_join_op();
+    _arena = std::make_unique<Arena>();
+    _hash_table_variants = std::make_unique<HashTableVariants>();
+    _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
 
     // avoid vector expand change block address.
     // one block can store 4g data, _build_blocks can store 128*4g data.
@@ -275,7 +277,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         _probe_ignore_null |= !probe_not_ignore_null[i];
     }
-    _short_circuit_for_null_in_build_side = _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
 
     _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
 
@@ -395,6 +396,7 @@ Status HashJoinNode::close(RuntimeState* state) {
     VExpr::close(_probe_expr_ctxs, state);
 
     if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
+    _release_mem();
     return VJoinNodeBase::close(state);
 }
 
@@ -493,7 +495,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                         LOG(FATAL) << "FATAL: uninited hash table probe";
                     }
                 },
-                _hash_table_variants, _process_hashtable_ctx_variants,
+                *_hash_table_variants, *_process_hashtable_ctx_variants,
                 make_bool_variant(_need_null_map_for_probe), make_bool_variant(_probe_ignore_null));
     } else if (_probe_eos) {
         if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
@@ -512,7 +514,7 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                             LOG(FATAL) << "FATAL: uninited hash table probe";
                         }
                     },
-                    _hash_table_variants, _process_hashtable_ctx_variants);
+                    *_hash_table_variants, *_process_hashtable_ctx_variants);
         } else {
             *eos = true;
             return Status::OK();
@@ -657,6 +659,9 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                               if (!ret.status.ok()) {
                                   return ret.status;
                               }
+                              _short_circuit_for_null_in_probe_side =
+                                      _shared_hashtable_controller
+                                              ->short_circuit_for_null_in_probe_side();
                               arg.hash_table_ptr =
                                       reinterpret_cast<HashTableType*>(ret.hash_table_ptr);
                               _build_blocks = *ret.blocks;
@@ -677,6 +682,9 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                                       runtime_filter_build_process(this);
                               auto ret = runtime_filter_build_process(state, arg);
                               if (_shared_hashtable_controller) {
+                                  _shared_hashtable_controller
+                                          ->set_short_circuit_for_null_in_probe_side(
+                                                  _short_circuit_for_null_in_probe_side);
                                   SharedHashTableEntry entry(ret, arg.hash_table_ptr,
                                                              &_build_blocks, _runtime_filter_slots);
                                   _shared_hashtable_controller->put_hash_table(std::move(entry),
@@ -685,7 +693,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                               return ret;
                           }
                       }},
-            _hash_table_variants);
+            *_hash_table_variants);
 }
 
 template <bool BuildSide>
@@ -819,7 +827,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
                                                 : nullptr,
                                         &_short_circuit_for_null_in_probe_side);
                     }},
-            _hash_table_variants, make_bool_variant(_build_side_ignore_null),
+            *_hash_table_variants, make_bool_variant(_build_side_ignore_null),
             make_bool_variant(_short_circuit_for_null_in_build_side));
 
     return st;
@@ -841,22 +849,22 @@ void HashJoinNode::_hash_table_init() {
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
                     case TYPE_BOOLEAN:
                     case TYPE_TINYINT:
-                        _hash_table_variants.emplace<I8HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I8HashTableContext<RowRefListType>>();
                         break;
                     case TYPE_SMALLINT:
-                        _hash_table_variants.emplace<I16HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I16HashTableContext<RowRefListType>>();
                         break;
                     case TYPE_INT:
                     case TYPE_FLOAT:
                     case TYPE_DATEV2:
-                        _hash_table_variants.emplace<I32HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I32HashTableContext<RowRefListType>>();
                         break;
                     case TYPE_BIGINT:
                     case TYPE_DOUBLE:
                     case TYPE_DATETIME:
                     case TYPE_DATE:
                     case TYPE_DATETIMEV2:
-                        _hash_table_variants.emplace<I64HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I64HashTableContext<RowRefListType>>();
                         break;
                     case TYPE_LARGEINT:
                     case TYPE_DECIMALV2:
@@ -871,16 +879,16 @@ void HashJoinNode::_hash_table_init() {
                                                 : type_ptr->get_type_id();
                         WhichDataType which(idx);
                         if (which.is_decimal32()) {
-                            _hash_table_variants.emplace<I32HashTableContext<RowRefListType>>();
+                            _hash_table_variants->emplace<I32HashTableContext<RowRefListType>>();
                         } else if (which.is_decimal64()) {
-                            _hash_table_variants.emplace<I64HashTableContext<RowRefListType>>();
+                            _hash_table_variants->emplace<I64HashTableContext<RowRefListType>>();
                         } else {
-                            _hash_table_variants.emplace<I128HashTableContext<RowRefListType>>();
+                            _hash_table_variants->emplace<I128HashTableContext<RowRefListType>>();
                         }
                         break;
                     }
                     default:
-                        _hash_table_variants.emplace<SerializedHashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
                     }
                     return;
                 }
@@ -920,41 +928,41 @@ void HashJoinNode::_hash_table_init() {
                         if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <=
                             sizeof(UInt64)) {
                             _hash_table_variants
-                                    .emplace<I64FixedKeyHashTableContext<true, RowRefListType>>();
+                                    ->emplace<I64FixedKeyHashTableContext<true, RowRefListType>>();
                         } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                                    sizeof(UInt128)) {
                             _hash_table_variants
-                                    .emplace<I128FixedKeyHashTableContext<true, RowRefListType>>();
+                                    ->emplace<I128FixedKeyHashTableContext<true, RowRefListType>>();
                         } else {
                             _hash_table_variants
-                                    .emplace<I256FixedKeyHashTableContext<true, RowRefListType>>();
+                                    ->emplace<I256FixedKeyHashTableContext<true, RowRefListType>>();
                         }
                     } else {
                         if (key_byte_size <= sizeof(UInt64)) {
                             _hash_table_variants
-                                    .emplace<I64FixedKeyHashTableContext<false, RowRefListType>>();
+                                    ->emplace<I64FixedKeyHashTableContext<false, RowRefListType>>();
                         } else if (key_byte_size <= sizeof(UInt128)) {
-                            _hash_table_variants
-                                    .emplace<I128FixedKeyHashTableContext<false, RowRefListType>>();
+                            _hash_table_variants->emplace<
+                                    I128FixedKeyHashTableContext<false, RowRefListType>>();
                         } else {
-                            _hash_table_variants
-                                    .emplace<I256FixedKeyHashTableContext<false, RowRefListType>>();
+                            _hash_table_variants->emplace<
+                                    I256FixedKeyHashTableContext<false, RowRefListType>>();
                         }
                     }
                 } else {
-                    _hash_table_variants.emplace<SerializedHashTableContext<RowRefListType>>();
+                    _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
                 }
             },
             _join_op_variants, make_bool_variant(_have_other_join_conjunct));
 
-    DCHECK(!std::holds_alternative<std::monostate>(_hash_table_variants));
+    DCHECK(!std::holds_alternative<std::monostate>(*_hash_table_variants));
 }
 
 void HashJoinNode::_process_hashtable_ctx_variants_init(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                _process_hashtable_ctx_variants.emplace<ProcessHashTableProbe<JoinOpType::value>>(
+                _process_hashtable_ctx_variants->emplace<ProcessHashTableProbe<JoinOpType::value>>(
                         this, state->batch_size());
             },
             _join_op_variants);
@@ -1003,6 +1011,19 @@ void HashJoinNode::_reset_tuple_is_null_column() {
         reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
         reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
     }
+}
+
+void HashJoinNode::_release_mem() {
+    _arena = nullptr;
+    _hash_table_variants = nullptr;
+    _process_hashtable_ctx_variants = nullptr;
+    _null_map_column = nullptr;
+    _tuple_is_null_left_flag_column = nullptr;
+    _tuple_is_null_right_flag_column = nullptr;
+    _probe_block.clear();
+
+    std::vector<Block> tmp_build_blocks;
+    _build_blocks.swap(tmp_build_blocks);
 }
 
 } // namespace doris::vectorized

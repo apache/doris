@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -46,44 +47,71 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     private static final String AK = "access_key";
     private static final String SK = "secret_key";
 
-    public static final String USE_PATH_STYLE = "use_path_style";
+    private static final String USE_PATH_STYLE = "use_path_style";
+    private static final String REGION = "region";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
                         .add(S3_URI)
                         .add(AK)
                         .add(SK)
-                        .add(FORMAT)
-                        .add(JSON_ROOT)
-                        .add(JSON_PATHS)
-                        .add(STRIP_OUTER_ARRAY)
-                        .add(READ_JSON_BY_LINE)
+                        .add(USE_PATH_STYLE)
+                        .add(REGION)
                         .build();
     private S3URI s3uri;
     private String s3AK;
     private String s3SK;
+    private String endPoint;
+    private String virtualBucket;
+    private boolean forceVirtualHosted;
 
     public S3TableValuedFunction(Map<String, String> params) throws UserException {
-        Map<String, String> validParams = Maps.newHashMap();
+        Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
-            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase()) && !FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
                 throw new AnalysisException(key + " is invalid property");
             }
-            validParams.put(key.toLowerCase(), params.get(key));
+            validParams.put(key, params.get(key));
         }
 
-        s3uri = S3URI.create(validParams.get(S3_URI));
+        String originUri = validParams.getOrDefault(S3_URI, "");
+        if (originUri.toLowerCase().startsWith("s3")) {
+            // s3 protocol
+            forceVirtualHosted = false;
+        } else {
+            // not s3 protocol, forceVirtualHosted is determined by USE_PATH_STYLE.
+            forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
+        }
+
+        s3uri = S3URI.create(validParams.get(S3_URI), forceVirtualHosted);
+        if (forceVirtualHosted) {
+            // s3uri.getVirtualBucket() is: virtualBucket.endpoint, Eg:
+            //          uri: http://my_bucket.cos.ap-beijing.myqcloud.com/file.txt
+            // s3uri.getVirtualBucket() = my_bucket.cos.ap-beijing.myqcloud.com,
+            // so we need separate virtualBucket and endpoint.
+            String[] fileds = s3uri.getVirtualBucket().split("\\.", 2);
+            virtualBucket = fileds[0];
+            if (fileds.length > 1) {
+                endPoint = fileds[1];
+            } else {
+                throw new AnalysisException("can not parse endpoint, please check uri.");
+            }
+        } else {
+            endPoint = s3uri.getBucketScheme();
+        }
         s3AK = validParams.getOrDefault(AK, "");
         s3SK = validParams.getOrDefault(SK, "");
+        String usePathStyle = validParams.getOrDefault(USE_PATH_STYLE, "false");
 
         parseProperties(validParams);
 
         // set S3 location properties
+        // these five properties is necessary, no one can be lost.
         locationProperties = Maps.newHashMap();
-        locationProperties.put(S3_ENDPOINT, s3uri.getBucketScheme());
+        locationProperties.put(S3_ENDPOINT, endPoint);
         locationProperties.put(S3_AK, s3AK);
         locationProperties.put(S3_SK, s3SK);
-        locationProperties.put(S3_REGION, "");
-        locationProperties.put(USE_PATH_STYLE, "true");
+        locationProperties.put(S3_REGION, validParams.getOrDefault(REGION, ""));
+        locationProperties.put(USE_PATH_STYLE, usePathStyle);
 
         parseFile();
     }
@@ -97,6 +125,10 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     @Override
     public String getFilePath() {
         // must be "s3://..."
+        if (forceVirtualHosted) {
+            return NAME + S3URI.SCHEME_DELIM + virtualBucket + S3URI.PATH_DELIM
+                    + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
+        }
         return NAME + S3URI.SCHEME_DELIM + s3uri.getKey();
     }
 

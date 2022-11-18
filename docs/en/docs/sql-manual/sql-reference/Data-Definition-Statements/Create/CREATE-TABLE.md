@@ -318,6 +318,14 @@ distribution_desc
 
         `"in_memory" = "true"`
 
+    * `function_column.sequence_col`
+
+        When using the UNIQUE KEY model, you can specify a sequence column. When the KEY columns are the same, REPLACE will be performed according to the sequence column (the larger value replaces the smaller value, otherwise it cannot be replaced)
+
+       The `function_column.sequence_col` is used to specify the mapping of the sequence column to a column in the table, which can be integral and time (DATE, DATETIME). The type of this column cannot be changed after creation. If `function_column.sequence_col` is set, `function_column.sequence_type` is ignored.
+
+        `"function_column.sequence_col" ='column_name'`
+
     * `function_column.sequence_type`
 
         When using the UNIQUE KEY model, you can specify a sequence column. When the KEY columns are the same, REPLACE will be performed according to the sequence column (the larger value replaces the smaller value, otherwise it cannot be replaced)

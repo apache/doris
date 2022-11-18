@@ -233,10 +233,10 @@ private:
 
     int64_t _mem_used;
 
-    Arena _arena;
-    HashTableVariants _hash_table_variants;
+    std::unique_ptr<Arena> _arena;
+    std::unique_ptr<HashTableVariants> _hash_table_variants;
 
-    HashTableCtxVariants _process_hashtable_ctx_variants;
+    std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
     std::vector<Block> _build_blocks;
     Block _probe_block;
@@ -254,12 +254,6 @@ private:
     Sizes _probe_key_sz;
     Sizes _build_key_sz;
 
-    // For null aware left anti join, we apply a short circuit strategy.
-    // 1. Set _short_circuit_for_null_in_build_side to true if join operator is null aware left anti join.
-    // 2. In build phase, we stop building hash table when we meet the first null value and set _short_circuit_for_null_in_probe_side to true.
-    // 3. In probe phase, if _short_circuit_for_null_in_probe_side is true, join node returns empty block directly. Otherwise, probing will continue as the same as generic left anti join.
-    bool _short_circuit_for_null_in_build_side = false;
-    bool _short_circuit_for_null_in_probe_side = false;
     bool _is_broadcast_join = false;
     SharedHashTableController* _shared_hashtable_controller = nullptr;
     VRuntimeFilterSlots* _runtime_filter_slots;
@@ -301,6 +295,8 @@ private:
     void _reset_tuple_is_null_column();
 
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
+
+    void _release_mem();
 
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;

@@ -95,6 +95,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
 
     public void setUnInitialized() {
         this.initialized = false;
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
     }
 
     public boolean isInitialized() {
@@ -107,7 +108,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
                 // Forward to master and wait the journal to replay.
                 MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
                 try {
-                    remoteExecutor.forward(extCatalog.getId(), id, -1);
+                    remoteExecutor.forward(extCatalog.getId(), id);
                 } catch (Exception e) {
                     Util.logAndThrowRuntimeException(LOG,
                             String.format("failed to forward init external db %s operation to master", name), e);

@@ -389,3 +389,21 @@ _
 -- !sql --
 [NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL]
 
+-- !sql --
+[1, 2, 3, NULL, 4]
+
+-- !sql --
+[NULL]
+
+-- !sql --
+[1.2, 3.4, 3.3, 2.1]
+
+-- !sql --
+['a', 'b', 'c', 'd']
+
+-- !sql --
+['aaa', 'bbb', 'ccc', 'ccccc', NULL, 'dddd']
+
+-- !sql --
+['2015-03-13']
+

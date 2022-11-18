@@ -172,6 +172,15 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_with_constant(2, '1')"
     qt_sql "select array_with_constant(4, 1223)"
     qt_sql "select array_with_constant(8, null)"
+
+    // array_compact function
+    qt_sql "select array_compact([1, 2, 3, 3, null, null, 4, 4])"
+    qt_sql "select array_compact([null, null, null])"
+    qt_sql "select array_compact([1.2, 1.2, 3.4, 3.3, 2.1])"
+    qt_sql "select array_compact(['a','b','c','c','d'])"
+    qt_sql "select array_compact(['aaa','aaa','bbb','ccc','ccccc',null, null,'dddd'])"
+    qt_sql "select array_compact(['2015-03-13','2015-03-13'])"
+
     // abnormal test
     test {
         sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"

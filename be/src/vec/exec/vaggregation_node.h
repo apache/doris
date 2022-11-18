@@ -58,21 +58,25 @@ struct AggregationMethodSerialized {
               _serialized_key_buffer(nullptr),
               _mem_pool(new MemPool) {}
 
-    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
+    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped>;
 
     template <typename Other>
     explicit AggregationMethodSerialized(const Other& other) : data(other.data) {}
 
-    void serialize_keys(const ColumnRawPtrs& key_columns, const size_t num_rows) {
+    bool serialize_keys(const ColumnRawPtrs& key_columns, const size_t num_rows) {
         size_t max_one_row_byte_size = 0;
         for (const auto& column : key_columns) {
             max_one_row_byte_size += column->get_max_row_byte_size();
         }
-
-        if ((max_one_row_byte_size * num_rows) > _serialized_key_buffer_size) {
-            _serialized_key_buffer_size = max_one_row_byte_size * num_rows;
+        size_t total_bytes = max_one_row_byte_size * num_rows;
+        if (total_bytes > SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES) {
+            // reach mem limit, don't serialize in batch
+            return false;
+        }
+        if (total_bytes > _serialized_key_buffer_size) {
+            _serialized_key_buffer_size = total_bytes;
             _mem_pool->clear();
-            _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size);
+            _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size, true);
         }
 
         if (keys.size() < num_rows) keys.resize(num_rows);
@@ -86,6 +90,7 @@ struct AggregationMethodSerialized {
         for (const auto& column : key_columns) {
             column->serialize_vec(keys, num_rows, max_one_row_byte_size);
         }
+        return true;
     }
 
     static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
@@ -110,6 +115,7 @@ private:
     size_t _serialized_key_buffer_size;
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<MemPool> _mem_pool;
+    static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16 * 1024 * 1024; // 16M
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
@@ -614,7 +620,8 @@ struct AggregatedDataVariants {
     }
 };
 
-using AggregatedDataVariantsPtr = std::shared_ptr<AggregatedDataVariants>;
+using AggregatedDataVariantsUPtr = std::unique_ptr<AggregatedDataVariants>;
+using ArenaUPtr = std::unique_ptr<Arena>;
 
 struct AggregateDataContainer {
 public:
@@ -780,9 +787,9 @@ private:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
-    AggregatedDataVariants _agg_data;
+    AggregatedDataVariantsUPtr _agg_data;
 
-    Arena _agg_arena_pool;
+    ArenaUPtr _agg_arena_pool;
 
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _serialize_key_timer;
@@ -843,13 +850,18 @@ private:
     void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
 
     template <typename AggState, typename AggMethod>
-    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
+    bool _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
                                     const ColumnRawPtrs& key_columns, const size_t num_rows) {
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
             SCOPED_TIMER(_serialize_key_timer);
-            agg_method.serialize_keys(key_columns, num_rows);
-            state.set_serialized_keys(agg_method.keys.data());
+            if (agg_method.serialize_keys(key_columns, num_rows)) {
+                state.set_serialized_keys(agg_method.keys.data());
+                return true;
+            } else {
+                return false;
+            }
         }
+        return false;
     }
 
     template <bool limit>
@@ -881,14 +893,15 @@ private:
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add_selected(
-                        block, _offsets_of_aggregate_states[i], _places.data(), &_agg_arena_pool);
+                        block, _offsets_of_aggregate_states[i], _places.data(),
+                        _agg_arena_pool.get());
             }
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
 
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                 _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
-                                                            _places.data(), &_agg_arena_pool);
+                                                            _places.data(), _agg_arena_pool.get());
             }
 
             if (_should_limit_output) {
@@ -948,16 +961,16 @@ private:
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
                                 _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                &_agg_arena_pool, rows);
+                                _agg_arena_pool.get(), rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec_selected(
                             _places.data(), _offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
+                            _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
 
                     _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
@@ -965,7 +978,7 @@ private:
                 } else {
                     _aggregate_evaluators[i]->execute_batch_add_selected(
                             block, _offsets_of_aggregate_states[i], _places.data(),
-                            &_agg_arena_pool);
+                            _agg_arena_pool.get());
                 }
             }
         } else {
@@ -988,24 +1001,24 @@ private:
                     if (_use_fixed_length_serialization_opt) {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                _deserialize_buffer.data(), *column, &_agg_arena_pool, rows);
+                                _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
                     } else {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_vec(
                                 _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                &_agg_arena_pool, rows);
+                                _agg_arena_pool.get(), rows);
                     }
                     _aggregate_evaluators[i]->function()->merge_vec(
                             _places.data(), _offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), &_agg_arena_pool, rows);
+                            _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
 
                     _aggregate_evaluators[i]->function()->destroy_vec(_deserialize_buffer.data(),
                                                                       rows);
 
                 } else {
-                    _aggregate_evaluators[i]->execute_batch_add(block,
-                                                                _offsets_of_aggregate_states[i],
-                                                                _places.data(), &_agg_arena_pool);
+                    _aggregate_evaluators[i]->execute_batch_add(
+                            block, _offsets_of_aggregate_states[i], _places.data(),
+                            _agg_arena_pool.get());
                 }
             }
 
@@ -1023,6 +1036,8 @@ private:
     void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns, size_t num_rows);
 
     void release_tracker();
+
+    void _release_mem();
 
     using vectorized_execute = std::function<Status(Block* block)>;
     using vectorized_pre_agg = std::function<Status(Block* in_block, Block* out_block)>;

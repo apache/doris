@@ -44,6 +44,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_percentile_approx.cpp
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
+  aggregate_functions/aggregate_function_avg_weighted.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
@@ -159,6 +160,7 @@ set(VEC_FILES
   functions/array/function_array_difference.cpp
   functions/array/function_array_enumerate.cpp
   functions/array/function_array_range.cpp
+  functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
   functions/array/function_array_with_constant.cpp
   exprs/table_function/vexplode_json_array.cpp
@@ -274,7 +276,8 @@ set(VEC_FILES
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
-  )
+  exec/format/table/table_format_reader.cpp
+  exec/format/table/iceberg_reader.cpp)
 
 add_library(Vec STATIC
         ${VEC_FILES}

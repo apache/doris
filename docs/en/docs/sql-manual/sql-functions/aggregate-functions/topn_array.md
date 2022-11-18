@@ -1,6 +1,6 @@
 ---
 {
-    "title": "topn_array",
+    "title": "TOPN_ARRAY",
     "language": "en"
 }
 ---
@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## topn_array
+## TOPN_ARRAY
 ### description
 #### Syntax
 
 `ARRAY<T> topn_array(expr, INT top_num[, INT space_expand_rate])`
 
-The topn function uses the Space-Saving algorithm to calculate the top_num frequent items in expr, and the result is the 
-frequent items and their occurrence times, which is an approximation
+The topn function uses the Space-Saving algorithm to calculate the top_num frequent items in expr, 
+and return an array about the top n nums, which is an approximation
 
 The space_expand_rate parameter is optional and is used to set the number of counters used in the Space-Saving algorithm
 ```

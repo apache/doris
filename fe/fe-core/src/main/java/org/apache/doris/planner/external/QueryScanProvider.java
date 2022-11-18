@@ -63,13 +63,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             if (inputSplits.isEmpty()) {
                 return;
             }
-
-            String fullPath = ((FileSplit) inputSplits.get(0)).getPath().toUri().toString();
-            String filePath = ((FileSplit) inputSplits.get(0)).getPath().toUri().getPath();
-            // eg:
-            // hdfs://namenode
-            // s3://buckets
-            String fsName = fullPath.replace(filePath, "");
+            InputSplit inputSplit = inputSplits.get(0);
             TFileType locationType = getLocationType();
             context.params.setFileType(locationType);
             TFileFormatType fileFormatType = getFileFormatType();
@@ -78,9 +72,23 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 context.params.setFileAttributes(getFileAttributes());
             }
 
+            if (inputSplit instanceof IcebergSplit) {
+                IcebergScanProvider.setIcebergParams(context, (IcebergSplit) inputSplit);
+            }
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
             if (locationType == TFileType.FILE_HDFS) {
+                String fsName = "";
+                if (this instanceof TVFScanProvider) {
+                    fsName = ((TVFScanProvider) this).getFsName();
+                } else {
+                    String fullPath = ((FileSplit) inputSplit).getPath().toUri().toString();
+                    String filePath = ((FileSplit) inputSplit).getPath().toUri().getPath();
+                    // eg:
+                    // hdfs://namenode
+                    // s3://buckets
+                    fsName = fullPath.replace(filePath, "");
+                }
                 THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(locationProperties);
                 tHdfsParams.setFsName(fsName);
                 context.params.setHdfsParams(tHdfsParams);

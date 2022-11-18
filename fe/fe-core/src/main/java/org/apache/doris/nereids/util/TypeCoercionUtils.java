@@ -26,6 +26,8 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -207,6 +210,22 @@ public class TypeCoercionUtils {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, DecimalV2Type.forType(right));
         } else if (left instanceof IntegralType && right instanceof DecimalV2Type) {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) right, DecimalV2Type.forType(left));
+        } else if (left instanceof DateLikeType && right instanceof DateLikeType) {
+            if (left instanceof DateTimeV2Type && right instanceof DateTimeV2Type) {
+                if (((DateTimeV2Type) left).getScale() > ((DateTimeV2Type) right).getScale()) {
+                    tightestCommonType = left;
+                } else {
+                    tightestCommonType = right;
+                }
+            } else if (left instanceof DateTimeV2Type) {
+                tightestCommonType = left;
+            } else if (right instanceof DateTimeV2Type) {
+                tightestCommonType = right;
+            } else if (left instanceof DateTimeType || right instanceof DateTimeType) {
+                tightestCommonType = DateTimeType.INSTANCE;
+            } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
+                tightestCommonType = DateV2Type.INSTANCE;
+            }
         }
         return Optional.ofNullable(tightestCommonType);
     }

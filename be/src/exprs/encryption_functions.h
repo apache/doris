@@ -28,7 +28,7 @@ namespace doris {
 class Expr;
 struct ExprValue;
 class TupleRow;
-static StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
+inline StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
         {"AES_128_ECB", EncryptionMode::AES_128_ECB},
         {"AES_192_ECB", EncryptionMode::AES_192_ECB},
         {"AES_256_ECB", EncryptionMode::AES_256_ECB},
@@ -53,7 +53,7 @@ static StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
         {"AES_128_OFB", EncryptionMode::AES_128_OFB},
         {"AES_192_OFB", EncryptionMode::AES_192_OFB},
         {"AES_256_OFB", EncryptionMode::AES_256_OFB}};
-static StringCaseUnorderedMap<EncryptionMode> sm4_mode_map {
+inline StringCaseUnorderedMap<EncryptionMode> sm4_mode_map {
         {"SM4_128_ECB", EncryptionMode::SM4_128_ECB},
         {"SM4_128_CBC", EncryptionMode::SM4_128_CBC},
         {"SM4_128_CFB128", EncryptionMode::SM4_128_CFB128},

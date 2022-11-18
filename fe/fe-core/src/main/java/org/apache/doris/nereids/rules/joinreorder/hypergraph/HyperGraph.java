@@ -38,10 +38,9 @@ import java.util.Set;
  * It's used for join ordering
  */
 public class HyperGraph {
-    List<Edge> edges = new ArrayList<>();
-    List<Node> nodes = new ArrayList<>();
-    // TODO: add system arg: limit
-    Receiver receiver = new Receiver(100);
+    private List<Edge> edges = new ArrayList<>();
+    private List<Node> nodes = new ArrayList<>();
+    private Plan bestPlan;
 
     public static HyperGraph fromPlan(Plan plan) {
         HyperGraph graph = new HyperGraph();
@@ -73,10 +72,13 @@ public class HyperGraph {
         return nodes.get(index).getPlan();
     }
 
+    /**
+     * Extract the best plan of HyperGraph
+     *
+     * @return return the best plan
+     */
     public Plan toPlan() {
-        BitSet bitSet = new BitSet();
-        bitSet.set(0, nodes.size());
-        return receiver.getBestPlan(bitSet);
+        return bestPlan;
     }
 
     public boolean simplify() {
@@ -85,6 +87,11 @@ public class HyperGraph {
         return graphSimplifier.simplifyGraph(1);
     }
 
+    /**
+     * Try to enumerate all csg-cmp pairs and get the best plan
+     *
+     * @return whether enumerate successfully
+     */
     public boolean emitPlan() {
         return false;
     }
@@ -116,7 +123,6 @@ public class HyperGraph {
         // TODO: Other joins can be added according CD-C algorithm
         if (join.getJoinType() != JoinType.INNER_JOIN) {
             Node node = new Node(nodes.size(), plan);
-            receiver.addNode(node);
             nodes.add(node);
             return;
         }

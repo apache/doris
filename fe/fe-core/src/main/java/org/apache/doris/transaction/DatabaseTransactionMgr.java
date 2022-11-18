@@ -564,7 +564,7 @@ public class DatabaseTransactionMgr {
                                             + "while error backends {} error replica info {}",
                                     transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
                                     quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
-                                    errorBackendIdsForTablet);
+                                    errorReplicaInfo);
                             throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
                                     successReplicaNum, quorumReplicaNum,
                                     errorBackendIdsForTablet);

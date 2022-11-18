@@ -161,7 +161,7 @@ public class StatisticDeriveTest extends TestWithFeService {
         Assert.assertNotNull(stmtExecutor.planner().getFragments());
         Assert.assertNotEquals(0, stmtExecutor.planner().getFragments().size());
         System.out.println(getSQLPlanOrErrorMsg("explain " + sql));
-        assertSQLPlanOrErrorMsgContains(sql, "CROSS JOIN");
+        assertSQLPlanOrErrorMsgContains(sql, "NESTED LOOP JOIN");
         assertSQLPlanOrErrorMsgContains(sql, "ASSERT NUMBER OF ROWS");
         assertSQLPlanOrErrorMsgContains(sql, "EXCHANGE");
         assertSQLPlanOrErrorMsgContains(sql, "AGGREGATE");

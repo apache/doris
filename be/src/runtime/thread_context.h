@@ -386,5 +386,6 @@ private:
 #define TRY_CONSUME_MEM_TRACKER(size) (void)0
 #define RELEASE_MEM_TRACKER(size) (void)0
 #define TRY_RELEASE_MEM_TRACKER(size) (void)0
+#define RETURN_IF_CATCH_BAD_ALLOC(stmt) (stmt)
 #endif
 } // namespace doris

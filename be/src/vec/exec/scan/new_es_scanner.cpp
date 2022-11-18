@@ -41,8 +41,12 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
           _docvalue_context(docvalue_context),
           _doc_value_mode(doc_value_mode) {}
 
-Status NewEsScanner::prepare(RuntimeState* state) {
+Status NewEsScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
+    if (vconjunct_ctx_ptr != nullptr) {
+        // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
+        RETURN_IF_ERROR((*vconjunct_ctx_ptr)->clone(_state, &_vconjunct_ctx));
+    }
 
     if (_is_init) {
         return Status::OK();

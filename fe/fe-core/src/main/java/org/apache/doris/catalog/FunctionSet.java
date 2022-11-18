@@ -2229,6 +2229,11 @@ public class FunctionSet<T> {
                         null, prefix + VAR_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
                         false, true, false));
+
+                addBuiltin(AggregateFunction.createBuiltin("avg_weighted",
+                        Lists.<Type>newArrayList(t, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                        "", "", "", "", "", "", "",
+                        false, true, false, true));
             }
         }
 
@@ -2550,6 +2555,11 @@ public class FunctionSet<T> {
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, true, false, true));
 
+        addBuiltin(AggregateFunction.createBuiltin("percentile_array",
+                Lists.newArrayList(Type.BIGINT, new ArrayType(Type.DOUBLE)), new ArrayType(Type.DOUBLE), Type.VARCHAR,
+                "", "", "", "", "",
+                false, true, false, true));
+
         // collect_list
         for (Type t : Type.getArraySubTypes()) {
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_LIST, Lists.newArrayList(t), new ArrayType(t), t,
@@ -2562,6 +2572,17 @@ public class FunctionSet<T> {
             addBuiltin(
                     AggregateFunction
                             .createBuiltin("topn_array", Lists.newArrayList(t, Type.INT, Type.INT), new ArrayType(t), t,
+                                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction
+                            .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT),
+                                    new ArrayType(t),
+                                    t,
+                                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction
+                            .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT, Type.INT),
+                                    new ArrayType(t), t,
                                     "", "", "", "", "", true, false, true, true));
         }
 

@@ -259,7 +259,7 @@ bool ForDecoder<T>::init() {
         }
     }
 
-    _out_buffer.reserve(_max_frame_size);
+    _out_buffer.resize(_max_frame_size);
     _parsed = true;
 
     return true;

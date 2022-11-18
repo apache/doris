@@ -182,7 +182,7 @@ Status HashTable::resize_buckets(int64_t num_buckets) {
     }
     _mem_tracker->consume(delta_bytes);
 
-    _buckets.resize(num_buckets);
+    _buckets.resize(std::max(num_buckets, _num_buckets));
 
     // If we're doubling the number of buckets, all nodes in a particular bucket
     // either remain there, or move down to an analogous bucket in the other half.
@@ -222,6 +222,7 @@ Status HashTable::resize_buckets(int64_t num_buckets) {
         }
     }
 
+    _buckets.resize(num_buckets);
     _num_buckets = num_buckets;
     _num_buckets_till_resize = MAX_BUCKET_OCCUPANCY_FRACTION * _num_buckets;
     return Status::OK();

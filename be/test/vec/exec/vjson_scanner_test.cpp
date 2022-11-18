@@ -595,8 +595,8 @@ TEST_F(VJsonScannerTest, simple_array_json) {
         ASSERT_EQ(columns[1].to_string(1), "EvelynWaugh");
         ASSERT_EQ(columns[2].to_string(0), "SayingsoftheCentury");
         ASSERT_EQ(columns[2].to_string(1), "SwordofHonour");
-        ASSERT_EQ(columns[3].to_string(0), "8.950000");
-        ASSERT_EQ(columns[3].to_string(1), "12.990000");
+        ASSERT_EQ(columns[3].to_string(0), "8.95");
+        ASSERT_EQ(columns[3].to_string(1), "12.99");
         ASSERT_EQ(columns[4].to_string(0), "1234");
         ASSERT_EQ(columns[4].to_string(1), "1180591620717411303424");
         ASSERT_EQ(columns[5].to_string(0), "1234.123400000");
