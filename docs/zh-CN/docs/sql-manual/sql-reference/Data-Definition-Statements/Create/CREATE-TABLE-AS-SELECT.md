@@ -57,6 +57,7 @@ CREATE TABLE table_name [( column_name_list )]
 
 <version since='1.2'>
 
+- 所有字符串类型的列(varchar/var/string) 都会被创建为 string 类型。
 - 如果创建的来源为外部表，并且第一列为 String 类型，则会自动将第一列设置为 VARCHAR(65533)。因为 Doris 内部表，不允许 String 列作为第一列。
 
 </version>
