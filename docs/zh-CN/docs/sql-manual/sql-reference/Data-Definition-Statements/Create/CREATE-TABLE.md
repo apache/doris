@@ -226,6 +226,9 @@ distribution_desc
             PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
         )
         ```
+
+    <version since="1.2.0">
+
     3. MULTI RANGE：批量创建RANGE分区，定义分区的左闭右开区间，设定时间单位和步长，时间单位支持年、月、日、周和小时。
 
         ```
@@ -237,6 +240,8 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
+
+    </version>
 
 * `distribution_desc`
   
@@ -632,6 +637,8 @@ distribution_desc
 ```
 注：需要先创建s3 resource 和 storage policy，表才能关联迁移策略成功
 
+<version since="1.2.0">
+
 13. 批量创建分区
 ```
         CREATE TABLE create_table_multi_partion_date
@@ -665,6 +672,8 @@ distribution_desc
 ```
 
 注：批量创建分区可以和常规手动创建分区混用，使用时需要限制分区列只能有一个，批量创建分区实际创建默认最大数量为4096，这个参数可以在fe配置项 `max_multi_partition_num` 调整
+
+</version>
 
 ### Keywords
 

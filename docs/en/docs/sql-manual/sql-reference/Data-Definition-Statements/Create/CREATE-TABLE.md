@@ -225,6 +225,9 @@ distribution_desc
             PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
         )
         ```
+
+    <version since="1.2.0">
+
     3. MULTI RANGE：Multi build RANGE partitions,Define the left closed and right open interval of the zone, Set the time unit and step size, the time unit supports year, month, day, week and hour.
 
         ```
@@ -236,6 +239,8 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
+
+    </version>
 
 * `distribution_desc`
 
@@ -631,6 +636,8 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
 ```
 NOTE: Need to create the s3 resource and storage policy before the table can be successfully associated with the migration policy 
 
+<version since="1.2.0">
+
 13. Multi Partition by a partition desc
 ```
         CREATE TABLE create_table_multi_partion_date
@@ -665,6 +672,7 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
 
 NOTE: Multi Partition can be mixed with conventional manual creation of partitions. When using, you need to limit the partition column to only one, The default maximum number of partitions created in multi partition is 4096, This parameter can be adjusted in fe configuration `max_multi_partition_num`.
 
+</version>
 
 ### Keywords
 
