@@ -54,7 +54,7 @@ public class Numbers extends TableValuedFunction {
     @Override
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
-            Map<String, String> arguments = getKeyValuesExpression().getMap();
+            Map<String, String> arguments = getTVFProperties().getMap();
             return new NumbersTableValuedFunction(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build NumbersTableValuedFunction by "

@@ -59,7 +59,7 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
 
     public abstract StatsDeriveResult computeStats(List<Slot> slots);
 
-    public TVFProperties getKeyValuesExpression() {
+    public TVFProperties getTVFProperties() {
         return (TVFProperties) child(0);
     }
 
@@ -96,7 +96,7 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
 
     @Override
     public String toSql() {
-        String args = getKeyValuesExpression()
+        String args = getTVFProperties()
                 .getMap()
                 .entrySet()
                 .stream()
