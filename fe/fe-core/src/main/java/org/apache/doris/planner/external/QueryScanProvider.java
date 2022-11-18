@@ -64,12 +64,6 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
                 return;
             }
             InputSplit inputSplit = inputSplits.get(0);
-            String fullPath = ((FileSplit) inputSplit).getPath().toUri().toString();
-            String filePath = ((FileSplit) inputSplit).getPath().toUri().getPath();
-            // eg:
-            // hdfs://namenode
-            // s3://buckets
-            String fsName = fullPath.replace(filePath, "");
             TFileType locationType = getLocationType();
             context.params.setFileType(locationType);
             TFileFormatType fileFormatType = getFileFormatType();
@@ -84,6 +78,17 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
             if (locationType == TFileType.FILE_HDFS) {
+                String fsName = "";
+                if (this instanceof TVFScanProvider) {
+                    fsName = ((TVFScanProvider) this).getFsName();
+                } else {
+                    String fullPath = ((FileSplit) inputSplit).getPath().toUri().toString();
+                    String filePath = ((FileSplit) inputSplit).getPath().toUri().getPath();
+                    // eg:
+                    // hdfs://namenode
+                    // s3://buckets
+                    fsName = fullPath.replace(filePath, "");
+                }
                 THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(locationProperties);
                 tHdfsParams.setFsName(fsName);
                 context.params.setHdfsParams(tHdfsParams);
