@@ -134,7 +134,7 @@ public class BindFunction implements AnalysisRuleFactory {
                         List<NamedExpression> output =
                                 bind(repeat.getOutputExpressions(), ctx.connectContext.getEnv());
                         return repeat.replace(groupingSets, repeat.getGroupByExpressions(), output,
-                                repeat.getGroupingSetShapes());
+                                repeat.getGroupingSetShapes(), repeat.isExpand());
                     })
             )
         );

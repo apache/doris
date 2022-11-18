@@ -89,6 +89,8 @@ public abstract class LogicalRepeat<CHILD_TYPE extends Plan>
     // Virtual columns and GroupingFunc columns need to set the output column to be a null list.
     protected final List<GroupingSetShape> groupingSetShapes;
 
+    protected final boolean expand;
+
     /**
      * initial construction method.
      */
@@ -110,6 +112,7 @@ public abstract class LogicalRepeat<CHILD_TYPE extends Plan>
         this.outputExpressions = ImmutableList.copyOf(outputExpressions);
         this.groupingSets = ImmutableList.copyOf(groupingSets);
         this.groupingSetShapes = ImmutableList.of();
+        this.expand = false;
     }
 
     /**
@@ -121,6 +124,7 @@ public abstract class LogicalRepeat<CHILD_TYPE extends Plan>
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             List<GroupingSetShape> groupingSetShapes,
+            boolean expand,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
@@ -129,6 +133,7 @@ public abstract class LogicalRepeat<CHILD_TYPE extends Plan>
         this.groupByExpressions = ImmutableList.copyOf(groupByExpressions);
         this.outputExpressions = ImmutableList.copyOf(outputExpressions);
         this.groupingSetShapes = ImmutableList.copyOf(groupingSetShapes);
+        this.expand = expand;
     }
 
     public List<List<Expression>> getGroupingSets() {
@@ -161,6 +166,10 @@ public abstract class LogicalRepeat<CHILD_TYPE extends Plan>
         return groupingSetShapes;
     }
 
+    public boolean isExpand() {
+        return expand;
+    }
+
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalRepeat",
@@ -188,13 +197,14 @@ public abstract class LogicalRepeat<CHILD_TYPE extends Plan>
         return Objects.equals(groupByExpressions, that.groupByExpressions)
                 && Objects.equals(outputExpressions, that.outputExpressions)
                 && Objects.equals(groupingSetShapes, that.groupingSetShapes)
-                && Objects.equals(groupingSets, that.groupingSets);
+                && Objects.equals(groupingSets, that.groupingSets)
+                && expand == that.expand;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(groupByExpressions, outputExpressions,
-                groupingSetShapes, groupingSets);
+                groupingSetShapes, groupingSets, expand);
     }
 
     @Override
@@ -215,12 +225,13 @@ public abstract class LogicalRepeat<CHILD_TYPE extends Plan>
     public abstract LogicalRepeat<Plan> replace(List<List<Expression>> groupByExprList,
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressionList,
-            List<GroupingSetShape> groupingSetIdSlots);
+            List<GroupingSetShape> groupingSetIdSlots, boolean expand);
 
     public abstract LogicalRepeat<Plan> replaceWithChild(List<List<Expression>> groupByExprList,
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressionList,
             List<GroupingSetShape> groupingSetIdSlots,
+            boolean expand,
             Plan child);
 
     public List<GroupingSetShape> buildGroupingSetShapes(

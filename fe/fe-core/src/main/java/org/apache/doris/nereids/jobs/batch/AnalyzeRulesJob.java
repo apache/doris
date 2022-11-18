@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+import org.apache.doris.nereids.rules.analysis.ExpandRepeat;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.RegisterCTE;
@@ -51,8 +52,9 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                 bottomUpBatch(ImmutableList.of(
                         new BindRelation(),
                         new UserAuthentication(),
-                        new BindFunction(),
                         new BindSlotReference(scope),
+                        new BindFunction(),
+                        new ExpandRepeat(),
                         new ProjectToGlobalAggregate(),
                         new ReplaceExpressionByChildOutput()
                 )),

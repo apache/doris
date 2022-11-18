@@ -105,7 +105,7 @@ public class PushdownFilterThroughRepeat extends OneRewriteRuleFactory {
                 repeat.child(0));
 
         repeat = repeat.replaceWithChild(repeat.getGroupingSets(), repeat.getGroupByExpressions(),
-                repeat.getOutputExpressions(), repeat.getGroupingSetShapes(), bottomFilter);
+                repeat.getOutputExpressions(), repeat.getGroupingSetShapes(), repeat.isExpand(), bottomFilter);
         return PlanUtils.filterOrSelf(filterPredicates, repeat);
     }
 }

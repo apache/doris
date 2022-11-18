@@ -147,7 +147,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                         .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
 
                 return repeat.replaceWithChild(newGroupingSetList, newGroupByExpressions, newOutputExpressions,
-                        repeat.getGroupingSetShapes(), repeat.child());
+                        repeat.getGroupingSetShapes(), repeat.isExpand(), repeat.child());
             }).toRule(RuleType.REWRITE_GROUP_BY_EXPRESSION);
         }
     }

@@ -47,9 +47,10 @@ public class LogicalGroupingSets<CHILD_TYPE extends Plan> extends LogicalRepeat<
     public LogicalGroupingSets(List<List<Expression>> groupingSets,
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
-            List<GroupingSetShape> groupingSetIdSlots,
+            List<GroupingSetShape> groupingSetShapes,
+            boolean expand,
             CHILD_TYPE child) {
-        this(groupingSets, groupByExpressions, outputExpressions, groupingSetIdSlots,
+        this(groupingSets, groupByExpressions, outputExpressions, groupingSetShapes, expand,
                 Optional.empty(), Optional.empty(), child);
     }
 
@@ -67,10 +68,11 @@ public class LogicalGroupingSets<CHILD_TYPE extends Plan> extends LogicalRepeat<
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             List<GroupingSetShape> groupingSetIdSlots,
+            boolean expand,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_GROUPING_SETS, groupingSets, groupByExpressions,
-                outputExpressions, groupingSetIdSlots,
+                outputExpressions, groupingSetIdSlots, expand,
                 groupExpression, logicalProperties, child);
     }
 
@@ -93,21 +95,21 @@ public class LogicalGroupingSets<CHILD_TYPE extends Plan> extends LogicalRepeat<
     public LogicalGroupingSets<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalGroupingSets<>(groupingSets, groupByExpressions,
-                outputExpressions, groupingSetShapes,
+                outputExpressions, groupingSetShapes, expand,
                 children.get(0));
     }
 
     @Override
     public LogicalGroupingSets<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalGroupingSets<>(groupingSets, groupByExpressions,
-                outputExpressions, groupingSetShapes,
+                outputExpressions, groupingSetShapes, expand,
                 groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     @Override
     public LogicalGroupingSets<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalGroupingSets<>(groupingSets, groupByExpressions,
-                outputExpressions, groupingSetShapes,
+                outputExpressions, groupingSetShapes, expand,
                 Optional.empty(), logicalProperties, children.get(0));
     }
 
@@ -115,9 +117,9 @@ public class LogicalGroupingSets<CHILD_TYPE extends Plan> extends LogicalRepeat<
     public LogicalGroupingSets<Plan> replace(List<List<Expression>> groupByExprList,
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressionList,
-            List<GroupingSetShape> groupingSetIdSlots) {
+            List<GroupingSetShape> groupingSetIdSlots, boolean expand) {
         return new LogicalGroupingSets<>(groupByExprList, groupByExpressions,
-                outputExpressionList, groupingSetIdSlots, child());
+                outputExpressionList, groupingSetIdSlots, expand, child());
     }
 
     @Override
@@ -125,9 +127,10 @@ public class LogicalGroupingSets<CHILD_TYPE extends Plan> extends LogicalRepeat<
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressionList,
             List<GroupingSetShape> groupingSetIdSlots,
+            boolean expand,
             Plan child) {
         return new LogicalGroupingSets<>(groupByExprList, groupByExpressions,
-                outputExpressionList, groupingSetIdSlots, child);
+                outputExpressionList, groupingSetIdSlots, expand, child);
     }
 
     public static List<Expression> extractDistinctGroupByExpressions(List<List<Expression>> groupingSets) {
