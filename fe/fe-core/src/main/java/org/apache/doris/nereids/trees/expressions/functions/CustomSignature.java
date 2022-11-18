@@ -20,32 +20,28 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**
- * Null or identical function signature. This class equals to 'CompareMode.IS_INDISTINGUISHABLE'.
- *
- * Two signatures are indistinguishable if there is no way to tell them apart
- * when matching a particular instantiation. That is, their fixed arguments.
- */
-public interface NullOrIdenticalSignature extends ComputeSignature {
-    static boolean isNullOrIdentical(AbstractDataType signatureType, AbstractDataType realType) {
-        // TODO: copy matchesType to DataType
-        return realType instanceof NullType
-                || realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
+/** CustomSignature */
+public interface CustomSignature extends ComputeSignature {
+
+    // custom generate a function signature.
+    FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments);
+
+    @Override
+    default List<FunctionSignature> getSignatures() {
+        List<DataType> originArgumentTypes = getOriginArgumentTypes();
+        List<Expression> originArguments = getOriginArguments();
+        return ImmutableList.of(customSignature(originArgumentTypes, originArguments));
     }
 
+    // use the first signature as the candidate signature.
     @Override
     default FunctionSignature searchSignature(List<DataType> argumentTypes, List<Expression> arguments,
             List<FunctionSignature> signatures) {
-        return SearchSignature.from(signatures, arguments)
-                // first round, use identical strategy to find signature
-                .orElseSearch(IdenticalSignature::isIdentical)
-                // second round: if not found, use nullOrIdentical strategy
-                .orElseSearch(NullOrIdenticalSignature::isNullOrIdentical)
-                .resultOrException(getName());
+        return signatures.get(0);
     }
 }
