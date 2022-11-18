@@ -374,7 +374,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _left_table_data_types = VectorizedUtils::get_data_types(child(0)->row_desc());
 
     // Hash Table Init
-    _hash_table_init();
+    _hash_table_init(state);
     _process_hashtable_ctx_variants_init(state);
     _construct_mutable_join_block();
 
@@ -833,7 +833,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     return st;
 }
 
-void HashJoinNode::_hash_table_init() {
+void HashJoinNode::_hash_table_init(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
@@ -956,6 +956,13 @@ void HashJoinNode::_hash_table_init() {
             _join_op_variants, make_bool_variant(_have_other_join_conjunct));
 
     DCHECK(!std::holds_alternative<std::monostate>(*_hash_table_variants));
+
+    std::visit(
+            [&](auto&& arg) {
+                arg->hash_table_ptr->set_partitioned_threshold(
+                        state->partitioned_hash_join_rows_threshold());
+            },
+            *_hash_table_variants);
 }
 
 void HashJoinNode::_process_hashtable_ctx_variants_init(RuntimeState* state) {

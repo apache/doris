@@ -430,8 +430,8 @@ class HashTable : private boost::noncopyable,
 protected:
     friend class Reader;
 
-    template <typename, typename, typename, typename, typename, typename, size_t>
-    friend class TwoLevelHashTable;
+    template <typename, typename, typename, typename, typename, typename, bool, size_t>
+    friend class PartitionedHashTable;
 
     template <typename SubMaps>
     friend class StringHashTable;
@@ -444,6 +444,11 @@ protected:
     Cell* buf;         /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
+    // the bucket count threshold above which it's converted to partioned hash table
+    // 0: don't convert
+    int _partitioned_threshold = 0;
+    // bucket count >= threshold, need to be converted
+    bool _need_partition = false;
 
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
@@ -451,6 +456,10 @@ protected:
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     mutable size_t collisions = 0;
 #endif
+
+    void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
+
+    bool need_partition() { return _need_partition; }
 
     /// Find a cell with the same key or an empty cell, starting from the specified position and further along the collision resolution chain.
     size_t ALWAYS_INLINE find_cell(const Key& x, size_t hash_value, size_t place_value) const {
@@ -509,6 +518,10 @@ protected:
 #endif
 
         size_t old_size = grower.buf_size();
+        if (_partitioned_threshold > 0 && old_size >= _partitioned_threshold) {
+            _need_partition = true;
+            return;
+        }
 
         /** In case of exception for the object to remain in the correct state,
           *  changing the variable `grower` (which determines the buffer size of the hash table)
@@ -816,10 +829,12 @@ protected:
                 throw;
             }
 
-            // The hash table was rehashed, so we have to re-find the key.
-            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
-            assert(!buf[new_place].is_zero(*this));
-            it = &buf[new_place];
+            if (UNLIKELY(!_need_partition)) {
+                // The hash table was rehashed, so we have to re-find the key.
+                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+                assert(!buf[new_place].is_zero(*this));
+                it = &buf[new_place];
+            }
         }
     }
 
@@ -853,10 +868,12 @@ protected:
                 throw;
             }
 
-            // The hash table was rehashed, so we have to re-find the key.
-            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
-            assert(!buf[new_place].is_zero(*this));
-            it = &buf[new_place];
+            if (UNLIKELY(!_need_partition)) {
+                // The hash table was rehashed, so we have to re-find the key.
+                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+                assert(!buf[new_place].is_zero(*this));
+                it = &buf[new_place];
+            }
         }
     }
 
@@ -1076,7 +1093,9 @@ public:
 
     float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
 
-    bool should_be_shrink(int64_t valid_row) { return valid_row < get_factor() * (size() / 2.0); }
+    bool should_be_shrink(int64_t valid_row) const {
+        return valid_row < get_factor() * (size() / 2.0);
+    }
 
     void init_buf_size(size_t reserve_for_num_elements) {
         free();

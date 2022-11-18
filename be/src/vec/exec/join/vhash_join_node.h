@@ -24,7 +24,7 @@
 #include "join_op.h"
 #include "process_hash_table_probe.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vjoin_node_base.h"
 
 namespace doris {
@@ -39,7 +39,8 @@ class SharedHashTableController;
 template <typename RowRefListType>
 struct SerializedHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = HashMap<StringRef, Mapped>;
+    // using HashTable = HashMap<StringRef, Mapped>;
+    using HashTable = PartitionedHashMap<StringRef, Mapped, true>;
     using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
     using Iter = typename HashTable::iterator;
 
@@ -70,7 +71,8 @@ struct IsSerializedHashTableContextTraits<ColumnsHashing::HashMethodSerialized<V
 template <class T, typename RowRefListType>
 struct PrimaryTypeHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
+    // using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
+    using HashTable = PartitionedHashMap<T, Mapped, true, HashCRC32<T>>;
     using State =
             ColumnsHashing::HashMethodOneNumber<typename HashTable::value_type, Mapped, T, false>;
     using Iter = typename HashTable::iterator;
@@ -105,7 +107,8 @@ using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType
 template <class T, bool has_null, typename RowRefListType>
 struct FixedKeyHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
+    // using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
+    using HashTable = PartitionedHashMap<T, Mapped, true, HashCRC32<T>>;
     using State = ColumnsHashing::HashMethodKeysFixed<typename HashTable::value_type, T, Mapped,
                                                       has_null, false>;
     using Iter = typename HashTable::iterator;
@@ -281,7 +284,7 @@ private:
 
     void _set_build_ignore_flag(Block& block, const std::vector<int>& res_col_ids);
 
-    void _hash_table_init();
+    void _hash_table_init(RuntimeState* state);
     void _process_hashtable_ctx_variants_init(RuntimeState* state);
 
     static constexpr auto _MAX_BUILD_BLOCK_COUNT = 128;
