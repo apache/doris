@@ -96,7 +96,6 @@ public class NereidsPlanner extends Planner {
         if (explainLevel.isPlanLevel) {
             return;
         }
-
         PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
@@ -161,7 +160,8 @@ public class NereidsPlanner extends Planner {
                     return analyzedPlan;
                 }
             }
-
+            System.out.println(cascadesContext.getMemo().copyOut().treeString());
+            System.out.println("-------------------------------");
             // rule-based optimize
             rewrite();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -170,7 +170,8 @@ public class NereidsPlanner extends Planner {
                     return rewrittenPlan;
                 }
             }
-
+            System.out.println(cascadesContext.getMemo().copyOut().treeString());
+            System.out.println("-------------------------------");
             deriveStats();
 
             if (statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()) {
@@ -182,11 +183,12 @@ public class NereidsPlanner extends Planner {
 
             PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
 
-            // post-process physical plan out of memo, just for future use.
             physicalPlan = postProcess(physicalPlan);
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 optimizedPlan = physicalPlan;
             }
+
+            System.out.println(physicalPlan.treeString());
 
             return physicalPlan;
         }

@@ -297,8 +297,8 @@ public class Analyzer {
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
-    // a tuple is outer/semi joined, etc. Remove the maps in favor of making
-    // them properties of the tuple descriptor itself.
+    //  a tuple is outer/semi joined, etc. Remove the maps in favor of making
+    //  them properties of the tuple descriptor itself.
     private static class GlobalState {
         private final DescriptorTable descTbl = new DescriptorTable();
         private final Env env;

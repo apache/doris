@@ -218,9 +218,7 @@ public class AnalyticEvalNode extends PlanNode {
         List<String> strings = Lists.newArrayList();
 
         for (Expr fnCall : analyticFnCalls) {
-            strings.add("[");
-            strings.add(fnCall.toSql());
-            strings.add("]");
+            strings.add("[" + fnCall.toSql() + "]");
         }
 
         output.append(Joiner.on(", ").join(strings));
@@ -261,5 +259,9 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         return output.toString();
+    }
+
+    public void finalizeForNereids() {
+        this.substitutedPartitionExprs = partitionExprs;
     }
 }
