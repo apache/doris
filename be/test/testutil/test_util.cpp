@@ -19,6 +19,8 @@
 
 #ifndef __APPLE__
 #include <linux/limits.h>
+#else
+#include <mach-o/dyld.h>
 #endif
 
 #include <common/configbase.h>
@@ -56,9 +58,17 @@ std::string GetCurrentRunningDir() {
     char exe[PATH_MAX];
     ssize_t r;
 
+#ifdef __APPLE__
+    uint32_t size = PATH_MAX;
+    if (_NSGetExecutablePath(exe, &size) < 0) {
+        return std::string();
+    }
+    r = strlen(exe) + 1;
+#else
     if ((r = readlink("/proc/self/exe", exe, PATH_MAX)) < 0) {
         return std::string();
     }
+#endif
 
     if (r == PATH_MAX) {
         r -= 1;
