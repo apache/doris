@@ -726,7 +726,7 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new Decimal64Val(get_decimal64_val(context, nullptr)));
         break;
     }
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         _constant_val.reset(new Decimal128Val(get_decimal128_val(context, nullptr)));
         break;
     }

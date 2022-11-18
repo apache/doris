@@ -758,7 +758,7 @@ public:
                 [[fallthrough]];
             case OLAP_FIELD_TYPE_DECIMAL64:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL128:
+            case OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
             case OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);
@@ -798,7 +798,7 @@ public:
                 [[fallthrough]];
             case OLAP_FIELD_TYPE_DECIMAL64:
                 [[fallthrough]];
-            case OLAP_FIELD_TYPE_DECIMAL128:
+            case OLAP_FIELD_TYPE_DECIMAL128I:
                 [[fallthrough]];
             case OLAP_FIELD_TYPE_DATETIMEV2: {
                 Field* field = new Field(column);

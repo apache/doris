@@ -292,7 +292,7 @@ Status RowBlockV2::_copy_data_to_column(int cid,
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
 
         for (uint16_t j = 0; j < _selected_size; ++j) {
             if (!nullable_mark_array[j]) {
@@ -321,9 +321,9 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         insert_data_directly(cid, column_decimal);
         break;
     }
-    case OLAP_FIELD_TYPE_DECIMAL128: {
+    case OLAP_FIELD_TYPE_DECIMAL128I: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
         insert_data_directly(cid, column_decimal);
         break;
     }
@@ -601,7 +601,7 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
 
         for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
@@ -628,9 +628,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
                 assert_cast<vectorized::ColumnDecimal<vectorized::Decimal64>*>(column);
         insert_data_directly(batch, column_decimal, start, len);
     }
-    case OLAP_FIELD_TYPE_DECIMAL128: {
+    case OLAP_FIELD_TYPE_DECIMAL128I: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
         insert_data_directly(batch, column_decimal, start, len);
     }
     case OLAP_FIELD_TYPE_ARRAY: {

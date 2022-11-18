@@ -564,6 +564,9 @@ struct NameToDecimal64 {
 struct NameToDecimal128 {
     static constexpr auto name = "toDecimal128";
 };
+struct NameToDecimal128I {
+    static constexpr auto name = "toDecimal128I";
+};
 struct NameToUInt8 {
     static constexpr auto name = "toUInt8";
 };
