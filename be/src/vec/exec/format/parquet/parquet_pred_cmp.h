@@ -136,7 +136,8 @@ static bool _eval_in_val(const ColumnMinMaxParams& params) {
         auto result = std::minmax_element(in_values.begin(), in_values.end());
         std::string& in_min = *result.first;
         std::string& in_max = *result.second;
-        if (strcmp(in_max.data(), params.min_bytes) < 0 || strcmp(in_min.data(), params.max_bytes) > 0) {
+        if (strcmp(in_max.data(), params.min_bytes) < 0 ||
+            strcmp(in_min.data(), params.max_bytes) > 0) {
             return true;
         }
         break;
