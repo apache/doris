@@ -102,8 +102,7 @@ public class ReplicaTest {
         // 2. Read a object from file
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
         for (int count = 0; count < 10; ++count) {
-            Replica olapReplica = new Replica();
-            olapReplica.readFields(dis);
+            Replica olapReplica = Replica.read(dis);
             Assert.assertEquals(100 * count, olapReplica.getId());
             Assert.assertEquals(100 * count, olapReplica.getBackendId());
             Assert.assertEquals(100 * count, olapReplica.getVersion());
@@ -112,8 +111,7 @@ public class ReplicaTest {
             Assert.assertEquals(Replica.ReplicaState.NORMAL, olapReplica.getState());
             list2.add(olapReplica);
         }
-        Replica olapReplica = new Replica();
-        olapReplica.readFields(dis);
+        Replica olapReplica = Replica.read(dis);
         list2.add(olapReplica);
 
         // 3. Check equal
