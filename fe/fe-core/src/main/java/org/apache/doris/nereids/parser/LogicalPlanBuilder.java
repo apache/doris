@@ -29,8 +29,8 @@ import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
-import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
+import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
@@ -333,15 +333,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-<<<<<<< HEAD
-        return withTableAlias(new UnboundRelation(tableId), ctx.tableAlias());
-=======
         LogicalPlan relation = withCheckPolicy(new UnboundRelation(tableId));
         if (null == ctx.tableAlias().strictIdentifier()) {
             return relation;
         }
         return withTableAlias(relation, ctx.tableAlias());
->>>>>>> update
     }
 
     @Override
