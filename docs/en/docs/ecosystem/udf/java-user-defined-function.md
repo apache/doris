@@ -163,6 +163,9 @@ CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
     "type"="JAVA_UDF"
 );
 ```
+* The implemented jar package can be stored at local or in a remote server and downloaded via http, And each BE node must be able to obtain the jar package;
+Otherwise, the BE node that does not obtain the jar package will not be able to participate in the calculation, which may cause errors in the execution results;
+When a BE node fails to obtain the jar package, query the related log "java udaf couldn't find implementation jar" in be.WARNING
 
 Currently, UDTF are not supported.
 
