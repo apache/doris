@@ -85,7 +85,8 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
         Plan resultPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY, explainLevel);
         if (explainLevel == ExplainLevel.PARSED_PLAN || explainLevel == ExplainLevel.ANALYZED_PLAN
-                || explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.OPTIMIZED_PLAN) {
+                || explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.OPTIMIZED_PLAN
+                || explainLevel == ExplainLevel.ALL_PLAN) {
             return;
         }
 
@@ -135,9 +136,11 @@ public class NereidsPlanner extends Planner {
      * @throws AnalysisException throw exception if failed in ant stage
      */
     public Plan plan(LogicalPlan plan, PhysicalProperties outputProperties, ExplainLevel explainLevel) {
-        if (explainLevel == ExplainLevel.PARSED_PLAN) {
+        if (explainLevel == ExplainLevel.PARSED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             parsedPlan = plan;
-            return parsedPlan;
+            if (explainLevel == ExplainLevel.PARSED_PLAN) {
+                return parsedPlan;
+            }
         }
 
         // pre-process logical plan out of memo, e.g. process SET_VAR hint
@@ -147,16 +150,20 @@ public class NereidsPlanner extends Planner {
 
         // resolve column, table and function
         analyze();
-        if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
+        if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             analyzedPlan = cascadesContext.getMemo().copyOut(false);
-            return analyzedPlan;
+            if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
+                return analyzedPlan;
+            }
         }
 
         // rule-based optimize
         rewrite();
-        if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
+        if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getMemo().copyOut(false);
-            return rewrittenPlan;
+            if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
+                return rewrittenPlan;
+            }
         }
 
         deriveStats();
@@ -173,7 +180,7 @@ public class NereidsPlanner extends Planner {
 
         // post-process physical plan out of memo, just for future use.
         physicalPlan = postProcess(physicalPlan);
-        if (explainLevel == ExplainLevel.OPTIMIZED_PLAN) {
+        if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             optimizedPlan = physicalPlan;
         }
 
@@ -276,6 +283,16 @@ public class NereidsPlanner extends Planner {
                 return rewrittenPlan.treeString();
             case OPTIMIZED_PLAN:
                 return optimizedPlan.treeString();
+            case ALL_PLAN:
+                String explainString = "========== PARSED PLAN ==========\n"
+                        + parsedPlan.treeString() + "\n\n"
+                        + "========== ANALYZED PLAN ==========\n"
+                        + analyzedPlan.treeString() + "\n\n"
+                        + "========== REWRITTEN PLAN ==========\n"
+                        + rewrittenPlan.treeString() + "\n\n"
+                        + "========== OPTIMIZED PLAN ==========\n"
+                        + optimizedPlan.treeString();
+                return explainString;
             default:
                 return super.getExplainString(explainOptions);
         }

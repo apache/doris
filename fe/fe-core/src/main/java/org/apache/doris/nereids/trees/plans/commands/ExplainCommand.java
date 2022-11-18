@@ -36,7 +36,8 @@ public class ExplainCommand implements Command {
         PARSED_PLAN,
         ANALYZED_PLAN,
         REWRITTEN_PLAN,
-        OPTIMIZED_PLAN
+        OPTIMIZED_PLAN,
+        ALL_PLAN
         ;
     }
 

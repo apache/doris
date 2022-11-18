@@ -1093,7 +1093,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private ExplainLevel parseExplainPlanType(PlanTypeContext planTypeContext) {
-        if (planTypeContext == null || planTypeContext.PHYSICAL() != null || planTypeContext.OPTIMIZED() != null) {
+        if (planTypeContext == null || planTypeContext.ALL() != null) {
+            return ExplainLevel.ALL_PLAN;
+        }
+        if (planTypeContext.PHYSICAL() != null || planTypeContext.OPTIMIZED() != null) {
             return ExplainLevel.OPTIMIZED_PLAN;
         }
         if (planTypeContext.REWRITTEN() != null || planTypeContext.LOGICAL() != null) {
@@ -1105,6 +1108,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (planTypeContext.PARSED() != null) {
             return ExplainLevel.PARSED_PLAN;
         }
-        return ExplainLevel.OPTIMIZED_PLAN;
+        return ExplainLevel.ALL_PLAN;
     }
 }
