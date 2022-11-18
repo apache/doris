@@ -18,6 +18,8 @@
 #pragma once
 #include <gen_cpp/Opcodes_types.h>
 
+#include "common/status.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -48,35 +50,66 @@ public:
 
     Status execute(VExprContext* context, doris::vectorized::Block* block,
                    int* result_column_id) override {
-        doris::vectorized::ColumnNumbers arguments(_children.size());
-        for (int i = 0; i < _children.size(); ++i) {
-            int column_id = -1;
-            RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
-            arguments[i] = column_id;
-        }
+        int lhs_id = -1;
+        int rhs_id = -1;
+        RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
+        ColumnPtr lhs_column = block->get_by_position(lhs_id).column;
+        ColumnPtr rhs_column = nullptr;
 
-        size_t size = block->get_by_position(arguments[0]).column->size();
-        uint8* data = _get_raw_data(block->get_by_position(arguments[0]).column);
-        const uint8* data_rhs = nullptr;
+        size_t size = lhs_column->size();
+        uint8* __restrict data = _get_raw_data(lhs_column);
+        int filted = simd::count_zero_num((int8_t*)data, size);
+        bool full = filted == 0;
+        bool empty = filted == size;
 
-        if (_children.size() == 2) {
-            data_rhs = _get_raw_data(block->get_by_position(arguments[1]).column);
+        const uint8* __restrict data_rhs = nullptr;
+        bool full_rhs = false;
+        bool empty_rhs = false;
 
-            if (const uint8* null_map = _get_null_map(block->get_by_position(arguments[1]).column);
-                null_map != nullptr) {
-                for (size_t i = 0; i < size; i++) {
-                    data[i] &= !null_map[i];
+        auto get_rhs_colum = [&]() {
+            if (rhs_id == -1) {
+                RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
+                rhs_column = block->get_by_position(rhs_id).column;
+                data_rhs = _get_raw_data(rhs_column);
+                if (!empty) {
+                    if (const uint8* null_map =
+                                _get_null_map(block->get_by_position(rhs_id).column);
+                        null_map != nullptr) {
+                        for (size_t i = 0; i < size; i++) {
+                            data[i] &= !null_map[i];
+                        }
+                    }
                 }
+                int filted = simd::count_zero_num((int8_t*)data_rhs, size);
+                full_rhs = filted == 0;
+                empty_rhs = filted == size;
             }
-        }
+            return Status::OK();
+        };
 
         if (_op == TExprOpcode::COMPOUND_AND) {
-            for (size_t i = 0; i < size; i++) {
-                data[i] &= data_rhs[i];
+            if (!empty) { // empty and any = empty, so lhs should not empty
+                RETURN_IF_ERROR(get_rhs_colum());
+                if (empty_rhs) { // any and empty = empty
+                    *result_column_id = rhs_id;
+                    return Status::OK();
+                } else if (!full_rhs) { // any and full = any, so rhs should not full.
+                    for (size_t i = 0; i < size; i++) {
+                        data[i] &= data_rhs[i];
+                    }
+                }
             }
         } else if (_op == TExprOpcode::COMPOUND_OR) {
-            for (size_t i = 0; i < size; i++) {
-                data[i] |= data_rhs[i];
+            if (!full) { // full or any = full, so lhs should not full
+                RETURN_IF_ERROR(get_rhs_colum());
+                if (full_rhs) { // any or full = full
+                    *result_column_id = rhs_id;
+                    return Status::OK();
+                } else if (!empty_rhs) { // any or empty = any, so rhs should not empty
+                    for (size_t i = 0; i < size; i++) {
+                        data[i] |= data_rhs[i];
+                    }
+                }
             }
         } else {
             for (size_t i = 0; i < size; i++) {
@@ -84,7 +117,7 @@ public:
             }
         }
 
-        *result_column_id = arguments[0];
+        *result_column_id = lhs_id;
         return Status::OK();
     }
 
@@ -104,7 +137,8 @@ private:
         if (column->is_nullable()) {
             return assert_cast<ColumnUInt8*>(
                            assert_cast<ColumnNullable*>(column->assume_mutable().get())
-                                   ->get_nested_column_ptr().get())
+                                   ->get_nested_column_ptr()
+                                   .get())
                     ->get_data()
                     .data();
         } else {
@@ -116,7 +150,8 @@ private:
         if (column->is_nullable()) {
             return assert_cast<ColumnUInt8*>(
                            assert_cast<ColumnNullable*>(column->assume_mutable().get())
-                                   ->get_null_map_column_ptr().get())
+                                   ->get_null_map_column_ptr()
+                                   .get())
                     ->get_data()
                     .data();
         } else {
