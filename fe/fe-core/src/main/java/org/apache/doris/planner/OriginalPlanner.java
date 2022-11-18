@@ -218,10 +218,10 @@ public class OriginalPlanner extends Planner {
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
         // Create runtime filters.
-        // if (!ConnectContext.get().getSessionVariable().getRuntimeFilterMode().toUpperCase()
-        //         .equals(TRuntimeFilterMode.OFF.name())) {
-        //     RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
-        // }
+        if (!ConnectContext.get().getSessionVariable().getRuntimeFilterMode().toUpperCase()
+                .equals(TRuntimeFilterMode.OFF.name())) {
+            RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
+        }
 
         if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;

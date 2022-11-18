@@ -479,19 +479,16 @@ public class PaloAuth implements Writable {
 
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
                                 String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return true;
-        //return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
+        return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
     }
 
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return true;
-        //return checkTblPriv(ctx, DEFAULT_CATALOG, qualifiedDb, tbl, wanted);
+        return checkTblPriv(ctx, DEFAULT_CATALOG, qualifiedDb, tbl, wanted);
     }
 
     public boolean checkTblPriv(ConnectContext ctx, TableName tableName, PrivPredicate wanted) {
-        //Preconditions.checkState(tableName.isFullyQualified());
-        return true;
-        //return checkTblPriv(ctx, tableName.getDb(), tableName.getTbl(), wanted);
+        Preconditions.checkState(tableName.isFullyQualified());
+        return checkTblPriv(ctx, tableName.getDb(), tableName.getTbl(), wanted);
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {

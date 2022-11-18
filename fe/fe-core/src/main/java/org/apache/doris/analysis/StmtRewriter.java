@@ -1164,57 +1164,56 @@ public class StmtRewriter {
     }
 
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
-        return true;
-        // Env currentEnv = Env.getCurrentEnv();
-        // UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        // String user = analyzer.getQualifiedUser();
-        // if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
-        //     return false;
-        // }
-        // if (!currentEnv.getPolicyMgr().existPolicy(user)) {
-        //     return false;
-        // }
-        // if (!(statementBase instanceof SelectStmt)) {
-        //     return false;
-        // }
-        // SelectStmt selectStmt = (SelectStmt) statementBase;
-        // boolean reAnalyze = false;
-        // for (int i = 0; i < selectStmt.fromClause.size(); i++) {
-        //     TableRef tableRef = selectStmt.fromClause.get(i);
-        //     // Recursively rewrite subquery
-        //     if (tableRef instanceof InlineViewRef) {
-        //         InlineViewRef viewRef = (InlineViewRef) tableRef;
-        //         if (rewriteByPolicy(viewRef.getQueryStmt(), analyzer)) {
-        //             reAnalyze = true;
-        //         }
-        //         continue;
-        //     }
-        //     TableIf table = tableRef.getTable();
-        //     String dbName = tableRef.getName().getDb();
-        //     if (dbName == null) {
-        //         dbName = analyzer.getDefaultDb();
-        //     }
-        //     Database db = currentEnv.getInternalCatalog().getDbOrAnalysisException(dbName);
-        //     long dbId = db.getId();
-        //     long tableId = table.getId();
-        //     RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
-        //     if (matchPolicy == null) {
-        //         continue;
-        //     }
-        //     SelectList selectList = new SelectList();
-        //     selectList.addItem(SelectListItem.createStarItem(tableRef.getAliasAsName()));
+        Env currentEnv = Env.getCurrentEnv();
+        UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
+        String user = analyzer.getQualifiedUser();
+        if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
+            return false;
+        }
+        if (!currentEnv.getPolicyMgr().existPolicy(user)) {
+            return false;
+        }
+        if (!(statementBase instanceof SelectStmt)) {
+            return false;
+        }
+        SelectStmt selectStmt = (SelectStmt) statementBase;
+        boolean reAnalyze = false;
+        for (int i = 0; i < selectStmt.fromClause.size(); i++) {
+            TableRef tableRef = selectStmt.fromClause.get(i);
+            // Recursively rewrite subquery
+            if (tableRef instanceof InlineViewRef) {
+                InlineViewRef viewRef = (InlineViewRef) tableRef;
+                if (rewriteByPolicy(viewRef.getQueryStmt(), analyzer)) {
+                    reAnalyze = true;
+                }
+                continue;
+            }
+            TableIf table = tableRef.getTable();
+            String dbName = tableRef.getName().getDb();
+            if (dbName == null) {
+                dbName = analyzer.getDefaultDb();
+            }
+            Database db = currentEnv.getInternalCatalog().getDbOrAnalysisException(dbName);
+            long dbId = db.getId();
+            long tableId = table.getId();
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
+            if (matchPolicy == null) {
+                continue;
+            }
+            SelectList selectList = new SelectList();
+            selectList.addItem(SelectListItem.createStarItem(tableRef.getAliasAsName()));
 
-        //     SelectStmt stmt = new SelectStmt(selectList,
-        //             new FromClause(Lists.newArrayList(tableRef)),
-        //             matchPolicy.getWherePredicate(),
-        //             null,
-        //             null,
-        //             null,
-        //             LimitElement.NO_LIMIT);
-        //     selectStmt.fromClause.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
-        //     selectStmt.analyze(analyzer);
-        //     reAnalyze = true;
-        // }
-        // return reAnalyze;
+            SelectStmt stmt = new SelectStmt(selectList,
+                    new FromClause(Lists.newArrayList(tableRef)),
+                    matchPolicy.getWherePredicate(),
+                    null,
+                    null,
+                    null,
+                    LimitElement.NO_LIMIT);
+            selectStmt.fromClause.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
+            selectStmt.analyze(analyzer);
+            reAnalyze = true;
+        }
+        return reAnalyze;
     }
 }
