@@ -51,18 +51,18 @@ public class EventChannel {
         queue.add(e);
     }
 
-    public EventChannel addConsumers(List<EventConsumer> consumers) {
+    public synchronized EventChannel addConsumers(List<EventConsumer> consumers) {
         consumers.forEach(consumer -> this.consumers
                 .computeIfAbsent(consumer.getTargetClass(), k -> Lists.newArrayList()).add(consumer));
         return this;
     }
 
-    public EventChannel addEnhancers(List<EventEnhancer> enhancers) {
+    public synchronized EventChannel addEnhancers(List<EventEnhancer> enhancers) {
         enhancers.forEach(enhancer -> this.enhancers.putIfAbsent(enhancer.getTargetClass(), enhancer));
         return this;
     }
 
-    public EventChannel setConnectContext(ConnectContext context) {
+    public synchronized EventChannel setConnectContext(ConnectContext context) {
         Preconditions.checkArgument(Objects.nonNull(context));
         if (context.getSessionVariable().isEnableNereidsTrace()) {
             eventSwitch = new EventSwitchParser().parse(context.getSessionVariable().getNereidsEventMode());

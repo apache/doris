@@ -48,7 +48,6 @@ public class EventTest extends TestWithFeService {
     public void runBeforeAll() {
         connectContext.getSessionVariable().setEnableNereidsTrace(true);
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
-        connectContext.getSessionVariable().setNereidsEventMode("counter, transform");
         channel = new EventChannel()
                 .addConsumers(ImmutableList.of(
                         new PrintConsumer(CounterEvent.class, printStream),
@@ -62,9 +61,7 @@ public class EventTest extends TestWithFeService {
                                 CounterEvent.updateCounter(((CounterEvent) e).getCounterType());
                             }
                         }
-                ))
-                .setConnectContext(connectContext);
-        channel.start();
+                ));
         producers = ImmutableList.of(
                 new EventProducer(CounterEvent.class, ImmutableList.of(
                         new EventFilter(CounterEvent.class) { },
@@ -74,27 +71,64 @@ public class EventTest extends TestWithFeService {
                         new EventFilter(TransformEvent.class) {
                             @Override
                             public Event checkEvent(Event event) {
-                                return ((TransformEvent) event).getGroupExpression() == null ? null : event;
+                                return ((TransformEvent) event).getGroupExpression() == null ? event : null;
                             }
                         }), channel)
         );
+        channel.start();
     }
 
     @Override
     public void runAfterAll() {
         channel.stop();
         Assertions.assertEquals(
-                        "CounterEvent{count=1, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                "CounterEvent{count=1, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
                         + "CounterEvent{count=2, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
-                        + "CounterEvent{count=3, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
-                        + "CounterEvent{count=4, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
-                        + "CounterEvent{count=5, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n",
-                builder.toString());
+                            + "CounterEvent{count=3, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "CounterEvent{count=4, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "CounterEvent{count=5, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "CounterEvent{count=6, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=7, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=8, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=9, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=10, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=11, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=12, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=13, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=14, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n"
+                            + "CounterEvent{count=15, counterType=PLAN_CONSTRUCTOR, group=null, groupExpression=null, plan=null}\n"
+                            + "TransformEvent{groupExpression=null, before=null, afters=[], ruleType=AGGREGATE_DISASSEMBLE}\n",
+                        builder.toString());
         CounterEvent.clearCounter();
     }
 
     @Test
     public void testEvent() {
+        connectContext.getSessionVariable().setNereidsEventMode("all except transform");
+        channel.setConnectContext(connectContext);
+        for (int i = 0; i < 10; ++i) {
+            producers.get(i % 2).log(i % 2 == 0
+                    ? new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
+                    : new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
+        }
+        connectContext.getSessionVariable().setNereidsEventMode("all");
+        channel.setConnectContext(connectContext);
+        for (int i = 0; i < 10; ++i) {
+            producers.get(i % 2).log(i % 2 == 0
+                    ? new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
+                    : new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
+        }
+        connectContext.getSessionVariable().setNereidsEventMode("counter, transform");
+        channel.setConnectContext(connectContext);
         for (int i = 0; i < 10; ++i) {
             producers.get(i % 2).log(i % 2 == 0
                     ? new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)

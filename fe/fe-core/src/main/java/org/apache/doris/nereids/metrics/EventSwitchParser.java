@@ -55,7 +55,7 @@ public class EventSwitchParser {
      * parse
      */
     public Set<Class<? extends Event>> parse(String eventTypeMode) {
-        List<String> strings = Arrays.stream(eventTypeMode.split(","))
+        List<String> strings = Arrays.stream(eventTypeMode.split("[ ,]"))
                 .map(String::trim)
                 .collect(Collectors.toList());
         Preconditions.checkArgument(strings.size() > 0);
