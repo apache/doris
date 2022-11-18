@@ -731,7 +731,7 @@ public class ShowExecutor {
                     CaseSensibility.TABLE.getCaseSensibility());
         }
         for (TableIf tbl : db.getTables()) {
-            if(tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)){
+            if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
                 continue;
             }
             if (matcher != null && !matcher.match(tbl.getName())) {
@@ -2170,7 +2170,7 @@ public class ShowExecutor {
                 columnStatistics.add(Pair.of(column.getName(), columnStatistic));
             } else {
                 columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                        colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
                         .stream().map(s -> Pair.of(colName, s))
                         .collect(Collectors.toList()));
             }
@@ -2472,3 +2472,4 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 }
+ 

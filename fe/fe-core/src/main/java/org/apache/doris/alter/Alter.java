@@ -160,7 +160,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-                                         final String clusterName, Database db) throws UserException {
+            final String clusterName, Database db) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -558,7 +558,7 @@ public class Alter {
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
     private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
-                                      boolean isReplay)
+            boolean isReplay)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
@@ -694,9 +694,9 @@ public class Alter {
      * caller should hold the table lock
      */
     public void modifyPartitionsProperty(Database db,
-                                         OlapTable olapTable,
-                                         List<String> partitionNames,
-                                         Map<String, String> properties)
+            OlapTable olapTable,
+            List<String> partitionNames,
+            Map<String, String> properties)
             throws DdlException, AnalysisException {
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
@@ -742,8 +742,8 @@ public class Alter {
             String partitionStoragePolicy = partitionInfo.getStoragePolicy(partition.getId());
             if (!partitionStoragePolicy.equals("")) {
                 throw new DdlException("Do not support alter table's partition storage policy , this table ["
-                    + olapTable.getName() + "] and partition [" + partitionName
-                    + "] has storage policy " + partitionStoragePolicy);
+                        + olapTable.getName() + "] and partition [" + partitionName
+                        + "] has storage policy " + partitionStoragePolicy);
             }
             String currentStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
             if (!currentStoragePolicy.equals("")) {
@@ -820,3 +820,4 @@ public class Alter {
         return clusterHandler;
     }
 }
+ 

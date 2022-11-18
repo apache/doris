@@ -28,7 +28,8 @@ public class MVRefreshIntervalTriggerInfo {
     private String timeUnit;
 
     // For deserialization
-    public MVRefreshIntervalTriggerInfo() {}
+    public MVRefreshIntervalTriggerInfo() {
+    }
 
     public MVRefreshIntervalTriggerInfo(String startTime, long interval, String timeUnit) {
         this.startTime = startTime;

@@ -58,24 +58,24 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
 
-import java.util.UUID;
-
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.mtmv.MTMVUtils;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.common.UserException;
 
-import java.io.IOException;
+import java.util.UUID;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
+
+import java.io.IOException;
 
 
 public class MTMVTaskProcessor {
     private static final Logger LOG = LogManager.getLogger(MTMVTaskProcessor.class);
-    private ConnectContext context;
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
+    private ConnectContext context;
 
     void process(MTMVTaskContext context) throws Exception {
         String taskId = context.getTask().getTaskId();
@@ -91,7 +91,7 @@ public class MTMVTaskProcessor {
             return;
         }
         try {
-            //step1 create tmp table 
+            //step1 create tmp table
             String tmpCreateTableStmt = genCreateTempMaterializedViewStmt(context, tableName, tmpTableName);
             //check whther tmp table exists, if exists means run mv task failed before, so need to drop it first
             if (db.isTableExist(tmpTableName)) {
@@ -288,3 +288,4 @@ public class MTMVTaskProcessor {
         }
     }
 }
+ 

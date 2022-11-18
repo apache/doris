@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+
 import org.apache.doris.catalog.TableIf.TableType;
 
 /**
@@ -126,7 +127,8 @@ public interface DatabaseIf<T extends TableIf> {
         T table = getTableOrMetaException(tableName);
         if (table.getType() != TableIf.TableType.OLAP && table.getType() != TableIf.TableType.MATERIALIZED_VIEW) {
             throw new MetaNotFoundException(
-                    "table type is not olap or materialized view, tableName=" + tableName + ", type=" + table.getType());
+                    "table type is not olap or materialized view, tableName=" + tableName + ", type="
+                            + table.getType());
         }
         return table;
     }
@@ -174,3 +176,4 @@ public interface DatabaseIf<T extends TableIf> {
         return (OlapTable) table;
     }
 }
+ 

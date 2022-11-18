@@ -1395,7 +1395,7 @@ public class StmtExecutor implements ProfileWriter {
     // Process a select statement.
     private void handleInsertStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
-        if(context.getMysqlChannel()!=null){
+        if (context.getMysqlChannel() != null) {
             context.getMysqlChannel().reset();
         }
         // create plan
@@ -1552,7 +1552,7 @@ public class StmtExecutor implements ProfileWriter {
         StringBuilder sb = new StringBuilder();
         sb.append("{'label':'").append(label).append("', 'status':'").append(txnStatus.name());
         sb.append("', 'txnId':'").append(txnId).append("'");
-        if(tblType == TableType.MATERIALIZED_VIEW){
+        if (tblType == TableType.MATERIALIZED_VIEW) {
             sb.append("', 'rows':'").append(loadedRows).append("'");
         }
         if (!Strings.isNullOrEmpty(errMsg)) {
@@ -1870,4 +1870,4 @@ public class StmtExecutor implements ProfileWriter {
     }
 
 }
-
+ 

@@ -32,6 +32,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+
 import org.apache.doris.common.FeConstants;
 
 import org.apache.logging.log4j.LogManager;
@@ -39,12 +40,13 @@ import org.apache.logging.log4j.Logger;
 
 public class MTMVJobFactory {
     private static final Logger LOG = LogManager.getLogger(MTMVTaskProcessor.class);
+
     public static boolean isGenerateJob(MaterializedView materializedView) {
-        boolean completeRefresh =  materializedView.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE;
+        boolean completeRefresh = materializedView.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE;
         BuildMode buildMode = materializedView.getBuildMode();
-        MVRefreshTriggerInfo triggerInfo =  materializedView.getRefreshInfo().getTriggerInfo();
+        MVRefreshTriggerInfo triggerInfo = materializedView.getRefreshInfo().getTriggerInfo();
         //cannnot generate job when create temp view table
-        if(materializedView.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)){
+        if (materializedView.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
             return false;
         }
         if (buildMode == BuildMode.IMMEDIATE) {
@@ -59,7 +61,7 @@ public class MTMVJobFactory {
         if (materializedView.getBuildMode() == BuildMode.IMMEDIATE) {
             jobs.add(genOnceJob(materializedView, dbName));
         }
-        MVRefreshTriggerInfo triggerInfo =  materializedView.getRefreshInfo().getTriggerInfo();
+        MVRefreshTriggerInfo triggerInfo = materializedView.getRefreshInfo().getTriggerInfo();
         if (triggerInfo != null && triggerInfo.getRefreshTrigger() == RefreshTrigger.INTERVAL) {
             jobs.add(genPeriodicalJob(materializedView, dbName));
         }
@@ -103,3 +105,4 @@ public class MTMVJobFactory {
         return new JobSchedule(startTime, info.getInterval(), MTMVUtils.getTimeUint(info.getTimeUnit()));
     }
 }
+ 

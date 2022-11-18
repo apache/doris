@@ -318,9 +318,9 @@ public class SelectStmt extends QueryStmt {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
-                String ctl=tblRef.getName().getCtl();
-                CatalogMgr mrg= analyzer.getEnv().getCatalogMgr();
-                CatalogIf  cif= mrg.getCatalogOrAnalysisException(ctl);
+                String ctl = tblRef.getName().getCtl();
+                CatalogMgr mrg = analyzer.getEnv().getCatalogMgr();
+                CatalogIf cif = mrg.getCatalogOrAnalysisException(ctl);
                 DatabaseIf db = cif.getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
@@ -1004,7 +1004,7 @@ public class SelectStmt extends QueryStmt {
         if (groupByClause == null && !selectList.isDistinct()
                 && !TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
                 && (havingClauseAfterAnaylzed == null || !havingClauseAfterAnaylzed.contains(
-                        Expr.isAggregatePredicate()))
+                Expr.isAggregatePredicate()))
                 && (sortInfo == null || !TreeNode.contains(sortInfo.getOrderingExprs(),
                 Expr.isAggregatePredicate()))) {
             // We're not computing aggregates but we still need to register the HAVING
@@ -1036,7 +1036,7 @@ public class SelectStmt extends QueryStmt {
                 && (groupByClause != null
                 || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
                 || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(
-                        Expr.isAggregatePredicate())))) {
+                Expr.isAggregatePredicate())))) {
             throw new AnalysisException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY");
         }
 
@@ -1671,39 +1671,40 @@ public class SelectStmt extends QueryStmt {
         selectList.rewriteExprs(rewriter, analyzer);
     }
 
-    /** equal subquery in case when to an inline view
-     *  subquery in case when statement like
-     *
+    /**
+     * equal subquery in case when to an inline view
+     * subquery in case when statement like
+     * <p>
      * SELECT CASE
-     *         WHEN (
-     *             SELECT COUNT(*) / 2
-     *             FROM t
-     *         ) > k4 THEN (
-     *             SELECT AVG(k4)
-     *             FROM t
-     *         )
-     *         ELSE (
-     *             SELECT SUM(k4)
-     *             FROM t
-     *         )
-     *     END AS kk4
+     * WHEN (
+     * SELECT COUNT(*) / 2
+     * FROM t
+     * ) > k4 THEN (
+     * SELECT AVG(k4)
+     * FROM t
+     * )
+     * ELSE (
+     * SELECT SUM(k4)
+     * FROM t
+     * )
+     * END AS kk4
      * FROM t;
      * this statement will be equal to
-     *
+     * <p>
      * SELECT CASE
-     *         WHEN t1.a > k4 THEN t2.a
-     *         ELSE t3.a
-     *     END AS kk4
+     * WHEN t1.a > k4 THEN t2.a
+     * ELSE t3.a
+     * END AS kk4
      * FROM t, (
-     *         SELECT COUNT(*) / 2 AS a
-     *         FROM t
-     *     ) t1,  (
-     *         SELECT AVG(k4) AS a
-     *         FROM t
-     *     ) t2,  (
-     *         SELECT SUM(k4) AS a
-     *         FROM t
-     *     ) t3;
+     * SELECT COUNT(*) / 2 AS a
+     * FROM t
+     * ) t1,  (
+     * SELECT AVG(k4) AS a
+     * FROM t
+     * ) t2,  (
+     * SELECT SUM(k4) AS a
+     * FROM t
+     * ) t3;
      */
     private Expr rewriteSubquery(Expr expr, Analyzer analyzer)
             throws AnalysisException {
@@ -2071,3 +2072,4 @@ public class SelectStmt extends QueryStmt {
         return this.id.equals(((SelectStmt) obj).id);
     }
 }
+ 

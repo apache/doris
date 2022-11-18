@@ -35,22 +35,22 @@ public class MTMVTaskContext {
         return ctx;
     }
 
-    public void setTask(MTMVTask task){
+    public void setTask(MTMVTask task) {
         this.task = task;
     }
 
-    public MTMVTask getTask(){
-        return this.task ;
+    public MTMVTask getTask() {
+        return this.task;
     }
 
-    public void setJob(MTMVJob job){
+    public void setJob(MTMVJob job) {
         this.job = job;
     }
 
-    public MTMVJob getJob(){
+    public MTMVJob getJob() {
         return this.job;
     }
-    
+
     public void setCtx(ConnectContext ctx) {
         this.ctx = ctx;
     }
