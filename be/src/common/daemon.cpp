@@ -78,62 +78,73 @@ void Daemon::tcmalloc_gc_thread() {
     // moderate: release_rate = 5.0 and max_cache_percent =40;
     int64_t max_cache_percent = 40;
     double release_rate = 5.0;
+    double pressure_limit = 0.85;
     if (config::memory_mode == std::string("performance")) {
         release_rate = 1.0;
         max_cache_percent = 1000;
+        pressure_limit = 0.9;
     } else if (config::memory_mode == std::string("compact")) {
         release_rate = 20.0;
         max_cache_percent = 20;
+        pressure_limit = 0.8;
     }
     MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
 
-    int32_t interval_seconds = 2;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_seconds))) {
-        size_t used_bytes = 0;
-        size_t alloc_bytes = 0;
-        double memory_pressure = 0;
+    size_t physical_limit_bytes = std::min(MemInfo::hard_mem_limit(), MemInfo::mem_limit());
+    int last_seconds = 0;
+
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1))) {
+        size_t tc_used_bytes = 0;
+        size_t tc_alloc_bytes = 0;
+        size_t rss = PerfCounters::get_vm_rss();
 
         MallocExtension::instance()->GetNumericProperty("generic.total_physical_bytes",
-                                                        &alloc_bytes);
+                                                        &tc_alloc_bytes);
         MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
-                                                        &used_bytes);
+                                                        &tc_used_bytes);
+        int64_t tc_cached_bytes = tc_alloc_bytes - tc_used_bytes;
+        int64_t to_free_bytes = (int64_t)tc_cached_bytes - (tc_used_bytes * max_cache_percent / 100);
 
-        int64_t cached_bytes = alloc_bytes - used_bytes;
-        int64_t to_free_bytes = cached_bytes - (used_bytes * max_cache_percent / 100);
+        double memory_pressure = 0;
+        int64_t alloc_bytes = std::max(rss, tc_alloc_bytes);
+        memory_pressure = (double)alloc_bytes / physical_limit_bytes;
 
-        int64_t physical_limit = MemInfo::physical_mem() * 90 / 100;
-        physical_limit = std::min(physical_limit, MemInfo::hard_mem_limit() * 90 / 100);
-        memory_pressure = (double)alloc_bytes / physical_limit;
-        memory_pressure = std::max(memory_pressure, (double) alloc_bytes /  MemInfo::mem_limit() * 90 / 100);
+        LOG(INFO) << "generic.current_allocated_bytes " << tc_used_bytes
+                  << ", generic.total_physical_bytes " << tc_alloc_bytes << ", rss " << rss 
+                  << ", max_cache_percent " << max_cache_percent << ", release_rate " << release_rate
+                  << ", memory_pressure " << memory_pressure << ", physical_limit_bytes "
+                  << physical_limit_bytes;
 
-        LOG(INFO) << "generic.current_allocated_bytes " << used_bytes
-                  << ", generic.total_physical_bytes " << alloc_bytes << ", max_cache_percent "
-                  << max_cache_percent << ", release_rate " << release_rate << ", memory_pressure "
-                  << memory_pressure;
-
-        if (memory_pressure >= 0.95) {
+        if (memory_pressure > pressure_limit) {
             // We are reaching oom, so release cache aggressively.
             // Ideally, we should reuse cache and not allocate from system any more,
             // however, it is hard to set limit on cache of tcmalloc and doris
             // use mmap in vectorized mode.
-            int64_t min_free_bytes = std::max(alloc_bytes - MemInfo::mem_limit() *90 / 100,
-                                              alloc_bytes - physical_limit);
+            int64_t min_free_bytes = alloc_bytes - physical_limit_bytes + (int64_t)2 * 1024 * 1024 * 1024;
             to_free_bytes = std::max(to_free_bytes, min_free_bytes);
-            to_free_bytes = std::max(to_free_bytes, cached_bytes * 80 / 100);
+            LOG(INFO) << "release bytes " << to_free_bytes;
             MallocExtension::instance()->SetMemoryReleaseRate(100.0);
-            interval_seconds = 1;
-            LOG(INFO) << "memory is under pressure, release bytes " << to_free_bytes;
-        } else if (memory_pressure >= 0.8) {
-            to_free_bytes = std::max(to_free_bytes, cached_bytes * 20 / 100);
+            last_seconds = 5;
+        } else if (memory_pressure >= (pressure_limit - 0.05)) {
+            to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 5 / 100);
             MallocExtension::instance()->SetMemoryReleaseRate(50.0);
-            interval_seconds = 1;
-        } else if (interval_seconds == 1) {
+            last_seconds = 5;
+        } else if (memory_pressure >= 0.7 && release_rate < 10.0) {
+            MallocExtension::instance()->SetMemoryReleaseRate(10.0);
+        } else if (memory_pressure >= 0.6 && release_rate < 5.0) {
+            MallocExtension::instance()->SetMemoryReleaseRate(5.0);
+        } else {
             MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
-            interval_seconds = 2;
         }
         if (to_free_bytes > 0) {
-            LOG(INFO) << "try to release cache of tcmalloc, bytes " << to_free_bytes;
-            MallocExtension::instance()->ReleaseToSystem(to_free_bytes);
+            last_seconds += 1;
+            if (last_seconds >= 30) {
+                LOG(INFO) << "try to release cache of tcmalloc, bytes " << to_free_bytes;
+                MallocExtension::instance()->ReleaseToSystem(to_free_bytes);
+                last_seconds = 0;
+            }
+        } else {
+            last_seconds = 0;
         }
     }
 #endif
