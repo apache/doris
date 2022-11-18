@@ -17,13 +17,30 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.planner.HashDistributionPruner;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.planner.PartitionColumnFilter;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,20 +50,47 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalOlapScan()
-                .when(LogicalOlapScan::isIndexSelected)
+        return logicalFilter(logicalOlapScan())
                 .thenApply(ctx -> {
-                    LogicalOlapScan olapScan = ctx.root;
-                    new HashDistributionPruner(
-                            olapScan.getCandidateIndexIds(),
-                            olapScan.getTable().getColumns(),
-                            null,
-                            olapScan.getTable());
+                    LogicalFilter<LogicalOlapScan> filter = ctx.root;
+                    LogicalOlapScan olapScan = filter.child();
+                    Expression predicate = filter.getPredicates();
+                    OlapTable table = olapScan.getTable();
+                    List<Expression> expressions = ExpressionUtils.extractConjunction(predicate);
                     return null;
                 }).toRule(RuleType.OLAP_SCAN_TABLET_PRUNE);
     }
 
-    private Map<String, PartitionColumnFilter> comuteColumnFilter(LogicalOlapScan olapScan) {
+    private Map<String, PartitionColumnFilter> comuteColumnFilter(List<Expression> exprs, LogicalOlapScan olapScan) {
+        Map<String, PartitionColumnFilter> filters = Maps.newHashMap();
+        for (Expression expr : exprs) {
+            PartitionColumnFilter filter = new PartitionColumnFilter();
 
+        }
+        return filters;
+    }
+
+    private Range<PartitionKey> getRange(Expression expr) {
+        if (expr instanceof EqualTo) {
+
+        } else if (expr instanceof LessThan) {
+
+        } else if (expr instanceof GreaterThan) {
+
+        } else if (expr instanceof LessThanEqual) {
+
+        } else if (expr instanceof GreaterThanEqual) {
+
+        } else if (expr instanceof InPredicate) {
+
+        } else if (expr instanceof Not) {
+
+        }
+    }
+
+    private boolean checkExpression(Expression expr) {
+        if (expr instanceof ComparisonPredicate) {
+
+        }
     }
 }
