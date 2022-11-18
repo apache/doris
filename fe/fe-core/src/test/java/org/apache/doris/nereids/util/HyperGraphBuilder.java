@@ -22,6 +22,7 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupRight;
 import org.apache.doris.nereids.rules.joinreorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.statistics.StatsDeriveResult;
+
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -66,23 +69,20 @@ public class HyperGraphBuilder {
     }
 
     public HyperGraphBuilder addEdge(JoinType joinType, int node1, int node2) {
-        assert node1 >= 0 && node1 < rowCounts.size() : String.format("%d must in [%d, %d)", node1, 0,
-                rowCounts.size());
-        assert node2 >= 0 && node2 < rowCounts.size() : String.format("%d must in [%d, %d)", node1, 0,
-                rowCounts.size());
+        Preconditions.checkArgument(node1 >= 0 && node1 < rowCounts.size(),
+                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
+        Preconditions.checkArgument(node2 >= 0 && node1 < rowCounts.size(),
+                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
 
-        BitSet leftBitmap = new BitSet();
-        leftBitmap.set(node1);
-        BitSet rightBitmap = new BitSet();
-        rightBitmap.set(node2);
-        BitSet fullBitmap = new BitSet();
-        fullBitmap.or(leftBitmap);
-        fullBitmap.or(rightBitmap);
+        BitSet leftBitmap = Bitmap.newBitmap(node1);
+        BitSet rightBitmap = Bitmap.newBitmap(node2);
+        BitSet fullBitmap = Bitmap.unionBitmap(leftBitmap, rightBitmap);
         Optional<BitSet> fullKey = findPlan(fullBitmap);
         if (!fullKey.isPresent()) {
             Optional<BitSet> leftKey = findPlan(leftBitmap);
             Optional<BitSet> rightKey = findPlan(rightBitmap);
-            assert leftKey.isPresent() && rightKey.isPresent();
+            assert leftKey.isPresent() && rightKey.isPresent() : String.format("can not find plan %s-%s", leftBitmap,
+                    rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
             LogicalJoin join = new LogicalJoin<>(joinType, new ArrayList<>(), leftPlan, rightPlan);
