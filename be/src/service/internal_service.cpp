@@ -457,8 +457,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         break;
     }
     case TFileFormatType::FORMAT_PARQUET: {
-        std::vector<std::string> column_names;
-        reader.reset(new vectorized::ParquetReader(params, range, column_names));
+        reader.reset(new vectorized::ParquetReader(params, range));
         break;
     }
     case TFileFormatType::FORMAT_ORC: {

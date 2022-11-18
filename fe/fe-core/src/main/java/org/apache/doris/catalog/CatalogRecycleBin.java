@@ -70,6 +70,56 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime = Maps.newHashMap();
     }
 
+    public synchronized boolean allTabletsInRecycledStatus(List<Long> backendTabletIds) {
+        Set<Long> recycledTabletSet = Sets.newHashSet();
+
+        Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
+            RecyclePartitionInfo partitionInfo = entry.getValue();
+            Partition partition = partitionInfo.getPartition();
+            addRecycledTabletsForPartition(recycledTabletSet, partition);
+        }
+
+        Iterator<Map.Entry<Long, RecycleTableInfo>> tableIter = idToTable.entrySet().iterator();
+        while (tableIter.hasNext()) {
+            Map.Entry<Long, RecycleTableInfo> entry = tableIter.next();
+            RecycleTableInfo tableInfo = entry.getValue();
+            Table table = tableInfo.getTable();
+            addRecycledTabletsForTable(recycledTabletSet, table);
+        }
+
+        Iterator<Map.Entry<Long, RecycleDatabaseInfo>> dbIterator = idToDatabase.entrySet().iterator();
+        while (dbIterator.hasNext()) {
+            Map.Entry<Long, RecycleDatabaseInfo> entry = dbIterator.next();
+            RecycleDatabaseInfo dbInfo = entry.getValue();
+            Database db = dbInfo.getDb();
+            for (Table table : db.getTables()) {
+                addRecycledTabletsForTable(recycledTabletSet, table);
+            }
+        }
+
+        return recycledTabletSet.size() >= backendTabletIds.size() && recycledTabletSet.containsAll(backendTabletIds);
+    }
+
+    private void addRecycledTabletsForTable(Set<Long> recycledTabletSet, Table table) {
+        if (table.getType() == TableType.OLAP) {
+            OlapTable olapTable = (OlapTable) table;
+            Collection<Partition> allPartitions = olapTable.getAllPartitions();
+            for (Partition partition : allPartitions) {
+                addRecycledTabletsForPartition(recycledTabletSet, partition);
+            }
+        }
+    }
+
+    private void addRecycledTabletsForPartition(Set<Long> recycledTabletSet, Partition partition) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                recycledTabletSet.add(tablet.getId());
+            }
+        }
+    }
+
     public synchronized boolean recycleDatabase(Database db, Set<String> tableNames, Set<Long> tableIds,
                                                 boolean isReplay, long replayRecycleTime) {
         long recycleTime = 0;

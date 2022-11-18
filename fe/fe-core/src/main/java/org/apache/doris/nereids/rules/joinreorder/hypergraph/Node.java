@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.BitSet;
@@ -46,6 +47,12 @@ class Node {
 
     public int getIndex() {
         return index;
+    }
+
+    public BitSet getBitSet() {
+        BitSet bitSet = new BitSet();
+        bitSet.set(index);
+        return bitSet;
     }
 
     public Plan getPlan() {
@@ -100,12 +107,12 @@ class Node {
     }
 
     public String getName() {
-        assert plan instanceof GroupPlan : "Each node is a group plan in child";
+        Preconditions.checkArgument(plan instanceof GroupPlan, "Each node is a group plan in child");
         return ((GroupPlan) plan).getGroup().getLogicalExpression().getPlan().getType().name() + index;
     }
 
     public double getRowCount() {
-        assert plan instanceof GroupPlan : "Each node is a group plan in child";
+        Preconditions.checkArgument(plan instanceof GroupPlan, "Each node is a group plan in child");
         return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
     }
 }

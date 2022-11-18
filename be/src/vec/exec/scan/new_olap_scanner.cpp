@@ -275,7 +275,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     olap_scan_node.sort_info.is_asc_order.size();
         }
     }
-
     return Status::OK();
 }
 

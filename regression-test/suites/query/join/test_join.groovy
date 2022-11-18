@@ -529,23 +529,11 @@ suite("test_join", "query,p0") {
                  order by 1, 2, 3, 4, 5 limit 65535"""
         sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                  where b.k3 is not null order by 1, 2, 3, 4, 5 limit 65535"""
-        test {
-            sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 > b.k1 
-                where a.k2 > 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 > 0 
-                where a.k2 > 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        def res15 = sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 > b.k1
+            where a.k2 > 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 > 0
+            where a.k2 > 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
+        def res15 = sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b
                 on a.k1 = b.k1 and a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
         def res16 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                 on a.k1 = b.k1 and a.k2 > 0 where b.k3 is not null 
@@ -565,52 +553,22 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
-                    on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
-                on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k6 > "000" 
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and a.k6 > "000"
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
-                on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and a.k6 > "000" 
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b
+                on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k6 > "000"
                 order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b 
-                on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and a.k6 > "000" 
-                order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        def res19 = sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b
+            on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k6 > "000"
+            order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b
+            on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and a.k6 > "000"
+            order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b
+            on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and a.k6 > "000"
+            order by 1, 2, 3, 4, 5 limit 65535"""
+        def res19 = sql"""select ${s} from ${tbName1} a left semi join ${tbName2} b on a.k1 = b.k1
                 left semi join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
         def res20 = sql"""select ${s} from (select distinct a.* from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                 left outer join ${tbName3} c on a.k2 = c.k2 where a.k1 is not null 
@@ -638,25 +596,13 @@ suite("test_join", "query,p0") {
         def res24 = sql"""select ${s} from ${tbName1} a right outer join ${tbName1} b 
                 on a.k1 = b.k1 where a.k2 is not null order by 1, 2, 3, 4, 5 limit 65535"""
         check2_doris(res23, res24)
-        test {
-            sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
-                    on a.k1 > b.k1 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
-                    on a.k1 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        def res25 = sql"""select ${s} from ${tbName2} a right semi join ${tbName1} b 
+        sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b
+                on a.k1 > b.k1 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b
+                on a.k1 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        def res25 = sql"""select ${s} from ${tbName2} a right semi join ${tbName1} b
                  on a.k1 = b.k1 and a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
         def res26 = sql"""select ${s} from ${tbName2} a right outer join ${tbName1} b on a.k1 = b.k1 and 
                  a.k2 > 0 where a.k2 is not null order by 1, 2, 3, 4, 5 limit 65535"""
@@ -675,52 +621,22 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 = b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
-                    on a.k1 < b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b 
-                    on a.k1 < b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        def res29 = sql"""select ${s} from ${tbName3} a right semi join ${tbName1} c on a.k1 = c.k1 
+        sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 = b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b
+                on a.k1 < b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right semi join ${tbName2} b
+                on a.k1 < b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        def res29 = sql"""select ${s} from ${tbName3} a right semi join ${tbName1} c on a.k1 = c.k1
                 right semi join ${tbName2} b on b.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
 
         def res30 = sql"""select ${s} from (select distinct b.* from ${tbName3} a right outer join ${tbName1} c on a.k1 = c.k1 
@@ -744,25 +660,13 @@ suite("test_join", "query,p0") {
         def res34 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                     on a.k1 = b.k1 where b.k3 is null order by 1, 2, 3, 4, 5 limit 65535"""
         check2_doris(res33, res34)
-        test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
-                    on a.k1 > b.k1 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
-                    on a.k1 > 0 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        def res35 = sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
+        sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
+                on a.k1 > b.k1 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
+                on a.k1 > 0 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        def res35 = sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
                     on a.k1 = b.k1 and a.k2 > 0 order by 1, 2, 3, 4, 5 limit 50000"""
         def res36 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b 
                     on a.k1 = b.k1 and a.k2 > 0 where b.k3 is null 
@@ -775,59 +679,29 @@ suite("test_join", "query,p0") {
                  order by 1, 2, 3, 4, 5 limit 65535"""
         check2_doris(res37, res38)
         test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
+            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
                where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" order by 1, 2, 3, 4, 5 limit 65535"""
             check{result, exception, startTime, endTime ->
                 assertTrue(exception != null)
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
-                    on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b 
-                    on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        def res39 = sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b on a.k1 = b.k1 
+        sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 = b.k2 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
+                on a.k1 < b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 > b.k2 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 > 0 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b
+                on a.k1 < b.k1 or a.k2 > 0 where a.k2 > 0 and a.k3 != 0 and a.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        def res39 = sql"""select ${s} from ${tbName1} a left anti join ${tbName2} b on a.k1 = b.k1
                 left anti join ${tbName3} c on a.k2 = c.k2 order by 1, 2, 3, 4, 5 limit 65535"""
         def res40 = sql"""select ${s} from ${tbName1} a left outer join ${tbName2} b on a.k1 = b.k1 
                 left outer join ${tbName3} c on a.k2 = c.k2 where 
@@ -853,25 +727,13 @@ suite("test_join", "query,p0") {
                 on a.k1 = b.k1 where a.k2 is null 
                 order by 1, 2, 3, 4, 5 limit 65535"""
         check2_doris(res43, res44)
-        test {
-            sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
-                    on a.k1 > b.k1 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
-                    on a.k1 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        def res45 = sql"""select ${s} from ${tbName2} a right anti join ${tbName1} b 
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b
+                on a.k1 > b.k1 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b
+                on a.k1 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        def res45 = sql"""select ${s} from ${tbName2} a right anti join ${tbName1} b
                     on a.k1 = b.k1 and a.k2 > 0 order by 1, 2, 3, 4, 5 limit 65535"""
         def res46 = sql"""select ${s} from ${tbName2} a right outer join ${tbName1} b 
                     on a.k1 = b.k1 and a.k2 > 0 where a.k2 is null 
@@ -891,52 +753,22 @@ suite("test_join", "query,p0") {
                 logger.info(exception.message)
             }
         }
-        test {
-            sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 = b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
-                    on a.k1 < b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
-                    on a.k1 = b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        test {
-            sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b 
-                    on a.k1 < b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000" 
-                    order by 1, 2, 3, 4, 5 limit 65535"""
-            check{result, exception, startTime, endTime ->
-                assertTrue(exception != null)
-                logger.info(exception.message)
-            }
-        }
-        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} c on a.k1 = c.k1 
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 = b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b
+                on a.k1 < b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 > b.k2 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b
+                on a.k1 = b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} b
+                on a.k1 < b.k1 or a.k2 > 0 where b.k2 > 0 and b.k3 != 0 and b.k6 > "000"
+                order by 1, 2, 3, 4, 5 limit 65535"""
+        sql"""select ${s} from ${tbName1} a right anti join ${tbName2} c on a.k1 = c.k1
                 right anti join ${tbName3} b on c.k2 = b.k2 order by 1, 2, 3, 4, 5 limit 65535"""
 
         sql"""select ${s} from (select distinct b.k1, b.k2, b.k3, b.k4, b.k5 from 

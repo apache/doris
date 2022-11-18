@@ -499,14 +499,15 @@ int main(int argc, char** argv) {
         __lsan_do_leak_check();
 #endif
         doris::PerfCounters::refresh_proc_status();
+        doris::MemInfo::refresh_proc_meminfo();
         doris::MemTrackerLimiter::refresh_global_counter();
         doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
-        !defined(USE_JEMALLOC)
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_allocator_mem();
 #endif
+        doris::MemInfo::refresh_proc_mem_no_allocator_cache();
         if (doris::config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage("memory_debug");
+            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
         }
         doris::MemTrackerLimiter::enable_print_log_process_usage();
         sleep(1);

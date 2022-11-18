@@ -214,7 +214,7 @@ Status VRepeatNode::close(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::close");
     VExpr::close(_expr_ctxs, state);
-    RETURN_IF_ERROR(child(0)->close(state));
+    _release_mem();
     return ExecNode::close(state);
 }
 
@@ -231,4 +231,10 @@ void VRepeatNode::debug_string(int indentation_level, std::stringstream* out) co
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
 }
+
+void VRepeatNode::_release_mem() {
+    _child_block = nullptr;
+    _intermediate_block = nullptr;
+}
+
 } // namespace doris::vectorized

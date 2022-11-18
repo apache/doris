@@ -20,7 +20,10 @@ package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class GraphSimplifierTest {
     @Test
@@ -41,36 +44,105 @@ public class GraphSimplifierTest {
         graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
+        List<Edge> edges = hyperGraph.getEdges();
+        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
+        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
+        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
+        Assertions.assertEquals(edges.get(3).toString(), "<{0, 1, 2, 3} - {4}>");
+    }
 
-        String target = "digraph G {  # 4 edges\n"
-                + "  LOGICAL_OLAP_SCAN0 [label=\"LOGICAL_OLAP_SCAN0 \n"
-                + " rowCount=10.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN1 [label=\"LOGICAL_OLAP_SCAN1 \n"
-                + " rowCount=20.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN2 [label=\"LOGICAL_OLAP_SCAN2 \n"
-                + " rowCount=30.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN3 [label=\"LOGICAL_OLAP_SCAN3 \n"
-                + " rowCount=40.00\"];\n"
-                + "  LOGICAL_OLAP_SCAN4 [label=\"LOGICAL_OLAP_SCAN4 \n"
-                + " rowCount=50.00\"];\n"
-                + "LOGICAL_OLAP_SCAN0 -> LOGICAL_OLAP_SCAN1 [label=\"1.00\",arrowhead=none]\n"
-                + "e1 [shape=circle, width=.001, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN0 -> e1 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN1 -> e1 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN2 -> e1 [arrowhead=none, label=\"\"]\n"
-                + "e2 [shape=circle, width=.001, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN0 -> e2 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN1 -> e2 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN2 -> e2 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN3 -> e2 [arrowhead=none, label=\"\"]\n"
-                + "e3 [shape=circle, width=.001, label=\"\"]\n"
-                + "LOGICAL_OLAP_SCAN0 -> e3 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN1 -> e3 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN2 -> e3 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN3 -> e3 [arrowhead=none, label=\"1.00\"]\n"
-                + "LOGICAL_OLAP_SCAN4 -> e3 [arrowhead=none, label=\"\"]\n"
-                + "}\n";
-        String dottyGraph = hyperGraph.toDottyHyperGraph();
-        assert dottyGraph.equals(target) : dottyGraph;
+    @Test
+    void testCircleGraph() {
+        //    .--t0\
+        //   /    | \
+        //   |   t1  t3
+        //   \    | /
+        //    `--t2/
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init(10, 20, 30, 40)
+                .addEdge(JoinType.INNER_JOIN, 0, 1)
+                .addEdge(JoinType.INNER_JOIN, 0, 2)
+                .addEdge(JoinType.INNER_JOIN, 0, 3)
+                .addEdge(JoinType.INNER_JOIN, 1, 2)
+                .addEdge(JoinType.INNER_JOIN, 2, 3)
+                .build();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.initFirstStep();
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+        List<Edge> edges = hyperGraph.getEdges();
+        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
+        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
+        Assertions.assertEquals(edges.get(2).toString(), "<{0} - {1, 2, 3}>");
+        Assertions.assertEquals(edges.get(3).toString(), "<{1} - {0, 2}>");
+        Assertions.assertEquals(edges.get(4).toString(), "<{0, 1, 2} - {3}>");
+    }
+
+    @Test
+    void testClique() {
+        //    .--t0\
+        //   /    | \
+        //   |   t1- t3
+        //   \    | /
+        //    `--t2/
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init(10, 20, 30, 40)
+                .addEdge(JoinType.INNER_JOIN, 0, 1)
+                .addEdge(JoinType.INNER_JOIN, 0, 2)
+                .addEdge(JoinType.INNER_JOIN, 0, 3)
+                .addEdge(JoinType.INNER_JOIN, 1, 2)
+                .addEdge(JoinType.INNER_JOIN, 1, 3)
+                .addEdge(JoinType.INNER_JOIN, 2, 3)
+                .build();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.initFirstStep();
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+        List<Edge> edges = hyperGraph.getEdges();
+        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
+        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
+        Assertions.assertEquals(edges.get(2).toString(), "<{0} - {1, 2, 3}>");
+        Assertions.assertEquals(edges.get(3).toString(), "<{1} - {0, 2}>");
+        Assertions.assertEquals(edges.get(4).toString(), "<{1} - {0, 2, 3}>");
+        Assertions.assertEquals(edges.get(5).toString(), "<{0, 1, 2} - {3}>");
+    }
+
+    @Test
+    void testHugeStar() {
+        //  t11 t3 t4 t5 t12
+        //    `  \ | / '
+        //    t1--t0--t2
+        //    '  / | \  `
+        //   t9 t6 t7 t8  t10
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init(10, 20, 30, 40, 50, 70, 60, 80, 90, 100, 110, 120)
+                .addEdge(JoinType.INNER_JOIN, 0, 1)
+                .addEdge(JoinType.INNER_JOIN, 0, 2)
+                .addEdge(JoinType.INNER_JOIN, 0, 3)
+                .addEdge(JoinType.INNER_JOIN, 0, 4)
+                .addEdge(JoinType.INNER_JOIN, 0, 5)
+                .addEdge(JoinType.INNER_JOIN, 0, 6)
+                .addEdge(JoinType.INNER_JOIN, 0, 7)
+                .addEdge(JoinType.INNER_JOIN, 0, 8)
+                .addEdge(JoinType.INNER_JOIN, 0, 9)
+                .addEdge(JoinType.INNER_JOIN, 0, 10)
+                .addEdge(JoinType.INNER_JOIN, 0, 11)
+                .build();
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.initFirstStep();
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+        List<Edge> edges = hyperGraph.getEdges();
+        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
+        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
+        Assertions.assertEquals(edges.get(2).toString(), "<{0, 1, 2} - {3}>");
+        Assertions.assertEquals(edges.get(3).toString(), "<{0, 1, 2, 3} - {4}>");
+        Assertions.assertEquals(edges.get(4).toString(), "<{0, 1, 2, 3, 4, 6} - {5}>");
+        Assertions.assertEquals(edges.get(5).toString(), "<{0, 1, 2, 3, 4} - {6}>");
+        Assertions.assertEquals(edges.get(6).toString(), "<{0, 1, 2, 3, 4, 5, 6} - {7}>");
+        Assertions.assertEquals(edges.get(7).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7} - {8}>");
+        Assertions.assertEquals(edges.get(8).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7, 8} - {9}>");
+        Assertions.assertEquals(edges.get(9).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7, 8, 9} - {10}>");
+        Assertions.assertEquals(edges.get(10).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10} - {11}>");
     }
 }

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -62,6 +63,18 @@ public class ColumnStatistic {
     public final double avgSizeByte;
     public final double minValue;
     public final double maxValue;
+    /*
+    selectivity of Column T1.A:
+    if T1.A = T2.B is the inner join condition, for a given `b` in B, b in
+    intersection of range(A) and range(B), selectivity means the probability that
+    the equation can be satisfied.
+    We take tpch as example.
+    l_orderkey = o_orderkey and o_orderstatus='o'
+        there are 3 distinct o_orderstatus in orders table. filter o_orderstatus='o' reduces orders table by 1/3
+        because o_orderkey is primary key, thus the o_orderkey.selectivity = 1/3,
+        and after join(l_orderkey = o_orderkey), lineitem is reduced by 1/3.
+        But after filter, other columns' selectivity is still 1.0
+     */
     public final double selectivity;
 
     // For display only.
@@ -87,8 +100,13 @@ public class ColumnStatistic {
     public static ColumnStatistic fromResultRow(ResultRow resultRow) {
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            columnStatisticBuilder.setCount(Double.parseDouble(resultRow.getColumnValue("count")));
-            columnStatisticBuilder.setNdv(Double.parseDouble(resultRow.getColumnValue("ndv")));
+            double count = Double.parseDouble(resultRow.getColumnValue("count"));
+            columnStatisticBuilder.setCount(count);
+            double ndv = Double.parseDouble(resultRow.getColumnValue("ndv"));
+            if (0.99 * count < ndv && ndv < 1.01 * count) {
+                ndv = count;
+            }
+            columnStatisticBuilder.setNdv(ndv);
             columnStatisticBuilder.setNumNulls(Double.parseDouble(resultRow.getColumnValue("null_count")));
             columnStatisticBuilder.setDataSize(Double
                     .parseDouble(resultRow.getColumnValue("data_size_in_bytes")));
@@ -108,8 +126,10 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
             columnStatisticBuilder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
             columnStatisticBuilder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+            columnStatisticBuilder.setSelectivity(1.0);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
             return ColumnStatistic.UNKNOWN;
         }
@@ -118,7 +138,7 @@ public class ColumnStatistic {
     public ColumnStatistic copy() {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
-                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).build();
+                .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr).setSelectivity(selectivity).build();
     }
 
     public ColumnStatistic multiply(double d) {
@@ -132,6 +152,7 @@ public class ColumnStatistic {
                 .setMaxValue(maxValue)
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
+                .setSelectivity(selectivity)
                 .build();
     }
 
@@ -157,17 +178,20 @@ public class ColumnStatistic {
 
     public ColumnStatistic updateBySelectivity(double selectivity, double rowCount) {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
+        Double rowsAfterFilter = rowCount * selectivity;
         if (ColumnStat.isAlmostUnique(ndv, rowCount)) {
-            builder.setSelectivity(selectivity);
+            builder.setSelectivity(this.selectivity * selectivity);
             builder.setNdv(ndv * selectivity);
+        } else {
+            if (ndv > rowsAfterFilter) {
+                builder.setSelectivity(this.selectivity * rowsAfterFilter / ndv);
+                builder.setNdv(rowsAfterFilter);
+            } else {
+                builder.setSelectivity(this.selectivity);
+                builder.setNdv(this.ndv);
+            }
         }
         builder.setNumNulls((long) Math.ceil(numNulls * selectivity));
-        if (ndv > rowCount) {
-            builder.setNdv(rowCount);
-        }
-        if (numNulls > rowCount) {
-            builder.setNumNulls(rowCount);
-        }
         return builder.build();
     }
 
@@ -207,5 +231,11 @@ public class ColumnStatistic {
             double interSection = Math.min(maxValue, other.maxValue) - Math.max(minValue, other.minValue);
             return interSection / myRange;
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("ndv=%.4f, min=%f, max=%f, sel=%f, count=%.4f",
+                ndv, minValue, maxValue, selectivity, count);
     }
 }

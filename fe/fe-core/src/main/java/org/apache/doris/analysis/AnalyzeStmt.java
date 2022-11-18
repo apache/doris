@@ -19,10 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -31,6 +33,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -202,17 +205,13 @@ public class AnalyzeStmt extends DdlStmt {
         if (optTableName != null) {
             optTableName.analyze(analyzer);
 
-            // disallow external catalog
-            Util.prohibitExternalCatalog(optTableName.getCtl(),
-                    this.getClass().getSimpleName());
-
+            String catalogName = optTableName.getCtl();
             String dbName = optTableName.getDb();
             String tblName = optTableName.getTbl();
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
-            Table table = db.getTableOrAnalysisException(tblName);
+            CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(catalogName);
+            DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
+            TableIf table = db.getTableOrAnalysisException(tblName);
 
-            // external table is not supported
-            checkAnalyzeType(table);
             checkAnalyzePriv(dbName, tblName);
 
             if (optColumnNames != null && !optColumnNames.isEmpty()) {

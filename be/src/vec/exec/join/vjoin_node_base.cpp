@@ -44,7 +44,12 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                          _join_op == TJoinOp::LEFT_SEMI_JOIN)),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
-          _is_outer_join(_match_all_build || _match_all_probe) {
+          _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
+                             _join_op == TJoinOp::LEFT_SEMI_JOIN ||
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
+          _is_outer_join(_match_all_build || _match_all_probe),
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+    _init_join_op();
     if (tnode.__isset.hash_join_node) {
         _output_row_desc.reset(
                 new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
@@ -66,6 +71,7 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
 Status VJoinNodeBase::close(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::close");
     VExpr::close(_output_expr_ctxs, state);
+    _join_block.clear();
     return ExecNode::close(state);
 }
 
@@ -108,6 +114,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         } else {
             DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
+            SCOPED_TIMER(_projection_timer);
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));

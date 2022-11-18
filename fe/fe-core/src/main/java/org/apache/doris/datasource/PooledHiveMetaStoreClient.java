@@ -28,6 +28,7 @@ import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -37,16 +38,19 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 
 /**
- * A hive metastore client pool for a specific hive conf.
+ * A hive metastore client pool for a specific catalog with hive configuration.
  */
 public class PooledHiveMetaStoreClient {
     private static final Logger LOG = LogManager.getLogger(PooledHiveMetaStoreClient.class);
 
-    private Queue<CachedClient> clientPool = new LinkedList<>();
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;
+    private static final short MAX_LIST_PARTITION_NUM = 10000;
+
+    private Queue<CachedClient> clientPool = new LinkedList<>();
     private final int poolSize;
     private final HiveConf hiveConf;
 
@@ -62,7 +66,7 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             return client.client.getAllDatabases();
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new HMSClientException("failed to get all database from hms client", e);
         }
     }
 
@@ -70,7 +74,7 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             return client.client.getAllTables(dbName);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new HMSClientException("failed to get all tables for db %s", e, dbName);
         }
     }
 
@@ -78,17 +82,33 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             return client.client.tableExists(dbName, tblName);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new HMSClientException("failed to check if table %s in db %s exists", e, tblName, dbName);
         }
     }
 
-    public boolean listPartitionsByExpr(String dbName, String tblName,
-            byte[] partitionPredicatesInBytes, List<Partition> hivePartitions) {
+    public List<String> listPartitionNames(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
-            return client.client.listPartitionsByExpr(dbName, tblName, partitionPredicatesInBytes,
-                    null, (short) -1, hivePartitions);
+            return client.client.listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new HMSClientException("failed to list partition names for table %s in db %s", e, tblName, dbName);
+        }
+    }
+
+    public Partition getPartition(String dbName, String tblName, List<String> partitionValues) {
+        try (CachedClient client = getClient()) {
+            return client.client.getPartition(dbName, tblName, partitionValues);
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
+                    dbName, partitionValues);
+        }
+    }
+
+    public List<Partition> getPartitionsByFilter(String dbName, String tblName, String filter) {
+        try (CachedClient client = getClient()) {
+            return client.client.listPartitionsByFilter(dbName, tblName, filter, MAX_LIST_PARTITION_NUM);
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get partition by filter for table %s in db %s", e, tblName,
+                    dbName);
         }
     }
 
@@ -96,13 +116,30 @@ public class PooledHiveMetaStoreClient {
         try (CachedClient client = getClient()) {
             return client.client.getTable(dbName, tblName);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new HMSClientException("failed to get table %s in db %s from hms client", e, tblName, dbName);
         }
     }
 
     public List<FieldSchema> getSchema(String dbName, String tblName) {
         try (CachedClient client = getClient()) {
             return client.client.getSchema(dbName, tblName);
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get schema for table %s in db %s", e, tblName, dbName);
+        }
+    }
+
+    public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
+        try (CachedClient client = getClient()) {
+            return client.client.getTableColumnStatistics(dbName, tblName, columns);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(
+            String dbName, String tblName, List<String> partNames, List<String> columns) {
+        try (CachedClient client = getClient()) {
+            return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

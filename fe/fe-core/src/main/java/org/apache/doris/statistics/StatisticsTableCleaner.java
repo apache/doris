@@ -22,8 +22,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
@@ -45,7 +45,8 @@ public class StatisticsTableCleaner extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsTableCleaner.class);
 
     public StatisticsTableCleaner() {
-        super("Statistics Table Cleaner", (long) Config.statistic_clean_interval_in_hours * 3600 * 1000);
+        super("Statistics Table Cleaner",
+                StatisticConstants.STATISTIC_CLEAN_INTERVAL_IN_HOURS * 3600 * 1000);
     }
 
     @Override

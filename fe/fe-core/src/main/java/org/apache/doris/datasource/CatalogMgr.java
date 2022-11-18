@@ -95,6 +95,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         if (catalog != null) {
             nameToCatalog.remove(catalog.getName());
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
         }
         return catalog;
     }
@@ -423,16 +424,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.replayInitDb(log, catalog);
     }
 
-    public void replayInitExternalTable(InitTableLog log) {
-        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-        Preconditions.checkArgument(catalog != null);
-        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-        Preconditions.checkArgument(db != null);
-        ExternalTable table = db.getTableForReplay(log.getTableId());
-        Preconditions.checkArgument(table != null);
-        table.replayInitTable(log.getSchema());
-    }
-
     public void replayRefreshExternalDb(ExternalObjectLog log) {
         writeLock();
         try {
@@ -445,15 +436,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void replayRefreshExternalTable(ExternalObjectLog log) {
-        writeLock();
-        try {
-            ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
-            ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-            ExternalTable table = db.getTableForReplay(log.getTableId());
-            table.setUnInitialized();
-        } finally {
-            writeUnlock();
-        }
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
 
     @Override

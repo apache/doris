@@ -222,10 +222,15 @@ There are different data types among different databases. Here is a list of the 
 
 At present, Doris only adapts to MySQL, Oracle, SQL Server, and PostgreSQL.  And planning to adapt other databases. In principle, any database that supports JDBC access can be accessed through the JDBC facade. If you need to access other appearances, you are welcome to modify the code and contribute to Doris.
 
-1. Read the Emoji expression on the surface of MySQL, and there is garbled code
+2. Read the Emoji expression on the surface of MySQL, and there is garbled code
 
 When Doris makes a JDBC appearance connection, because the default utf8 code in MySQL is utf8mb3, it cannot represent Emoji expressions that require 4-byte coding. Here, you need to set the code of the corresponding column to utf8mb4, set the server code to utf8mb4, and do not configure characterencoding in the JDBC URL when creating the MySQL appearance (this attribute does not support utf8mb4. If non utf8mb4 is configured, the expression cannot be written. Therefore, it should be left blank and not configured.)
 
+3. When reading the mysql table about DateTime="0000:00:00 00:00:00", an error is reported: "CAUSED BY: DataReadException: Zero date value prohibited"
+
+This is because the default handling of this illegal DateTime in JDBC is to throw an exception. You can control this behavior through the parameter zeroDateTimeBehavior
+Optional parameters: EXCEPTION, CONVERT_TO_NULL and ROUND are respectively abnormal error reports, converted to NULL values and converted to "0001-01-01 00:00:00";
+You can add: "jdbc_url"="jdbc: mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull "
 
 ```
 Configuration items can be modified globally

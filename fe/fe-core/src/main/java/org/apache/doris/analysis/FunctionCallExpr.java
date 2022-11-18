@@ -192,6 +192,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
         setChildren();
+        originChildSize = children.size();
     }
 
     private FunctionCallExpr(
@@ -228,6 +229,7 @@ public class FunctionCallExpr extends Expr {
         if (functionParams.exprs() != null) {
             this.children.addAll(functionParams.exprs());
         }
+        this.originChildSize = children.size();
         this.shouldFinalizeForNereids = false;
     }
 
@@ -246,6 +248,7 @@ public class FunctionCallExpr extends Expr {
         if (params.exprs() != null) {
             children.addAll(params.exprs());
         }
+        this.originChildSize = children.size();
     }
 
     protected FunctionCallExpr(FunctionCallExpr other) {
@@ -258,6 +261,7 @@ public class FunctionCallExpr extends Expr {
         // Clone the params in a way that keeps the children_ and the params.exprs()
         // in sync. The children have already been cloned in the super c'tor.
         fnParams = other.fnParams.clone(children);
+        originChildSize = other.originChildSize;
         aggFnParams = other.aggFnParams;
 
         this.isMergeAggFn = other.isMergeAggFn;
