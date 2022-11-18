@@ -74,4 +74,5 @@ public class FeConstants {
     public static String FS_PREFIX_OBS = "obs";
     public static String FS_PREFIX_HDFS = "hdfs";
     public static String FS_PREFIX_FILE = "file";
+    public static String TEMP_MATERIZLIZE_DVIEW_PREFIX= "doris_internal_tmp_multi_view_";
 }

@@ -45,6 +45,25 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.InternalCatalog;
+import java.util.UUID;
+
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.mtmv.MTMVUtils;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.common.UserException;
+import java.io.IOException;
+import org.apache.doris.mtmv.MTMVUtils.TaskState;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
+
+
 
 public class MTMVTaskProcessor {
     private static final Logger LOG = LogManager.getLogger(MTMVTaskProcessor.class);
@@ -52,121 +71,181 @@ public class MTMVTaskProcessor {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
 
     void process(MTMVTaskContext context) throws Exception{
-        LOG.info("run mv logic here");
-        test();
-        //insertIntoSelect();
-        //swapTable();
-        // ALTER TABLE t_fuck REPLACE WITH TABLE t_fuck_shadow PROPERTIES('swap' = 'true');  
+        String taskId = context.getTask().getTaskId();
+        long jobId = context.getJob().getId();
+        LOG.info("run mv logic start, task_id:{}, jobid:{}", taskId, jobId);
+        String tableName = context.getTask().getMvName();
+        String tmpTableName = genTmpTableName(tableName);
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr().getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)
+            .getDbOrAnalysisException(context.getTask().getDbName());
+        MaterializedView table = (MaterializedView) db.getTableOrAnalysisException(tableName);
+        if(!table.tryMvTaskLock()){
+            LOG.warn("run mv task  failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, "get lock fail");
+            return ;
+        }
+        try{
+            //step1 create tmp table 
+            String tmpCreateTableStmt = genCreateTempMaterializedViewStmt(context, tableName, tmpTableName);
+            //check whther tmp table exists, if exists means run mv task failed before, so need to drop it first
+            if(db.isTableExist(tmpTableName)){
+                String dropStml = genDropStml(context, tmpTableName);
+                ConnectContext dropResult= execSQL(context, dropStml);
+                LOG.info("exec drop table stmt, taskid:{}, stmt:{}, ret:{}, msg:{}", taskId, dropStml, dropResult.getState(), dropResult.getState().getInfoMessage());
+            }
+            ConnectContext createTempTableResult = execSQL(context, tmpCreateTableStmt);
+            LOG.info("exec tmp table stmt, taskid:{}, stmt:{}, ret:{}, msg:{}", taskId, tmpCreateTableStmt, createTempTableResult.getState(), createTempTableResult.getState().getInfoMessage());
+            if(createTempTableResult.getState().getStateType()!= QueryState.MysqlStateType.OK ){
+                throw new Throwable("create tmp table failed, sql:"+tmpCreateTableStmt);
+            }
+
+            //step2  insert data to tmp table 
+            String insertStmt = genInsertIntoStmt(context, tmpTableName);
+            ConnectContext insertDataResult = execSQL(context, insertStmt);
+            LOG.info("exec insert into stmt, taskid:{}, stmt:{}, ret:{}, msg:{}, effected_row:{}", taskId, insertStmt, insertDataResult.getState(), insertDataResult.getState().getInfoMessage(), insertDataResult.getState().getAffectedRows());
+            if(insertDataResult.getState().getStateType() != QueryState.MysqlStateType.OK ){
+                throw new Throwable("insert data failed, sql:"+insertStmt);
+            }
+            
+            //step3  swap tmp table with origin table 
+            String swapStmt = genSwapStmt(context, tableName, tmpTableName);
+            ConnectContext swapResult = execSQL(context, swapStmt);
+            LOG.info("exec swap stmt, taskid:{}, stmt:{}, ret:{}, msg:{}", taskId, swapStmt, swapResult.getState(), swapResult.getState().getInfoMessage());
+            if(swapResult.getState().getStateType() != QueryState.MysqlStateType.OK ){
+                throw new Throwable("swap table failed, sql:"+swapStmt);
+            }
+            //step4 update task info
+            context.getTask().setMessage(insertDataResult.getState().getInfoMessage());
+            context.getTask().setState(TaskState.SUCCESS);
+            LOG.info("run mv task success, task_id:{},jobid:{}", taskId, jobId);
+        }catch (AnalysisException e){
+            LOG.warn("run mv task failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, e.getMessage());
+            context.getTask().setMessage("run task failed, caused by " + e.getMessage());
+            context.getTask().setState(TaskState.FAILED);
+         }catch (Throwable e){
+            LOG.warn("run mv task failed, taskid:{}, jobid:{}, msg:{}", taskId, jobId, e.getMessage());
+            context.getTask().setMessage("run task failed, caused by " + e.getMessage());
+            context.getTask().setState(TaskState.FAILED);
+        }finally{
+            context.getTask().setFinishTime(MTMVUtils.getNowTimeStamp());
+            table.mvTaskUnLock();
+            //double check 
+            if(db.isTableExist(tmpTableName)){
+                String dropStml = genDropStml(context, tmpTableName);
+                ConnectContext dropResult= execSQL(context, dropStml);
+                LOG.info("exec drop table stmt, taskid:{}, stmt:{}, ret:{}, msg:{}", taskId, dropStml, dropResult.getState(), dropResult.getState().getInfoMessage());
+            }
+        }
     }
 
-    public void test() throws Exception{
-        //LOG.info("run mv logic here test");
-
-        //source table 
-        // ConnectContext result1=execSQL("DROP MATERIALIZED VIEW  if exists multi_mv;");
-        // ConnectContext result2=execSQL("CREATE MATERIALIZED VIEW  multi_mv BUILD IMMEDIATE  REFRESH COMPLETE start with \"2022-10-27 19:35:00\" next  1 second KEY(username)  DISTRIBUTED BY HASH (username)  buckets 1 PROPERTIES ('replication_num' = '1') AS select t_user.username ,t_user.id from t_user;");
-        // ConnectContext result3=execSQL("insert into multi_mv select t_user.username ,t_user.id from t_user;");    
-
-        // //temp table 
-        // ConnectContext result4=execSQL("DROP MATERIALIZED VIEW  if exists multi_mv_shadow;");
-        // ConnectContext result5=execSQL("CREATE MATERIALIZED VIEW  multi_mv_shadow BUILD IMMEDIATE REFRESH COMPLETE start with \"2022-10-27 19:35:00\" next  1 second KEY(username)   DISTRIBUTED BY HASH (username)  buckets 1 PROPERTIES ('replication_num' = '1') AS select t_user.username ,t_user.id from t_user;");
-        // ConnectContext result6=execSQL("insert into multi_mv_shadow select t_user.username ,t_user.id from t_user;");  
-        // ConnectContext result7=execSQL("insert into multi_mv_shadow select t_user.username ,t_user.id from t_user;");
-
-        // //swap 
-        // ConnectContext result8=execSQL("ALTER TABLE multi_mv REPLACE WITH TABLE multi_mv_shadow PROPERTIES('swap' = 'true');"); 
-
-
-
-        //insertIntoSelect();
-        //swapTable();
-        // ALTER TABLE t_fuck REPLACE WITH TABLE t_fuck_shadow PROPERTIES('swap' = 'true');  
+    private String genDropStml(MTMVTaskContext context, String tableName){
+        String stmt = "DROP MATERIALIZED VIEW  if exists " + tableName;
+        LOG.info("gen drop stmt, taskid:{}, stmt:{}", context.getTask().getTaskId(), stmt);
+        return stmt;
     }
 
-    private ConnectContext execSQL(String originStmt)throws AnalysisException, DdlException{
+    private String genTmpTableName(String tableName){
+        String tmpTableName = FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX + tableName;
+        return  tmpTableName;
+    }
+
+    // ALTER TABLE t1 REPLACE WITH TABLE t1_mirror PROPERTIES('swap' = 'false');  
+    private String genSwapStmt(MTMVTaskContext context, String tableName, String tmpTableName){
+        String stmt = "ALTER TABLE "  +tableName+" REPLACE WITH TABLE " +tmpTableName+ " PROPERTIES('swap' = 'false');";
+        LOG.info("gen swap stmt, taskid:{}, stmt:{}", context.getTask().getTaskId(), stmt);
+        return stmt;
+    }
+
+    private String genInsertIntoStmt(MTMVTaskContext context, String tmpTableName){
+        String query = context.getQuery();
+        String stmt =  "insert into "+tmpTableName+" " + query;
+        stmt = stmt.replaceAll(SystemInfoService.DEFAULT_CLUSTER+":","");
+        LOG.info("gen insert into stmt, taskid:{}, stmt:{}", context.getTask().getTaskId(), stmt);
+        return stmt;
+    }
+
+    private String genCreateTempMaterializedViewStmt(MTMVTaskContext context, String tableName, String tmpTableName){
+        try {
+            String dbName = context.getTask().getDbName();
+            String originViewStmt = getCreateViewStmt(dbName, tableName);
+            String tmpViewStmt = convertCreateViewStmt(originViewStmt, tmpTableName);
+            LOG.info("gen tmp table stmt, taskid:{}, originstml:{},  stmt:{}", context.getTask().getTaskId(), originViewStmt.replaceAll("\n", " "), tmpViewStmt);
+            return tmpViewStmt;
+        }catch (Throwable e) {
+            LOG.warn("fail to gen tmp table stmt, taskid:{}, msg:{}", context.getTask().getTaskId(), e.getMessage());
+            return "";
+        }
+    }
+
+    //Generate temporary view table statement
+    private String convertCreateViewStmt(String stmt, String tmpTable){
+		stmt = stmt.replace("`","");
+		String regex = "CREATE MATERIALIZED VIEW.*\n";
+		String replacement  = "CREATE MATERIALIZED VIEW " + tmpTable + "\n";
+		stmt = stmt.replaceAll(regex, replacement);
+		// regex = "BUILD.*\n";
+		// stmt = stmt.replaceAll(regex, " BUILD deferred never REFRESH \n");
+		stmt = stmt.replaceAll("\n", " ");
+        stmt = stmt.replaceAll(SystemInfoService.DEFAULT_CLUSTER+":","");
+		return stmt;
+	}
+
+    // get origin table create stmt from env
+    private String getCreateViewStmt(String dbName, String tableName) throws AnalysisException {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)
+                .getDbOrAnalysisException(dbName);
+        TableIf table = db.getTableOrAnalysisException(tableName);
+        List<List<String>> rows = Lists.newArrayList();
+        table.readLock();
+        try {
+            List<String> createTableStmt = Lists.newArrayList();
+            Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
+            if (createTableStmt.isEmpty()) {
+               return "";
+            }
+            return createTableStmt.get(0);
+        } catch (Throwable e) {
+            //throw new AnalysisException(e.getMessage());
+        } finally {
+            table.readUnlock();
+        }
+        return "";
+    }
+
+    private ConnectContext execSQL(MTMVTaskContext context, String originStmt)throws AnalysisException, DdlException{
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-
+        ctx.setThreadLocalInfo();
         String fullDbName = ClusterNamespace
-                .getFullName(SystemInfoService.DEFAULT_CLUSTER, "test_db");
+                .getFullName(SystemInfoService.DEFAULT_CLUSTER, context.getTask().getDbName());
         ctx.setDatabase(fullDbName);
         ctx.setQualifiedUser("root");
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
         ctx.getState().reset();
-
+        
         List<StatementBase> stmts = null;
         StatementBase parsedStmt=null;
         stmts = parse(ctx, originStmt);
         parsedStmt = stmts.get(0);
-        // Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        // //parsedStmt.analyze(analyzer);
-        try {
+       try {
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
             executor.execute(); 
-        }catch (Throwable e) {
-             LOG.info("execSQL,{},{}", originStmt, e);
+        } catch (IOException e) {
+            LOG.warn("execSQL failed, taskid:{}, msg:{}, stmt:{}", context.getTask().getTaskId(),  e.getMessage(), originStmt);
+        } catch (UserException e) {
+            LOG.warn("execSQL failed, taskid:{}, msg:{}, stmt:{}", context.getTask().getTaskId(),  e.getMessage(), originStmt);
+        } catch (Throwable e) {
+            LOG.warn("execSQL failed, taskid:{}, msg:{}, stmt:{}", context.getTask().getTaskId(),  e.getMessage(), originStmt);
+        } finally {
+            LOG.debug("execSQL succ, taskid:{}, stmt:{}", context.getTask().getTaskId(), originStmt);
         }
-        LOG.info("execSQL:{},{},info:{},rows:{}",originStmt, ctx.getState(),ctx.getState().getInfoMessage(),ctx.getState().getAffectedRows());
         return ctx;
     }
 
-    void swapTable() throws AnalysisException, DdlException{
-        LOG.info("run mv logic here, start to swapTable");
-        String originStmt = "ALTER TABLE multi_mv_10 REPLACE WITH TABLE multi_mv_10_shadow PROPERTIES('swap' = 'true')";
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-
-        String fullDbName = ClusterNamespace
-                .getFullName(SystemInfoService.DEFAULT_CLUSTER, "test_db");
-        ctx.setDatabase(fullDbName);
-        ctx.setQualifiedUser("root");
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
-        ctx.getState().reset();
-
-        List<StatementBase> stmts = null;
-        StatementBase parsedStmt=null;
-        stmts = parse(ctx, originStmt);
-        parsedStmt = stmts.get(0);
-        // Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        // //parsedStmt.analyze(analyzer);
-        // StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
-        // ctx.setExecutor(executor);
-        // executor.execute(); 
-        LOG.info("swapTable:{},info:{},rows:{}", ctx.getState(),ctx.getState().getInfoMessage(),ctx.getState().getAffectedRows());
-    }
-
-    private void  insertIntoSelect() throws AnalysisException, DdlException {
-        LOG.info("run mv logic here, start to insertIntoSelect");
-        String originStmt = "insert into multi_mv_10 select t_user.username ,t_user.id from t_user;";
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-
-        String fullDbName = ClusterNamespace
-                .getFullName(SystemInfoService.DEFAULT_CLUSTER, "test_db");
-        ctx.setDatabase(fullDbName);
-        ctx.setQualifiedUser("root");
-        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("root", "%"));
-        ctx.getState().reset();
-
-        // String originStmt = "insert into multi_mv_08 select t_user.username ,t_user.id from t_user;";
-        // List<StatementBase> stmts = null;
-        // StatementBase parsedStmt=null;
-        // stmts = parse(ctx, originStmt);
-        // parsedStmt = stmts.get(0);
-        // // Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        // // //parsedStmt.analyze(analyzer);
-        // StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
-        // ctx.setExecutor(executor);
-        // executor.execute(); 
-        LOG.info("mtmv execute state:{},info:{},rows:{}", ctx.getState(),ctx.getState().getInfoMessage(),ctx.getState().getAffectedRows());
-    }
-
     private List<StatementBase> parse(ConnectContext ctx, String originStmt) throws AnalysisException, DdlException {
-        LOG.debug("the originStmts are: {}", originStmt);
         // Parse statement with parser generated by CUP&FLEX
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);

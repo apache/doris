@@ -32,12 +32,21 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.apache.doris.common.FeConstants;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class MTMVJobFactory {
+    private static final Logger LOG = LogManager.getLogger(MTMVTaskProcessor.class);
     public static boolean isGenerateJob(MaterializedView materializedView) {
         boolean completeRefresh =  materializedView.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE;
         BuildMode buildMode = materializedView.getBuildMode();
         MVRefreshTriggerInfo triggerInfo =  materializedView.getRefreshInfo().getTriggerInfo();
+        //cannnot generate job when create temp view table
+        if(materializedView.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)){
+            return false;
+        }
         if (buildMode == BuildMode.IMMEDIATE) {
             return completeRefresh;
         } else {

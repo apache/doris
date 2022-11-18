@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import org.apache.doris.catalog.TableIf.TableType;
 
 /**
  * Database interface.
@@ -116,6 +118,15 @@ public interface DatabaseIf<T extends TableIf> {
         if (table.getType() != tableType) {
             throw new MetaNotFoundException(
                     "table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
+        }
+        return table;
+    }
+
+    default T getTableViewOrMetaException(String tableName) throws MetaNotFoundException {
+        T table = getTableOrMetaException(tableName);
+        if (table.getType() != TableIf.TableType.OLAP && table.getType() != TableIf.TableType.MATERIALIZED_VIEW) {
+            throw new MetaNotFoundException(
+                    "table type is not olap or materialized view, tableName=" + tableName + ", type=" + table.getType());
         }
         return table;
     }

@@ -742,11 +742,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_ALTER_MTMV_JOB: {
-                data = ChangeMTMVJob.read(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_DROP_MTMV_TASK: {
                 data = DropMTMVTask.read(in);
                 isRead = true;

@@ -29,6 +29,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.TimeUnit;
+
+
 public class MaterializedView extends OlapTable {
     @SerializedName("buildMode")
     private BuildMode buildMode;
@@ -36,6 +40,20 @@ public class MaterializedView extends OlapTable {
     private MVRefreshInfo refreshInfo;
     @SerializedName("query")
     private String query;
+
+    private final ReentrantLock mvTaskLock = new ReentrantLock(true);
+
+    public boolean tryMvTaskLock() {
+        try {
+            return mvTaskLock.tryLock(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            return false;
+        }
+    }
+
+    public void mvTaskUnLock() {
+        this.mvTaskLock.unlock();
+    }
 
     // For deserialization
     public MaterializedView() {
