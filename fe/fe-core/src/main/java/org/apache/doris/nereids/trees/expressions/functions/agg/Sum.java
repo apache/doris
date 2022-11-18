@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -83,7 +84,7 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
         } else if (dataType instanceof NumericType) {
             return DoubleType.INSTANCE;
         } else {
-            throw new IllegalStateException("Unsupported sum type: " + dataType);
+            throw new AnalysisException("sum requires a numeric parameter: " + dataType);
         }
     }
 }

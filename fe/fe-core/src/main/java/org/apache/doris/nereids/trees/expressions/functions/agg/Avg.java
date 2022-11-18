@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -82,8 +84,10 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
             return DateType.INSTANCE;
         } else if (dataType.isDateTime()) {
             return DateTimeType.INSTANCE;
-        } else {
+        } else if (dataType instanceof NumericType) {
             return DoubleType.INSTANCE;
+        } else {
+            throw new AnalysisException("avg requires a numeric parameter: " + dataType);
         }
     }
 }
