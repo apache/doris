@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <memory>
-
 #include "common/object_pool.h"
 #include "runtime/type_limit.h"
 
@@ -37,16 +35,13 @@ public:
     // merge from other minmax_func
     virtual Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) = 0;
     virtual ~MinMaxFuncBase() = default;
-
-    virtual std::unique_ptr<MinMaxFuncBase> deep_copy() = 0;
 };
 
 template <class T>
 class MinMaxNumFunc : public MinMaxFuncBase {
 public:
     MinMaxNumFunc() = default;
-    MinMaxNumFunc(T max, T min, bool empty) : _max(max), _min(min), _empty(empty) {}
-    ~MinMaxNumFunc() override = default;
+    ~MinMaxNumFunc() = default;
 
     void insert(const void* data) override {
         if (data == nullptr) {
@@ -137,10 +132,6 @@ public:
         _min = *(T*)min_data;
         _max = *(T*)max_data;
         return Status::OK();
-    }
-
-    std::unique_ptr<MinMaxFuncBase> deep_copy() override {
-        return std::make_unique<MinMaxNumFunc<T>>(_max, _min, _empty);
     }
 
 private:

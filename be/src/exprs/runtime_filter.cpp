@@ -1068,7 +1068,7 @@ private:
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
-    std::unique_ptr<MinMaxFuncBase> _minmax_func;
+    std::shared_ptr<MinMaxFuncBase> _minmax_func;
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloomfilter_func;
     bool _is_bloomfilter = false;
@@ -1091,31 +1091,9 @@ Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRunt
 }
 
 Status IRuntimeFilter::apply_from_other(IRuntimeFilter* other) {
-    auto copy_hybrid_set = [](HybridSetBase* src, HybridSetBase* dst) {
-        auto it = src->begin();
-        while (it->has_next()) {
-            dst->insert(it->get_value());
-            it->next();
-        }
-    };
-    switch (other->_wrapper->_filter_type) {
-    case RuntimeFilterType::IN_FILTER:
-        copy_hybrid_set(other->_wrapper->_hybrid_set.get(), _wrapper->_hybrid_set.get());
-        break;
-    case RuntimeFilterType::BLOOM_FILTER:
-        _wrapper->_bloomfilter_func->light_copy(other->_wrapper->get_bloomfilter());
-        break;
-    case RuntimeFilterType::MINMAX_FILTER:
-        _wrapper->_minmax_func = other->_wrapper->_minmax_func->deep_copy();
-        break;
-    case RuntimeFilterType::IN_OR_BLOOM_FILTER:
-        copy_hybrid_set(other->_wrapper->_hybrid_set.get(), _wrapper->_hybrid_set.get());
-        _wrapper->_bloomfilter_func->light_copy(other->_wrapper->get_bloomfilter());
-        break;
-    default:
-        return Status::InvalidArgument("unknown filter type");
-        break;
-    }
+    _wrapper->_hybrid_set = other->_wrapper->_hybrid_set;
+    _wrapper->_bloomfilter_func = other->_wrapper->_bloomfilter_func;
+    _wrapper->_minmax_func = other->_wrapper->_minmax_func;
     _wrapper->_filter_type = other->_wrapper->_filter_type;
     _runtime_filter_type = other->_runtime_filter_type;
     return Status::OK();
