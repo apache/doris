@@ -102,7 +102,7 @@ private:
     int64_t _mem_used;
 
     std::shared_ptr<Arena> _arena;
-    HashTableVariantsPtr _hash_table_variants;
+    HashTableVariantsSPtr _hash_table_variants;
 
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 

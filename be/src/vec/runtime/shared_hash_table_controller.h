@@ -42,7 +42,7 @@ template <typename RowRefListType>
 struct SerializedHashTableContext {
     using Mapped = RowRefListType;
     using HashTable = HashMap<StringRef, Mapped>;
-    using HashTablePtr = std::shared_ptr<HashMap<StringRef, Mapped>>;
+    using HashTableSPtr = std::shared_ptr<HashMap<StringRef, Mapped>>;
     using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
     using Iter = typename HashTable::iterator;
 
@@ -73,7 +73,7 @@ template <class T, typename RowRefListType>
 struct PrimaryTypeHashTableContext {
     using Mapped = RowRefListType;
     using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
-    using HashTablePtr = std::shared_ptr<HashMap<T, Mapped, HashCRC32<T>>>;
+    using HashTableSPtr = std::shared_ptr<HashMap<T, Mapped, HashCRC32<T>>>;
     using State =
             ColumnsHashing::HashMethodOneNumber<typename HashTable::value_type, Mapped, T, false>;
     using Iter = typename HashTable::iterator;
@@ -108,7 +108,7 @@ template <class T, bool has_null, typename RowRefListType>
 struct FixedKeyHashTableContext {
     using Mapped = RowRefListType;
     using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
-    using HashTablePtr = std::shared_ptr<HashMap<T, Mapped, HashCRC32<T>>>;
+    using HashTableSPtr = std::shared_ptr<HashMap<T, Mapped, HashCRC32<T>>>;
     using State = ColumnsHashing::HashMethodKeysFixed<typename HashTable::value_type, T, Mapped,
                                                       has_null, false>;
     using Iter = typename HashTable::iterator;
@@ -165,11 +165,11 @@ using HashTableVariants = std::variant<
         I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
         I256FixedKeyHashTableContext<false, RowRefListWithFlags>>;
 
-using HashTableVariantsPtr = std::shared_ptr<HashTableVariants>;
+using HashTableVariantsSPtr = std::shared_ptr<HashTableVariants>;
 
 struct SharedHashTableEntry {
     SharedHashTableEntry(
-            Status status_, HashTableVariantsPtr hash_table_ptr_,
+            Status status_, HashTableVariantsSPtr hash_table_ptr_,
             const std::vector<Block>& build_blocks_,
             std::shared_ptr<RuntimeFilterSlotsBase<VExprContext>> runtime_filter_slots_,
             std::shared_ptr<Arena> arena_, std::shared_ptr<ObjectPool> runtime_filter_pool_)
@@ -192,7 +192,7 @@ struct SharedHashTableEntry {
     }
 
     Status status;
-    HashTableVariantsPtr hash_table_ptr;
+    HashTableVariantsSPtr hash_table_ptr;
     std::vector<Block> build_blocks;
     std::shared_ptr<RuntimeFilterSlotsBase<VExprContext>> runtime_filter_slots;
     std::shared_ptr<Arena> arena;
