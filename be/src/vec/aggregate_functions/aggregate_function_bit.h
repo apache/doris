@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionBitwise.h
+// and modified by Doris
 
 #pragma once
 
@@ -29,13 +32,13 @@ namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionGroupBitOrData {
-    static constexpr auto name = "groupBitOr";
+    static constexpr auto name = "group_bit_or";
 
     T bit = 0;
 
     void add(T value) { bit |= value; }
 
-    void merge(const AggregateFunctionGroupBitOrData& rhs) { bit |= rhs.sum; }
+    void merge(const AggregateFunctionGroupBitOrData& rhs) { bit |= rhs.bit; }
 
     void write(BufferWritable& buf) const { write_binary(bit, buf); }
 
@@ -46,13 +49,13 @@ struct AggregateFunctionGroupBitOrData {
 
 template <typename T>
 struct AggregateFunctionGroupBitAndData {
-    static constexpr auto name = "groupBitAnd";
+    static constexpr auto name = "group_bit_and";
 
     T bit = -1;
 
     void add(T value) { bit &= value; }
 
-    void merge(const AggregateFunctionGroupBitAndData& rhs) { bit &= rhs.sum; }
+    void merge(const AggregateFunctionGroupBitAndData& rhs) { bit &= rhs.bit; }
 
     void write(BufferWritable& buf) const { write_binary(bit, buf); }
 
@@ -63,13 +66,13 @@ struct AggregateFunctionGroupBitAndData {
 
 template <typename T>
 struct AggregateFunctionGroupBitXorData {
-    static constexpr auto name = "groupBitXor";
+    static constexpr auto name = "group_bit_xor";
 
     T bit = 0;
 
     void add(T value) { bit ^= value; }
 
-    void merge(const AggregateFunctionGroupBitXorData& rhs) { bit ^= rhs.sum; }
+    void merge(const AggregateFunctionGroupBitXorData& rhs) { bit ^= rhs.bit; }
 
     void write(BufferWritable& buf) const { write_binary(bit, buf); }
 
@@ -83,17 +86,20 @@ template <typename T, typename Data>
 class AggregateFunctionBitwise final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>> {
 public:
-    AggregateFunctionBitwise(const DataTypePtr& type)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>({type}, {}) {}
+    // AggregateFunctionBitwise(const DataTypePtr& type)
+    //         : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(type, {}) {}
+
+    AggregateFunctionBitwise(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(argument_types_,
+                                                                                    {}) {}
 
     using ResultType = std::conditional_t<IsNumber<T>, Int64, Int32>;
     using ResultDataType =
             std::conditional_t<IsNumber<T>, DataTypeNumber<Int64>, DataTypeNumber<Int32>>;
-    using ColVecType = std::conditional_t<IsNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    using ColVecResult =
-            std::conditional_t<IsNumber<T>, ColumnVector<Int64>, ColumnVector<Int32>>;
+    using ColVecType = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnVector<T>>;
+    using ColVecResult = std::conditional_t<IsNumber<T>, ColumnVector<Int64>, ColumnVector<Int32>>;
 
-    String get_name() const override { return Data::name(); }
+    String get_name() const override { return Data::name; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeNumber<T>>(); }
 
@@ -103,7 +109,7 @@ public:
         this->data(place).add(column.get_data()[row_num]);
     }
 
-    void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
+    // void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {

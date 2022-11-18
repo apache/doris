@@ -2479,6 +2479,31 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
+        //group_bit_function
+        addBuiltin(AggregateFunction.createBuiltin("group_bit_or", Lists.newArrayList(Type.BIGINT),
+                Type.BIGINT, Type.BIGINT,
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_bit_and", Lists.newArrayList(Type.BIGINT),
+                Type.BIGINT, Type.BIGINT,
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+        addBuiltin(AggregateFunction.createBuiltin("group_bit_xor", Lists.newArrayList(Type.BIGINT),
+                Type.BIGINT, Type.BIGINT,
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
         //quantile_state
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
                 Type.QUANTILE_STATE,

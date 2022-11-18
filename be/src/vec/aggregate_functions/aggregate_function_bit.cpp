@@ -14,11 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionBitwise.cpp
+// and modified by Doris
 
 #include "vec/aggregate_functions/aggregate_function_bit.h"
 
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
 
@@ -33,21 +35,29 @@ AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
                                     " is illegal, because it cannot be used in bitwise operations");
     }
 
-    AggregateFunctionPtr res(create_with_unsigned_integer_type<AggregateFunctionBitwise, Data>(
-            *argument_types[0], argument_types[0]));
-
-    if (!res) {
-        LOG(WARNING) << fmt::format("Illegal type " + argument_types[0]->get_name() +
-                                    " of argument for aggregate function " + name);
+    auto type = argument_types[0].get();
+    if (type->is_nullable()) {
+        type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
     }
 
-    return res;
+    WhichDataType which(*type);
+    if (which.is_int32()) {
+        return AggregateFunctionPtr(
+                new AggregateFunctionBitwise<Int32, Data<Int32>>(argument_types));
+    }
+
+    LOG(WARNING) << fmt::format("Illegal type " + argument_types[0]->get_name() +
+                                " of argument for aggregate function " + name);
+    return nullptr;
 }
 
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("groupBitOr", createAggregateFunctionBitwise<AggregateFunctionGroupBitOrData>);
-    factory.register_function("groupBitAnd", createAggregateFunctionBitwise<AggregateFunctionGroupBitAndData>);
-    factory.register_function("groupBitXor", createAggregateFunctionBitwise<AggregateFunctionGroupBitXorData>);
+    factory.register_function("group_bit_or",
+                              createAggregateFunctionBitwise<AggregateFunctionGroupBitOrData>);
+    factory.register_function("group_bit_and",
+                              createAggregateFunctionBitwise<AggregateFunctionGroupBitAndData>);
+    factory.register_function("group_bit_xor",
+                              createAggregateFunctionBitwise<AggregateFunctionGroupBitXorData>);
 }
 
 } // namespace doris::vectorized
