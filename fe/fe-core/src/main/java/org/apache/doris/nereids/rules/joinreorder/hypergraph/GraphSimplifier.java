@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -293,10 +294,10 @@ public class GraphSimplifier {
     }
 
     private boolean tryGetSuperset(BitSet bitSet1, BitSet bitSet2, List<BitSet> superset) {
-        if (isSubset(bitSet1, bitSet2)) {
+        if (Bitmap.isSubset(bitSet1, bitSet2)) {
             superset.add(bitSet2);
             return true;
-        } else if (isSubset(bitSet2, bitSet1)) {
+        } else if (Bitmap.isSubset(bitSet2, bitSet1)) {
             superset.add(bitSet1);
             return true;
         }
@@ -348,13 +349,6 @@ public class GraphSimplifier {
                 }
             }
         }
-    }
-
-    private boolean isSubset(BitSet bitSet1, BitSet bitSet2) {
-        BitSet bitSet = new BitSet();
-        bitSet.or(bitSet1);
-        bitSet.or(bitSet2);
-        return bitSet.equals(bitSet2);
     }
 
     class SimplificationStep {

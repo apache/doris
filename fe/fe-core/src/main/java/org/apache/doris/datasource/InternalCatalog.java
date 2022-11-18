@@ -2026,10 +2026,32 @@ public class InternalCatalog implements CatalogIf<Database> {
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
-        // analyse sequence column
+        // analyse sequence map column
+        String sequenceMapCol = null;
+        try {
+            sequenceMapCol = PropertyAnalyzer.analyzeSequenceMapCol(properties, olapTable.getKeysType());
+            if (sequenceMapCol != null) {
+                Column col = olapTable.getColumn(sequenceMapCol);
+                if (col == null) {
+                    throw new DdlException("The specified sequence column[" + sequenceMapCol + "] not exists");
+                }
+                if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
+                    throw new DdlException("Sequence type only support integer types and date types");
+                }
+                olapTable.setSequenceMapCol(sequenceMapCol);
+                olapTable.setSequenceInfo(col.getType());
+            }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        // analyse sequence type
         Type sequenceColType = null;
         try {
             sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
+            if (sequenceMapCol != null && sequenceColType != null) {
+                throw new DdlException("The sequence_col and sequence_type cannot be set at the same time");
+            }
             if (sequenceColType != null) {
                 olapTable.setSequenceInfo(sequenceColType);
             }

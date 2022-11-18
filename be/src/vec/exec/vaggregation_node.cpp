@@ -1198,6 +1198,7 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
         }
     }
 
+    SCOPED_TIMER(_get_results_timer);
     std::visit(
             [&](auto&& agg_method) -> void {
                 agg_method.init_once();
