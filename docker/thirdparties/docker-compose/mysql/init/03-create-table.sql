@@ -44,7 +44,7 @@ CREATE TABLE doris_test.ex_tb2 (
   count_value varchar(20)
 );
 
-CREATE TABLE `doris_test.ex_tb3` (
+CREATE TABLE doris_test.ex_tb3 (
   `game_code` varchar(20) NOT NULL,
   `plat_code` varchar(20) NOT NULL,
   `account` varchar(100) NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE `doris_test.ex_tb3` (
   PRIMARY KEY (`game_code`,`plat_code`,`account`,`login_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE `doris_test.ex_tb4` (
+CREATE TABLE doris_test.ex_tb4 (
   `products_id` int(11) NOT NULL AUTO_INCREMENT,
   `orders_id` int(11) NOT NULL,
   `sales_add_time` datetime NOT NULL COMMENT '领款时间',
@@ -66,7 +66,7 @@ CREATE TABLE `doris_test.ex_tb4` (
   UNIQUE KEY `idx_orders_id` (`orders_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1985724 DEFAULT CHARSET=utf8;
 
-CREATE TABLE `doris_test.ex_tb5` (
+CREATE TABLE doris_test.ex_tb5 (
   `id` int(10) unsigned not null AUTO_INCREMENT comment "主建",
   `apply_id` varchar(32) Default null,
   `begin_value` mediumtext,
