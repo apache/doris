@@ -25,7 +25,11 @@
 #include <string>
 
 #include "common/logging.h"
+#ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
+#else
+#include <gperftools/malloc_extension.h>
+#endif
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 
@@ -56,16 +60,21 @@ public:
     }
 
     static inline int64_t get_tc_metrics(const std::string& name) {
+#ifndef USE_JEMALLOC
         size_t value = 0;
         MallocExtension::instance()->GetNumericProperty(name.c_str(), &value);
         return value;
+#endif
+        return 0;
     }
     static inline int64_t get_je_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
         size_t value = 0;
         size_t sz = sizeof(value);
         if (je_mallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
             return value;
         }
+#endif
         return 0;
     }
     static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
