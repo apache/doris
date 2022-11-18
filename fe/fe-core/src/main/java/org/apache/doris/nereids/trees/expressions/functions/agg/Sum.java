@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,7 +49,7 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
         DataType implicitCastType = implicitCast(argumentTypes.get(0));
-        return FunctionSignature.ret(implicitCastType).args(argumentTypes.get(0));
+        return FunctionSignature.ret(implicitCastType).args(NumericType.INSTANCE);
     }
 
     @Override
@@ -79,8 +80,10 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
             return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (dataType instanceof IntegralType) {
             return BigIntType.INSTANCE;
-        } else {
+        } else if (dataType instanceof NumericType) {
             return DoubleType.INSTANCE;
+        } else {
+            throw new IllegalStateException("Unsupported sum type: " + dataType);
         }
     }
 }
