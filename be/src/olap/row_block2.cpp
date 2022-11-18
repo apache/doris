@@ -292,7 +292,7 @@ Status RowBlockV2::_copy_data_to_column(int cid,
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
 
         for (uint16_t j = 0; j < _selected_size; ++j) {
             if (!nullable_mark_array[j]) {
