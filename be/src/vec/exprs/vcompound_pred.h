@@ -16,38 +16,116 @@
 // under the License.
 
 #pragma once
-#include "runtime/runtime_state.h"
-#include "vec/exprs/vectorized_fn_call.h"
+#include <gen_cpp/Opcodes_types.h>
+
+#include "vec/columns/column.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function.h"
 
 namespace doris::vectorized {
 
-class VcompoundPred final : public VectorizedFnCall {
+inline std::string compound_operator_to_string(TExprOpcode::type op) {
+    if (op == TExprOpcode::COMPOUND_AND) {
+        return "and";
+    } else if (op == TExprOpcode::COMPOUND_OR) {
+        return "or";
+    } else {
+        return "not";
+    }
+}
+
+class VcompoundPred : public VExpr {
 public:
-    VcompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
-        switch (node.opcode) {
-        case TExprOpcode::COMPOUND_AND:
-            _fn.name.function_name = "and";
-            break;
-        case TExprOpcode::COMPOUND_OR:
-            _fn.name.function_name = "or";
-            break;
-        default:
-            _fn.name.function_name = "not";
-            break;
+    VcompoundPred(const TExprNode& node) : VExpr(node) {
+        _op = node.opcode;
+        _expr_name = "CompoundPredicate (" + compound_operator_to_string(_op) + ")";
+    }
+
+    VExpr* clone(ObjectPool* pool) const override { return pool->add(new VcompoundPred(*this)); }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute(VExprContext* context, doris::vectorized::Block* block,
+                   int* result_column_id) override {
+        doris::vectorized::ColumnNumbers arguments(_children.size());
+        for (int i = 0; i < _children.size(); ++i) {
+            int column_id = -1;
+            RETURN_IF_ERROR(_children[i]->execute(context, block, &column_id));
+            arguments[i] = column_id;
         }
+
+        size_t size = block->get_by_position(arguments[0]).column->size();
+        uint8* data = _get_raw_data(block->get_by_position(arguments[0]).column);
+        const uint8* data_rhs = nullptr;
+
+        if (_children.size() == 2) {
+            data_rhs = _get_raw_data(block->get_by_position(arguments[1]).column);
+
+            if (const uint8* null_map = _get_null_map(block->get_by_position(arguments[1]).column);
+                null_map != nullptr) {
+                for (size_t i = 0; i < size; i++) {
+                    data[i] &= !null_map[i];
+                }
+            }
+        }
+
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            for (size_t i = 0; i < size; i++) {
+                data[i] &= data_rhs[i];
+            }
+        } else if (_op == TExprOpcode::COMPOUND_OR) {
+            for (size_t i = 0; i < size; i++) {
+                data[i] |= data_rhs[i];
+            }
+        } else {
+            for (size_t i = 0; i < size; i++) {
+                data[i] = !data[i];
+            }
+        }
+
+        *result_column_id = arguments[0];
+        return Status::OK();
     }
 
     std::string debug_string() const override {
         std::stringstream out;
-        out << "CompoundPredicate {" << _fn.name.function_name;
-        out << " (" << _children[0]->debug_string();
+        out << _expr_name << "{\n";
+        out << _children[0]->debug_string();
         if (children().size() > 1) {
-            out << ", " << _children[1]->debug_string();
+            out << ",\n" << _children[1]->debug_string();
         }
-        out << ")}";
+        out << "}";
         return out.str();
     }
+
+private:
+    uint8* _get_raw_data(ColumnPtr column) const {
+        if (column->is_nullable()) {
+            return assert_cast<ColumnUInt8*>(
+                           assert_cast<ColumnNullable*>(column->assume_mutable().get())
+                                   ->get_nested_column_ptr().get())
+                    ->get_data()
+                    .data();
+        } else {
+            return assert_cast<ColumnUInt8*>(column->assume_mutable().get())->get_data().data();
+        }
+    }
+
+    uint8* _get_null_map(ColumnPtr column) const {
+        if (column->is_nullable()) {
+            return assert_cast<ColumnUInt8*>(
+                           assert_cast<ColumnNullable*>(column->assume_mutable().get())
+                                   ->get_null_map_column_ptr().get())
+                    ->get_data()
+                    .data();
+        } else {
+            return nullptr;
+        }
+    }
+
+    TExprOpcode::type _op;
+
+    std::string _expr_name;
 };
 } // namespace doris::vectorized
