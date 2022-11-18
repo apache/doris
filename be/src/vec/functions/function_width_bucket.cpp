@@ -37,26 +37,33 @@ public:
     size_t get_number_of_arguments() const override { return 4; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeInt64>());
+        if(arguments[0]->is_nullable()){
+            return make_nullable(std::make_shared<DataTypeInt64>());
+        }else{
+            return std::make_shared<DataTypeInt64>();
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        
         ColumnPtr expr_ptr= block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr min_value_ptr= block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         ColumnPtr max_value_ptr= block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
         ColumnPtr num_buckets_ptr = block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
         int64_t num_buckets = num_buckets_ptr->get_int(0);
 
+        auto nested_column_ptr = ColumnInt64::create(input_rows_count, 0);
         DataTypePtr expr_type = block.get_by_position(arguments[0]).type;
-
-        auto nested_column_ptr= ColumnInt64::create(input_rows_count, 0);
         
         _execute_by_type(*expr_ptr,*min_value_ptr,*max_value_ptr,num_buckets,*nested_column_ptr,expr_type);
 
-        auto dest_column_ptr = ColumnNullable::create(std::move(nested_column_ptr),ColumnUInt8::create(nested_column_ptr->size(), 0));
-        block.replace_by_position(result, std::move(dest_column_ptr));
+        WhichDataType which(remove_nullable(expr_type));
+        if(which.is_nullable()){
+            auto dest_column_ptr = ColumnNullable::create(std::move(nested_column_ptr),ColumnUInt8::create(nested_column_ptr->size(), 0));
+            block.replace_by_position(result, std::move(dest_column_ptr));
+        }else{
+            block.replace_by_position(result,std::move(nested_column_ptr));
+        }
         return Status::OK();
     }
 
@@ -78,14 +85,15 @@ private:
             if(expr_column_concrete.get_data()[i]<min_value){
                 continue;
             }
-            else if (expr_column_concrete.get_data()[i]>max_value){
+            else if (expr_column_concrete.get_data()[i]>=max_value){
                 nested_column_concrete.get_data()[i]=num_buckets+1;
             }else{
                 if((max_value-min_value)/num_buckets==0){
                     continue;
                 }
-                nested_column_concrete.get_data()[i]=1+(expr_column_concrete.get_data()[i]-min_value)/((max_value-min_value)/num_buckets);
+                nested_column_concrete.get_data()[i]=(int64_t)(1+(expr_column_concrete.get_data()[i]-min_value)/((max_value-min_value)/num_buckets));
             }
+            LOG(WARNING) <<std::to_string(i)+ "   "+ std::to_string(nested_column_concrete.get_data()[i]);
         }
     }
 
