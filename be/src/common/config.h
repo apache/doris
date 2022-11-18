@@ -44,7 +44,7 @@ CONF_String(priority_networks, "");
 
 // memory mode
 // performance or compact
-CONF_String(memory_mode, "performance");
+CONF_String(memory_mode, "compact");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
