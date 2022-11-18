@@ -1129,6 +1129,9 @@ public class SingleNodePlanner {
         }
 
         if (analyzer.hasEmptySpjResultSet() && selectStmt.getAggInfo() != null) {
+            if (selectStmt.getGroupByClause().isGroupByExtension()) {
+                rowTuples.add(selectStmt.getGroupingInfo().getVirtualTuple().getId());
+            }
             final PlanNode emptySetNode = new EmptySetNode(ctx.getNextNodeId(), rowTuples);
             emptySetNode.init(analyzer);
             emptySetNode.setOutputSmap(selectStmt.getBaseTblSmap());
