@@ -76,6 +76,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         if (it == _tablets_channels.end()) {
             if (_finished_channel_ids.find(index_id) != _finished_channel_ids.end()) {
                 // this channel is already finished, just return OK
+                LOG(INFO) << "load channel " << _load_id << " add batch is already successful";
                 return Status::OK();
             }
             std::stringstream ss;
@@ -97,6 +98,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
+        LOG(INFO) << "load channel " << _load_id << " add batch sends eos";
         RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
                                        &finished, request.partition_ids(),
                                        response->mutable_tablet_vec(),
