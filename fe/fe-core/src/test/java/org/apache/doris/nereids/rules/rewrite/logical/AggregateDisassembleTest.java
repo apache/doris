@@ -45,7 +45,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
-import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class AggregateDisassembleTest implements PatternMatchSupported {
@@ -277,7 +276,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         // id
         Expression localOutput0 = rStudent.getOutput().get(0);
         // sum
-        Sum localOutput1 = new Sum(new AggregateParam(false, false, Optional.empty()), rStudent.getOutput().get(0).toSlot());
+        Sum localOutput1 = new Sum(new AggregateParam(false, false, true), rStudent.getOutput().get(0).toSlot());
         // age
         Expression localOutput2 = rStudent.getOutput().get(2);
         // id
