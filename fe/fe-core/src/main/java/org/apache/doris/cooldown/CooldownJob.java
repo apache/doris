@@ -128,7 +128,7 @@ public class CooldownJob implements Writable {
         LOG.info("send cooldown job {} state to {}", jobId, this.jobState);
     }
 
-    protected void runSendJob() throws CooldownException{
+    protected void runSendJob() throws CooldownException {
         Preconditions.checkState(jobState == JobState.SEND_CONF, jobState);
         LOG.info("begin to send cooldown conf tasks. job: {}", jobId);
         if (!FeConstants.runningUnitTest) {
