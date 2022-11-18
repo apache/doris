@@ -21,19 +21,23 @@ suite("test_nereids_row_policy") {
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
 
-    def assertQueryResult = { size, enableNereids=true ->
-        def result = connect(user=user, password='123456', url=url) {
-            sql "set enable_nereids_planner = ${enableNereids}"
+    def assertQueryResult = { size ->
+        def result1 = connect(user=user, password='123456', url=url) {
+            sql "set enable_nereids_planner = false"
             sql "SELECT * FROM ${tableName}"
         }
-        assertEquals(result.size(), size)
+        def result2 = connect(user=user, password='123456', url=url) {
+            sql "set enable_nereids_planner = true"
+            sql "SELECT * FROM ${tableName}"
+        }
+        assertEquals(size, result1.size())
+        assertEquals(size, result2.size())
     }
 
-    def createPolicy = { name, predicate, enableNereids=true ->
-        sql "set enable_nereids_planner = ${enableNereids}"
+    def createPolicy = { name, predicate, type ->
         sql """
             CREATE ROW POLICY ${name} ON ${dbName}.${tableName}
-            AS RESTRICTIVE TO ${user} USING (${predicate})
+            AS ${type} TO ${user} USING (${predicate})
         """
     }
 
@@ -64,28 +68,24 @@ suite("test_nereids_row_policy") {
     // no policy
     assertQueryResult 3
 
-    // create original policy
-    createPolicy"original", "k = 1", false
+    // (k = 1)
+    createPolicy"policy0", "k = 1", "RESTRICTIVE"
     assertQueryResult 2
 
-    // merge nereids policy1. result: original policy (k=1 && v=1)
-    createPolicy"policy1", "v = 1"
+    // (k = 1 and v = 1)
+    createPolicy"policy1", "v = 1", "RESTRICTIVE"
     assertQueryResult 1
 
-    // drop original policy. result: nereids policy (v=1)
-    dropPolciy "original"
+    // (v = 1)
+    dropPolciy "policy0"
     assertQueryResult 2
 
-    // merger neredis policy2. result: nereids policy (v=1 && k=1)
-    createPolicy"policy2", "k = 1"
+    // (v = 1) and (k = 1)
+    createPolicy"policy2", "k = 1", "PERMISSIVE"
     assertQueryResult 1
 
-    // drop neredis policy1. result: nereids policy (k=1)
-    dropPolciy "policy1"
+   // (v = 1) and (k = 1 or k = 2)
+    createPolicy"policy3", "k = 2", "PERMISSIVE"
     assertQueryResult 2
-
-   // drop neredis policy2
-    dropPolciy"policy2"
-    assertQueryResult 3
 
 }

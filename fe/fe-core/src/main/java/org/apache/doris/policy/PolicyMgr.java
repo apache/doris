@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -285,6 +286,26 @@ public class PolicyMgr implements Writable {
     }
 
     /**
+     *  Match all row policy and return them.
+     **/
+    public List<RowPolicy> getMatchRowPolicy(long dbId, long tableId, UserIdentity user) {
+        RowPolicy checkedPolicy = new RowPolicy();
+        checkedPolicy.setDbId(dbId);
+        checkedPolicy.setTableId(tableId);
+        checkedPolicy.setUser(user);
+        readLock();
+        try {
+            return getPoliciesByType(PolicyTypeEnum.ROW).stream()
+                .filter(p -> p.matchPolicy(checkedPolicy))
+                .filter(p -> !p.isInvalid())
+                .map(p -> (RowPolicy) p)
+                .collect(Collectors.toList());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
      * Show policy through stmt.
      **/
     public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
@@ -370,7 +391,8 @@ public class PolicyMgr implements Writable {
                         if (frontPolicy == null) {
                             andMap.put(key, rowPolicy.clone());
                         } else {
-                            frontPolicy.mergeByAnd(rowPolicy);
+                            frontPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND,
+                                    frontPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
                             andMap.put(key, frontPolicy.clone());
                         }
                     } else {
@@ -378,7 +400,8 @@ public class PolicyMgr implements Writable {
                         if (frontPolicy == null) {
                             orMap.put(key, rowPolicy.clone());
                         } else {
-                            frontPolicy.mergeByOr(rowPolicy);
+                            frontPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.OR,
+                                    frontPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
                             orMap.put(key, frontPolicy.clone());
                         }
                     }
@@ -390,7 +413,9 @@ public class PolicyMgr implements Writable {
                 policyKeys.forEach(key -> {
                     if (andMap.containsKey(key) && orMap.containsKey(key)) {
                         RowPolicy mergePolicy = andMap.get(key).clone();
-                        mergePolicy.mergeByAnd(orMap.get(key));
+                        mergePolicy.setWherePredicate(
+                                new CompoundPredicate(CompoundPredicate.Operator.AND, mergePolicy.getWherePredicate(),
+                                        orMap.get(key).getWherePredicate()));
                         mergeMap.put(key, mergePolicy);
                     }
                     if (!andMap.containsKey(key)) {

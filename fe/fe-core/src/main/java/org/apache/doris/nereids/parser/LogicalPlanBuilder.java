@@ -146,6 +146,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -325,10 +326,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    private LogicalPlan withCheckPolicy(LogicalPlan plan) {
+        return new LogicalCheckPolicy(plan);
+    }
+
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
+<<<<<<< HEAD
         return withTableAlias(new UnboundRelation(tableId), ctx.tableAlias());
+=======
+        LogicalPlan relation = withCheckPolicy(new UnboundRelation(tableId));
+        if (null == ctx.tableAlias().strictIdentifier()) {
+            return relation;
+        }
+        return withTableAlias(relation, ctx.tableAlias());
+>>>>>>> update
     }
 
     @Override

@@ -402,7 +402,7 @@ class MemoTest implements PatternMatchSupported {
             }
 
             public A(List<String> nameParts, State state, Optional<GroupExpression> groupExpression) {
-                super(nameParts, false, groupExpression, Optional.empty());
+                super(nameParts, groupExpression, Optional.empty());
                 this.state = state;
             }
 

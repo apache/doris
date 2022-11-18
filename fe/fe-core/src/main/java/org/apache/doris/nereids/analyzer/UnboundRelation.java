@@ -43,25 +43,18 @@ import java.util.Optional;
 public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
     private final List<String> nameParts;
 
-    private boolean policyChecked;
-
     public UnboundRelation(List<String> nameParts) {
-        this(nameParts, false);
+        this(nameParts, Optional.empty(), Optional.empty());
     }
 
-    public UnboundRelation(List<String> nameParts, boolean policyChecked) {
-        this(nameParts, policyChecked, Optional.empty(), Optional.empty());
-    }
-
-    public UnboundRelation(List<String> nameParts, boolean policyChecked, Optional<GroupExpression> groupExpression,
+    public UnboundRelation(List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = nameParts;
-        this.policyChecked = policyChecked;
     }
 
     public UnboundRelation(TableIdentifier identifier) {
-        this(identifier, false, Optional.empty(), Optional.empty());
+        this(identifier, Optional.empty(), Optional.empty());
     }
 
     /**
@@ -69,7 +62,7 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
      *
      * @param identifier relation identifier
      */
-    public UnboundRelation(TableIdentifier identifier, boolean policyChecked, Optional<GroupExpression> groupExpression,
+    public UnboundRelation(TableIdentifier identifier, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = Lists.newArrayList();
@@ -77,7 +70,6 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
             nameParts.add(identifier.getDatabaseName().get());
         }
         nameParts.add(identifier.getTableName());
-        this.policyChecked = policyChecked;
     }
 
     public List<String> getNameParts() {
@@ -96,21 +88,17 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundRelation(nameParts, policyChecked, groupExpression, Optional.of(getLogicalProperties()));
+        return new UnboundRelation(nameParts, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(nameParts, policyChecked, Optional.empty(), logicalProperties);
+        return new UnboundRelation(nameParts, Optional.empty(), logicalProperties);
     }
 
     @Override
     public List<Slot> computeOutput() {
         throw new UnboundException("output");
-    }
-
-    public boolean isPolicyChecked() {
-        return policyChecked;
     }
 
     @Override

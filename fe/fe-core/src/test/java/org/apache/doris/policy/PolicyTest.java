@@ -30,7 +30,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -206,11 +205,10 @@ public class PolicyTest extends TestWithFeService {
                 + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
         FilterType filterType = FilterType.PERMISSIVE;
-        Expr originalPredicate = null;
-        Expression nereidsPredicate = null;
+        Expr wherePredicate = null;
 
         Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, originStmt, tableId, filterType,
-                originalPredicate, nereidsPredicate);
+                wherePredicate);
 
         ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();
         DataOutputStream output = new DataOutputStream(emptyOutputStream);
@@ -231,56 +229,5 @@ public class PolicyTest extends TestWithFeService {
         Assertions.assertEquals(originStmt, newRowPolicy.getOriginStmt());
         Assertions.assertEquals(tableId, newRowPolicy.getTableId());
         Assertions.assertEquals(filterType, newRowPolicy.getFilterType());
-    }
-
-    @Test
-    public void testNereidsPredicate() throws Exception {
-        // disable nereids
-        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
-        createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS RESTRICTIVE TO test_policy USING (k1 = 1)");
-        List<Policy> policies = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.ROW);
-        Assertions.assertEquals(policies.size(), 1);
-        RowPolicy originalPolicy = (RowPolicy) policies.get(0);
-        Assertions.assertNull(originalPolicy.getNereidsPredicate());
-        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
-
-        // enable nereids
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
-        createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS RESTRICTIVE TO test_policy USING (k2 = 1)");
-        policies = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.ROW);
-        Assertions.assertEquals(policies.size(), 1);
-        RowPolicy nereidsPolicy = (RowPolicy) policies.get(0);
-        Assertions.assertNotNull(nereidsPolicy.getNereidsPredicate());
-        dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
-        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
-
-        // mmerge1: original + original -> original
-        RowPolicy policy1 = originalPolicy.clone();
-        policy1.mergeByAnd(originalPolicy);
-        Assertions.assertNull(policy1.getNereidsPredicate());
-        policy1.mergeByOr(originalPolicy);
-        Assertions.assertNull(policy1.getNereidsPredicate());
-
-        // merge2: nereids + nereids -> nereids
-        RowPolicy policy2 = nereidsPolicy.clone();
-        policy2.mergeByAnd(nereidsPolicy);
-        Assertions.assertNotNull(policy2.getNereidsPredicate());
-        policy2.mergeByOr(nereidsPolicy);
-        Assertions.assertNotNull(policy2.getNereidsPredicate());
-
-        // merge3: original + nereids -> original
-        RowPolicy policy3 = originalPolicy.clone();
-        policy3.mergeByAnd(nereidsPolicy);
-        Assertions.assertNull(policy3.getNereidsPredicate());
-        policy3.mergeByOr(nereidsPolicy);
-        Assertions.assertNull(policy3.getNereidsPredicate());
-
-        // merge4: nereids + original -> original
-        RowPolicy policy4 = nereidsPolicy.clone();
-        policy4.mergeByAnd(originalPolicy);
-        Assertions.assertNull(policy4.getNereidsPredicate());
-        policy4 = nereidsPolicy.clone();
-        policy4.mergeByOr(originalPolicy);
-        Assertions.assertNull(policy4.getNereidsPredicate());
     }
 }

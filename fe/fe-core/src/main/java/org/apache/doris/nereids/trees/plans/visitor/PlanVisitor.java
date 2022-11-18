@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -140,6 +141,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalFilter(LogicalFilter<? extends Plan> filter, C context) {
         return visit(filter, context);
+    }
+
+    public R visitLogicalCheckPolicy(LogicalCheckPolicy<? extends Plan> checkPolicy, C context) {
+        return visit(checkPolicy, context);
     }
 
     public R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {
