@@ -17,6 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
 /**
  * FunctionTrait.
  */
@@ -24,4 +31,15 @@ public interface FunctionTrait extends ExpressionTrait {
     String getName();
 
     boolean hasVarArguments();
+
+    default List<Expression> getOriginArguments() {
+        return getArguments();
+    }
+
+    default List<DataType> getOriginArgumentTypes() {
+        return getArguments()
+                .stream()
+                .map(Expression::getDataType)
+                .collect(ImmutableList.toImmutableList());
+    }
 }

@@ -41,6 +41,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -90,7 +91,7 @@ public class If extends ScalarFunction
     );
 
     private final Supplier<DataType> widerType = Suppliers.memoize(() -> {
-        List<DataType> argumentsTypes = getSignature().argumentsTypes;
+        List<AbstractDataType> argumentsTypes = getSignature().argumentsTypes;
         Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(
                 argumentsTypes.get(1).toCatalogDataType(),
                 argumentsTypes.get(2).toCatalogDataType(),
@@ -106,11 +107,11 @@ public class If extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
         DataType widerType = this.widerType.get();
-        signature = signature.withArgumentTypes(children(), (sigType, argType) -> widerType)
+        signature = signature.withArgumentTypes(arguments, (sigType, argType) -> widerType)
                 .withReturnType(widerType);
-        return super.computeSignature(signature);
+        return super.computeSignature(signature, arguments);
     }
 
     /**

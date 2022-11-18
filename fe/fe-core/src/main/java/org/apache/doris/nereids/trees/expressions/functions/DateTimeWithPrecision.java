@@ -41,17 +41,17 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature) {
+    protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
         if (arity() == 1 && signature.returnType instanceof DateTimeV2Type) {
             // For functions in TIME_FUNCTIONS_WITH_PRECISION, we can't figure out which function should be use when
             // searching in FunctionSet. So we adjust the return type by hand here.
-            if (child(0) instanceof IntegerLikeLiteral) {
-                IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) child(0);
+            if (arguments.get(0) instanceof IntegerLikeLiteral) {
+                IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) arguments.get(0);
                 signature = signature.withReturnType(DateTimeV2Type.of(integerLikeLiteral.getIntValue()));
             } else {
                 signature = signature.withReturnType(DateTimeV2Type.of(6));
             }
         }
-        return super.computeSignature(signature);
+        return super.computeSignature(signature, arguments);
     }
 }
