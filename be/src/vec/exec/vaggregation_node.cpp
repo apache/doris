@@ -804,14 +804,22 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
-                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                bool is_pre_serialized =
+                        _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        if (is_pre_serialized) {
+                            for (size_t i = 0; i < num_rows; ++i) {
+                                _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                            }
+                        } else {
+                            for (size_t i = 0; i < num_rows; ++i) {
+                                _hash_values[i] = agg_method.data.hash(
+                                        state.get_key_holder(i, *_agg_arena_pool).key);
+                            }
                         }
                     } else {
                         for (size_t i = 0; i < num_rows; ++i) {
@@ -886,7 +894,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 }
 
 void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
-                                          size_t rows) {
+                                          size_t num_rows) {
     std::visit(
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
@@ -894,17 +902,25 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
-                _pre_serialize_key_if_need(state, agg_method, key_columns, rows);
+                bool is_pre_serialized =
+                        _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < rows) _hash_values.resize(rows);
+                    if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           AggState>::value) {
-                        for (size_t i = 0; i < rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                        if (is_pre_serialized) {
+                            for (size_t i = 0; i < num_rows; ++i) {
+                                _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+                            }
+                        } else {
+                            for (size_t i = 0; i < num_rows; ++i) {
+                                _hash_values[i] = agg_method.data.hash(
+                                        state.get_key_holder(i, *_agg_arena_pool).key);
+                            }
                         }
                     } else {
-                        for (size_t i = 0; i < rows; ++i) {
+                        for (size_t i = 0; i < num_rows; ++i) {
                             _hash_values[i] =
                                     agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
                         }
@@ -912,10 +928,10 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                 }
 
                 /// For all rows.
-                for (size_t i = 0; i < rows; ++i) {
+                for (size_t i = 0; i < num_rows; ++i) {
                     auto find_result = [&]() {
                         if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < rows)) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
                                 if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
                                     agg_method.data.prefetch_by_key(state.get_key_holder(
                                             i + HASH_MAP_PREFETCH_DIST, *_agg_arena_pool));
@@ -1350,6 +1366,7 @@ void AggregationNode::_release_mem() {
     _agg_data = nullptr;
     _aggregate_data_container = nullptr;
     _mem_pool = nullptr;
+    _agg_arena_pool = nullptr;
     _preagg_block.clear();
 
     PODArray<AggregateDataPtr> tmp_places;
