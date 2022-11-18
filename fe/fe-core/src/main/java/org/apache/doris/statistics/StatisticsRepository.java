@@ -81,7 +81,7 @@ public class StatisticsRepository {
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
         }
         return ColumnStatistic.fromResultRow(resultRow);
     }

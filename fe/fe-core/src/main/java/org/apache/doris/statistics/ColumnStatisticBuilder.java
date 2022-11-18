@@ -47,7 +47,7 @@ public class ColumnStatisticBuilder {
         this.selectivity = columnStatistic.selectivity;
         this.minExpr = columnStatistic.minExpr;
         this.maxExpr = columnStatistic.maxExpr;
-        this.buildOnUnknown = columnStatistic == ColumnStatistic.UNKNOWN;
+        this.buildOnUnknown = columnStatistic == ColumnStatistic.DEFAULT;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
