@@ -691,7 +691,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
                     compaction_type, cumulative_compaction_policy);
             if (current_compaction_score < 5) {
-                LOG(INFO) << "tablet set skip compaction, tablet_id: " << tablet_ptr->tablet_id();
+                VLOG_DEBUG << "tablet set skip compaction, tablet_id: " << tablet_ptr->tablet_id();
                 tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
             }
             if (current_compaction_score > highest_score) {
