@@ -108,7 +108,7 @@ public abstract class Job {
                 .getMemo()
                 .copyIn(after, targetGroup, true);
 
-        if (result.generateNewExpression) {
+        if (result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup) {
             transformTracer.log(new TransformEvent(targetGroup.getLogicalExpression(), before, afters,
                             rule.getRuleType()), rule::isRewrite);
         }
