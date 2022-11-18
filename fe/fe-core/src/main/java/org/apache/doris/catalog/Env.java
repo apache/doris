@@ -3004,9 +3004,15 @@ public class Env {
 
             // sequence type
             if (olapTable.hasSequenceCol()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
-                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
-                sb.append(olapTable.getSequenceType().toString()).append("\"");
+                if (olapTable.getSequenceMapCol() != null) {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                            + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL).append("\" = \"");
+                    sb.append(olapTable.getSequenceMapCol()).append("\"");
+                } else {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                            + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                    sb.append(olapTable.getSequenceType().toString()).append("\"");
+                }
             }
 
             // disable auto compaction
@@ -4147,6 +4153,11 @@ public class Env {
                     break;
                 }
             }
+        }
+
+        // 5. modify sequence map col
+        if (table.hasSequenceCol() && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
+            table.setSequenceMapCol(newColName);
         }
 
         table.rebuildFullSchema();

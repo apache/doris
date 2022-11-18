@@ -68,12 +68,15 @@ private:
                                    const Block& now_process_build_block) const;
 
     template <bool SetBuildSideFlag, bool SetProbeSideFlag>
-    Status _do_filtering_and_update_visited_flags(Block* block, std::stack<uint16_t>& offset_stack);
+    Status _do_filtering_and_update_visited_flags(Block* block, std::stack<uint16_t>& offset_stack,
+                                                  bool materialize);
 
-    template <bool BuildSide>
-    void _output_null_data(MutableColumns& dst_columns, size_t batch_size);
+    template <bool BuildSide, bool IsSemi>
+    void _finalize_current_phase(MutableColumns& dst_columns, size_t batch_size);
 
     void _reset_with_next_probe_row(MutableColumns& dst_columns);
+
+    void _release_mem();
 
     // List of build blocks, constructed in prepare()
     Blocks _build_blocks;

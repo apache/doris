@@ -1909,5 +1909,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean use_fuzzy_session_variable = false;
+
+    /**
+     * Collect external table statistic info by running sql when set to true.
+     * Otherwise, use external catalog metadata.
+     */
+    @ConfField(mutable = true)
+    public static boolean collect_external_table_stats_by_sql = false;
 }
 

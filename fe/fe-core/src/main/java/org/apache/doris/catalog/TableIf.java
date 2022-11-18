@@ -20,6 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.statistics.AnalysisJob;
+import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisJobScheduler;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import java.util.Collections;
@@ -107,6 +110,8 @@ public interface TableIf {
     String getComment(boolean escapeQuota);
 
     TTableDescriptor toThrift();
+
+    AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info);
 
     /**
      * Doris table type.
