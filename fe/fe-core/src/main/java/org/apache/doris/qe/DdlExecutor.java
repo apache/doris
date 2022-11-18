@@ -35,6 +35,8 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
+import org.apache.doris.analysis.AlterResourceQueueNameStmt;
+import org.apache.doris.analysis.AlterResourceQueueStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
@@ -61,6 +63,7 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
+import org.apache.doris.analysis.CreateResourceQueueStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
@@ -81,6 +84,7 @@ import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
+import org.apache.doris.analysis.DropResourceQueueStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
@@ -116,6 +120,7 @@ import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.job.ResourceQueueMgr;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -343,6 +348,14 @@ public class DdlExecutor {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStatsStmt) {
             env.getStatisticsManager().dropStats((DropTableStatsStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateResourceQueueStmt) {
+            ResourceQueueMgr.get().addQueue((CreateResourceQueueStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterResourceQueueNameStmt) {
+            ResourceQueueMgr.get().renameQueue((AlterResourceQueueNameStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterResourceQueueStmt) {
+            ResourceQueueMgr.get().alterQueue((AlterResourceQueueStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropResourceQueueStmt) {
+            ResourceQueueMgr.get().dropQueue((DropResourceQueueStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

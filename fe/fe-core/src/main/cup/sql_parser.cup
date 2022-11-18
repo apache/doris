@@ -602,7 +602,12 @@ terminal String
     KW_WORK,
     KW_WRITE,
     KW_YEAR,
-    KW_MTMV;
+    KW_MTMV,
+    KW_SUBMIT,
+    KW_SQL,
+    KW_QUEUE,
+    KW_QUEUES,
+    KW_MATCHING;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -873,6 +878,10 @@ nonterminal StorageBackend storage_backend;
 nonterminal ArrayList<LockTable> opt_lock_tables_list;
 nonterminal LockTable lock_table;
 
+// async job
+nonterminal StatementBase async_job_stmt;
+nonterminal SubmitAsyncJobStmt submit_async_job_stmt;
+
 // mv
 nonterminal MVRefreshInfo.BuildMode build_mv;
 nonterminal MVRefreshInfo.RefreshMethod opt_refresh_method;
@@ -911,6 +920,7 @@ precedence left KW_PARTITIONS;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
 precedence left KW_ENGINE;
+precedence right KW_RESOURCE, KW_QUEUE;
 
 // unused
 // nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name, AlterClause alter_cluster_clause;
@@ -1104,6 +1114,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | show_mtmv_stmt : stmt
     {: RESULT = stmt; :}
+    | submit_async_job_stmt: stmt
+    {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
         RESULT = new EmptyStmt();
@@ -1244,6 +1256,15 @@ alter_stmt ::=
     | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
     {:
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
+    :}
+    /* Resource Queue */
+    | KW_ALTER KW_RESOURCE KW_QUEUE ident:queueName KW_RENAME ident:newQueueName
+    {:
+        RESULT = new AlterResourceQueueNameStmt(queueName, newQueueName);
+    :}
+    | KW_ALTER KW_RESOURCE KW_QUEUE ident:queueName KW_SET KW_RESOURCE LPAREN key_value_map:configProperties RPAREN KW_SET KW_MATCHING KW_POLICY LPAREN key_value_map:policyProperties RPAREN
+    {:
+        RESULT = new AlterResourceQueueStmt(queueName, configProperties, policyProperties);
     :}
     /* Catalog */
     | KW_ALTER KW_CATALOG ident:catalogName KW_RENAME ident:newCatalogName
@@ -1839,6 +1860,11 @@ create_stmt ::=
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
+    :}
+    /* resource queue */
+    | KW_CREATE KW_RESOURCE KW_QUEUE opt_if_not_exists:ifNotExists ident:queueName KW_WITH KW_RESOURCE LPAREN key_value_map:configProperties RPAREN KW_WITH KW_MATCHING KW_POLICY LPAREN key_value_map:policyProperties RPAREN
+    {:
+        RESULT = new CreateResourceQueueStmt(ifNotExists, queueName, configProperties, policyProperties);
     :}
     /* resource */
     | KW_CREATE opt_external:isExternal KW_RESOURCE opt_if_not_exists:ifNotExists ident_or_text:resourceName opt_properties:properties
@@ -2713,6 +2739,11 @@ drop_stmt ::=
     {:
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
+    /* Resource Queue */
+    | KW_DROP KW_RESOURCE KW_QUEUE opt_if_exists:ifExists ident:queueName
+    {:
+        RESULT = new DropResourceQueueStmt(ifExists, queueName);
+    :}
     /* Catalog */
     | KW_DROP KW_CATALOG opt_if_exists:ifExists ident:catalogName
     {:
@@ -3454,6 +3485,15 @@ show_param ::=
     | KW_SCHEMAS KW_FROM ident:catalogName
     {:
         RESULT = new ShowDbStmt(null, null, catalogName);
+    :}
+    /* Resource Queue */
+    | KW_RESOURCE KW_QUEUES
+    {:
+        RESULT = new ShowResourceQueueStmt();
+    :}
+    | KW_RESOURCE KW_QUEUE ident:queueName
+    {:
+        RESULT = new ShowResourceQueueStmt(queueName);
     :}
     /* Catalog */
     | KW_CATALOGS
@@ -4215,6 +4255,19 @@ insert_stmt ::=
     :}
     // TODO(zc) add default value for SQL-2003
     // | KW_INSERT KW_INTO insert_target:target KW_DEFAULT KW_VALUES
+    ;
+
+// Submit job statement
+async_job_stmt ::=
+    insert_stmt : stmt
+    {: RESULT = stmt; :}
+    ;
+
+submit_async_job_stmt ::=
+    KW_SUBMIT KW_SQL KW_JOB opt_with_label:label LPAREN async_job_stmt:asyncJob RPAREN opt_properties:jobProperties
+    {:
+        RESULT = new SubmitAsyncJobStmt(asyncJob, label, jobProperties);
+    :}
     ;
 
 insert_target ::=
@@ -6822,6 +6875,16 @@ keyword ::=
     | KW_RECYCLE:id
     {: RESULT = id; :}
     | KW_MTMV:id
+    {: RESULT = id; :}
+    | KW_SUBMIT:id
+    {: RESULT = id; :}
+    | KW_SQL:id
+    {: RESULT = id; :}
+    | KW_QUEUE:id
+    {: RESULT = id; :}
+    | KW_QUEUES:id
+    {: RESULT = id; :}
+    | KW_MATCHING:id
     {: RESULT = id; :}
     ;
 

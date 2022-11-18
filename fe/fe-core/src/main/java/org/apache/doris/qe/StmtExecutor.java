@@ -48,6 +48,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.SubmitAsyncJobStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
@@ -85,6 +86,9 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.AsyncJobManager;
+import org.apache.doris.job.SqlJob;
+import org.apache.doris.job.SqlJob.JobType;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -556,6 +560,8 @@ public class StmtExecutor implements ProfileWriter {
                     // the transaction of this insert may already begin, we will abort it at outer finally block.
                     throw t;
                 }
+            } else if (parsedStmt instanceof SubmitAsyncJobStmt) {
+                handleSubmitAsyncJobStmt();
             } else if (parsedStmt instanceof DdlStmt) {
                 handleDdlStmt();
             } else if (parsedStmt instanceof ShowStmt) {
@@ -1692,6 +1698,35 @@ public class StmtExecutor implements ProfileWriter {
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         context.getState().setEof();
+    }
+
+    private void handleSubmitAsyncJobStmt() {
+        final SubmitAsyncJobStmt submitAsyncJobStmt = (SubmitAsyncJobStmt) parsedStmt;
+        try {
+            if (submitAsyncJobStmt.getType() == JobType.INSERT) {
+                InsertStmt insertStmt = (InsertStmt) submitAsyncJobStmt.getExecStmt();
+                if (Strings.isNullOrEmpty(submitAsyncJobStmt.getLabel())) {
+                    submitAsyncJobStmt.setLabel(insertStmt.getLabel());
+                } else {
+                    insertStmt.setLabel(submitAsyncJobStmt.getLabel());
+                }
+
+                SqlJob sqlJob = new SqlJob(submitAsyncJobStmt.getLabel(), JobType.INSERT,
+                        submitAsyncJobStmt.getExecStmt(), submitAsyncJobStmt.getProperties());
+                AsyncJobManager.get().submitAsyncJob(sqlJob);
+                String msg = String.format("{'label':'%s', 'status':'%s', 'jobId':'job_%d'}",
+                        sqlJob.getLabel(), sqlJob.getJobStatus(), sqlJob.jobId());
+                context.getState().setOk(0, 0, msg);
+            } else {
+                throw new UserException("Unsupported async job type: " + submitAsyncJobStmt.getType());
+            }
+        } catch (UserException e) {
+            LOG.warn("Failed to submit async job({})", originStmt.originStmt, e);
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } catch (Exception e) {
+            LOG.warn("Failed to submit async job({}) with Unexpected exception", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
     }
 
     private void handleDdlStmt() {

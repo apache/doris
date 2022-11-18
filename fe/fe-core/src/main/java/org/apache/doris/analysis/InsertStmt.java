@@ -243,6 +243,10 @@ public class InsertStmt extends DdlStmt {
         return label;
     }
 
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
     public DataSink getDataSink() {
         return dataSink;
     }
