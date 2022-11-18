@@ -41,7 +41,7 @@ WITH
    , customer
    WHERE (ss_customer_sk = c_customer_sk)
    GROUP BY c_customer_sk
-   HAVING (sum((ss_quantity * ss_sales_price)) > ((50 / CAST('100.0' AS DECIMAL)) * (
+   HAVING (sum((ss_quantity * ss_sales_price)) > ((50 / CAST('100.0' AS DECIMAL(5,1))) * (
             SELECT *
             FROM
               max_store_sales
