@@ -353,6 +353,12 @@ Status NodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
         }
     }
 
+    while (!_cancelled && _pending_batches_num > 0 &&
+           _pending_batches_bytes > _max_pending_batches_bytes) {
+        SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     constexpr size_t BATCH_SIZE_FOR_SEND = 2 * 1024 * 1024; //2M
     auto row_no = _cur_batch->add_row();
     if (row_no == RowBatch::INVALID_ROW_INDEX ||
