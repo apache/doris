@@ -26,6 +26,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Preconditions;
@@ -214,6 +215,12 @@ public class ColumnDef {
         typeDef.analyze(null);
 
         Type type = typeDef.getType();
+
+        if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
+            throw new AnalysisException("quantile_state is disabled"
+                    + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
+        }
+
         // disable Bitmap Hll type in keys, values without aggregate function.
         if (type.isBitmapType() || type.isHllType()) {
             if (isKey) {
