@@ -24,7 +24,7 @@ import org.apache.doris.common.DdlException;
  */
 public class CooldownException extends DdlException {
 
-    private static final long serialVersionUID = 7648387358354279124L;
+    private static final long serialVersionUID = 4844951783432954268L;
 
     public CooldownException(String msg) {
         super(msg);

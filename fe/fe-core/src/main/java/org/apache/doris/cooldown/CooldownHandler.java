@@ -137,12 +137,14 @@ public class CooldownHandler extends MasterDaemon {
                     cooldownJob.partitionId, cooldownJob.indexId, cooldownJob.tabletId, cooldownJob.replicaId,
                     cooldownJob.cooldownType, cooldownJob.timeoutMs);
             runableCooldownJobs.put(cooldownJob.getJobId(), replayCooldownJob);
+            resetingTablet.put(cooldownJob.getTabletId(), true);
         } else {
             replayCooldownJob = runableCooldownJobs.get(cooldownJob.getJobId());
         }
         replayCooldownJob.replay(cooldownJob);
         if (replayCooldownJob.isDone()) {
             runableCooldownJobs.remove(cooldownJob.getJobId());
+            resetingTablet.remove(cooldownJob.getTabletId());
         }
     }
 
@@ -152,6 +154,7 @@ public class CooldownHandler extends MasterDaemon {
             CooldownJob cooldownJob = iterator.next().getValue();
             if (cooldownJob.isDone()) {
                 iterator.remove();
+                resetingTablet.remove(cooldownJob.getTabletId());
             }
         }
     }
