@@ -667,7 +667,8 @@
                             ]
                         },
                         "sql-manual/sql-functions/cast",
-                        "sql-manual/sql-functions/digital-masking"
+                        "sql-manual/sql-functions/digital-masking",
+                        "sql-manual/sql-functions/width-bucket"
                     ]
                 },
                 {
