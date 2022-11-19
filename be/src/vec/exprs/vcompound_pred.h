@@ -52,7 +52,7 @@ public:
 
     Status execute(VExprContext* context, doris::vectorized::Block* block,
                    int* result_column_id) override {
-        if (_have_const_child()) {
+        if (_have_invalid_child()) {
             return VectorizedFnCall::execute(context, block, result_column_id);
         }
 
@@ -140,10 +140,15 @@ public:
     }
 
 private:
-    bool _have_const_child() const {
+    bool _have_invalid_child() const {
         for (auto child : _children) {
             if (child->is_constant()) {
                 return true;
+            }
+            if (TExprNodeType::FUNCTION_CALL == child->node_type() &&
+                reinterpret_cast<VectorizedFnCall*>(child)->fn().name.function_name ==
+                        "is_null_pred") {
+                return true; // is null pred use null map directly.
             }
         }
         return false;
