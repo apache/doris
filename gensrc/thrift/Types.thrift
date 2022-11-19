@@ -89,7 +89,7 @@ enum TPrimitiveType {
   TIMEV2,
   DECIMAL32,
   DECIMAL64,
-  DECIMAL128,
+  DECIMAL128I,
   JSONB,
 }
 

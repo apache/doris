@@ -168,9 +168,11 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
         UInt32 have_decimal32 = type_ids.count(TypeIndex::Decimal32);
         UInt32 have_decimal64 = type_ids.count(TypeIndex::Decimal64);
         UInt32 have_decimal128 = type_ids.count(TypeIndex::Decimal128);
+        UInt32 have_decimal128i = type_ids.count(TypeIndex::Decimal128I);
 
-        if (have_decimal32 || have_decimal64 || have_decimal128) {
-            UInt32 num_supported = have_decimal32 + have_decimal64 + have_decimal128;
+        if (have_decimal32 || have_decimal64 || have_decimal128 || have_decimal128i) {
+            UInt32 num_supported =
+                    have_decimal32 + have_decimal64 + have_decimal128 + have_decimal128i;
 
             std::vector<TypeIndex> int_ids = {
                     TypeIndex::Int8,  TypeIndex::UInt8,  TypeIndex::Int16, TypeIndex::UInt16,
@@ -215,6 +217,9 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
             if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision())
                 return std::make_shared<DataTypeDecimal<Decimal128>>(
                         DataTypeDecimal<Decimal128>::max_precision(), max_scale);
+            if (have_decimal128i || min_precision > DataTypeDecimal<Decimal64>::max_precision())
+                return std::make_shared<DataTypeDecimal<Decimal128I>>(
+                        DataTypeDecimal<Decimal128I>::max_precision(), max_scale);
             if (have_decimal64 || min_precision > DataTypeDecimal<Decimal32>::max_precision())
                 return std::make_shared<DataTypeDecimal<Decimal64>>(
                         DataTypeDecimal<Decimal64>::max_precision(), max_scale);

@@ -175,7 +175,7 @@ void VSetOperationNode::hash_table_init() {
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
-        case TYPE_DECIMAL128:
+        case TYPE_DECIMAL128I:
             _hash_table_variants->emplace<I128HashTableContext<RowRefListWithFlags>>();
             break;
         default:

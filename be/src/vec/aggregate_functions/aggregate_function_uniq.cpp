@@ -57,6 +57,9 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
         } else if (which.is_decimal128()) {
             return std::make_shared<AggregateFunctionUniq<Decimal128, Data<Int128>>>(
                     argument_types);
+        } else if (which.is_decimal128i()) {
+            return std::make_shared<AggregateFunctionUniq<Decimal128, Data<Int128>>>(
+                    argument_types);
         } else if (which.is_string_or_fixed_string()) {
             return std::make_shared<AggregateFunctionUniq<String, Data<String>>>(argument_types);
         }

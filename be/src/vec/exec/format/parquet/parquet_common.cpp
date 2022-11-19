@@ -388,6 +388,17 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
             return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, select_vector);
         }
         break;
+    case TypeIndex::Decimal128I:
+        if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+            return _decode_binary_decimal<Int128I>(doris_column, data_type, select_vector);
+        } else if (_physical_type == tparquet::Type::INT32) {
+            return _decode_primitive_decimal<Int128I, Int32>(doris_column, data_type,
+                                                             select_vector);
+        } else if (_physical_type == tparquet::Type::INT64) {
+            return _decode_primitive_decimal<Int128I, Int64>(doris_column, data_type,
+                                                             select_vector);
+        }
+        break;
     case TypeIndex::String:
     case TypeIndex::FixedString:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
@@ -572,6 +583,8 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
         return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128:
         return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+    case TypeIndex::Decimal128I:
+        return _decode_binary_decimal<Int128I>(doris_column, data_type, select_vector);
     default:
         break;
     }

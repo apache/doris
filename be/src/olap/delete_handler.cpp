@@ -143,7 +143,7 @@ bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
         return valid_decimal(value_str, column.precision(), column.frac());
     case OLAP_FIELD_TYPE_DECIMAL64:
         return valid_decimal(value_str, column.precision(), column.frac());
-    case OLAP_FIELD_TYPE_DECIMAL128:
+    case OLAP_FIELD_TYPE_DECIMAL128I:
         return valid_decimal(value_str, column.precision(), column.frac());
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
