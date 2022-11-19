@@ -1260,38 +1260,33 @@ public:
         }
 
         auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
-
         auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
-
         auto part_num_col = assert_cast<const ColumnInt32*>(argument_columns[2].get());
         auto& part_num_col_data = part_num_col->get_data();
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (part_num_col_data[i] == 0) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                continue;
-            }
+        //TODO check part_num_col_data is const, if not return error
+        auto part_number = part_num_col_data[0];
 
-            auto delimiter = delimiter_col->get_data_at(i);
-            auto delimiter_str = delimiter_col->get_data_at(i).to_string();
-            auto part_number = part_num_col_data[i];
-            auto str = str_col->get_data_at(i);
-            if (delimiter.size == 0) {
-                StringOP::push_empty_string(i, res_chars, res_offsets);
-            } else {
-                int32_t offset = -delimiter.size;
-                int32_t num = 0; //substring count of content splitted by delimiter
-                std::vector<int32_t> find(str.size, -1); //store delimiter position
+        if (part_number >= 0) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto delimiter = delimiter_col->get_data_at(i);
+                auto delimiter_str = delimiter_col->get_data_at(i).to_string();
 
-                // If delimiter is a char, use memchr to split
-                if (delimiter.size == 1) {
-                    while (num < str.size) {
+                auto str = str_col->get_data_at(i);
+                if (delimiter.size == 0 || part_number == 0) {
+                    StringOP::push_empty_string(i, res_chars, res_offsets);
+                } else if (delimiter.size == 1) {
+                    // If delimiter is a char, use memchr to split
+                    int32_t pre_offset = -1;
+                    int32_t offset = -1;
+                    int32_t num = 0;
+                    while (num < part_number) {
+                        pre_offset = offset;
                         size_t n = str.size - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
                                 memchr(str.data + offset + 1, delimiter_str[0], n));
                         if (pos != nullptr) {
                             offset = pos - str.data;
-                            find[num] = offset;
                             num++;
                         } else {
                             offset = str.size;
@@ -1299,16 +1294,29 @@ public:
                             break;
                         }
                     }
+
+                    if (num == part_number) {
+                        StringOP::push_value_string(
+                                std::string_view {
+                                        reinterpret_cast<const char*>(str.data + pre_offset + 1),
+                                        (size_t)offset - pre_offset - 1},
+                                i, res_chars, res_offsets);
+                    } else {
+                        StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                    }
                 } else {
                     // If delimiter is a string, use memmem to split
-                    while (num < str.size) {
+                    int32_t pre_offset = -delimiter.size;
+                    int32_t offset = -delimiter.size;
+                    int32_t num = 0;
+                    while (num < part_number) {
+                        pre_offset = offset;
                         size_t n = str.size - offset - delimiter.size;
                         char* pos =
                                 reinterpret_cast<char*>(memmem(str.data + offset + delimiter.size,
                                                                n, delimiter.data, delimiter.size));
                         if (pos != nullptr) {
                             offset = pos - str.data;
-                            find[num] = offset;
                             num++;
                         } else {
                             offset = str.size;
@@ -1316,24 +1324,63 @@ public:
                             break;
                         }
                     }
+
+                    if (num == part_number) {
+                        StringOP::push_value_string(
+                                std::string_view {reinterpret_cast<const char*>(
+                                                          str.data + pre_offset + delimiter.size),
+                                                  (size_t)offset - pre_offset - delimiter.size},
+                                i, res_chars, res_offsets);
+                    } else {
+                        StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                    }
                 }
+            }
+        } else {
+            part_number = -part_number;
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto delimiter_str = delimiter_col->get_data_at(i).to_string();
 
-                // if part_number is negative, convert it to forward direction value
-                int32_t new_part_num = (part_number < 0) ? part_number + num + 1 : part_number;
-
-                // if field not find or field is over-long, then return null
-                if (num == 0 || new_part_num <= 0 || new_part_num > num) {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                auto str = str_col->get_data_at(i);
+                auto str_str = str.to_string();
+                if (delimiter_str.size() == 0) {
+                    StringOP::push_empty_string(i, res_chars, res_offsets);
                 } else {
-                    int32_t start_pos =
-                            (new_part_num == 1) ? 0 : find[new_part_num - 2] + delimiter.size;
-                    int32_t len =
-                            (find[new_part_num - 1] == -1 ? str.size : find[new_part_num - 1]) -
-                            start_pos;
-                    StringOP::push_value_string(
-                            std::string_view {reinterpret_cast<const char*>(str.data + start_pos),
-                                              (size_t)len},
-                            i, res_chars, res_offsets);
+                    int32_t offset = str.size;
+                    int32_t pre_offset = offset;
+                    int32_t num = 0;
+                    auto substr = str_str;
+                    while (num <= part_number && offset >= 0) {
+                        offset = (int)substr.rfind(delimiter_str, offset);
+                        if (offset != -1) {
+                            if (++num == part_number) {
+                                break;
+                            }
+                            pre_offset = offset;
+                            offset = offset - 1;
+                            substr = str_str.substr(0, pre_offset);
+                        } else {
+                            break;
+                        }
+                    }
+                    num = (offset == -1 && num != 0) ? num + 1 : num;
+
+                    if (num == part_number) {
+                        if (offset == -1) {
+                            StringOP::push_value_string(
+                                    std::string_view {reinterpret_cast<const char*>(str.data),
+                                                      (size_t)pre_offset},
+                                    i, res_chars, res_offsets);
+                        } else {
+                            StringOP::push_value_string(
+                                    std::string_view {str_str.substr(
+                                            offset + delimiter_str.size(),
+                                            (size_t)pre_offset - offset - delimiter_str.size())},
+                                    i, res_chars, res_offsets);
+                        }
+                    } else {
+                        StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                    }
                 }
             }
         }
@@ -1536,10 +1583,11 @@ public:
             if (!success) {
                 // url is malformed, or url_part is invalid.
                 if (url_part == UrlParser::INVALID) {
-                    return Status::RuntimeError(
-                            "Invalid URL part: {}\n{}", std::string(part.data, part.size),
-                            "(Valid URL parts are 'PROTOCOL', 'HOST', 'PATH', 'REF', 'AUTHORITY', "
-                            "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
+                    return Status::RuntimeError("Invalid URL part: {}\n{}",
+                                                std::string(part.data, part.size),
+                                                "(Valid URL parts are 'PROTOCOL', 'HOST', "
+                                                "'PATH', 'REF', 'AUTHORITY', "
+                                                "'FILE', 'USERINFO', 'PORT' and 'QUERY')");
                 } else {
                     StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     continue;
