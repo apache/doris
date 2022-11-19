@@ -52,6 +52,7 @@ using ColumnFloat64 = ColumnVector<Float64>;
 using ColumnDecimal32 = ColumnDecimal<Decimal32>;
 using ColumnDecimal64 = ColumnDecimal<Decimal64>;
 using ColumnDecimal128 = ColumnDecimal<Decimal128>;
+using ColumnDecimal128I = ColumnDecimal<Decimal128I>;
 
 template <typename T>
 struct IsFixLenColumnType {

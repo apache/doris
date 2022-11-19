@@ -143,12 +143,33 @@ private:
         Shift shift;
         if (decimal0 && decimal1) {
             auto result_type = decimal_result_type(*decimal0, *decimal1, false, false);
-            shift.a = result_type.scale_factor_for(*decimal0, false);
-            shift.b = result_type.scale_factor_for(*decimal1, false);
-        } else if (decimal0)
-            shift.b = decimal0->get_scale_multiplier();
-        else if (decimal1)
-            shift.a = decimal1->get_scale_multiplier();
+            if constexpr (sizeof(T) >= sizeof(U) && IsDecimal128I<T>) {
+                shift.a = result_type.scale_factor_for(*decimal0, false).value.val;
+            } else if constexpr (sizeof(T) < sizeof(U) && IsDecimal128I<U>) {
+                shift.a = result_type.scale_factor_for(*decimal0, false).value.val;
+            } else {
+                shift.a = result_type.scale_factor_for(*decimal0, false);
+            }
+            if constexpr (sizeof(T) >= sizeof(U) && IsDecimal128I<T>) {
+                shift.b = result_type.scale_factor_for(*decimal1, false).value.val;
+            } else if constexpr (sizeof(T) < sizeof(U) && IsDecimal128I<U>) {
+                shift.b = result_type.scale_factor_for(*decimal1, false).value.val;
+            } else {
+                shift.b = result_type.scale_factor_for(*decimal1, false);
+            }
+        } else if (decimal0) {
+            if constexpr (IsDecimal128I<T>) {
+                shift.b = decimal0->get_scale_multiplier().value.val;
+            } else {
+                shift.b = decimal0->get_scale_multiplier();
+            }
+        } else if (decimal1) {
+            if constexpr (IsDecimal128I<U>) {
+                shift.a = decimal1->get_scale_multiplier().value.val;
+            } else {
+                shift.a = decimal1->get_scale_multiplier();
+            }
+        }
 
         return shift;
     }
@@ -158,7 +179,11 @@ private:
             const DataTypePtr& left_type, const DataTypePtr&) {
         Shift shift;
         const DataTypeDecimal<T>* decimal0 = check_decimal<T>(*left_type);
-        if (decimal0) shift.b = decimal0->get_scale_multiplier();
+        if constexpr (IsDecimal128I<T>) {
+            if (decimal0) shift.b = decimal0->get_scale_multiplier().value.val;
+        } else {
+            if (decimal0) shift.b = decimal0->get_scale_multiplier();
+        }
         return shift;
     }
 
@@ -167,7 +192,11 @@ private:
             const DataTypePtr&, const DataTypePtr& right_type) {
         Shift shift;
         const DataTypeDecimal<U>* decimal1 = check_decimal<U>(*right_type);
-        if (decimal1) shift.a = decimal1->get_scale_multiplier();
+        if constexpr (IsDecimal128I<U>) {
+            if (decimal1) shift.a = decimal1->get_scale_multiplier().value.val;
+        } else {
+            if (decimal1) shift.a = decimal1->get_scale_multiplier();
+        }
         return shift;
     }
 
@@ -227,8 +256,19 @@ private:
 
     template <bool scale_left, bool scale_right>
     static NO_INLINE UInt8 apply(A a, B b, CompareInt scale [[maybe_unused]]) {
-        CompareInt x = a;
-        CompareInt y = b;
+        CompareInt x {};
+        if constexpr (IsDecimal128I<A>) {
+            x = a.value.val;
+        } else {
+            x = a;
+        }
+
+        CompareInt y {};
+        if constexpr (IsDecimal128I<B>) {
+            y = b.value.val;
+        } else {
+            y = b;
+        }
 
         if constexpr (_check_overflow) {
             bool overflow = false;

@@ -433,7 +433,7 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
     }
 
     case TYPE_DECIMALV2:
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         Int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
         reinterpret_cast<vectorized::ColumnVector<Int128>*>(col_ptr)->insert_value(num);
         break;

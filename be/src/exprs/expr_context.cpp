@@ -298,7 +298,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row, int precision, int scale) {
         _result.bigint_val = v.val;
         return &_result.bigint_val;
     }
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         doris_udf::Decimal128Val v = e->get_decimal128_val(this, row);
         if (v.is_null) {
             return nullptr;
