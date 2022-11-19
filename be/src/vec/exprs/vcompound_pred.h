@@ -151,21 +151,23 @@ private:
 
     uint8* _get_raw_data(ColumnPtr column) const {
         if (column->is_nullable()) {
-            return assert_cast<ColumnUInt8*>(
+            return reinterpret_cast<ColumnUInt8*>(
                            assert_cast<ColumnNullable*>(column->assume_mutable().get())
                                    ->get_nested_column_ptr()
                                    .get())
                     ->get_data()
                     .data();
         } else {
-            return assert_cast<ColumnUInt8*>(column->assume_mutable().get())->get_data().data();
+            return reinterpret_cast<ColumnUInt8*>(column->assume_mutable().get())
+                    ->get_data()
+                    .data();
         }
     }
 
     uint8* _get_null_map(ColumnPtr column) const {
         if (column->is_nullable()) {
-            return assert_cast<ColumnUInt8*>(
-                           assert_cast<ColumnNullable*>(column->assume_mutable().get())
+            return reinterpret_cast<ColumnUInt8*>(
+                           reinterpret_cast<ColumnNullable*>(column->assume_mutable().get())
                                    ->get_null_map_column_ptr()
                                    .get())
                     ->get_data()
