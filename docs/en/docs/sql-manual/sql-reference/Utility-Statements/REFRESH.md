@@ -1,7 +1,7 @@
 ---
 {
-    "title": "REFRESH-CATALOG",
-    "language": "zh-CN"
+    "title": "REFRESH",
+    "language": "en"
 }
 ---
 
@@ -24,33 +24,54 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## REFRESH-CATALOG
+## REFRESH
 
 ### Name
 
-REFRESH CATALOG
+REFRESH
 
 ### Description
 
-该语句用于刷新指定 Catalog 的元数据。
+This statement refreshes the metadata of the specified Catalog/Database/Table.
 
-语法：
+syntax:
 
 ```sql
-REFRESH CATALOG catalog_name
+REFRESH CATALOG catalog_name;
+REFRESH DATABASE [catalog_name.]database_name;
+REFRESH TABLE [catalog_name.][database_name.]table_name;
 ```
+
+When the Catalog is refreshed, the object-related Cache is forced to be invalidated.
+
+Including Partition Cache, Schema Cache, File Cache, etc.
 
 ### Example
 
-1. 刷新 hive catalog
+1. Refresh hive catalog
 
     ```sql
     REFRESH CATALOG hive;
     ```
 
+2. Refresh database1
+
+    ```sql
+    REFRESH DATABASE ctl.database1;
+    REFRESH DATABASE database1;
+    ```
+
+3. Refresh table1
+
+    ```sql
+    REFRESH TABLE ctl.db.table1;
+    REFRESH TABLE db.table1;
+    REFRESH TABLE table1;
+    ```
+
 ### Keywords
 
-REFRESH, CATALOG
+REFRESH, CATALOG, DATABASE, TABLE
 
 ### Best Practice
 

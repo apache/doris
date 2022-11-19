@@ -38,12 +38,8 @@ public class ColumnStatistic {
 
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
-    public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setCount(Double.NaN).setNdv(Double.NaN)
-            .setAvgSizeByte(Double.NaN).setNumNulls(Double.NaN).setDataSize(Double.NaN)
-            .setMinValue(Double.NaN).setMaxValue(Double.NaN).setMinExpr(null).setMaxExpr(null).build();
-
     public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
-            .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE)
+            .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE).setSelectivity(1.0)
             .build();
 
     public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
@@ -63,6 +59,18 @@ public class ColumnStatistic {
     public final double avgSizeByte;
     public final double minValue;
     public final double maxValue;
+    /*
+    selectivity of Column T1.A:
+    if T1.A = T2.B is the inner join condition, for a given `b` in B, b in
+    intersection of range(A) and range(B), selectivity means the probability that
+    the equation can be satisfied.
+    We take tpch as example.
+    l_orderkey = o_orderkey and o_orderstatus='o'
+        there are 3 distinct o_orderstatus in orders table. filter o_orderstatus='o' reduces orders table by 1/3
+        because o_orderkey is primary key, thus the o_orderkey.selectivity = 1/3,
+        and after join(l_orderkey = o_orderkey), lineitem is reduced by 1/3.
+        But after filter, other columns' selectivity is still 1.0
+     */
     public final double selectivity;
 
     // For display only.
@@ -106,7 +114,7 @@ public class ColumnStatistic {
             if (col == null) {
                 LOG.warn("Failed to deserialize column statistics, column:{}.{}.{}.{} not exists",
                         catalogId, dbID, tblId, colName);
-                return ColumnStatistic.UNKNOWN;
+                return ColumnStatistic.DEFAULT;
             }
             String min = resultRow.getColumnValue("min");
             String max = resultRow.getColumnValue("max");
@@ -119,7 +127,7 @@ public class ColumnStatistic {
         } catch (Exception e) {
             e.printStackTrace();
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
         }
     }
 
@@ -166,17 +174,20 @@ public class ColumnStatistic {
 
     public ColumnStatistic updateBySelectivity(double selectivity, double rowCount) {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
+        Double rowsAfterFilter = rowCount * selectivity;
         if (ColumnStat.isAlmostUnique(ndv, rowCount)) {
-            builder.setSelectivity(selectivity);
+            builder.setSelectivity(this.selectivity * selectivity);
             builder.setNdv(ndv * selectivity);
+        } else {
+            if (ndv > rowsAfterFilter) {
+                builder.setSelectivity(this.selectivity * rowsAfterFilter / ndv);
+                builder.setNdv(rowsAfterFilter);
+            } else {
+                builder.setSelectivity(this.selectivity);
+                builder.setNdv(this.ndv);
+            }
         }
         builder.setNumNulls((long) Math.ceil(numNulls * selectivity));
-        if (ndv > rowCount) {
-            builder.setNdv(rowCount);
-        }
-        if (numNulls > rowCount) {
-            builder.setNumNulls(rowCount);
-        }
         return builder.build();
     }
 
@@ -216,5 +227,11 @@ public class ColumnStatistic {
             double interSection = Math.min(maxValue, other.maxValue) - Math.max(minValue, other.minValue);
             return interSection / myRange;
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("ndv=%.4f, min=%f, max=%f, sel=%f, count=%.4f",
+                ndv, minValue, maxValue, selectivity, count);
     }
 }

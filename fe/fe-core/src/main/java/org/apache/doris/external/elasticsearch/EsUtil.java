@@ -274,8 +274,11 @@ public class EsUtil {
                 notPushDownList.add(expr);
                 return null;
             }
-        } else {
+        } else if (leftExpr instanceof SlotRef) {
             column = ((SlotRef) leftExpr).getColumnName();
+        } else {
+            notPushDownList.add(expr);
+            return null;
         }
         // Replace col with col.keyword if mapping exist.
         column = fieldsContext.getOrDefault(column, column);
@@ -448,3 +451,4 @@ public class EsUtil {
     }
 
 }
+

@@ -17,13 +17,17 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.BitSet;
 
-class Edge {
+/**
+ * Edge in HyperGraph
+ */
+public class Edge {
     final int index;
     final LogicalJoin join;
     final double selectivity;
@@ -90,7 +94,7 @@ class Edge {
         // When this join reference nodes is a subset of other join, then this join must appear before that join
         BitSet bitSet = getReferenceNodes();
         BitSet otherBitset = edge.getReferenceNodes();
-        return isSubset(bitSet, otherBitset);
+        return Bitmap.isSubset(bitSet, otherBitset);
     }
 
     public BitSet getReferenceNodes() {
@@ -126,13 +130,6 @@ class Edge {
     @Override
     public String toString() {
         return String.format("<%s - %s>", left, right);
-    }
-
-    private boolean isSubset(BitSet bitSet1, BitSet bitSet2) {
-        BitSet bitSet = new BitSet();
-        bitSet.or(bitSet1);
-        bitSet.or(bitSet2);
-        return bitSet.equals(bitSet2);
     }
 }
 

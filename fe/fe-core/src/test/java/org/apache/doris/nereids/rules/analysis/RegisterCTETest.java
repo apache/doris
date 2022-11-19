@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -282,7 +283,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         String sql = "WITH cte1 (a1, A1) AS (SELECT * FROM supplier)"
                 + "SELECT * FROM cte1";
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
+        NereidsException exception = Assertions.assertThrows(NereidsException.class, () -> {
             PlanChecker.from(connectContext).checkPlannerResult(sql);
         }, "Not throw expected exception.");
         Assertions.assertTrue(exception.getMessage().contains("Duplicated CTE column alias: [a1] in CTE [cte1]"));
@@ -294,7 +295,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 + "(SELECT s_suppkey FROM supplier)"
                 + "SELECT * FROM cte1";
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
+        NereidsException exception = Assertions.assertThrows(NereidsException.class, () -> {
             PlanChecker.from(connectContext).checkPlannerResult(sql);
         }, "Not throw expected exception.");
         System.out.println(exception.getMessage());

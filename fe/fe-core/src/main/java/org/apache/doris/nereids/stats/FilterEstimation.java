@@ -399,7 +399,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         boolean isNotIn = context != null && context.isNot;
         Expression compareExpr = inPredicate.getCompareExpr();
         ColumnStatistic compareExprStats = ExpressionEstimation.estimate(compareExpr, inputStats);
-        if (compareExprStats == ColumnStatistic.UNKNOWN) {
+        if (compareExprStats == ColumnStatistic.DEFAULT) {
             return inputStats;
         }
         List<Expression> options = inPredicate.getOptions();
@@ -427,7 +427,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         if (isNotIn) {
             for (Expression option : options) {
                 ColumnStatistic optionStats = ExpressionEstimation.estimate(option, inputStats);
-                if (optionStats == ColumnStatistic.UNKNOWN) {
+                if (optionStats == ColumnStatistic.DEFAULT) {
                     continue;
                 }
                 double validOptionNdv = compareExprStats.ndvIntersection(optionStats);
@@ -441,7 +441,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         } else {
             for (Expression option : options) {
                 ColumnStatistic optionStats = ExpressionEstimation.estimate(option, inputStats);
-                if (optionStats == ColumnStatistic.UNKNOWN) {
+                if (optionStats == ColumnStatistic.DEFAULT) {
                     validInOptCount++;
                     continue;
                 }
@@ -474,7 +474,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
         StatsDeriveResult estimated = new StatsDeriveResult(inputStats);
 
-        estimated = estimated.updateRowCountOnCopy(selectivity);
+        estimated = estimated.updateBySelectivity(selectivity);
         if (compareExpr instanceof SlotReference) {
             estimated.addColumnStats(((SlotReference) compareExpr).getExprId(),
                     compareExprStatsBuilder.build());

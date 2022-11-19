@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -47,7 +48,8 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      *
      * @return the matched signature
      */
-    FunctionSignature searchSignature();
+    FunctionSignature searchSignature(List<DataType> argumentTypes, List<Expression> arguments,
+            List<FunctionSignature> signatures);
 
     ///// re-defined other interface's methods, so we can mixin this interfaces like a trait /////
 
@@ -64,7 +66,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      */
     @Override
     default List<AbstractDataType> expectedInputTypes() {
-        return (List) getSignature().argumentsTypes;
+        return getSignature().argumentsTypes;
     }
 
     /**

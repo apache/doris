@@ -97,14 +97,14 @@ public class S3Storage extends BlobStorage {
     public void setProperties(Map<String, String> properties) {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
-        // Virtual hosted-sytle is recommended in the s3 protocol.
+        // Virtual hosted-style is recommended in the s3 protocol.
         // The path-style has been abandoned, but for some unexplainable reasons,
         // the s3 client will determine whether the endpiont starts with `s3`
         // when generating a virtual hosted-sytle request.
         // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
         // but the endpoints of many cloud service providers for object storage do not start with s3,
         // so they cannot be converted to virtual hosted-sytle.
-        // Some of them, such as aliyun's oss, only support virtual hosted-sytle,
+        // Some of them, such as aliyun's oss, only support virtual hosted-style,
         // and some of them(ceph) may only support
         // path-style, so we need to do some additional conversion.
         //

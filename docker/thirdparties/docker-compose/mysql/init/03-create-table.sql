@@ -80,3 +80,55 @@ CREATE TABLE doris_test.ex_tb5 (
   KEY `idx_apply_id` (`apply_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3732465 DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE doris_test.ex_tb6 (
+  `id` bigint(20) PRIMARY KEY,
+  `t_id` bigint(20) NULL,
+  `name` text NULL
+);
+
+CREATE TABLE doris_test.ex_tb7 (
+  `id` varchar(32) NULL DEFAULT "",
+  `user_name` varchar(32) NULL DEFAULT "",
+  `member_list` DECIMAL(10,3)
+);
+
+CREATE TABLE doris_test.ex_tb8 (
+   `date` date NOT NULL COMMENT "",
+   `uid` varchar(64) NOT NULL,
+   `stat_type` int(11) NOT NULL COMMENT "",
+   `price` varchar(255) NULL COMMENT "price"
+);
+
+CREATE TABLE doris_test.ex_tb9 (
+   c_date date null
+);
+
+CREATE TABLE doris_test.ex_tb10 (
+    `aa` varchar(200) NULL,
+    `bb` int NULL,
+    `cc` bigint NULL
+);
+
+CREATE TABLE doris_test.ex_tb11 (
+ `aa` varchar(200) PRIMARY KEY,
+ `bb` int NULL
+);
+
+CREATE TABLE doris_test.ex_tb12 (
+ `cc` varchar(200) PRIMARY KEY,
+ `dd` int NULL
+);
+
+CREATE TABLE doris_test.ex_tb13 (
+     name varchar(128),
+     age INT,
+     idCode  varchar(128),
+     cardNo varchar(128),
+     number varchar(128),
+     birthday DATETIME,
+     country varchar(128),
+     gender varchar(128),
+     covid BOOLEAN
+);
+
+

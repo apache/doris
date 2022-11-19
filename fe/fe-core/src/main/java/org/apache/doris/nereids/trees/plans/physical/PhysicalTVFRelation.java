@@ -78,7 +78,7 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalTVFRelation",
+        return Utils.toSqlString("PhysicalTVFRelation",
                 "qualified", Utils.qualifiedName(qualifier, getTable().getName()),
                 "output", getOutput(),
                 "function", function.toSql()

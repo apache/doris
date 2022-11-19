@@ -1064,3 +1064,28 @@ insert into doris_test.ex_tb4 values
 
 insert into doris_test.ex_tb5 values (1, 'test_apply_id', '123321', 'zhangsan', 'zhangsan', 'ready', 'ok', 2, '2022-01-01 02:03:04');
 
+insert into doris_test.ex_tb6 values (639215401565159424,1143681147589283841,'test'),(639237839376089088,1143681147589283841,"test123");
+
+INSERT INTO doris_test.ex_tb7 VALUES ('2','sim',1.000), ('2','sim',1.001), ('2','sim',1.002);
+
+insert into doris_test.ex_tb8 values ('2022-07-15', '2222', 1, NULL), ('2022-07-15', 'ddddd', 2, '0.5');
+
+insert into doris_test.ex_tb9 values ('2022-01-01'), (null);
+
+insert into doris_test.ex_tb10 values ('a', 1, 2), ('b', 1, 2), ('c', 1, 2), ('d', 3, 2);
+
+insert into doris_test.ex_tb11 values ('a', 1), ('b', 1), ('c', 1);
+
+insert into doris_test.ex_tb12 values ('a', 1), ('b', 1), ('c', 1);
+
+insert into doris_test.ex_tb13 values
+('张三0',11,'1234567','123','321312','1999-02-13','中国','男',false),
+('张三1',11,'12345678','123','321312','1999-02-13','中国','男',false),
+('张三2',11,'12345671','123','321312','1999-02-13','中国','男',false),
+('张三3',11,'12345673','123','321312','1999-02-13','中国','男',false),
+('张三4',11,'123456711','123','321312','1999-02-13','中国','男',false),
+('张三5',11,'1232134567','123','321312','1999-02-13','中国','男',false),
+('张三6',11,'124314567','123','321312','1999-02-13','中国','男',false),
+('张三7',11,'123445167','123','321312','1998-02-13','中国','男',false);
+
+

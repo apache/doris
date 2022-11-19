@@ -27,6 +27,7 @@ header:
     - "**/test_data/**"
     - "**/jmockit/**"
     - "**/*.json"
+    - "**/*.csv"
     - "**/*.dat"
     - "**/*.svg"
     - "**/*.md5"

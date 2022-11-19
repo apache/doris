@@ -43,9 +43,6 @@ VNestedLoopJoinNode::VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnod
           _old_version_flag(!tnode.__isset.nested_loop_join_node) {}
 
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
-    DCHECK(_join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::INNER_JOIN ||
-           _join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-           _join_op == TJoinOp::FULL_OUTER_JOIN);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
@@ -77,6 +74,7 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::close");
+    _release_mem();
     return VJoinNodeBase::close(state);
 }
 
@@ -99,7 +97,7 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
             _build_rows += rows;
             _total_mem_usage += mem_usage;
             _build_blocks.emplace_back(std::move(block));
-            if (_match_all_build) {
+            if (_match_all_build || _is_right_semi_anti) {
                 _build_side_visited_flags.emplace_back(ColumnUInt8::create(rows, 0));
             }
         }
@@ -134,6 +132,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     std::stack<uint16_t> offset_stack;
     RETURN_IF_ERROR(std::visit(
             [&](auto&& join_op_variants, auto set_build_side_flag, auto set_probe_side_flag) {
+                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
                 while (mutable_join_block.rows() < state->batch_size() && !_matched_rows_done) {
                     // If this left block is exhausted or empty, we need to pull data from left child.
                     if (_left_block_pos == _left_block.rows()) {
@@ -173,7 +172,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                         Block tmp_block = mutable_join_block.to_block(0);
                         Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
                                                                                set_probe_side_flag>(
-                                &tmp_block, offset_stack);
+                                &tmp_block, offset_stack, !_is_left_semi_anti);
                         if (!status.OK()) {
                             return status;
                         }
@@ -184,7 +183,9 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                         // probe row with null from build side.
                         if (_current_build_pos == _build_blocks.size()) {
                             if (!_matched_rows_done) {
-                                _output_null_data<false>(dst_columns, state->batch_size());
+                                _finalize_current_phase<false, JoinOpType::value ==
+                                                                       TJoinOp::LEFT_SEMI_JOIN>(
+                                        dst_columns, state->batch_size());
                                 _reset_with_next_probe_row(dst_columns);
                             }
                             break;
@@ -199,7 +200,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                     Block tmp_block = mutable_join_block.to_block(0);
                     Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
                                                                            set_probe_side_flag>(
-                            &tmp_block, offset_stack);
+                            &tmp_block, offset_stack, !_is_right_semi_anti);
                     mutable_join_block = MutableBlock(std::move(tmp_block));
                     if (!status.OK()) {
                         return status;
@@ -209,13 +210,15 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                 if constexpr (set_build_side_flag) {
                     if (_matched_rows_done && _output_null_idx_build_side < _build_blocks.size()) {
                         auto& cols = mutable_join_block.mutable_columns();
-                        _output_null_data<true>(cols, state->batch_size());
+                        _finalize_current_phase<true,
+                                                JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
+                                cols, state->batch_size());
                     }
                 }
                 return Status::OK();
             },
-            _join_op_variants, make_bool_variant(_match_all_build),
-            make_bool_variant(_match_all_probe)));
+            _join_op_variants, make_bool_variant(_match_all_build || _is_right_semi_anti),
+            make_bool_variant(_match_all_probe || _is_left_semi_anti)));
     *eos = _match_all_build
                    ? _output_null_idx_build_side == _build_blocks.size() && _matched_rows_done
                    : _matched_rows_done;
@@ -265,8 +268,8 @@ void VNestedLoopJoinNode::_process_left_child_block(MutableColumns& dst_columns,
     }
 }
 
-template <bool BuildSide>
-void VNestedLoopJoinNode::_output_null_data(MutableColumns& dst_columns, size_t batch_size) {
+template <bool BuildSide, bool IsSemi>
+void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, size_t batch_size) {
     if constexpr (BuildSide) {
         auto build_block_sz = _build_blocks.size();
         size_t i = _output_null_idx_build_side;
@@ -281,13 +284,21 @@ void VNestedLoopJoinNode::_output_null_data(MutableColumns& dst_columns, size_t 
             std::vector<int> selector(num_rows);
             size_t selector_idx = 0;
             for (size_t j = 0; j < num_rows; j++) {
-                if (!cur_visited_flags[j]) {
-                    selector[selector_idx++] = j;
+                if constexpr (IsSemi) {
+                    if (cur_visited_flags[j]) {
+                        selector[selector_idx++] = j;
+                    }
+                } else {
+                    if (!cur_visited_flags[j]) {
+                        selector[selector_idx++] = j;
+                    }
                 }
             }
             for (size_t j = 0; j < _num_probe_side_columns; ++j) {
                 DCHECK(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-                       _join_op == TJoinOp::FULL_OUTER_JOIN);
+                       _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                       _join_op == TJoinOp::RIGHT_ANTI_JOIN ||
+                       _join_op == TJoinOp::RIGHT_SEMI_JOIN);
                 dst_columns[j]->insert_many_defaults(selector_idx);
             }
 
@@ -319,8 +330,14 @@ void VNestedLoopJoinNode::_output_null_data(MutableColumns& dst_columns, size_t 
         }
         _output_null_idx_build_side = i;
     } else {
-        if (_cur_probe_row_visited_flags) {
-            return;
+        if constexpr (IsSemi) {
+            if (!_cur_probe_row_visited_flags) {
+                return;
+            }
+        } else {
+            if (_cur_probe_row_visited_flags) {
+                return;
+            }
         }
 
         DCHECK_LT(_left_block_pos, _left_block.rows());
@@ -355,7 +372,7 @@ void VNestedLoopJoinNode::_reset_with_next_probe_row(MutableColumns& dst_columns
 
 template <bool SetBuildSideFlag, bool SetProbeSideFlag>
 Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
-        Block* block, std::stack<uint16_t>& offset_stack) {
+        Block* block, std::stack<uint16_t>& offset_stack, bool materialize) {
     auto column_to_keep = block->columns();
     // If we need to set visited flags for build side,
     // 1. Execute conjuncts and get a column with bool type to do filtering.
@@ -406,7 +423,15 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
             if constexpr (SetProbeSideFlag) {
                 _cur_probe_row_visited_flags |= simd::contain_byte<uint8>(filter_data, size, 1);
             }
-            Block::filter_block_internal(block, filter, column_to_keep);
+#define CLEAR_BLOCK                                                  \
+    for (size_t i = 0; i < column_to_keep; ++i) {                    \
+        block->get_by_position(i).column->assume_mutable()->clear(); \
+    }
+            if (materialize) {
+                Block::filter_block_internal(block, filter, column_to_keep);
+            } else {
+                CLEAR_BLOCK
+            }
         } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
             bool ret = const_column->get_bool(0);
             if (!ret) {
@@ -430,6 +455,9 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
                 }
                 if constexpr (SetProbeSideFlag) {
                     _cur_probe_row_visited_flags |= ret;
+                }
+                if (!materialize) {
+                    CLEAR_BLOCK
                 }
             }
         } else {
@@ -457,10 +485,14 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
                 _cur_probe_row_visited_flags |=
                         simd::contain_byte<uint8>(filter.data(), filter.size(), 1);
             }
-            Block::filter_block_internal(block, filter, column_to_keep);
+            if (materialize) {
+                Block::filter_block_internal(block, filter, column_to_keep);
+            } else {
+                CLEAR_BLOCK
+            }
         }
-        Block::erase_useless_column(block, column_to_keep);
     }
+#undef CLEAR_BLOCK
     return Status::OK();
 }
 
@@ -483,6 +515,16 @@ void VNestedLoopJoinNode::debug_string(int indentation_level, std::stringstream*
          << " left_block_pos=" << _left_block_pos;
     VJoinNodeBase::debug_string(indentation_level, out);
     *out << ")";
+}
+
+void VNestedLoopJoinNode::_release_mem() {
+    _left_block.clear();
+
+    Blocks tmp_build_blocks;
+    _build_blocks.swap(tmp_build_blocks);
+
+    MutableColumns tmp_build_side_visited_flags;
+    _build_side_visited_flags.swap(tmp_build_side_visited_flags);
 }
 
 } // namespace doris::vectorized

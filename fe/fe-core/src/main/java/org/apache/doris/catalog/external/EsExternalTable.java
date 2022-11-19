@@ -49,7 +49,7 @@ public class EsExternalTable extends ExternalTable {
         super(id, name, catalog, dbName, TableType.ES_EXTERNAL_TABLE);
     }
 
-    public synchronized void makeSureInitialized() {
+    protected synchronized void makeSureInitialized() {
         if (!objectCreated) {
             esTable = toEsTable();
             objectCreated = true;

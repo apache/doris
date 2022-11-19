@@ -46,6 +46,9 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.AnalysisJob;
+import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisJobScheduler;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
@@ -893,6 +896,21 @@ public class OlapTable extends Table {
         this.bfFpp = bfFpp;
     }
 
+    public String getSequenceMapCol() {
+        if (tableProperty == null) {
+            return null;
+        }
+        return tableProperty.getSequenceMapCol();
+    }
+
+    // map the sequence column to other column
+    public void setSequenceMapCol(String colName) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setSequenceMapCol(colName);
+    }
+
     public void setSequenceInfo(Type type) {
         this.hasSequenceCol = true;
         this.sequenceType = type;
@@ -974,6 +992,11 @@ public class OlapTable extends Table {
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setOlapTable(tOlapTable);
         return tTableDescriptor;
+    }
+
+    @Override
+    public AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info) {
+        return new AnalysisJob(scheduler, info);
     }
 
     @Override
