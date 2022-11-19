@@ -1055,6 +1055,8 @@ insert into doris_test.ex_tb3 values
 ('mus','plat_code','1001169339',1590406790026,1590420872639,'11','1006061','beijing'),
 ('mus','plat_code','1001169339',1590420482288,1590420872639,'11','1006061','beijing');
 
+-- remove NO_ZERO_IN_DATE and NO_ZERO_DATE to allow insert 0000-00-00 00:00:00
+set sql_mode="ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION";
 insert into doris_test.ex_tb4 values
 (1, 111, '2021-09-01 07:01:01', '2021-09-01 08:01:01', 1),
 (2, 112, '2021-09-02 07:01:01', '2021-09-02 08:01:01', 1),
