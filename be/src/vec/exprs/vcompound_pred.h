@@ -23,6 +23,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
@@ -37,11 +38,12 @@ inline std::string compound_operator_to_string(TExprOpcode::type op) {
     }
 }
 
-class VcompoundPred : public VExpr {
+class VcompoundPred : public VectorizedFnCall {
 public:
-    VcompoundPred(const TExprNode& node) : VExpr(node) {
+    VcompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
         _op = node.opcode;
-        _expr_name = "CompoundPredicate (" + compound_operator_to_string(_op) + ")";
+        _fn.name.function_name = compound_operator_to_string(_op);
+        _expr_name = "CompoundPredicate (" + _fn.name.function_name + ")";
     }
 
     VExpr* clone(ObjectPool* pool) const override { return pool->add(new VcompoundPred(*this)); }
@@ -50,11 +52,14 @@ public:
 
     Status execute(VExprContext* context, doris::vectorized::Block* block,
                    int* result_column_id) override {
+        if (_have_const_child()) {
+            return VectorizedFnCall::execute(context, block, result_column_id);
+        }
+
         int lhs_id = -1;
         int rhs_id = -1;
         RETURN_IF_ERROR(_children[0]->execute(context, block, &lhs_id));
-        ColumnPtr lhs_column =
-                block->get_by_position(lhs_id).column->convert_to_full_column_if_const();
+        ColumnPtr lhs_column = block->get_by_position(lhs_id).column;
 
         ColumnPtr rhs_column = nullptr;
 
@@ -71,8 +76,7 @@ public:
         auto get_rhs_colum = [&]() {
             if (rhs_id == -1) {
                 RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
-                rhs_column =
-                        block->get_by_position(rhs_id).column->convert_to_full_column_if_const();
+                rhs_column = block->get_by_position(rhs_id).column;
                 data_rhs = _get_raw_data(rhs_column);
                 if (!empty) {
                     if (const uint8* null_map =
@@ -136,6 +140,15 @@ public:
     }
 
 private:
+    bool _have_const_child() const {
+        for (auto child : _children) {
+            if (child->is_constant()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     uint8* _get_raw_data(ColumnPtr column) const {
         if (column->is_nullable()) {
             return assert_cast<ColumnUInt8*>(
