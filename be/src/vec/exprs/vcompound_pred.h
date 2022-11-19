@@ -72,7 +72,7 @@ public:
             if (rhs_id == -1) {
                 RETURN_IF_ERROR(_children[1]->execute(context, block, &rhs_id));
                 rhs_column =
-                        block->get_by_position(rhs_id).column.convert_to_full_column_if_const();
+                        block->get_by_position(rhs_id).column->convert_to_full_column_if_const();
                 data_rhs = _get_raw_data(rhs_column);
                 if (!empty) {
                     if (const uint8* null_map =
