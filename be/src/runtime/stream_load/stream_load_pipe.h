@@ -47,7 +47,7 @@ public:
               _use_proto(use_proto) {}
 
     virtual ~StreamLoadPipe() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->nursery_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         while (!_buf_queue.empty()) _buf_queue.pop_front();
     }
 
@@ -119,7 +119,7 @@ public:
     }
 
     Status read(uint8_t* data, int64_t data_size, int64_t* bytes_read, bool* eof) override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->nursery_mem_tracker());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         *bytes_read = 0;
         while (*bytes_read < data_size) {
             std::unique_lock<std::mutex> l(_lock);

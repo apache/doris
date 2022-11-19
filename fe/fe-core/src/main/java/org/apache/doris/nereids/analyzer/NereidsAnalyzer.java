@@ -56,13 +56,4 @@ public class NereidsAnalyzer {
         // check whether analyze result is meaningful
         new CheckAnalysisJob(cascadesContext).execute();
     }
-
-    public CascadesContext getCascadesContext() {
-        return cascadesContext;
-    }
-
-    public Optional<Scope> getOuterScope() {
-        return outerScope;
-    }
-
 }

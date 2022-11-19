@@ -122,7 +122,9 @@ public:
     Status merge(const PMergeFilterRequest* request,
                  butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    UniqueId query_id() { return _query_id; }
+    UniqueId query_id() const { return _query_id; }
+
+    UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t create_time;
@@ -168,7 +170,7 @@ public:
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                       RuntimeState* state);
     // thread safe
-    // increate a reference count
+    // increase a reference count
     // if a query-id is not exist
     // Status.not_ok will be returned and a empty ptr will returned by *handle
     Status acquire(UniqueId query_id, std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle);

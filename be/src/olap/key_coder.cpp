@@ -77,7 +77,7 @@ private:
         add_mapping<OLAP_FIELD_TYPE_DATETIMEV2>();
         add_mapping<OLAP_FIELD_TYPE_DECIMAL32>();
         add_mapping<OLAP_FIELD_TYPE_DECIMAL64>();
-        add_mapping<OLAP_FIELD_TYPE_DECIMAL128>();
+        add_mapping<OLAP_FIELD_TYPE_DECIMAL128I>();
     }
 
     template <FieldType field_type>

@@ -149,3 +149,21 @@ broker_timeout_ms = 10000
 ````
 
 Adding parameters here requires restarting the FE service.
+
+### Q11. [ Routine load ] ReasonOfStateChanged: ErrorReason{code=errCode = 104, msg='be 10004 abort task with reason: fetch failed due to requested offset not available on the broker: Broker: Offset out of range'} 
+
+The reason for this problem is that Kafka's cleanup policy defaults to 7 days. When a routine load task is suspended for some reason and the task is not restored for a long time, when the task is resumed, the routine load records the consumption offset, and This problem occurs when kafka has cleaned up the corresponding offset
+
+So this problem can be solved with alter routine load:
+
+View the smallest offset of kafka, use the ALTER ROUTINE LOAD command to modify the offset, and resume the task
+
+```sql
+ALTER ROUTINE LOAD FOR db.tb
+FROM kafka
+(
+ "kafka_partitions" = "0",
+ "kafka_offsets" = "xxx",
+ "property.group.id" = "xxx"
+);
+```

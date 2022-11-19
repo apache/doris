@@ -762,7 +762,7 @@ public abstract class Type {
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
                         || scalarType.getType() == TPrimitiveType.DECIMAL32
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
-                        || scalarType.getType() == TPrimitiveType.DECIMAL128) {
+                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),

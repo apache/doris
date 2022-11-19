@@ -263,7 +263,7 @@ suite("test_date_function") {
     qt_sql """ select yearweek('1989-03-21', 6) """
     qt_sql """ select yearweek('1989-03-21', 7) """
 
-    qt_sql """ select count(*) from (select * from numbers("200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
+    qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
     sql """ drop table ${tableName} """
 

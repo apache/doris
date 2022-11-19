@@ -34,6 +34,9 @@ public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::vector<SlotDescriptor*>& file_slot_descs);
+
+    CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+              const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
     ~CsvReader() override;
 
     Status init_reader(bool is_query);
@@ -41,7 +44,16 @@ public:
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
+    // get schema of csv file from first one line or first two lines.
+    // if file format is FORMAT_CSV_DEFLATE and if
+    // 1. header_type is empty, get schema from first line.
+    // 2. header_type is CSV_WITH_NAMES, get schema from first line.
+    // 3. header_type is CSV_WITH_NAMES_AND_TYPES, get schema from first two line.
+    Status get_parsered_schema(std::vector<std::string>* col_names,
+                               std::vector<TypeDescriptor>* col_types) override;
+
 private:
+    // used for stream/broker load of csv file.
     Status _create_decompressor();
     Status _fill_dest_columns(const Slice& line, Block* block, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
@@ -49,6 +61,13 @@ private:
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
     bool _is_null(const Slice& slice);
     bool _is_array(const Slice& slice);
+
+    // used for parse table schema of csv file.
+    Status _prepare_parse(size_t* read_line, bool* is_parse_name);
+    Status _parse_col_nums(size_t* col_nums);
+    Status _parse_col_names(std::vector<std::string>* col_names);
+    // TODO(ftw): parse type
+    Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
 
 private:
     RuntimeState* _state;
@@ -59,7 +78,7 @@ private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     // Only for query task, save the columns' index which need to be read.
     // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3
-    // and the corressponding position in file is 0, 3, 5.
+    // and the corresponding position in file is 0, 3, 5.
     // So the _col_idx will be: <0, 3, 5>
     std::vector<int> _col_idxs;
     // True if this is a load task

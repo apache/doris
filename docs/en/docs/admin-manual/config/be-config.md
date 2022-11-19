@@ -844,9 +844,9 @@ The number of sliced tablets, plan the layout of the tablet, and avoid too many 
 * Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
 * Default value: performance
 
-### `memory_limitation_per_thread_for_schema_change`
+### `memory_limitation_per_thread_for_schema_change_bytes`
 
-Default: 2 （G）
+Default: 2147483648
 
 Maximum memory allowed for a single schema change task
 

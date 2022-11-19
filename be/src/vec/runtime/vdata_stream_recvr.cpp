@@ -77,10 +77,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
-        {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
-            closure_pair.first->Run();
-        }
+        closure_pair.first->Run();
         _pending_closures.pop_front();
 
         closure_pair.second.stop();
@@ -173,6 +170,8 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_size)) {
+        // yiguolei
+        // It is too tricky here, if the running thread is bthread then the tid may be wrong.
         std::thread::id tid = std::this_thread::get_id();
         MonotonicStopWatch monotonicStopWatch;
         monotonicStopWatch.start();
@@ -222,11 +221,8 @@ void VDataStreamRecvr::SenderQueue::cancel() {
 
     {
         std::lock_guard<std::mutex> l(_lock);
-        {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
-            for (auto closure_pair : _pending_closures) {
-                closure_pair.first->Run();
-            }
+        for (auto closure_pair : _pending_closures) {
+            closure_pair.first->Run();
         }
         _pending_closures.clear();
     }
@@ -240,11 +236,8 @@ void VDataStreamRecvr::SenderQueue::close() {
         std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
 
-        {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->bthread_mem_tracker());
-            for (auto closure_pair : _pending_closures) {
-                closure_pair.first->Run();
-            }
+        for (auto closure_pair : _pending_closures) {
+            closure_pair.first->Run();
         }
         _pending_closures.clear();
     }
@@ -258,11 +251,14 @@ void VDataStreamRecvr::SenderQueue::close() {
 }
 
 VDataStreamRecvr::VDataStreamRecvr(
-        VDataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
+        VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
         const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
         bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
+#ifdef USE_MEM_TRACKER
+          _state(state),
+#endif
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
           _total_buffer_limit(total_buffer_limit),
@@ -323,6 +319,8 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
 
 void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                  int64_t packet_seq, ::google::protobuf::Closure** done) {
+    SCOPED_ATTACH_TASK(_state->query_mem_tracker(), print_id(_state->query_id()),
+                       _fragment_instance_id);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);

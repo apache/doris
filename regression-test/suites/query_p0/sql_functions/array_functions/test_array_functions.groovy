@@ -45,6 +45,8 @@ suite("test_array_functions") {
     sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL) """
     sql """ INSERT INTO ${tableName} VALUES(6,[1,2,3,4,5,4,3,2,1],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL) """
     sql """ INSERT INTO ${tableName} VALUES(7,[8,9,NULL,10,NULL],["f",NULL,"g",NULL,"h"],NULL,NULL,NULL,NULL) """
+    sql """ INSERT INTO ${tableName} VALUES(8,[1,2,3,3,4,4,NULL],["a","b","b","b"],[1,2,2,3],["hi","hi","hello"],["2015-03-13"],["2015-03-13 12:36:38"]) """
+    sql """ INSERT INTO ${tableName} VALUES(9,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13","2015-03-13","2015-03-14"],["2015-03-13 12:36:38","2015-03-13 12:36:38"]) """
 
     qt_select "SELECT k1, size(k2), size(k3) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, cardinality(k2), cardinality(k3) FROM ${tableName} ORDER BY k1"
@@ -66,4 +68,55 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_enumerate(k5) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate(k6) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate(k7) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k2) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k5) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k6) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_popback(k7) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(3, k1) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(10, null) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(2, 'a') from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_with_constant(2, 123) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array(2, k1) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array(k1, null, '2020-01-01') from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array(null, k1) from ${tableName} ORDER BY k1"
+
+    def tableName2 = "tbl_test_array_range"
+    sql """DROP TABLE IF EXISTS ${tableName2}"""
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
+              `k1` int(11) NULL COMMENT "",
+              `k2` int(11) NULL COMMENT "",
+              `k3` int(11) NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+    sql """ INSERT INTO ${tableName2} VALUES(-1,3,5) """
+    sql """ INSERT INTO ${tableName2} VALUES(1,3,5) """
+    sql """ INSERT INTO ${tableName2} VALUES(2,10,2) """
+    sql """ INSERT INTO ${tableName2} VALUES(3,NULL,NULL) """
+    sql """ INSERT INTO ${tableName2} VALUES(4,6,1) """
+    sql """ INSERT INTO ${tableName2} VALUES(5,10,1) """
+    sql """ INSERT INTO ${tableName2} VALUES(6,NULL,1) """
+    sql """ INSERT INTO ${tableName2} VALUES(7,10,NULL) """
+    sql """ INSERT INTO ${tableName2} VALUES(NULL,10,2) """
+    sql """ INSERT INTO ${tableName2} VALUES(8,2,2) """
+    sql """ INSERT INTO ${tableName2} VALUES(9,10,6) """
+
+    qt_select "SELECT k1, array_range(k1) from ${tableName2} ORDER BY k1"
+    qt_select "SELECT k1, array_range(k1,k2) from ${tableName2} ORDER BY k1"
+    qt_select "SELECT k1, array_range(k1,k2,k3) from ${tableName2} ORDER BY k1"
+    qt_select "SELECT k1, array_compact(k2) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_compact(k3) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_compact(k4) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_compact(k5) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_compact(k6) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_compact(k7) from ${tableName} ORDER BY k1"
+
+    qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
+    
 }

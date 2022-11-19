@@ -53,7 +53,7 @@ enum TPlanNodeType {
   EXCEPT_NODE,
   ODBC_SCAN_NODE,
   TABLE_FUNCTION_NODE,
-  TABLE_VALUED_FUNCTION_SCAN_NODE,
+  DATA_GEN_SCAN_NODE,
   FILE_SCAN_NODE,
   JDBC_SCAN_NODE,
 }
@@ -257,6 +257,25 @@ struct TFileAttributes {
     9: optional string header_type;
 }
 
+struct TIcebergDeleteFileDesc {
+    1: optional string path;
+    2: optional i64 position_lower_bound;
+    3: optional i64 position_upper_bound;
+    4: optional list<i32> field_ids;
+}
+
+struct TIcebergFileDesc {
+    1: optional i32 format_version;
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    2: optional i32 content;
+    3: optional list<TIcebergDeleteFileDesc> delete_files;
+}
+
+struct TTableFormatFileDesc {
+    1: optional string table_format_type
+    2: optional TIcebergFileDesc iceberg_params
+}
+
 struct TFileScanRangeParams {
     1: optional Types.TFileType file_type;
     2: optional TFileFormatType format_type;
@@ -289,8 +308,10 @@ struct TFileScanRangeParams {
     14: optional list<Types.TNetworkAddress> broker_addresses
     15: optional TFileAttributes file_attributes
     16: optional Exprs.TExpr pre_filter_exprs
+    // For data lake table format
+    17: optional TTableFormatFileDesc table_format_params
     // For csv query task, same the column index in file, order by dest_tuple
-    17: optional list<i32> column_idxs
+    18: optional list<i32> column_idxs
 }
 
 struct TFileRangeDesc {
@@ -324,7 +345,7 @@ struct TExternalScanRange {
     // TODO: add more scan range type?
 }
 
-enum TTVFunctionName {
+enum TDataGenFunctionName {
     NUMBERS = 0,
 }
 
@@ -334,7 +355,7 @@ struct TTVFNumbersScanRange {
 	1: optional i64 totalNumbers
 }
 
-struct TTVFScanRange {
+struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
 }
 
@@ -347,7 +368,7 @@ struct TScanRange {
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
   8: optional TExternalScanRange ext_scan_range
-  9: optional TTVFScanRange tvf_scan_range
+  9: optional TDataGenScanRange data_gen_scan_range
 }
 
 struct TMySQLScanNode {
@@ -453,6 +474,13 @@ struct TCsvScanNode {
   10:optional map<string, TMiniLoadEtlFunction> column_function_mapping
 }
 
+struct TSchemaTableStructure {
+  1: optional string column_name
+  2: optional Types.TPrimitiveType type
+  3: optional i64 len
+  4: optional bool is_null;
+}
+
 struct TSchemaScanNode {
   1: required Types.TTupleId tuple_id
 
@@ -467,6 +495,7 @@ struct TSchemaScanNode {
   10: optional string user_ip   // deprecated
   11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
   12: optional bool show_hidden_cloumns = false
+  13: optional list<TSchemaTableStructure> table_structure
 }
 
 struct TMetaScanNode {
@@ -571,6 +600,18 @@ struct THashJoinNode {
   8: optional Types.TTupleId voutput_tuple_id
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
+
+  10: optional bool is_broadcast_join;
+}
+
+struct TNestedLoopJoinNode {
+  1: required TJoinOp join_op
+  // TODO: remove 2 and 3 in the version after the version include projection on ExecNode
+  2: optional list<Exprs.TExpr> srcExprList
+
+  3: optional Types.TTupleId voutput_tuple_id
+
+  4: optional list<Types.TTupleId> vintermediate_tuple_id_list
 }
 
 struct TMergeJoinNode {
@@ -903,9 +944,9 @@ struct TRuntimeFilterDesc {
   9: optional i64 bloom_filter_size_bytes
 }
 
-struct TTableValuedFunctionScanNode {
+struct TDataGenScanNode {
 	1: optional Types.TTupleId tuple_id
-  	2: optional TTVFunctionName func_name
+  2: optional TDataGenFunctionName func_name
 }
 
 // This is essentially a union of all messages corresponding to subclasses
@@ -959,11 +1000,12 @@ struct TPlanNode {
 
   // output column
   42: optional list<Types.TSlotId> output_slot_ids
-  43: optional TTableValuedFunctionScanNode table_valued_func_scan_node
+  43: optional TDataGenScanNode data_gen_scan_node
 
   // file scan node
   44: optional TFileScanNode file_scan_node
   45: optional TJdbcScanNode jdbc_scan_node
+  46: optional TNestedLoopJoinNode nested_loop_join_node
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

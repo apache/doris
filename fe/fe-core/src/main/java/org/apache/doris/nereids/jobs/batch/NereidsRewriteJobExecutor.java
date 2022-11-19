@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.batch;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
@@ -65,9 +67,11 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
+                .add(visitorJob(new InferPredicates()))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
                 .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
+                .add(visitorJob(new InferPredicates()))
                 .add(topDownBatch(ImmutableList.of(PushFilterInsideJoin.INSTANCE)))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
@@ -79,6 +83,8 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 // we need to execute this rule at the end of rewrite
                 // to avoid two consecutive same project appear when we do optimization.
                 .add(topDownBatch(ImmutableList.of(new EliminateUnnecessaryProject())))
+                // this rule batch must keep at the end of rewrite to do some plan check
+                .add(bottomUpBatch(ImmutableList.of(new CheckAfterRewrite())))
                 .build();
 
         rulesJob.addAll(jobs);

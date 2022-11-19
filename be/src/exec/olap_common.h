@@ -43,7 +43,7 @@ std::string cast_to_string(T value, int scale) {
         std::stringstream ss;
         vectorized::write_text<int64_t>((int64_t)value, scale, ss);
         return ss.str();
-    } else if constexpr (primitive_type == TYPE_DECIMAL128) {
+    } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
         std::stringstream ss;
         vectorized::write_text<int128_t>((int128_t)value, scale, ss);
         return ss.str();
@@ -111,8 +111,8 @@ public:
     void convert_to_range_value();
 
     bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
-                                    std::vector<OlapTuple>& end_scan_keys,
-                                    int32_t max_scan_key_num);
+                                    std::vector<OlapTuple>& end_scan_keys, bool& begin_include,
+                                    bool& end_include, bool* eos, int32_t max_scan_key_num);
 
     bool has_intersection(ColumnValueRange<primitive_type>& range);
 
@@ -130,6 +130,10 @@ public:
     CppType get_range_max_value() const { return _high_value; }
 
     CppType get_range_min_value() const { return _low_value; }
+
+    const CppType* get_range_max_value_ptr() const { return &_high_value; }
+
+    const CppType* get_range_min_value_ptr() const { return &_low_value; }
 
     SQLFilterOp get_range_high_op() const { return _high_op; }
 
@@ -325,7 +329,7 @@ public:
 
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
-                           bool* exact_value);
+                           bool* exact_value, bool* eos);
 
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
@@ -389,7 +393,7 @@ using ColumnValueRangeType =
                      ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
                      ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
                      ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
-                     ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128>>;
+                     ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
@@ -516,7 +520,7 @@ size_t ColumnValueRange<primitive_type>::get_convertible_fixed_value_size() cons
 template <PrimitiveType primitive_type>
 bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
-        int32_t max_scan_key_num) {
+        bool& begin_include, bool& end_include, bool* eos, int32_t max_scan_key_num) {
     constexpr bool reject_type = primitive_type == PrimitiveType::TYPE_LARGEINT ||
                                  primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
                                  primitive_type == PrimitiveType::TYPE_HLL ||
@@ -526,6 +530,9 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                                  primitive_type == PrimitiveType::TYPE_BOOLEAN ||
                                  primitive_type == PrimitiveType::TYPE_DATETIME ||
                                  primitive_type == PrimitiveType::TYPE_DATETIMEV2;
+    begin_include = is_begin_include();
+    end_include = is_end_include();
+    bool is_empty_range = false;
     if constexpr (reject_type) {
         begin_scan_keys.emplace_back();
         begin_scan_keys.back().add_value(
@@ -535,32 +542,20 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         end_scan_keys.back().add_value(
                 cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
         return true;
+    } else if (is_low_value_mininum() && is_high_value_maximum()) {
+        // Do not split the range of whole range. TODO: figure out why the code
+        // execute here
+        begin_scan_keys.emplace_back();
+        begin_scan_keys.back().add_value(
+                cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
+                contain_null());
+        end_scan_keys.emplace_back();
+        end_scan_keys.back().add_value(
+                cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
+        return true;
     } else {
-        CppType current = get_range_min_value();
-
-        size_t range_size = get_convertible_fixed_value_size();
-        size_t step_size = std::max(
-                (range_size / max_scan_key_num) + (range_size % max_scan_key_num != 0), (size_t)1);
-
-        if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
-            current.set_type(TimeType::TIME_DATE);
-        }
-
-        while (current < get_range_max_value()) {
-            begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(current, scale()));
-
-            if (get_range_max_value() - current < step_size) {
-                current = get_range_max_value();
-            } else {
-                current += step_size;
-            }
-
-            end_scan_keys.emplace_back();
-            end_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(current, scale()));
-        }
+        CppType min_value = get_range_min_value();
+        CppType max_value = get_range_max_value();
 
         if (contain_null()) {
             begin_scan_keys.emplace_back();
@@ -568,7 +563,65 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             end_scan_keys.emplace_back();
             end_scan_keys.back().add_null();
         }
-        return step_size != 1;
+
+        if (!is_begin_include()) {
+            if (min_value == TYPE_MAX) {
+                is_empty_range = true;
+            } else {
+                begin_include = true;
+                ++min_value;
+            }
+        }
+        if (!is_end_include()) {
+            if (max_value == TYPE_MIN) {
+                is_empty_range = true;
+            } else {
+                end_include = true;
+                --max_value;
+            }
+        }
+
+        if (begin_include && end_include && min_value > max_value) {
+            is_empty_range = true;
+        }
+        if (is_empty_range) {
+            if (!contain_null()) {
+                begin_scan_keys.clear();
+                end_scan_keys.clear();
+                *eos = true;
+            }
+            return false;
+        }
+
+        int128_t range_size = is_fixed_value_convertible() ? (int128_t)max_value - min_value : 0;
+        size_t step_size = range_size / max_scan_key_num;
+
+        auto current = min_value;
+        if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
+            current.set_type(TimeType::TIME_DATE);
+        }
+
+        while (current <= max_value) {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(current, scale()));
+
+            if ((int128_t)max_value - current < step_size) {
+                current = max_value;
+            } else {
+                current += step_size;
+            }
+
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_value(
+                    cast_to_string<primitive_type, CppType>(current, scale()));
+
+            if (current == max_value) {
+                break;
+            }
+            ++current;
+        }
+        return step_size != 0;
     }
 }
 
@@ -864,7 +917,7 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
 
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
-                                     int32_t max_scan_key_num, bool* exact_value) {
+                                     int32_t max_scan_key_num, bool* exact_value, bool* eos) {
     using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using ConstIterator = typename std::set<CppType>::const_iterator;
 
@@ -893,12 +946,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         }
     } else {
         if (_begin_scan_keys.empty() && range.is_fixed_value_convertible() && _is_convertible) {
-            if (range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys,
-                                                 max_scan_key_num)) {
+            if (range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, _begin_include,
+                                                 _end_include, eos, max_scan_key_num)) {
                 _has_range_value = true;
             }
-            _begin_include = range.is_begin_include();
-            _end_include = range.is_end_include();
             return Status::OK();
         }
     }

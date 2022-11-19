@@ -40,7 +40,7 @@ public:
     VBrokerScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _profile = _runtime_state.runtime_profile();
-        _runtime_state.init_instance_mem_tracker();
+        _runtime_state.init_mem_trackers();
 
         TUniqueId unique_id;
         TQueryOptions query_options;

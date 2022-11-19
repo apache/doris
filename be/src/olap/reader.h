@@ -21,12 +21,12 @@
 
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
+#include "exprs/hybrid_set.h"
 #include "olap/delete_handler.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "util/date_func.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -77,6 +77,7 @@ public:
 
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+        std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
 
@@ -93,7 +94,7 @@ public:
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
-        // used for comapction to record row ids
+        // used for compaction to record row ids
         bool record_rowids = false;
         // used for special optimization for query : ORDER BY key LIMIT n
         bool read_orderby_key = false;
@@ -169,6 +170,9 @@ protected:
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
+
+    ColumnPredicate* _parse_to_predicate(
+            const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter);
 
     virtual ColumnPredicate* _parse_to_predicate(const FunctionFilter& function_filter);
 

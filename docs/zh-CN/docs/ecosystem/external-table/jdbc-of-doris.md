@@ -72,7 +72,7 @@ PROPERTIES (
 | **password**     | 该用户对应的密码信息 |
 | **jdbc_url**     | JDBC的URL协议，包括数据库类型，IP地址，端口号和数据库名，不同数据库协议格式不一样。例如mysql: "jdbc:mysql://127.0.0.1:3306/test"。|
 | **driver_class** | 访问外表数据库的驱动包类名，例如mysql是:com.mysql.jdbc.Driver. |
-| **driver_url**   | 用于下载访问外部数据库的jar包驱动URL。http://IP:port/mysql-connector-java-5.1.47.jar |
+| **driver_url**   | 用于下载访问外部数据库的jar包驱动URL。http://IP:port/mysql-connector-java-5.1.47.jar。本地单机测试时，可将jar包放在本地路径下，"driver_url"="file:///home/disk1/pathTo/mysql-connector-java-5.1.47.jar",多机时需保证具有完全相同的路径信息。 |
 | **resource**     | 在Doris中建立外表时依赖的资源名，对应上步创建资源时的名字。|
 | **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。|
 | **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle|
@@ -222,6 +222,12 @@ PROPERTIES (
 2. 读写mysql外表的emoji表情出现乱码
 
     Doris进行jdbc外表连接时，由于mysql之中默认的utf8编码为utf8mb3，无法表示需要4字节编码的emoji表情。这里需要在建立mysql外表时设置对应列的编码为utf8mb4,设置服务器编码为utf8mb4,JDBC Url中的characterEncoding不配置.（该属性不支持utf8mb4,配置了非utf8mb4将导致无法写入表情，因此要留空，不配置）
+
+3. 读mysql外表时，DateTime="0000:00:00 00:00:00"异常报错: "CAUSED BY: DataReadException: Zero date value prohibited"
+
+   这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数zeroDateTimeBehavior控制该行为.
+   可选参数为:EXCEPTION,CONVERT_TO_NULL,ROUND, 分别为异常报错，转为NULL值，转为"0001-01-01 00:00:00";
+   可在url中添加:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull" 
 
 
 ```

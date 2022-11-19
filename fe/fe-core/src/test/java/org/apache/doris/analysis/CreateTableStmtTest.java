@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -309,6 +310,7 @@ public class CreateTableStmtTest {
 
     @Test
     public void testCreateIcebergTable() throws UserException {
+        Config.disable_iceberg_hudi_table = false;
         Map<String, String> properties = new HashMap<>();
         properties.put("iceberg.database", "doris");
         properties.put("iceberg.table", "test");
@@ -324,6 +326,7 @@ public class CreateTableStmtTest {
 
     @Test
     public void testCreateHudiTable() throws UserException {
+        Config.disable_iceberg_hudi_table = false;
         Map<String, String> properties = new HashMap<>();
         properties.put("hudi.database", "doris");
         properties.put("hudi.table", "test");
@@ -340,6 +343,7 @@ public class CreateTableStmtTest {
 
     @Test
     public void testCreateHudiTableWithSchema() throws UserException {
+        Config.disable_iceberg_hudi_table = false;
         Map<String, String> properties = new HashMap<>();
         properties.put("hudi.database", "doris");
         properties.put("hudi.table", "test");

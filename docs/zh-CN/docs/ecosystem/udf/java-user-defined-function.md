@@ -56,7 +56,7 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 
 ## 编写 UDF 函数
 
-本小节主要介绍如何开发一个 Java UDF。在 `samples/doris-demo/java-udf-demo/` 下提供了示例，可供参考，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
+本小节主要介绍如何开发一个 Java UDF。在 `samples/doris-demo/java-udf-demo/` 下提供了示例，可供参考，查看点击[这里](https://github.com/apache/doris/tree/master/samples/doris-demo/java-udf-demo)
 
 使用Java代码编写UDF，UDF的主入口必须为 `evaluate` 函数。这一点与Hive等其他引擎保持一致。在本示例中，我们编写了 `AddOne` UDF来完成对整型输入进行加一的操作。
 值得一提的是，本例不只是Doris支持的Java UDF，同时还是Hive支持的UDF，也就是说，对于用户来讲，Hive UDF是可以直接迁移至Doris的。
@@ -74,16 +74,20 @@ PROPERTIES (["key"="value"][,...])
 1. PROPERTIES中`symbol`表示的是包含UDF类的类名，这个参数是必须设定的。
 2. PROPERTIES中`file`表示的包含用户UDF的jar包，这个参数是必须设定的。
 3. PROPERTIES中`type`表示的 UDF 调用类型，默认为 Native，使用 Java UDF时传 JAVA_UDF。
-4. name: 一个function是要归属于某个DB的，name的形式为`dbName`.`funcName`。当`dbName`没有明确指定的时候，就是使用当前session所在的db作为`dbName`。
+4. PROPERTIES中`always_nullable`表示的 UDF 返回结果中是否有可能出现NULL值，是可选参数，默认值为true。
+5. name: 一个function是要归属于某个DB的，name的形式为`dbName`.`funcName`。当`dbName`没有明确指定的时候，就是使用当前session所在的db作为`dbName`。
 
 示例：
 ```sql
 CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
     "file"="file:///path/to/java-udf-demo-jar-with-dependencies.jar",
     "symbol"="org.apache.doris.udf.AddOne",
+    "always_nullable"="true",
     "type"="JAVA_UDF"
 );
 ```
+* "file"="http://IP:port/udf-code.jar", 当在多机环境时，也可以使用http的方式下载jar包
+* "always_nullable"可选属性, 如果在计算中对出现的NULL值有特殊处理，确定结果中不会返回NULL，可以设为false，这样在整个查询计算过程中性能可能更好些。
 
 ## 编写 UDAF 函数
 <br/>
@@ -154,6 +158,7 @@ public class SimpleDemo {
 CREATE AGGREGATE FUNCTION simple_sum(int) RETURNS int PROPERTIES (
     "file"="file:///pathTo/java-udaf.jar",
     "symbol"="org.apache.doris.udf.SimpleDemo",
+    "always_nullable"="true",
     "type"="JAVA_UDF"
 );
 ```
@@ -173,10 +178,11 @@ UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函�
 当你不再需要 UDF 函数时，你可以通过下述命令来删除一个 UDF 函数, 可以参考 `DROP FUNCTION`。
 
 ## 示例
-在`samples/doris-demo/java-udf-demo/` 目录中提供了具体示例。具体使用方法见每个目录下的`README.md`，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)
+在`samples/doris-demo/java-udf-demo/` 目录中提供了具体示例。具体使用方法见每个目录下的`README.md`，查看点击[这里](https://github.com/apache/doris/tree/master/samples/doris-demo/java-udf-demo)
 
-## 暂不支持的场景
-当前Java UDF仍然处在持续的开发过程中，所以部分功能**尚不完善**。包括：
-1. 不支持复杂数据类型（HLL，Bitmap）
-2. 尚未统一JVM和Doris的内存管理以及统计信息
+## 使用须知
+1. 不支持复杂数据类型（HLL，Bitmap）。
+2. 当前允许用户自己指定JVM最大堆大小，配置项是jvm_max_heap_size。
+3. char类型的udf在create function时需要使用String类型。
+4. 由于jvm加载同名类的问题，不要同时使用多个同名类作为udf实现，如果想更新某个同名类的udf，需要重启be重新加载classpath。
 

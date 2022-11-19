@@ -185,6 +185,9 @@ public class Coordinator {
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
     private final List<PlanFragment> fragments;
+
+    private Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
+
     // backend execute state
     private final List<BackendExecState> backendExecStates = Lists.newArrayList();
     // backend which state need to be checked when joining this coordinator.
@@ -284,6 +287,7 @@ public class Coordinator {
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.nextInstanceId = new TUniqueId();
@@ -403,6 +407,14 @@ public class Coordinator {
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return errorTabletInfos;
+    }
+
+    public Map<String, Integer> getBeToInstancesNum() {
+        Map<String, Integer> result = Maps.newTreeMap();
+        for (BackendExecStates states : beToExecStates.values()) {
+            result.put(states.brpcAddr.hostname.concat(":").concat("" + states.brpcAddr.port), states.states.size());
+        }
+        return result;
     }
 
     // Initialize
@@ -578,7 +590,7 @@ public class Coordinator {
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
-            Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
+            beToExecStates.clear();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
@@ -1683,8 +1695,9 @@ public class Coordinator {
         // and returned_all_results_ is true.
         // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
         if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-            LOG.warn("one instance report fail, query_id={} instance_id={}",
-                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+            LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
+                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
+                    status.getErrorMsg());
             updateStatus(status, params.getFragmentInstanceId());
         }
         if (execState.done) {

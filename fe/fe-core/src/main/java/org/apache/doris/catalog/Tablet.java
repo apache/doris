@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.resource.Tag;
@@ -429,8 +430,8 @@ public class Tablet extends MetaObject implements Writable {
         ArrayList<Long> versions = new ArrayList<>();
         for (Replica replica : replicas) {
             Backend backend = systemInfoService.getBackend(replica.getBackendId());
-            if (backend == null || !backend.isAlive() || !replica.isAlive() || !hosts.add(backend.getHost())
-                    || replica.tooSlow() || !backend.isMixNode()) {
+            if (backend == null || !backend.isAlive() || !replica.isAlive()
+                    || checkHost(hosts, backend) || replica.tooSlow() || !backend.isMixNode()) {
                 // this replica is not alive,
                 // or if this replica is on same host with another replica, we also treat it as 'dead',
                 // so that Tablet Scheduler will create a new replica on different host.
@@ -561,6 +562,10 @@ public class Tablet extends MetaObject implements Writable {
 
         // 7. healthy
         return Pair.of(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
+    }
+
+    private boolean checkHost(Set<String> hosts, Backend backend) {
+        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost());
     }
 
     /**

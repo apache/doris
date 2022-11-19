@@ -1314,8 +1314,8 @@ public class TabletScheduler extends MasterDaemon {
                 continue;
             }
 
-            // exclude host which already has replica of this tablet
-            if (tabletCtx.containsBE(bes.getBeId())) {
+            // exclude BE which already has replica of this tablet or another BE at same host has this replica
+            if (tabletCtx.filterDestBE(bes.getBeId())) {
                 continue;
             }
 

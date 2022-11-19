@@ -61,13 +61,13 @@ import java.util.Optional;
 
 class MemoTest implements PatternMatchSupported {
 
-    private ConnectContext connectContext = MemoTestUtils.createConnectContext();
+    private final ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
-    private LogicalJoin<LogicalOlapScan, LogicalOlapScan> logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN,
+    private final LogicalJoin<LogicalOlapScan, LogicalOlapScan> logicalJoinAB = new LogicalJoin<>(JoinType.INNER_JOIN,
             PlanConstructor.newLogicalOlapScan(0, "A", 0),
             PlanConstructor.newLogicalOlapScan(1, "B", 0));
 
-    private LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
+    private final LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
             JoinType.INNER_JOIN, logicalJoinAB, PlanConstructor.newLogicalOlapScan(2, "C", 0));
 
     @Test
@@ -395,7 +395,7 @@ class MemoTest implements PatternMatchSupported {
         // valid case: 5 steps
         class A extends UnboundRelation {
             // 1: declare the Plan has some states
-            State state;
+            final State state;
 
             public A(List<String> nameParts, State state) {
                 this(nameParts, state, Optional.empty());

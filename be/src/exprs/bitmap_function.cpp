@@ -197,6 +197,36 @@ StringVal BitmapFunctions::to_bitmap_with_check(doris_udf::FunctionContext* ctx,
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
+                                     const doris_udf::BigIntVal& src) {
+    BitmapValue bitmap;
+    if (LIKELY(!src.is_null && src.val >= 0)) {
+        bitmap.add(src.val);
+    }
+    return serialize(ctx, &bitmap);
+}
+
+StringVal BitmapFunctions::to_bitmap_with_check(doris_udf::FunctionContext* ctx,
+                                                const doris_udf::BigIntVal& src) {
+    BitmapValue bitmap;
+
+    if (!src.is_null) {
+        if (LIKELY(src.val >= 0)) {
+            bitmap.add(src.val);
+        } else {
+            std::stringstream ss;
+            ss << "The input: " << src.val
+               << " is not valid, to_bitmap only support bigint value from 0 to "
+                  "18446744073709551615 currently, cannot load negative values to column with"
+                  " to_bitmap MV on it.";
+            ctx->set_error(ss.str().c_str());
+            return StringVal::null();
+        }
+    }
+
+    return serialize(ctx, &bitmap);
+}
+
 StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
                                        const doris_udf::StringVal& src) {
     BitmapValue bitmap;

@@ -35,16 +35,19 @@ under the License.
 语法：
 
 ```
-FROM numbers(n[,m]);
+numbers(
+  "number" = "n",
+  "backend_num" = "m"
+  );
 ```
 
 参数：
-- `n`: 代表生成[0,n)的行。
-- `m`: 可选参数,代表`m`个be节点同时执行该函数（需要部署多个be）。
+- `number`: 代表生成[0,n)的行。
+- `backend_num`: 可选参数,代表`m`个be节点同时执行该函数（需要部署多个be）。
 
 ### example
 ```
-mysql> select * from numbers("10");
+mysql> select * from numbers("number" = "10");
 +--------+
 | number |
 +--------+

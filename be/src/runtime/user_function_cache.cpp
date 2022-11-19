@@ -21,17 +21,16 @@
 #include <regex>
 #include <vector>
 
+#include "common/config.h"
 #include "env/env.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "util/dynamic_util.h"
 #include "util/file_utils.h"
-#include "util/string_util.h"
-#ifdef LIBJVM
 #include "util/jni-util.h"
-#endif
 #include "util/md5.h"
 #include "util/spinlock.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -377,28 +376,30 @@ Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* ent
 }
 
 Status UserFunctionCache::_add_to_classpath(UserFunctionCacheEntry* entry) {
-#ifdef LIBJVM
-    const std::string path = "file://" + entry->lib_file;
-    LOG(INFO) << "Add jar " << path << " to classpath";
-    JNIEnv* env;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jclass class_class_loader = env->FindClass("java/lang/ClassLoader");
-    jmethodID method_get_system_class_loader = env->GetStaticMethodID(
-            class_class_loader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
-    jobject class_loader =
-            env->CallStaticObjectMethod(class_class_loader, method_get_system_class_loader);
-    jclass class_url_class_loader = env->FindClass("java/net/URLClassLoader");
-    jmethodID method_add_url =
-            env->GetMethodID(class_url_class_loader, "addURL", "(Ljava/net/URL;)V");
-    jclass class_url = env->FindClass("java/net/URL");
-    jmethodID url_ctor = env->GetMethodID(class_url, "<init>", "(Ljava/lang/String;)V");
-    jobject urlInstance = env->NewObject(class_url, url_ctor, env->NewStringUTF(path.c_str()));
-    env->CallVoidMethod(class_loader, method_add_url, urlInstance);
-    entry->is_loaded.store(true);
-    return Status::OK();
-#else
-    return Status::InternalError("No libjvm is found!");
-#endif
+    if (config::enable_java_support) {
+        const std::string path = "file://" + entry->lib_file;
+        LOG(INFO) << "Add jar " << path << " to classpath";
+        JNIEnv* env;
+        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+        jclass class_class_loader = env->FindClass("java/lang/ClassLoader");
+        jmethodID method_get_system_class_loader = env->GetStaticMethodID(
+                class_class_loader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+        jobject class_loader =
+                env->CallStaticObjectMethod(class_class_loader, method_get_system_class_loader);
+        jclass class_url_class_loader = env->FindClass("java/net/URLClassLoader");
+        jmethodID method_add_url =
+                env->GetMethodID(class_url_class_loader, "addURL", "(Ljava/net/URL;)V");
+        jclass class_url = env->FindClass("java/net/URL");
+        jmethodID url_ctor = env->GetMethodID(class_url, "<init>", "(Ljava/lang/String;)V");
+        jobject urlInstance = env->NewObject(class_url, url_ctor, env->NewStringUTF(path.c_str()));
+        env->CallVoidMethod(class_loader, method_add_url, urlInstance);
+        entry->is_loaded.store(true);
+        return Status::OK();
+    } else {
+        return Status::InternalError(
+                "Java UDF is not enabled, you can change be config enable_java_support to true and "
+                "restart be.");
+    }
 }
 
 std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum,

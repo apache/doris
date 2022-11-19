@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <service/brpc_conflict.h>
-// After brpc_conflict.h
 #include <bthread/bthread.h>
 
 #include <string>
@@ -26,8 +24,10 @@
 
 #include "common/logging.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryType
+#include "gutil/macros.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
+#include "util/defer_op.h"
 
 // Used to observe the memory usage of the specified code segment
 #ifdef USE_MEM_TRACKER
@@ -67,16 +67,13 @@
     auto VARNAME_LINENUM(stop_check_limit) = StopCheckThreadMemTrackerLimit()
 // If the thread MemTrackerLimiter exceeds the limit, an error status is returned.
 // Usually used after SCOPED_ATTACH_TASK, during query execution.
-#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                              \
-    return doris::thread_context()                                                          \
-            ->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()                            \
-            ->mem_limit_exceeded(                                                           \
-                    state,                                                                  \
-                    fmt::format("exec node:<{}>, {}",                                       \
-                                doris::thread_context()                                     \
-                                        ->_thread_mem_tracker_mgr->last_consumer_tracker(), \
-                                msg),                                                       \
-                    ##__VA_ARGS__);
+#define RETURN_LIMIT_EXCEEDED(state, msg, ...)                                                    \
+    return doris::thread_context()->thread_mem_tracker()->fragment_mem_limit_exceeded(            \
+            state,                                                                                \
+            fmt::format("exec node:<{}>, {}",                                                     \
+                        doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(), \
+                        msg),                                                                     \
+            ##__VA_ARGS__);
 #else
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) (void)0
@@ -126,6 +123,7 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
+inline thread_local bool enable_thread_cache_bad_alloc = false;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
@@ -142,80 +140,34 @@ inline thread_local bthread_t bthread_id;
 // There may be other optional info to be added later.
 class ThreadContext {
 public:
-    enum TaskType {
-        UNKNOWN = 0,
-        QUERY = 1,
-        LOAD = 2,
-        COMPACTION = 3,
-        STORAGE = 4,
-        BRPC = 5
-        // to be added ...
-    };
-    inline static const std::string TaskTypeStr[] = {"UNKNOWN",    "QUERY",   "LOAD",
-                                                     "COMPACTION", "STORAGE", "BRPC"};
-
-public:
     ThreadContext() {
-        _thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
-        init();
+        thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
+        if (ExecEnv::GetInstance()->initialized()) thread_mem_tracker_mgr->init();
     }
 
-    ~ThreadContext() {
-        // Restore to the memory state before init=true to ensure accurate overall memory statistics.
-        // Thereby ensuring that the memory alloc size is not tracked during the initialization of the
-        // ThreadContext before `init = true in ThreadContextPtr()`,
-        // Equal to the size of the memory release that is not tracked during the destruction of the
-        // ThreadContext after `init = false in ~ThreadContextPtr()`,
-        if (ExecEnv::GetInstance()->initialized()) _thread_mem_tracker_mgr->clear();
-        thread_context_ptr.init = false;
-    }
+    ~ThreadContext() { thread_context_ptr.init = false; }
 
-    void init() {
-        _type = TaskType::UNKNOWN;
-        if (ExecEnv::GetInstance()->initialized()) _thread_mem_tracker_mgr->init();
-        _thread_id = get_thread_id();
-    }
-
-    void attach_task(const TaskType& type, const std::string& task_id,
-                     const TUniqueId& fragment_instance_id,
+    void attach_task(const std::string& task_id, const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 #ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
-        DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) &&
-               type != TaskType::UNKNOWN && _task_id == "" && mem_tracker != nullptr)
-                << ",new tracker label: " << mem_tracker->label() << ",old tracker label: "
-                << _thread_mem_tracker_mgr->limiter_mem_tracker_raw()->label();
+        DCHECK(mem_tracker);
+        // Orphan is thread default tracker.
+        DCHECK(thread_mem_tracker()->label() == "Orphan")
+                << ", attach mem tracker label: " << mem_tracker->label();
 #endif
-        _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
-        _thread_mem_tracker_mgr->attach_limiter_tracker(task_id, fragment_instance_id, mem_tracker);
+        thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, fragment_instance_id);
     }
 
     void detach_task() {
-        _type = TaskType::UNKNOWN;
         _task_id = "";
         _fragment_instance_id = TUniqueId();
-        _thread_mem_tracker_mgr->detach_limiter_tracker();
+        thread_mem_tracker_mgr->detach_limiter_tracker();
     }
 
-    const TaskType& type() const { return _type; }
-    const void set_type(const TaskType& type) { _type = type; }
-    const std::string& task_id() const { return _task_id; }
-    const std::string& thread_id_str() const { return _thread_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
-
-    static TaskType query_to_task_type(const TQueryType::type& query_type) {
-        switch (query_type) {
-        case TQueryType::SELECT:
-            return TaskType::QUERY;
-        case TQueryType::LOAD:
-            return TaskType::LOAD;
-        default:
-            DCHECK(false);
-            return TaskType::UNKNOWN;
-        }
-    }
 
     std::string get_thread_id() {
         std::stringstream ss;
@@ -223,32 +175,35 @@ public:
         return ss.str();
     }
 
-    // After _thread_mem_tracker_mgr is initialized, the current thread TCMalloc Hook starts to
+    // After thread_mem_tracker_mgr is initialized, the current thread TCMalloc Hook starts to
     // consume/release mem_tracker.
     // Note that the use of shared_ptr will cause a crash. The guess is that there is an
     // intermediate state during the copy construction of shared_ptr. Shared_ptr is not equal
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the TCMalloc hook is triggered to cause the crash.
-    std::unique_ptr<ThreadMemTrackerMgr> _thread_mem_tracker_mgr;
+    std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
+    MemTrackerLimiter* thread_mem_tracker() {
+        return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
+    }
 
 private:
-    std::string _thread_id;
-    TaskType _type;
-    std::string _task_id;
+    std::string _task_id = "";
     TUniqueId _fragment_instance_id;
 };
 
-static void attach_bthread() {
+// Cache the pointer of bthread local in pthead local,
+// Avoid calling bthread_getspecific frequently to get bthread local, which has performance problems.
+static void pthread_attach_bthread() {
     bthread_id = bthread_self();
     bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
     if (bthread_context == nullptr) {
         // A new bthread starts, two scenarios:
         // 1. First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
         // 2. There are not enough reusable btls in btls pool.
-#ifndef BE_TEST
-        DCHECK(ExecEnv::GetInstance()->initialized());
-#endif
-        // Create thread-local data on demand.
+        // else, two scenarios:
+        // 1. A new bthread starts, but get a reuses btls.
+        // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
+        // So tracker call reset 0 like reuses btls.
         bthread_context = new ThreadContext;
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
@@ -258,9 +213,9 @@ static void attach_bthread() {
 static ThreadContext* thread_context() {
     if (bthread_self() != 0) {
         if (bthread_self() != bthread_id) {
-            // A new bthread starts or pthread switch occurs.
+            // A new bthread starts or pthread switch occurs, during this period, stop the use of thread_context.
             thread_context_ptr.init = false;
-            attach_bthread();
+            pthread_attach_bthread();
             thread_context_ptr.init = true;
         }
         return bthread_context;
@@ -282,7 +237,6 @@ private:
 class AttachTask {
 public:
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                        const ThreadContext::TaskType& type = ThreadContext::TaskType::UNKNOWN,
                         const std::string& task_id = "",
                         const TUniqueId& fragment_instance_id = TUniqueId());
 
@@ -293,10 +247,12 @@ public:
 
 class SwitchThreadMemTrackerLimiter {
 public:
-    explicit SwitchThreadMemTrackerLimiter(
-            const std::shared_ptr<MemTrackerLimiter>& mem_tracker_limiter);
+    explicit SwitchThreadMemTrackerLimiter(const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
     ~SwitchThreadMemTrackerLimiter();
+
+private:
+    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
 };
 
 class AddThreadMemTrackerConsumer {
@@ -311,17 +267,18 @@ public:
 
 private:
     std::shared_ptr<MemTracker> _mem_tracker = nullptr; // Avoid mem_tracker being released midway.
+    bool _need_pop = false;
 };
 
 class StopCheckThreadMemTrackerLimit {
 public:
     explicit StopCheckThreadMemTrackerLimit() {
-        _pre = thread_context()->_thread_mem_tracker_mgr->check_limit();
-        thread_context()->_thread_mem_tracker_mgr->set_check_limit(false);
+        _pre = thread_context()->thread_mem_tracker_mgr->check_limit();
+        thread_context()->thread_mem_tracker_mgr->set_check_limit(false);
     }
 
     ~StopCheckThreadMemTrackerLimit() {
-        thread_context()->_thread_mem_tracker_mgr->set_check_limit(_pre);
+        thread_context()->thread_mem_tracker_mgr->set_check_limit(_pre);
     }
 
 private:
@@ -332,41 +289,103 @@ private:
 #ifdef USE_MEM_TRACKER
 // For the memory that cannot be counted by mem hook, manually count it into the mem tracker, such as mmap.
 #define CONSUME_THREAD_MEM_TRACKER(size) \
-    doris::thread_context()->_thread_mem_tracker_mgr->consume(size)
+    doris::thread_context()->thread_mem_tracker_mgr->consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
-    doris::thread_context()->_thread_mem_tracker_mgr->consume(-size)
+    doris::thread_context()->thread_mem_tracker_mgr->consume(-size)
 
 // used to fix the tracking accuracy of caches.
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                         \
-    doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw()->transfer_to( \
+#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                        \
+    doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw()->transfer_to( \
             size, tracker)
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) \
     tracker->transfer_to(                               \
-            size, doris::thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker_raw())
+            size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw())
+
+// Consider catching other memory errors, such as memset failure, etc.
+#define RETURN_IF_CATCH_BAD_ALLOC(stmt)                                                            \
+    do {                                                                                           \
+        doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();             \
+        if (doris::enable_thread_cache_bad_alloc) {                                                \
+            try {                                                                                  \
+                { stmt; }                                                                          \
+            } catch (std::bad_alloc const& e) {                                                    \
+                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
+                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
+                return Status::MemoryLimitExceeded(fmt::format(                                    \
+                        "PreCatch {}, {}", e.what(),                                               \
+                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
+            }                                                                                      \
+        } else {                                                                                   \
+            try {                                                                                  \
+                doris::enable_thread_cache_bad_alloc = true;                                       \
+                Defer defer {[&]() { doris::enable_thread_cache_bad_alloc = false; }};             \
+                { stmt; }                                                                          \
+            } catch (std::bad_alloc const& e) {                                                    \
+                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
+                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
+                return Status::MemoryLimitExceeded(fmt::format(                                    \
+                        "PreCatch {}, {}", e.what(),                                               \
+                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
+            }                                                                                      \
+        }                                                                                          \
+    } while (0)
 
 // Mem Hook to consume thread mem tracker
-#define MEM_MALLOC_HOOK(size)                                                \
+// TODO: In the original design, the MemTracker consume method is called before the memory is allocated.
+// If the consume succeeds, the memory is actually allocated, otherwise an exception is thrown.
+// But the statistics of memory through TCMalloc new/delete Hook are after the memory is actually allocated,
+// which is different from the previous behavior.
+#define CONSUME_MEM_TRACKER(size)                                           \
+    do {                                                                    \
+        if (doris::thread_context_ptr.init) {                               \
+            doris::thread_context()->thread_mem_tracker_mgr->consume(size); \
+        } else {                                                            \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);            \
+        }                                                                   \
+    } while (0)
+// NOTE, The LOG cannot be printed in the mem hook. If the LOG statement triggers the mem hook LOG,
+// the nested LOG may cause an unknown crash.
+#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                            \
+    do {                                                                                   \
+        if (doris::thread_context_ptr.init) {                                              \
+            if (doris::enable_thread_cache_bad_alloc) {                                    \
+                if (!doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)) { \
+                    return fail_ret;                                                       \
+                }                                                                          \
+            } else {                                                                       \
+                doris::thread_context()->thread_mem_tracker_mgr->consume(size);            \
+            }                                                                              \
+        } else {                                                                           \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);                           \
+        }                                                                                  \
+    } while (0)
+#define RELEASE_MEM_TRACKER(size)                                            \
     do {                                                                     \
         if (doris::thread_context_ptr.init) {                                \
-            doris::thread_context()->_thread_mem_tracker_mgr->consume(size); \
+            doris::thread_context()->thread_mem_tracker_mgr->consume(-size); \
         } else {                                                             \
-            doris::ThreadMemTrackerMgr::consume_no_attach(size);             \
+            doris::ThreadMemTrackerMgr::consume_no_attach(-size);            \
         }                                                                    \
     } while (0)
-#define MEM_FREE_HOOK(size)                                                   \
-    do {                                                                      \
-        if (doris::thread_context_ptr.init) {                                 \
-            doris::thread_context()->_thread_mem_tracker_mgr->consume(-size); \
-        } else {                                                              \
-            doris::ThreadMemTrackerMgr::consume_no_attach(-size);             \
-        }                                                                     \
+#define TRY_RELEASE_MEM_TRACKER(size)                                            \
+    do {                                                                         \
+        if (doris::thread_context_ptr.init) {                                    \
+            if (!doris::enable_thread_cache_bad_alloc) {                         \
+                doris::thread_context()->thread_mem_tracker_mgr->consume(-size); \
+            }                                                                    \
+        } else {                                                                 \
+            doris::ThreadMemTrackerMgr::consume_no_attach(-size);                \
+        }                                                                        \
     } while (0)
 #else
 #define CONSUME_THREAD_MEM_TRACKER(size) (void)0
 #define RELEASE_THREAD_MEM_TRACKER(size) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
-#define MEM_MALLOC_HOOK(size) (void)0
-#define MEM_FREE_HOOK(size) (void)0
+#define CONSUME_MEM_TRACKER(size) (void)0
+#define TRY_CONSUME_MEM_TRACKER(size) (void)0
+#define RELEASE_MEM_TRACKER(size) (void)0
+#define TRY_RELEASE_MEM_TRACKER(size) (void)0
+#define RETURN_IF_CATCH_BAD_ALLOC(stmt) (stmt)
 #endif
 } // namespace doris

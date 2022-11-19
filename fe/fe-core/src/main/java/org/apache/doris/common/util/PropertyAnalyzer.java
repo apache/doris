@@ -30,6 +30,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -103,6 +105,7 @@ public class PropertyAnalyzer {
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
@@ -618,6 +621,20 @@ public class PropertyAnalyzer {
         return ScalarType.createType(type);
     }
 
+    public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        String sequenceCol = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_COL;
+        if (properties != null && properties.containsKey(propertyName)) {
+            sequenceCol = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (sequenceCol != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+        return sequenceCol;
+    }
+
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,
             Boolean defaultValue) {
         if (properties.containsKey(key)) {
@@ -777,7 +794,42 @@ public class PropertyAnalyzer {
         } else if (value.equals("false")) {
             return false;
         }
-        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
-                                    + " must be `true` or `false`");
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
+    }
+
+
+    /**
+     * Check the type property of the catalog props.
+     */
+    public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
+            throws AnalysisException {
+        if (!properties.containsKey("type") && !isAlter) {
+            // For "alter catalog" stmt, no need to contain "type".
+            // For "create catalog" stmt, must contain "type"
+            throw new AnalysisException("All the external catalog should contain the 'type' property.");
+        }
+
+        // validate the properties of es catalog
+        if (properties.get("type").equalsIgnoreCase("es")) {
+            try {
+                if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
+                }
+
+                if (properties.containsKey(EsExternalCatalog.PROP_DOC_VALUE_SCAN)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_DOC_VALUE_SCAN);
+                }
+
+                if (properties.containsKey(EsExternalCatalog.PROP_KEYWORD_SNIFF)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_KEYWORD_SNIFF);
+                }
+
+                if (properties.containsKey(EsExternalCatalog.PROP_NODES_DISCOVERY)) {
+                    EsUtil.getBoolean(properties, EsExternalCatalog.PROP_NODES_DISCOVERY);
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+        }
     }
 }

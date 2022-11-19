@@ -29,7 +29,6 @@
 #include "gen_cpp/Types_types.h"
 #include "olap/row.h"
 #include "runtime/exec_env.h"
-#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -54,7 +53,7 @@ protected:
 
         EXPECT_EQ(system("mkdir -p ./test_run/output/"), 0);
         EXPECT_EQ(system("pwd"), 0);
-        EXPECT_EQ(system("cp -r ./be/test/util/test_data/ ./test_run/."), 0);
+        EXPECT_EQ(system("cp -r ./be/test/util/test_data ./test_run/."), 0);
 
         init();
     }
@@ -66,7 +65,6 @@ protected:
         if (_exec_env) {
             delete _exec_env->_result_queue_mgr;
             delete _exec_env->_thread_mgr;
-            delete _exec_env->_task_pool_mem_tracker_registry;
         }
     }
 
@@ -92,7 +90,6 @@ void ArrowWorkFlowTest::init() {
 void ArrowWorkFlowTest::init_runtime_state() {
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     _exec_env->_thread_mgr = new ThreadResourceMgr();
-    _exec_env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _exec_env->_is_init = true;
     TQueryOptions query_options;
     query_options.batch_size = 1024;
@@ -100,7 +97,7 @@ void ArrowWorkFlowTest::init_runtime_state() {
     query_id.lo = 10;
     query_id.hi = 100;
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
-    _state->init_instance_mem_tracker();
+    _state->init_mem_trackers();
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());

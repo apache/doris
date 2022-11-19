@@ -59,6 +59,23 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
 }
 
+CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                     const TFileRangeDesc& range,
+                     const std::vector<SlotDescriptor*>& file_slot_descs)
+        : _state(nullptr),
+          _profile(profile),
+          _params(params),
+          _range(range),
+          _file_slot_descs(file_slot_descs),
+          _line_reader(nullptr),
+          _line_reader_eof(false),
+          _text_converter(nullptr),
+          _decompressor(nullptr) {
+    _file_format_type = _params.format_type;
+    _file_compress_type = _params.compress_type;
+    _size = _range.size;
+}
+
 CsvReader::~CsvReader() {}
 
 Status CsvReader::init_reader(bool is_load) {
@@ -181,6 +198,32 @@ Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
                               std::unordered_set<std::string>* missing_cols) {
     for (auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
+    }
+    return Status::OK();
+}
+
+Status CsvReader::get_parsered_schema(std::vector<std::string>* col_names,
+                                      std::vector<TypeDescriptor>* col_types) {
+    size_t read_line = 0;
+    bool is_parse_name = false;
+    RETURN_IF_ERROR(_prepare_parse(&read_line, &is_parse_name));
+
+    if (read_line == 1) {
+        if (!is_parse_name) { //parse csv file without names and types
+            size_t col_nums = 0;
+            RETURN_IF_ERROR(_parse_col_nums(&col_nums));
+            for (size_t i = 0; i < col_nums; ++i) {
+                col_names->emplace_back("c" + std::to_string(i + 1));
+            }
+        } else { // parse csv file with names
+            RETURN_IF_ERROR(_parse_col_names(col_names));
+        }
+        for (size_t j = 0; j < col_names->size(); ++j) {
+            col_types->emplace_back(TypeDescriptor::create_string_type());
+        }
+    } else { // parse csv file without names and types
+        RETURN_IF_ERROR(_parse_col_names(col_names));
+        RETURN_IF_ERROR(_parse_col_types(col_names->size(), col_types));
     }
     return Status::OK();
 }
@@ -352,7 +395,7 @@ void CsvReader::_split_line(const Slice& line) {
         //     curpos
 
         while (curpos < line.size) {
-            if (*(value + curpos + p1) != _value_separator[p1]) {
+            if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
                 // Not match, move forward:
                 curpos += (p1 == 0 ? 1 : p1);
                 p1 = 0;
@@ -362,7 +405,8 @@ void CsvReader::_split_line(const Slice& line) {
                     // Match a separator
                     non_space = curpos;
                     // Trim tailing spaces. Be consistent with hive and trino's behavior.
-                    if (_state->trim_tailing_spaces_for_external_table_query()) {
+                    if (_state != nullptr &&
+                        _state->trim_tailing_spaces_for_external_table_query()) {
                         while (non_space > start && *(value + non_space - 1) == ' ') {
                             non_space--;
                         }
@@ -378,7 +422,7 @@ void CsvReader::_split_line(const Slice& line) {
 
         CHECK(curpos == line.size) << curpos << " vs " << line.size;
         non_space = curpos;
-        if (_state->trim_tailing_spaces_for_external_table_query()) {
+        if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
             while (non_space > start && *(value + non_space - 1) == ' ') {
                 non_space--;
             }
@@ -420,6 +464,106 @@ bool CsvReader::_is_null(const Slice& slice) {
 
 bool CsvReader::_is_array(const Slice& slice) {
     return slice.size > 1 && slice.data[0] == '[' && slice.data[slice.size - 1] == ']';
+}
+
+Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
+    int64_t start_offset = _range.start_offset;
+    if (start_offset != 0) {
+        return Status::InvalidArgument(
+                "start offset of TFileRangeDesc must be zero in get parsered schema");
+    }
+    if (_params.file_type == TFileType::FILE_STREAM ||
+        _params.file_type == TFileType::FILE_BROKER) {
+        return Status::InternalError(
+                "Getting parsered schema from csv file do not support stream load and broker "
+                "load.");
+    }
+
+    // csv file without names line and types line.
+    *read_line = 1;
+    *is_parse_name = false;
+
+    if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
+        _params.file_attributes.header_type.size() > 0) {
+        std::string header_type = to_lower(_params.file_attributes.header_type);
+        if (header_type == BeConsts::CSV_WITH_NAMES) {
+            *is_parse_name = true;
+        } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
+            *read_line = 2;
+            *is_parse_name = true;
+        }
+    }
+
+    // create and open file reader
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, _range.path, start_offset,
+                                                    _range.file_size, 0, _file_reader));
+    RETURN_IF_ERROR(_file_reader->open());
+    if (_file_reader->size() == 0) {
+        return Status::EndOfFile("Empty File");
+    }
+
+    // get column_separator and line_delimiter
+    _value_separator = _params.file_attributes.text_params.column_separator;
+    _value_separator_length = _value_separator.size();
+    _line_delimiter = _params.file_attributes.text_params.line_delimiter;
+    _line_delimiter_length = _line_delimiter.size();
+
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(_create_decompressor());
+
+    _line_reader.reset(new PlainTextLineReader(_profile, _file_reader.get(), _decompressor.get(),
+                                               _size, _line_delimiter, _line_delimiter_length));
+    return Status::OK();
+}
+
+Status CsvReader::_parse_col_nums(size_t* col_nums) {
+    const uint8_t* ptr = nullptr;
+    size_t size = 0;
+    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
+    if (size == 0) {
+        return Status::InternalError("The first line is empty, can not parse column numbers");
+    }
+    if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
+        return Status::InternalError("Only support csv data in utf8 codec");
+    }
+    _split_line(Slice(ptr, size));
+    *col_nums = _split_values.size();
+    return Status::OK();
+}
+
+Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
+    const uint8_t* ptr = nullptr;
+    size_t size = 0;
+    // no use of _line_reader_eof
+    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
+    if (size == 0) {
+        return Status::InternalError("The first line is empty, can not parse column names");
+    }
+    if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
+        return Status::InternalError("Only support csv data in utf8 codec");
+    }
+    _split_line(Slice(ptr, size));
+    for (size_t idx = 0; idx < _split_values.size(); ++idx) {
+        col_names->emplace_back(_split_values[idx].to_string());
+    }
+    return Status::OK();
+}
+
+// TODO(ftw): parse type
+Status CsvReader::_parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types) {
+    // delete after.
+    for (size_t i = 0; i < col_nums; ++i) {
+        col_types->emplace_back(TypeDescriptor::create_string_type());
+    }
+
+    // 1. check _line_reader_eof
+    // 2. read line
+    // 3. check utf8
+    // 4. check size
+    // 5. check _split_values.size must equal to col_nums.
+    // 6. fill col_types
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

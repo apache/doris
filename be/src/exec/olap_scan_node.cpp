@@ -773,7 +773,9 @@ Status OlapScanNode::build_key_ranges_and_filters() {
     // we use `exact_range` to identify a key range is an exact range or not when we convert
     // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filter`.
     bool exact_range = true;
-    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
+    bool eos = false;
+    for (int column_index = 0;
+         column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
          ++column_index) {
         auto iter = _column_value_ranges.find(column_names[column_index]);
         if (_column_value_ranges.end() == iter) {
@@ -782,8 +784,8 @@ Status OlapScanNode::build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
-                    RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(range, _max_scan_key_num,
+                                                               &exact_range, &eos));
                     if (exact_range) {
                         _column_value_ranges.erase(iter->first);
                     }
@@ -791,11 +793,13 @@ Status OlapScanNode::build_key_ranges_and_filters() {
                 },
                 iter->second));
     }
+    _eos |= eos;
+
     for (auto& iter : _column_value_ranges) {
         std::vector<TCondition> filters;
         std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
-        for (const auto& filter : filters) {
+        for (auto& filter : filters) {
             _olap_filter.push_back(std::move(filter));
         }
     }
@@ -1535,7 +1539,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             size_t thread_slot_num = 0;
             mem_consume = _scanner_mem_tracker->consumption();
             // check limit for total memory and _scan_row_batches memory
-            if (mem_consume < (state->instance_mem_tracker()->limit() * 6) / 10 &&
+            if (mem_consume < (state->query_mem_tracker()->limit() * 6) / 10 &&
                 _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {

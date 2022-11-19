@@ -118,6 +118,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("bin", new Integer(SqlParserSymbols.KW_BIN));
         keywordMap.put("binlog", new Integer(SqlParserSymbols.KW_BINLOG));
         keywordMap.put("bitmap", new Integer(SqlParserSymbols.KW_BITMAP));
+        keywordMap.put("inverted", new Integer(SqlParserSymbols.KW_INVERTED));
         keywordMap.put("bitmap_union", new Integer(SqlParserSymbols.KW_BITMAP_UNION));
         keywordMap.put("blob", new Integer(SqlParserSymbols.KW_BLOB));
         keywordMap.put("boolean", new Integer(SqlParserSymbols.KW_BOOLEAN));
@@ -463,6 +464,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("work", new Integer(SqlParserSymbols.KW_WORK));
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
+        keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
    }
     
   // map from token id to token description

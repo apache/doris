@@ -108,8 +108,8 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         return Creator::template create<TYPE_DECIMAL32>();
     case TYPE_DECIMAL64:
         return Creator::template create<TYPE_DECIMAL64>();
-    case TYPE_DECIMAL128:
-        return Creator::template create<TYPE_DECIMAL128>();
+    case TYPE_DECIMAL128I:
+        return Creator::template create<TYPE_DECIMAL128I>();
 
     default:
         DCHECK(false) << "Invalid type.";
@@ -122,13 +122,12 @@ inline auto create_minmax_filter(PrimitiveType type) {
     return create_predicate_function<MinmaxFunctionTraits>(type);
 }
 
-inline auto create_set(PrimitiveType type) {
-    return create_predicate_function<HybridSetTraits<false>>(type);
-}
-
-// used for VInPredicate
-inline auto vec_create_set(PrimitiveType type) {
-    return create_predicate_function<HybridSetTraits<true>>(type);
+inline auto create_set(PrimitiveType type, bool is_vectorized = false) {
+    if (is_vectorized) {
+        return create_predicate_function<HybridSetTraits<true>>(type);
+    } else {
+        return create_predicate_function<HybridSetTraits<false>>(type);
+    }
 }
 
 inline auto create_bloom_filter(PrimitiveType type) {

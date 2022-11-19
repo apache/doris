@@ -206,6 +206,7 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
 
 Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
     if (seg_id == _num_segcompacted) {
+        ++_num_segcompacted;
         return Status::OK();
     }
 
@@ -272,8 +273,7 @@ Status BetaRowsetWriter::_check_correctness(std::unique_ptr<OlapReaderStatistics
 }
 
 Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_ATTACH_TASK(StorageEngine::instance()->segcompaction_mem_tracker(),
-                       ThreadContext::TaskType::COMPACTION);
+    SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
     // throttle segcompaction task if memory depleted.
     if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
         LOG(WARNING) << "skip segcompaction due to memory shortage";
@@ -390,8 +390,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         auto cache_path =
                 BetaRowset::segment_cache_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, _context.tablet_schema,
-                                           &segment);
+        auto s = segment_v2::Segment::open(fs, seg_path, cache_path, seg_id, rowset_id(),
+                                           _context.tablet_schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_ROWSET_LOAD_FAILED);
@@ -792,7 +792,7 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
         segments_encoded_key_bounds.push_back(*itr);
     }
 
-    CHECK_EQ(segments_encoded_key_bounds.size(), num_seg);
+    // TODO(zhangzhengyu): key_bounds.size() should equal num_seg, but currently not always
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);

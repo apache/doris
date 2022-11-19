@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -259,6 +261,66 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
                                         .equals(agg.child().child().getOutputExpressions().get(0)))
                                 .when(agg -> agg.getOutputExpressions().get(0).getExprId() == outputExpressionList.get(
                                         0).getExprId())
+                );
+    }
+
+    @Test
+    public void distinctWithNormalAggregateFunction() {
+        List<Expression> groupExpressionList = Lists.newArrayList(rStudent.getOutput().get(0).toSlot());
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                new Alias(new Count(AggregateParam.distinctAndGlobal(), rStudent.getOutput().get(2).toSlot()), "c"),
+                new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
+
+        // check local:
+        // id
+        Expression localOutput0 = rStudent.getOutput().get(0);
+        // sum
+        Sum localOutput1 = new Sum(new AggregateParam(false, false, true), rStudent.getOutput().get(0).toSlot());
+        // age
+        Expression localOutput2 = rStudent.getOutput().get(2);
+        // id
+        Expression localGroupBy0 = rStudent.getOutput().get(0);
+        // age
+        Expression localGroupBy1 = rStudent.getOutput().get(2);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new AggregateDisassemble())
+                .matchesFromRoot(
+                        logicalAggregate(
+                                logicalAggregate(
+                                        logicalAggregate()
+                                                .when(agg -> agg.getAggPhase().equals(AggPhase.LOCAL))
+                                                .when(agg -> agg.getOutputExpressions().get(0).equals(localOutput0))
+                                                .when(agg -> agg.getOutputExpressions().get(1).child(0).equals(localOutput1))
+                                                .when(agg -> agg.getOutputExpressions().get(2).equals(localOutput2))
+                                                .when(agg -> agg.getGroupByExpressions().get(0).equals(localGroupBy0))
+                                                .when(agg -> agg.getGroupByExpressions().get(1).equals(localGroupBy1))
+                                ).when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL))
+                                        .when(agg -> agg.getOutputExpressions().get(0)
+                                                .equals(agg.child().getOutputExpressions().get(0)))
+                                        .when(agg -> {
+                                            Slot child = agg.child().getOutputExpressions().get(1).toSlot();
+                                            Assertions.assertTrue(agg.getOutputExpressions().get(1).child(0) instanceof Sum);
+                                            return ((Sum) agg.getOutputExpressions().get(1).child(0)).child().equals(child);
+                                        })
+                                        .when(agg -> agg.getOutputExpressions().get(2)
+                                                .equals(agg.child().getOutputExpressions().get(2)))
+                                        .when(agg -> agg.getGroupByExpressions().get(0)
+                                                .equals(agg.child().getOutputExpressions().get(0)))
+                                        .when(agg -> agg.getGroupByExpressions().get(1)
+                                                .equals(agg.child().getOutputExpressions().get(2)))
+                        ).when(agg -> agg.getAggPhase().equals(AggPhase.DISTINCT_LOCAL))
+                                .when(agg -> agg.getOutputExpressions().size() == 2)
+                                .when(agg -> agg.getOutputExpressions().get(0) instanceof Alias)
+                                .when(agg -> agg.getOutputExpressions().get(0).child(0) instanceof Count)
+                                .when(agg -> agg.getOutputExpressions().get(1).child(0) instanceof Sum)
+                                .when(agg -> agg.getOutputExpressions().get(0).getExprId() == outputExpressionList.get(
+                                        0).getExprId())
+                                .when(agg -> agg.getOutputExpressions().get(1).getExprId() == outputExpressionList.get(
+                                        1).getExprId())
+                                .when(agg -> agg.getGroupByExpressions().get(0)
+                                        .equals(agg.child().child().getOutputExpressions().get(0)))
                 );
     }
 }

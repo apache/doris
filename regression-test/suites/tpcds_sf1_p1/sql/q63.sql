@@ -22,6 +22,6 @@ FROM
             AND (i_brand IN ('amalgimporto #1'         , 'edu packscholar #1'         , 'exportiimporto #1'         , 'importoamalg #1'))))
    GROUP BY i_manager_id, d_moy
 )  tmp1
-WHERE ((CASE WHEN (avg_monthly_sales > 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > CAST('0.1' AS DECIMAL))
+WHERE ((CASE WHEN (avg_monthly_sales > 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > CAST('0.1' AS DECIMAL(2,1)))
 ORDER BY i_manager_id ASC, avg_monthly_sales ASC, sum_sales ASC
 LIMIT 100

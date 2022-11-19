@@ -74,6 +74,13 @@ public class ScalarFunction extends Function {
                 NullableMode.DEPEND_ON_ARGUMENT);
     }
 
+    /** nerieds custom scalar function */
+    public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs, String symbolName,
+            TFunctionBinaryType binaryType, boolean userVisible, boolean isVec, NullableMode nullableMode) {
+        super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec, nullableMode);
+        this.symbolName = symbolName;
+    }
+
     public ScalarFunction(FunctionName fnName, List<Type> argTypes,
                           Type retType, URI location, String symbolName, String initFnSymbol,
                           String closeFnSymbol) {

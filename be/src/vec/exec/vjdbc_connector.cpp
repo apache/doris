@@ -16,7 +16,7 @@
 // under the License.
 
 #include "vec/exec/vjdbc_connector.h"
-#ifdef LIBJVM
+
 #include "common/status.h"
 #include "exec/table_connector.h"
 #include "gen_cpp/Types_types.h"
@@ -312,6 +312,36 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
                 decimal_slot.value());
         break;
     }
+    case TYPE_DECIMAL32: {
+        std::string data = _jobject_to_string(env, jobj);
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        const Int32 decimal_slot = StringParser::string_to_decimal<Int32>(
+                data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
+                &result);
+        reinterpret_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&decimal_slot), 0);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        std::string data = _jobject_to_string(env, jobj);
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        const Int64 decimal_slot = StringParser::string_to_decimal<Int64>(
+                data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
+                &result);
+        reinterpret_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&decimal_slot), 0);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        std::string data = _jobject_to_string(env, jobj);
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        const Int128I decimal_slot = StringParser::string_to_decimal<Int128I>(
+                data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
+                &result);
+        reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&decimal_slot), 0);
+        break;
+    }
     default: {
         std::string error_msg =
                 fmt::format("Fail to convert jdbc value to {} on column: {}.",
@@ -409,5 +439,3 @@ FUNC_IMPL_TO_CONVERT_DATA(double, double, D, Double)
 
 } // namespace vectorized
 } // namespace doris
-
-#endif

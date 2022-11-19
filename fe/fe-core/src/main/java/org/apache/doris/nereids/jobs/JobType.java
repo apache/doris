@@ -29,6 +29,7 @@ public enum JobType {
     APPLY_RULE,
     DERIVE_STATS,
     TOP_DOWN_REWRITE,
+    VISITOR_REWRITE,
     BOTTOM_UP_REWRITE
     ;
 }

@@ -31,6 +31,8 @@ suite("test_string_function_like_pushdown", "query") {
         """
     sql """
         INSERT INTO ${tbName} VALUES 
+            (0, ""),
+            (0, " "),
             (1, "a"),
             (1, "b"),
             (2, "bb"),
@@ -39,6 +41,9 @@ suite("test_string_function_like_pushdown", "query") {
             (4, "ab"),
             (5, "accb");
         """
+    qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"\" ORDER BY k;"
+    qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \" \" ORDER BY k;"
+
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"a\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"%a\" ORDER BY k;"
     qt_sql "SELECT k FROM ${tbName} WHERE k LIKE \"a%\" ORDER BY k;"

@@ -175,6 +175,69 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
     return ss.str();
 }
 
+bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
+    StringRef element(rb.position(), 0);
+    has_quota = false;
+    if (rb.eof()) {
+        return false;
+    }
+
+    // ltrim
+    while (!rb.eof() && isspace(*rb.position())) {
+        ++rb.position();
+        element.data = rb.position();
+    }
+
+    // parse string
+    if (*rb.position() == '"' || *rb.position() == '\'') {
+        const char str_sep = *rb.position();
+        size_t str_len = 1;
+        // search until next '"' or '\''
+        while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
+            ++str_len;
+        }
+        // invalid string
+        if (str_len >= rb.count()) {
+            rb.position() = rb.end();
+            return false;
+        }
+        has_quota = true;
+        rb.position() += str_len + 1;
+        element.size += str_len + 1;
+    }
+
+    // parse array element until array separator ',' or end ']'
+    while (!rb.eof() && (*rb.position() != ',') && (rb.count() != 1 || *rb.position() != ']')) {
+        // invalid elements such as ["123" 456,"789" 777]
+        // correct elements such as ["123"    ,"789"    ]
+        if (has_quota && !isspace(*rb.position())) {
+            return false;
+        }
+        ++rb.position();
+        ++element.size;
+    }
+    // invalid array element
+    if (rb.eof()) {
+        return false;
+    }
+    // adjust read buffer position to first char of next array element
+    ++rb.position();
+
+    // rtrim
+    while (element.size > 0 && isspace(element.data[element.size - 1])) {
+        --element.size;
+    }
+
+    // trim '"' and '\'' for string
+    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
+        element.data[0] == element.data[element.size - 1]) {
+        ++element.data;
+        element.size -= 2;
+    }
+    output = element;
+    return true;
+}
+
 Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
     // only support one level now
@@ -191,85 +254,53 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
         return Status::InvalidArgument("Array does not end with ']' character, found '{}'",
                                        *(rb.end() - 1));
     }
+    // empty array []
+    if (rb.count() == 2) {
+        offsets.push_back(offsets.back());
+        return Status::OK();
+    }
     ++rb.position();
-    bool first = true;
-    size_t size = 0;
-    while (!rb.eof() && *rb.position() != ']') {
-        if (!first) {
-            if (*rb.position() == ',') {
-                ++rb.position();
-            } else {
-                return Status::InvalidArgument(
-                        "Cannot read array from text, expected comma or end of array, found '{}'",
-                        *rb.position());
-            }
-        }
-        first = false;
-        if (*rb.position() == ']') {
-            break;
-        }
-        size_t nested_str_len = 0;
-        char* temp_char = rb.position() + nested_str_len;
-        while (*(temp_char) != ']' && *(temp_char) != ',' && temp_char != rb.end()) {
-            ++nested_str_len;
-            temp_char = rb.position() + nested_str_len;
+
+    size_t element_num = 0;
+    // parse array element until end of array
+    while (!rb.eof()) {
+        StringRef element(rb.position(), rb.count());
+        bool has_quota = false;
+        if (!next_element_from_string(rb, element, has_quota)) {
+            return Status::InvalidArgument("Cannot read array element from text '{}'",
+                                           element.to_string());
         }
 
-        // dispose the case of [123,,,]
-        if (nested_str_len == 0) {
+        // handle empty element
+        if (element.size == 0) {
             auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(0);
-            ++size;
+            ++element_num;
             continue;
         }
 
-        // Note: here we will trim elements, such as
-        // ["2020-09-01", "2021-09-01"  , "2022-09-01" ] ==> ["2020-09-01","2021-09-01","2022-09-01"]
-        size_t begin_pos = 0;
-        size_t end_pos = nested_str_len - 1;
-        while (begin_pos < end_pos) {
-            if (isspace(*(rb.position() + begin_pos))) {
-                ++begin_pos;
-            } else if (isspace(*(rb.position() + end_pos))) {
-                --end_pos;
-            } else {
-                break;
-            }
-        }
-
-        // dispose the case of ["123"] or ['123']
-        bool has_quota = false;
-        size_t tmp_len = nested_str_len;
-        ReadBuffer read_buffer(rb.position(), nested_str_len);
-        auto begin_char = *(rb.position() + begin_pos);
-        auto end_char = *(rb.position() + end_pos);
-        if (begin_char == end_char && (begin_char == '"' || begin_char == '\'')) {
-            int64_t length = end_pos - begin_pos - 1;
-            read_buffer = ReadBuffer(rb.position() + begin_pos + 1, (length > 0 ? length : 0));
-            tmp_len = (length > 0 ? length : 0);
-            has_quota = true;
-        }
-
-        // handle null, need to distinguish null and "null"
-        if (!has_quota && tmp_len == 4 && strncmp(read_buffer.position(), "null", 4) == 0) {
+        // handle null element, need to distinguish null and "null"
+        if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
             // insert null
             auto& nested_null_col = reinterpret_cast<ColumnNullable&>(nested_column);
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(1);
-        } else {
-            auto st = nested->from_string(read_buffer, &nested_column);
-            if (!st.ok()) {
-                // we should do revert if error
-                array_column->pop_back(size);
-                return st;
-            }
+            ++element_num;
+            continue;
         }
-        rb.position() += nested_str_len;
-        DCHECK_LE(rb.position(), rb.end());
-        ++size;
+
+        // handle normal element
+        ReadBuffer read_buffer(const_cast<char*>(element.data), element.size);
+        auto st = nested->from_string(read_buffer, &nested_column);
+        if (!st.ok()) {
+            // we should do revert if error
+            array_column->pop_back(element_num);
+            return st;
+        }
+        ++element_num;
     }
-    offsets.push_back(offsets.back() + size);
+    offsets.push_back(offsets.back() + element_num);
     return Status::OK();
 }
 

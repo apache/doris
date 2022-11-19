@@ -1043,4 +1043,11 @@ IntVal StringFunctions::bit_length(FunctionContext* context, const StringVal& st
     }
     return IntVal(str.len * 8);
 }
+
+StringVal StringFunctions::uuid(FunctionContext* ctx) {
+    boost::uuids::random_generator generator;
+    std::string uuid = boost::uuids::to_string(generator());
+
+    return AnyValUtil::from_string_temp(ctx, uuid);
+}
 } // namespace doris

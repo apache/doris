@@ -54,7 +54,7 @@ suite("test_rollup_agg_date", "rollup") {
             }
         }
     }
-    Thread.sleep(200)
+    Thread.sleep(2000)
     sql "ALTER TABLE ${tbName} ADD COLUMN datetimev4 datetimev2(3) MAX NULL;"
     max_try_secs = 60
     while (max_try_secs--) {

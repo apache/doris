@@ -57,20 +57,38 @@ The principle is the same as that of the reading process during Cumulative Compa
 The principle is the same as the reading process during Base Compaction.
 
 ### Syntax
-When the Sequence column creates a table, an attribute is added to the property, which is used to identify the type import of `__DORIS_SEQUENCE_COL__`. The grammar design is mainly to add a mapping from the sequence column to other columns. The settings of each seed method will be described below introduce.
 
-#### Create Table
-When you create the Uniq table, you can specify the sequence column type.
+There are two ways to create a table with sequence column. One is to set the `sequence_col` attribute when creating a table, and the other is to set the `sequence_type` attribute when creating a table.
+
+#### Set `sequence_col`(recommend)
+When you create the Uniq table, you can specify the mapping of sequence column to other columns
+
+```text
+PROPERTIES (
+    "function_column.sequence_col" = 'column_name',
+);
+```
+The sequence_col is used to specify the mapping of the sequence column to a column in the table, which can be integral and time (DATE, DATETIME). The type of this column cannot be changed after creation.
+
+The import method is the same as that without the sequence column. It is relatively simple and recommended.
+
+### Set `sequence_type`
+
+When you create the Uniq table, you can specify the sequence column type
+
 ```text
 PROPERTIES (
     "function_column.sequence_type" = 'Date',
 );
 ```
-The sequence_type is used to specify the type of the sequence column, which can be integral and time (DATE / DATETIME).
+The sequence_type is used to specify the type of the sequence column, which can be integral and time (DATE / DATETIME). 
+
+The mapping column needs to be specified when importing.
 
 #### Stream Load
 
-The syntax of the stream load is to add the mapping of hidden columns corresponding to source_sequence in the 'function_column.sequence_col' field in the header, for example
+The syntax of the stream load is to add the mapping of hidden columns corresponding to source_sequence in the `function_column.sequence_col` field in the header, for example
+
 ```shell
 curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
 ```
@@ -128,7 +146,7 @@ The mapping method is the same as above, as shown below
 ```
 
 ## Enable sequence column support
-If `function_column.sequence_type` is set when creating a new table, the new table will support sequence column. For a table that does not support sequence column, if you want to use this function, you can use the following statement: `ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` to enable.
+If `function_column.sequence_col`  or  `function_column.sequence_type` is set when creating a new table, the new table will support sequence column. For a table that does not support sequence column, if you want to use this function, you can use the following statement: `ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` to enable.
 
  If you are not sure whether a table supports sequence column, you can display hidden columns by setting a session variable `SET show_hidden_columns=true`, then use `desc tablename`, if there is a `__DORIS_SEQUENCE_COL__` column in the output, it is supported, if not, it is not supported .
 
@@ -136,7 +154,7 @@ If `function_column.sequence_type` is set when creating a new table, the new tab
 Let's take the stream Load as an example to show how to use it
 1. Create a table that supports sequence column. 
 
-Create the test_table data table of the unique model and specify that the type of the specified sequence column is Date
+Create the test_table data table of the unique model and specify that the sequence column maps to the `modify_date` column in the table.
 
 ```sql
 CREATE TABLE test.test_table
@@ -150,7 +168,7 @@ CREATE TABLE test.test_table
 UNIQUE KEY(user_id, date, group_id)
 DISTRIBUTED BY HASH (user_id) BUCKETS 32
 PROPERTIES(
-    "function_column.sequence_type" = 'Date',
+    "function_column.sequence_col" = 'modify_date',
     "replication_num" = "1",
     "in_memory" = "false"
 );
@@ -183,7 +201,7 @@ Import the following data
 ```
 Take the Stream Load as an example here and map the sequence column to the modify_date column
 ```shell
-curl --location-trusted -u root: -H "function_column.sequence_col: modify_date" -T testData http://host:port/api/test/test_table/_stream_load
+curl --location-trusted -u root: -T testData http://host:port/api/test/test_table/_stream_load
 ```
 The results is
 ```sql

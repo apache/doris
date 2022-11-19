@@ -21,7 +21,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 public class TPCHUtils {
 
-    public static final String Q1 = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=false) */\n"
+    public static final String Q1 = "select\n"
             + "    l_returnflag,\n"
             + "    l_linestatus,\n"
             + "    sum(l_quantity) as sum_qty,\n"
@@ -88,7 +88,7 @@ public class TPCHUtils {
             + "        p_partkey\n"
             + "limit 100;";
 
-    public static final String Q2_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */\n"
+    public static final String Q2_rewrite = "select\n"
             + "    s_acctbal,\n"
             + "    s_name,\n"
             + "    n_name,\n"
@@ -152,7 +152,7 @@ public class TPCHUtils {
             + "        o_orderdate\n"
             + "limit 10;";
 
-    public static String Q3_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */\n"
+    public static String Q3_rewrite = "select \n"
             + "    l_orderkey,\n"
             + "    sum(l_extendedprice * (1 - l_discount)) as revenue,\n"
             + "    o_orderdate,\n"
@@ -198,7 +198,7 @@ public class TPCHUtils {
             + "order by\n"
             + "        o_orderpriority;";
 
-    public static String Q4_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=false, enable_projection=true) */\n"
+    public static String Q4_rewrite = "select \n"
             + "    o_orderpriority,\n"
             + "    count(*) as order_count\n"
             + "from\n"
@@ -398,7 +398,7 @@ public class TPCHUtils {
             + "        revenue desc\n"
             + "limit 20;";
 
-    public static final String Q11 = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=2, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q11 = "select \n"
             + "    ps_partkey,\n"
             + "    sum(ps_supplycost * ps_availqty) as value\n"
             + "from\n"
@@ -454,7 +454,7 @@ public class TPCHUtils {
             + "order by\n"
             + "        l_shipmode;";
 
-    public static final String Q12_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=2, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q12_rewrite = "select \n"
             + "    l_shipmode,\n"
             + "    sum(case\n"
             + "        when o_orderpriority = '1-URGENT'\n"
@@ -518,7 +518,7 @@ public class TPCHUtils {
             + "        and l_shipdate >= date '1995-09-01'\n"
             + "        and l_shipdate < date '1995-10-01';";
 
-    public static final String Q14_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q14_rewrite = "select \n"
             + "    100.00 * sum(case\n"
             + "        when p_type like 'PROMO%'\n"
             + "            then l_extendedprice * (1 - l_discount)\n"
@@ -563,7 +563,7 @@ public class TPCHUtils {
             + "order by\n"
             + "\ts_suppkey;";
 
-    public static final String Q15_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=4, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q15_rewrite = "select \n"
             + "    s_suppkey,\n"
             + "    s_name,\n"
             + "    s_address,\n"
@@ -632,7 +632,7 @@ public class TPCHUtils {
             + "                        l_partkey = p_partkey\n"
             + "        );";
 
-    public static final String Q17_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=1, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q17_rewrite = "select \n"
             + "    sum(l_extendedprice) / 7.0 as avg_yearly\n"
             + "from\n"
             + "    lineitem join [broadcast]\n"
@@ -686,7 +686,7 @@ public class TPCHUtils {
             + "        o_orderdate\n"
             + "limit 100;";
 
-    public static final String Q18_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q18_rewrite = "select \n"
             + "    c_name,\n"
             + "    c_custkey,\n"
             + "    t3.o_orderkey,\n"
@@ -799,7 +799,7 @@ public class TPCHUtils {
             + "order by\n"
             + "        s_name;";
 
-    public static final String Q20_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q20_rewrite = "select \n"
             + "s_name, s_address from\n"
             + "supplier left semi join\n"
             + "(\n"
@@ -866,7 +866,7 @@ public class TPCHUtils {
             + "        s_name\n"
             + "limit 100;";
 
-    public static final String Q21_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q21_rewrite = "select \n"
             + "s_name, count(*) as numwait\n"
             + "from orders join\n"
             + "(\n"
@@ -905,12 +905,12 @@ public class TPCHUtils {
             + "from\n"
             + "        (\n"
             + "                select\n"
-            + "                        substring(c_phone from 1 for 2) as cntrycode,\n"
+            + "                        substring(c_phone, 1, 2) as cntrycode,\n"
             + "                        c_acctbal\n"
             + "                from\n"
             + "                        customer\n"
             + "                where\n"
-            + "                        substring(c_phone from 1 for 2) in\n"
+            + "                        substring(c_phone, 1, 2) in\n"
             + "                                ('13', '31', '23', '29', '30', '18', '17')\n"
             + "                        and c_acctbal > (\n"
             + "                                select\n"
@@ -919,7 +919,7 @@ public class TPCHUtils {
             + "                                        customer\n"
             + "                                where\n"
             + "                                        c_acctbal > 0.00\n"
-            + "                                        and substring(c_phone from 1 for 2) in\n"
+            + "                                        and substring(c_phone, 1, 2) in\n"
             + "                                                ('13', '31', '23', '29', '30', '18', '17')\n"
             + "                        )\n"
             + "                        and not exists (\n"
@@ -936,7 +936,7 @@ public class TPCHUtils {
             + "order by\n"
             + "        cntrycode;";
 
-    public static final String Q22_rewrite = "select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */\n"
+    public static final String Q22_rewrite = "select \n"
             + "    cntrycode,\n"
             + "    count(*) as numcust,\n"
             + "    sum(c_acctbal) as totacctbal\n"

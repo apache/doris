@@ -796,6 +796,10 @@ public class Function implements Writable {
         return vectorized;
     }
 
+    public void setNullableMode(NullableMode nullableMode) {
+        this.nullableMode = nullableMode;
+    }
+
     public NullableMode getNullableMode() {
         return nullableMode;
     }

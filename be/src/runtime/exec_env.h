@@ -49,7 +49,6 @@ class LoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
 class StorageEngine;
-class MemTrackerTaskPool;
 class PriorityThreadPool;
 class PriorityWorkStealingThreadPool;
 class ResultBufferMgr;
@@ -117,27 +116,12 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<MemTrackerLimiter> process_mem_tracker() { return _process_mem_tracker; }
-    void set_global_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& process_tracker,
-                                const std::shared_ptr<MemTrackerLimiter>& orphan_tracker,
-                                const std::shared_ptr<MemTrackerLimiter>& nursery_mem_tracker,
-                                const std::shared_ptr<MemTrackerLimiter>& bthread_mem_tracker) {
-        _process_mem_tracker = process_tracker;
+    void set_orphan_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& orphan_tracker) {
         _orphan_mem_tracker = orphan_tracker;
         _orphan_mem_tracker_raw = orphan_tracker.get();
-        _nursery_mem_tracker = nursery_mem_tracker;
-        _bthread_mem_tracker = bthread_mem_tracker;
-    }
-    std::shared_ptr<MemTracker> allocator_cache_mem_tracker() {
-        return _allocator_cache_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
-    std::shared_ptr<MemTrackerLimiter> nursery_mem_tracker() { return _nursery_mem_tracker; }
-    std::shared_ptr<MemTrackerLimiter> bthread_mem_tracker() { return _bthread_mem_tracker; }
-    std::shared_ptr<MemTrackerLimiter> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
-    std::shared_ptr<MemTrackerLimiter> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
-    MemTrackerTaskPool* task_pool_mem_tracker_registry() { return _task_pool_mem_tracker_registry; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     PriorityThreadPool* remote_scan_thread_pool() { return _remote_scan_thread_pool; }
@@ -194,7 +178,7 @@ private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
 
-    Status _init_mem_tracker();
+    Status _init_mem_env();
     /// Initialise 'buffer_pool_' with given capacity.
     void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
@@ -217,11 +201,6 @@ private:
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
 
-    // The ancestor for all trackers. Every tracker is visible from the process down.
-    // Not limit total memory by process tracker, and it's just used to track virtual memory of process.
-    std::shared_ptr<MemTrackerLimiter> _process_mem_tracker;
-    // tcmalloc/jemalloc allocator cache tracker, Including thread cache, free heap, etc.
-    std::shared_ptr<MemTracker> _allocator_cache_mem_tracker;
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
     // by default all consumption will be passed to the process tracker through the orphan tracker.
     // In real time, `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`.
@@ -229,15 +208,6 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
-    // Parent is orphan, Nursery of orphan memory after manually switching thread mem tracker
-    std::shared_ptr<MemTrackerLimiter> _nursery_mem_tracker;
-    // Parent is orphan, bthread default mem tracker
-    std::shared_ptr<MemTrackerLimiter> _bthread_mem_tracker;
-    // The ancestor for all querys tracker.
-    std::shared_ptr<MemTrackerLimiter> _query_pool_mem_tracker;
-    // The ancestor for all load tracker.
-    std::shared_ptr<MemTrackerLimiter> _load_pool_mem_tracker;
-    MemTrackerTaskPool* _task_pool_mem_tracker_registry;
 
     // The following two thread pools are used in different scenarios.
     // _scan_thread_pool is a priority thread pool.

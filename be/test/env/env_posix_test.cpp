@@ -55,7 +55,11 @@ TEST_F(EnvPosixTest, random_access) {
     auto st = env->new_writable_file(fname, &wfile);
     EXPECT_TRUE(st.ok());
     st = wfile->pre_allocate(1024);
+#ifndef __APPLE__
     EXPECT_TRUE(st.ok());
+#else
+    EXPECT_FALSE(st.ok());
+#endif
     // write data
     Slice field1("123456789");
     st = wfile->append(field1);

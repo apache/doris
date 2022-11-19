@@ -104,7 +104,8 @@ public class CatalogMgrTest extends TestWithFeService {
 
         // create es catalog
         CreateCatalogStmt esCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog es properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1');",
+                "create catalog es properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
+                        + " 'elasticsearch.username' = 'user1');",
                 rootCtx);
         env.getCatalogMgr().createCatalog(esCatalog);
 
@@ -135,7 +136,7 @@ public class CatalogMgrTest extends TestWithFeService {
             tbl.setNewFullSchema(schema);
             db.addTableForTest(tbl);
             hmsCatalog.addDatabaseForTest(db);
-        } else if (catalog instanceof ExternalCatalog) {
+        } else if (catalog instanceof EsExternalCatalog) {
             EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
             EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
             EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_tbl1", esCatalog);
@@ -215,8 +216,16 @@ public class CatalogMgrTest extends TestWithFeService {
         Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_DS_ID).getId());
         Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME).getId());
 
+        EsExternalCatalog esExternalCatalog = (EsExternalCatalog) mgr2.getCatalog("es");
+        Assert.assertNotNull(esExternalCatalog);
+        Map<String, String> properties = esExternalCatalog.getCatalogProperty().getProperties();
+        Assert.assertEquals("user1", properties.get(EsExternalCatalog.PROP_USERNAME));
+        Assert.assertEquals("http://192.168.0.1", properties.get(EsExternalCatalog.PROP_HOSTS));
+        Assert.assertEquals("user1", esExternalCatalog.getUsername());
+        Assert.assertEquals("http://192.168.0.1", esExternalCatalog.getNodes()[0]);
+
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
-        Map<String, String> properties = hms.getProperties();
+        properties = hms.getProperties();
         Assert.assertEquals(2, properties.size());
         Assert.assertEquals("hms", properties.get("type"));
         Assert.assertEquals("v", properties.get("k"));

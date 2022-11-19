@@ -689,7 +689,7 @@ Status PosixEnv::is_directory(const std::string& path, bool* is_dir) {
 }
 
 Status PosixEnv::canonicalize(const std::string& path, std::string* result) {
-    // NOTE: we must use free() to release the buffer retruned by realpath(),
+    // NOTE: we must use free() to release the buffer returned by realpath(),
     // because the buffer is allocated by malloc(), see `man 3 realpath`.
     std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
     if (r == nullptr) {

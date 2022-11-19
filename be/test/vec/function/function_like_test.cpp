@@ -38,6 +38,12 @@ TEST(FunctionLikeTest, like) {
                         {{std::string("abc"), std::string("a%")}, uint8_t(1)},
                         {{std::string("bc"), std::string("a%")}, uint8_t(0)},
                         // equals
+                        {{std::string(""), std::string("")}, uint8_t(1)},
+                        {{std::string(""), std::string(" ")}, uint8_t(0)},
+                        {{std::string(" "), std::string(" ")}, uint8_t(1)},
+                        {{std::string(" "), std::string("")}, uint8_t(0)},
+                        {{std::string("abc"), std::string("")}, uint8_t(0)},
+                        {{std::string("abc"), std::string(" ")}, uint8_t(0)},
                         {{std::string("abc"), std::string("abc")}, uint8_t(1)},
                         {{std::string("abc"), std::string("ab")}, uint8_t(0)},
                         // full regexp match

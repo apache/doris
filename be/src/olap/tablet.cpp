@@ -427,11 +427,16 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
 
 RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
-    return *std::max_element(rowset_metas.begin(), rowset_metas.end(),
-                             [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
-                                 return a->tablet_schema()->schema_version() <
-                                        b->tablet_schema()->schema_version();
-                             });
+    return *std::max_element(
+            rowset_metas.begin(), rowset_metas.end(),
+            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+                return !a->tablet_schema()
+                               ? true
+                               : (!b->tablet_schema()
+                                          ? false
+                                          : a->tablet_schema()->schema_version() <
+                                                    b->tablet_schema()->schema_version());
+            });
 }
 
 RowsetSharedPtr Tablet::_rowset_with_largest_size() {

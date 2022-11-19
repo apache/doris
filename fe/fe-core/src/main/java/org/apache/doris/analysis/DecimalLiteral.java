@@ -63,6 +63,20 @@ public class DecimalLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public DecimalLiteral(String value, int scale) throws AnalysisException {
+        BigDecimal v = null;
+        try {
+            v = new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid floating-point literal: " + value, e);
+        }
+        if (scale >= 0) {
+            v = v.setScale(scale, RoundingMode.DOWN);
+        }
+        init(v);
+        analysisDone();
+    }
+
     protected DecimalLiteral(DecimalLiteral other) {
         super(other);
         value = other.value;
@@ -110,10 +124,10 @@ public class DecimalLiteral extends LiteralExpr {
 
     public void checkPrecisionAndScale(int precision, int scale) throws AnalysisException {
         Preconditions.checkNotNull(this.value);
+        int realPrecision = this.value.precision();
+        int realScale = this.value.scale();
         boolean valid = true;
         if (precision != -1 && scale != -1) {
-            int realPrecision = this.value.precision();
-            int realScale = this.value.scale();
             if (precision < realPrecision || scale < realScale) {
                 valid = false;
             }
@@ -122,7 +136,9 @@ public class DecimalLiteral extends LiteralExpr {
         }
 
         if (!valid) {
-            throw new AnalysisException("Invalid precision and scale: " + precision + ", " + scale);
+            throw new AnalysisException(
+                    String.format("Invalid precision and scale - expect (%d, %d), but (%d, %d)",
+                            precision, scale, realPrecision, realScale));
         }
     }
 

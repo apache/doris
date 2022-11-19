@@ -27,12 +27,12 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
                                        TVersion version, uint32_t* checksum)
         : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, "EngineChecksumTask#tabletId=" + std::to_string(tablet_id),
-            StorageEngine::instance()->consistency_mem_tracker());
+            MemTrackerLimiter::Type::CONSISTENCY,
+            "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
 }
 
 Status EngineChecksumTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     return _compute_checksum();
 } // execute
 

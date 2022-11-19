@@ -22,7 +22,6 @@ import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -41,7 +40,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Elasticsearch metastore external database.
  */
 public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implements GsonPostProcessable {
-
     private static final Logger LOG = LogManager.getLogger(EsExternalDatabase.class);
 
     // Cache of table name to table id.
@@ -65,7 +63,6 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
         Map<Long, EsExternalTable> tmpIdToTbl = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             EsExternalTable table = getTableForReplay(log.getRefreshTableIds().get(i));
-            table.setUnInitialized();
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
         }
@@ -86,23 +83,8 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
         }
     }
 
-    public synchronized void makeSureInitialized() {
-        if (!initialized) {
-            if (!Env.getCurrentEnv().isMaster()) {
-                // Forward to master and wait the journal to replay.
-                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
-                try {
-                    remoteExecutor.forward(extCatalog.getId(), id, -1);
-                } catch (Exception e) {
-                    LOG.warn("Failed to forward init db {} operation to master. {}", name, e.getMessage());
-                }
-                return;
-            }
-            init();
-        }
-    }
-
-    private void init() {
+    @Override
+    protected void init() {
         InitDatabaseLog initDatabaseLog = new InitDatabaseLog();
         initDatabaseLog.setType(InitDatabaseLog.Type.ES);
         initDatabaseLog.setCatalogId(extCatalog.getId());
@@ -117,7 +99,6 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implem
                     tblId = tableNameToId.get(tableName);
                     tmpTableNameToId.put(tableName, tblId);
                     EsExternalTable table = idToTbl.get(tblId);
-                    table.setUnInitialized();
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addRefreshTable(tblId);
                 } else {

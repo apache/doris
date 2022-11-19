@@ -79,55 +79,10 @@ public:
         ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
         // execute
-        _execute_internal(dst, src, *offset_column, length_column.get());
+        slice_array(dst, src, *offset_column, length_column.get());
         ColumnPtr res_column = assemble_column_array(dst);
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();
-    }
-
-private:
-    void _execute_internal(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
-                           const IColumn& offset_column, const IColumn* length_column) {
-        size_t cur = 0;
-        for (size_t row = 0; row < src.offsets_ptr->size(); ++row) {
-            size_t off = (*src.offsets_ptr)[row - 1];
-            size_t len = (*src.offsets_ptr)[row] - off;
-            Int64 start = offset_column.get_int(row);
-            if (len == 0 || start == 0) {
-                dst.offsets_ptr->push_back(cur);
-                continue;
-            }
-            if (start > 0 && start <= len) {
-                start += off - 1;
-            } else if (start < 0 && -start <= len) {
-                start += off + len;
-            } else {
-                dst.offsets_ptr->push_back(cur);
-                continue;
-            }
-            Int64 end;
-            if (length_column) {
-                Int64 size = length_column->get_int(row);
-                end = std::max((Int64)off, std::min((Int64)(off + len), start + size));
-            } else {
-                end = off + len;
-            }
-            for (size_t pos = start; pos < end; ++pos) {
-                if (src.nested_nullmap_data && src.nested_nullmap_data[pos]) {
-                    dst.nested_col->insert_default();
-                    dst.nested_nullmap_data->push_back(1);
-                } else {
-                    dst.nested_col->insert_from(*src.nested_col, pos);
-                    if (dst.nested_nullmap_data) {
-                        dst.nested_nullmap_data->push_back(0);
-                    }
-                }
-            }
-            if (start < end) {
-                cur += end - start;
-            }
-            dst.offsets_ptr->push_back(cur);
-        }
     }
 };
 

@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
 
@@ -50,7 +51,7 @@ class VExprContext;
 
 class VDataStreamRecvr {
 public:
-    VDataStreamRecvr(VDataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
+    VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                      int num_senders, bool is_merging, int total_buffer_limit,
                      RuntimeProfile* profile,
@@ -96,6 +97,10 @@ private:
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr;
+
+#ifdef USE_MEM_TRACKER
+    RuntimeState* _state;
+#endif
 
     // Fragment and node id of the destination exchange node this receiver is used by.
     TUniqueId _fragment_instance_id;

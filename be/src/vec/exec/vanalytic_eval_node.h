@@ -96,6 +96,8 @@ private:
 
     executor _executor;
 
+    void _release_mem();
+
 private:
     enum AnalyticFnScope { PARTITION, RANGE, ROWS };
     std::vector<Block> _input_blocks;
@@ -131,7 +133,7 @@ private:
     size_t _total_size_of_aggregate_states = 0;
     /// The max align size for functions
     size_t _align_aggregate_states = 1;
-    Arena _agg_arena_pool;
+    std::unique_ptr<Arena> _agg_arena_pool;
     AggregateDataPtr _fn_place_ptr;
 
     TTupleId _buffered_tuple_id = 0;

@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.thrift.TSchemaTable;
+import org.apache.doris.thrift.TSchemaTableStructure;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -399,8 +400,54 @@ public class SchemaTable extends Table {
                                     .column("CREATION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("OLDEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .build())).build();
-    private SchemaTableType schemaTableType;
+                                    .build()))
+            .put("backends", new SchemaTable(SystemIdGenerator.getNextId(), "backends", TableType.SCHEMA,
+                    builder().column("BackendId", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("Cluster", ScalarType.createVarchar(64))
+                            .column("IP", ScalarType.createVarchar(16))
+                            .column("HeartbeatPort", ScalarType.createType(PrimitiveType.INT))
+                            .column("BePort", ScalarType.createType(PrimitiveType.INT))
+                            .column("HttpPort", ScalarType.createType(PrimitiveType.INT))
+                            .column("BrpcPort", ScalarType.createType(PrimitiveType.INT))
+                            .column("LastStartTime", ScalarType.createVarchar(32))
+                            .column("LastHeartbeat", ScalarType.createVarchar(32))
+                            .column("Alive", ScalarType.createVarchar(8))
+                            .column("SystemDecommissioned", ScalarType.createVarchar(8))
+                            .column("ClusterDecommissioned", ScalarType.createVarchar(8))
+                            .column("TabletNum", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("DataUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("AvailCapacity", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TotalCapacity", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("UsedPct", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("MaxDiskUsedPct", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("RemoteUsedCapacity", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("Tag", ScalarType.createVarchar(128))
+                            .column("ErrMsg", ScalarType.createVarchar(2048))
+                            .column("Version", ScalarType.createVarchar(64))
+                            .column("Status", ScalarType.createVarchar(1024))
+                            .build()))
+            .build();
+
+    public static List<TSchemaTableStructure> getTableStructure(String tableName) {
+        List<TSchemaTableStructure> tSchemaTableStructureList = Lists.newArrayList();
+        switch (tableName) {
+            case "backends": {
+                Table table = TABLE_MAP.get(tableName);
+                for (Column column : table.getFullSchema()) {
+                    TSchemaTableStructure tSchemaTableStructure = new TSchemaTableStructure();
+                    tSchemaTableStructure.setColumnName(column.getName());
+                    tSchemaTableStructure.setType(column.getDataType().toThrift());
+                    tSchemaTableStructure.setLen(column.getDataType().getSlotSize());
+                    tSchemaTableStructure.setIsNull(column.isAllowNull());
+                    tSchemaTableStructureList.add(tSchemaTableStructure);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return tSchemaTableStructureList;
+    }
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
         super(id, name, type, baseSchema);

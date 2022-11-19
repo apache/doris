@@ -662,6 +662,9 @@ build_hyperscan() {
     check_if_source_exist "${HYPERSCAN_SOURCE}"
     cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
 
+    # We don't need to build tools/hsbench which depends on sqlite3 installed.
+    rm -rf "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}/tools/hsbench"
+
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
@@ -1505,6 +1508,13 @@ build_gettext() {
     remove_all_dylib
 }
 
+# concurrentqueue
+build_concurrentqueue() {
+    check_if_source_exist "${CONCURRENTQUEUE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CONCURRENTQUEUE_SOURCE}"
+    cp ./*.h "${TP_INSTALL_DIR}/include/"
+}
+
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     echo 'build for Darwin'
     build_binutils
@@ -1565,5 +1575,6 @@ build_opentelemetry
 build_libbacktrace
 build_sse2neon
 build_xxhash
+build_concurrentqueue
 
 echo "Finished to build all thirdparties"

@@ -191,7 +191,7 @@ public class ThreadPoolManager {
      * A handler for rejected task that try to be blocked until the pool enqueue task succeed or timeout,
      * used for fixed thread pool
      */
-    static class BlockedPolicy implements RejectedExecutionHandler {
+    public static class BlockedPolicy implements RejectedExecutionHandler {
 
         private static final Logger LOG = LogManager.getLogger(BlockedPolicy.class);
 

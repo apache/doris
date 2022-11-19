@@ -17,14 +17,18 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -58,14 +62,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @SerializedName(value = "catalogProperty")
     protected CatalogProperty catalogProperty = new CatalogProperty();
     @SerializedName(value = "initialized")
-    protected boolean initialized = false;
-
-    // Cache of db name to db id
+    private boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase> idToDb = Maps.newConcurrentMap();
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
-    protected boolean objectCreated = false;
+    private boolean objectCreated = false;
+
+    private ExternalSchemaCache schemaCache;
 
     /**
      * @return names of database in this catalog.
@@ -87,15 +91,53 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
      */
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
 
-    public abstract void makeSureInitialized();
+    /**
+     * Catalog can't be init when creating because the external catalog may depend on third system.
+     * So you have to make sure the client of third system is initialized before any method was called.
+     */
+    public final synchronized void makeSureInitialized() {
+        initLocalObjects();
+        if (!initialized) {
+            if (!Env.getCurrentEnv().isMaster()) {
+                // Forward to master and wait the journal to replay.
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                try {
+                    remoteExecutor.forward(id, -1);
+                } catch (Exception e) {
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init catalog %s operation to master.", name), e);
+                }
+                return;
+            }
+            init();
+            initialized = true;
+        }
+    }
 
-    public void setInitialized(boolean initialized) {
-        this.initialized = initialized;
+    protected final void initLocalObjects() {
+        if (!objectCreated) {
+            initLocalObjectsImpl();
+            objectCreated = true;
+        }
+    }
+
+    // init some local objects such as:
+    // hms client, read properties from hive-site.xml, es client
+    protected abstract void initLocalObjectsImpl();
+
+    // init schema related objects
+    protected abstract void init();
+
+    public void setUninitialized() {
+        this.initialized = false;
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
     }
 
     public ExternalDatabase getDbForReplay(long dbId) {
         throw new NotImplementedException();
     }
+
+    public abstract List<Column> getSchema(String dbName, String tblName);
 
     @Override
     public long getId() {

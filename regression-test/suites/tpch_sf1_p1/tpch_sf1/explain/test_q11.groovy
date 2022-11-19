@@ -55,10 +55,11 @@ suite("test_explain_tpch_sf_1_q11") {
             """
         check {
             explainStr ->
-		explainStr.contains("VTOP-N\n" + 
-				"  |  order by: <slot 22> `\$a\$1`.`\$c\$2` DESC") && 
-		explainStr.contains("cross join:\n" + 
-				"  |  predicates: <slot 9> sum(<slot 31> * <slot 32>) > <slot 20> sum(<slot 43> * <slot 44>) * 0.0001") && 
+		explainStr.contains("VTOP-N\n" +
+				"  |  order by: <slot 22> `\$a\$1`.`\$c\$2` DESC") &&
+		explainStr.contains("VNESTED LOOP JOIN\n" +
+		        "  |  join op: CROSS JOIN()\n" +
+				"  |  predicates: <slot 76> > <slot 77> * 0.0001") &&
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: sum(<slot 9> sum(<slot 31> * <slot 32>))\n" + 
 				"  |  group by: <slot 8> `ps_partkey`") && 

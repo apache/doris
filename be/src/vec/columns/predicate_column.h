@@ -19,10 +19,11 @@
 
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
+#include "runtime/mem_pool.h"
+#include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
@@ -386,7 +387,7 @@ public:
         LOG(FATAL) << "get field not supported in PredicateColumnType";
     }
 
-    // it's impossable to use ComplexType as key , so we don't have to implemnt them
+    // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported in PredicateColumnType";

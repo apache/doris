@@ -215,7 +215,9 @@ public class UdfExecutor {
     // Sets the result object 'obj' into the outputBufferPtr and outputNullPtr_
     private boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
         if (obj == null) {
-            assert (UdfUtils.UNSAFE.getLong(null, outputNullPtr) != -1);
+            if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) == -1) {
+                throw new UdfRuntimeException("UDF failed to store null data to not null column");
+            }
             UdfUtils.UNSAFE.putByte(null, UdfUtils.UNSAFE.getLong(null, outputNullPtr) + row, (byte) 1);
             if (retType.equals(JavaUdfDataType.STRING)) {
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr)

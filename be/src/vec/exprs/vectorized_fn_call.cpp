@@ -58,11 +58,13 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
-#ifdef LIBJVM
-        _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
-#else
-        return Status::InternalError("Java UDF is disabled since no libjvm is found!");
-#endif
+        if (config::enable_java_support) {
+            _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+        } else {
+            return Status::InternalError(
+                    "Java UDF is not enabled, you can change be config enable_java_support to true "
+                    "and restart be.");
+        }
     } else {
         _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
                                                                    argument_template, _data_type);

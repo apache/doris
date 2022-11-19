@@ -54,11 +54,6 @@ public class HashJoinStatsDerive extends BaseStatsDerive {
     }
 
     @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
-
-    @Override
     protected long deriveRowCount() {
         if (joinOp.isSemiAntiJoin()) {
             rowCount = getSemiJoinrowCount();

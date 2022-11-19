@@ -182,11 +182,10 @@ public class AnalyzeTPCHTest extends TPCHTestBase {
         checkAnalyze(TPCHUtils.Q21_rewrite);
     }
 
-    // NOTE: not support '1 for 2' syntax
-    /*@Test
+    @Test
     public void q22() {
         checkAnalyze(TPCHUtils.Q22);
-    }*/
+    }
 
     @Test
     public void q22_rewrite() {
