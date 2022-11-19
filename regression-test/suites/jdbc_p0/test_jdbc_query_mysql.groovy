@@ -317,7 +317,252 @@ suite("test_jdbc_query_mysql", "p0") {
                 SELECT  min(LENGTH(begin_value)), max(LENGTH(begin_value)), sum(case when begin_value is null then 1 else 0 end)
                 from $exMysqlTable ;
         """
+
+
+        // test for quotation marks in int
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable1}` (
+                    `id` bigint(20) NULL,
+                    `t_id` bigint(20) NULL,
+                    `name` text NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb6",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select * from $exMysqlTable1 where id in ('639215401565159424') and  id='639215401565159424';  """
+        order_qt_sql """ select * from $exMysqlTable1 where id in (639215401565159424) and  id=639215401565159424; """
+        order_qt_sql """ select * from $exMysqlTable1 where id in ('639215401565159424') ; """
+
+
+        // test for decimal
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable2}` (
+                    `id` varchar(32) NULL DEFAULT "",
+                    `user_name` varchar(32) NULL DEFAULT "",
+                    `member_list` DECIMAL(10,3)
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb7",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select  * from ${exMysqlTable2} order by member_list; """
+
+
+        // test for 'With in in select smt and group by will cause missing from GROUP BY'
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable}` (
+                    `date` date NOT NULL COMMENT "",
+                    `uid` varchar(64) NOT NULL,
+                    `stat_type` int(11) NOT NULL COMMENT "",
+                    `price` varchar(255) NULL COMMENT "price"
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb8",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select date, sum(if(stat_type in (1), 1, 0)) from ${exMysqlTable} group by date; """
+
+
+        // test for DATE_ADD
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable1}` (
+                    c_date date NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb9",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select DATE_ADD(c_date, INTERVAL 1 month) as c from ${exMysqlTable1} order by c; """
+
+
+        // test for count(1) of subquery
+        // this external table will use doris_test.ex_tb2
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable2} (
+               `id` int(11) NOT NULL,
+               `count_value` varchar(20) NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb2",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ select count(1) from (select '2022' as dt, sum(id) from ${exMysqlTable2}) a; """
+
+
+
+        // test for 'select * from (select 1 as a) b  full outer join (select 2 as a) c using(a)'
+        // this external table will use doris_test.ex_tb0
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable} (
+              `id` int(11) NOT NULL COMMENT "主键id",
+              `name` string NULL COMMENT "名字"
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb0",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select * from 
+            (select id as a from ${exMysqlTable} where id = 111) b  
+            full outer join 
+            (select id as a from ${exMysqlTable} where id = 112) c 
+            using(a); 
+        """
+
+
+        // test for 'select CAST(NULL AS CHAR(1))'
+        // this external table will use doris_test.ex_tb9
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable1} (
+                c_date date NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb9",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select CAST(c_date AS CHAR(1)) as a from ${exMysqlTable1} order by a;
+        """
+
+
+        // test for string sort
+        // this external table will use doris_test.ex_tb7
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable2} (
+                    `date` date NOT NULL COMMENT "",
+                    `uid` varchar(64) NOT NULL,
+                    `stat_type` int(11) NOT NULL COMMENT "",
+                    `price` varchar(255) NULL COMMENT "price"
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb8",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select * from
+            (select uid as a, uid as b, uid as c, 6 from ${exMysqlTable2} where stat_type = 2
+            union all
+            select '汇总' as a, '汇总' as b, '汇总' as c, 6) a
+            order by 1,2,3,4;
+        """
+
+
+        // test for query int without quotation marks
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable} (
+                `aa` varchar(200) NULL COMMENT "",
+                `bb` int NULL COMMENT "",
+                `cc` bigint NULL COMMENT ""
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb10",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select t.aa, count(if(t.bb in (1,2) ,true ,null)) as c from ${exMysqlTable} t group by t.aa order by c;
+        """
+
+
+        // test for wrong result
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable1} (
+                `aa` varchar(200) NULL COMMENT "",
+                `bb` int NULL COMMENT ""
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb11",
+                "table_type"="mysql"
+               ); 
+        """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable2} (
+                `cc` varchar(200) NULL COMMENT "",
+                `dd` int NULL COMMENT ""
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb12",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select t.* from ( select * from ${exMysqlTable1} t1 left join ${exMysqlTable2} t2 on t1.aa=t2.cc ) t
+            where dayofweek(current_date())=2 order by aa; 
+        """
+
+
+        // test for crash be sql
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable} (
+                 name varchar(128),
+                 age INT,
+                 idCode  varchar(128),
+                 cardNo varchar(128),
+                 number varchar(128),
+                 birthday DATETIME,
+                 country varchar(128),
+                 gender varchar(128),
+                 covid BOOLEAN
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb13",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            SELECT count(1) FROM (WITH t1 AS ( WITH t AS ( SELECT * FROM ${exMysqlTable}) 
+                SELECT idCode, COUNT(1) as dataAmount,ROUND(COUNT(1) / tableWithSum.sumResult,4) as proportion,                  
+                MD5(idCode) as virtuleUniqKey FROM t,(SELECT COUNT(1) as sumResult from t) tableWithSum  
+                GROUP BY idCode ,tableWithSum.sumResult  ) 
+                SELECT  idCode,dataAmount, (CASE WHEN t1.virtuleUniqKey = tableWithMaxId.max_virtuleUniqKey THEN
+                ROUND(proportion + calcTheTail, 4)  ELSE  proportion END) proportion  FROM t1, 
+                (SELECT (1 - sum(t1.proportion)) as calcTheTail FROM t1 ) tableWithTail,          
+                (SELECT virtuleUniqKey as  max_virtuleUniqKey FROM t1 ORDER BY proportion DESC LIMIT 1 ) tableWithMaxId  
+                ORDER BY idCode) t_aa;
+        """
     }
 }
+
 
 
