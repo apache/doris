@@ -93,6 +93,13 @@ struct DefaultHash<T, std::enable_if_t<std::is_arithmetic_v<T>>> {
 };
 
 template <>
+struct DefaultHash<doris::vectorized::Int128I> {
+    size_t operator()(doris::vectorized::Int128I key) const {
+        return default_hash64<doris::vectorized::Int128I>(key);
+    }
+};
+
+template <>
 struct DefaultHash<StringRef> : public StringRefHash {};
 
 template <typename T>

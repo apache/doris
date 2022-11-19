@@ -484,7 +484,7 @@ bool CsvScanNode::check_and_write_text_slot(const std::string& column_name,
                                    char_len);
             value_to_convert_length = char_len;
         }
-    } else if (slot->type().is_decimal_type()) {
+    } else if (slot->type().is_decimal_v2_type()) {
         int precision = column_type.precision;
         int scale = column_type.scale;
         bool is_success = check_decimal_input(value, value_length, precision, scale, error_msg);
