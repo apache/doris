@@ -3,8 +3,10 @@
 customer
 lineitem
 nation
+orc_all_types
 orders
 part
+partition_table
 partsupp
 region
 supplier

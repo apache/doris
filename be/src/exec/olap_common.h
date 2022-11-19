@@ -131,6 +131,10 @@ public:
 
     CppType get_range_min_value() const { return _low_value; }
 
+    const CppType* get_range_max_value_ptr() const { return &_high_value; }
+
+    const CppType* get_range_min_value_ptr() const { return &_low_value; }
+
     SQLFilterOp get_range_high_op() const { return _high_op; }
 
     SQLFilterOp get_range_low_op() const { return _low_op; }
