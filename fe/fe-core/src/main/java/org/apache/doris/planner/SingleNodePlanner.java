@@ -89,6 +89,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -1129,7 +1130,8 @@ public class SingleNodePlanner {
         }
 
         if (analyzer.hasEmptySpjResultSet() && selectStmt.getAggInfo() != null) {
-            if (selectStmt.getGroupByClause().isGroupByExtension()) {
+            GroupByClause groupByClause = selectStmt.getGroupByClause();
+            if (Objects.nonNull(groupByClause) && groupByClause.isGroupByExtension()) {
                 rowTuples.add(selectStmt.getGroupingInfo().getVirtualTuple().getId());
             }
             final PlanNode emptySetNode = new EmptySetNode(ctx.getNextNodeId(), rowTuples);
