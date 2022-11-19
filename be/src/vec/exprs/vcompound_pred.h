@@ -52,7 +52,7 @@ public:
 
     Status execute(VExprContext* context, doris::vectorized::Block* block,
                    int* result_column_id) override {
-        if (_have_invalid_child()) {
+        if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
             return VectorizedFnCall::execute(context, block, result_column_id);
         }
 
@@ -119,9 +119,7 @@ public:
                 }
             }
         } else {
-            for (size_t i = 0; i < size; i++) {
-                data[i] = !data[i];
-            }
+            LOG(FATAL) << "Compound operator must be AND or OR.";
         }
 
         *result_column_id = lhs_id;
@@ -139,16 +137,13 @@ public:
         return out.str();
     }
 
+    bool is_compound_predicate() const override { return true; }
+
 private:
-    bool _have_invalid_child() const {
+    bool _all_child_is_compound_and_not_const() const {
         for (auto child : _children) {
-            if (child->is_constant()) {
-                return true;
-            }
-            if (TExprNodeType::FUNCTION_CALL == child->node_type() &&
-                reinterpret_cast<VectorizedFnCall*>(child)->fn().name.function_name ==
-                        "is_null_pred") {
-                return true; // is null pred use null map directly.
+            if (child->is_constant() || !child->is_compound_predicate()) {
+                return false;
             }
         }
         return false;
