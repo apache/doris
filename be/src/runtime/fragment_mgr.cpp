@@ -255,8 +255,9 @@ Status FragmentExecState::execute() {
         CgroupsMgr::apply_system_cgroup();
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         Status status = _executor.open();
-        WARN_IF_ERROR(status, strings::Substitute("Got error while opening fragment $0",
-                                                  print_id(_fragment_instance_id)));
+        WARN_IF_ERROR(status,
+                      strings::Substitute("Got error while opening fragment $0, query id: $1",
+                                          print_id(_fragment_instance_id), print_id(_query_id)));
 
         _executor.close();
         if (!status.ok()) {
@@ -403,7 +404,8 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
                << apache::thrift::ThriftDebugString(params).c_str();
     if (!exec_status.ok()) {
         LOG(WARNING) << "report error status: " << exec_status.to_string()
-                     << " to coordinator: " << _coord_addr;
+                     << " to coordinator: " << _coord_addr << ", query id: " << print_id(_query_id)
+                     << ", instance id: " << print_id(_fragment_instance_id);
     }
     try {
         try {
@@ -630,7 +632,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                     BackendOptions::get_localhost());
         }
         fragments_ctx = search->second;
-        _set_scan_concurrency(params, fragments_ctx.get());
     } else {
         // This may be a first fragment request of the query.
         // Create the query fragments context.
@@ -689,7 +690,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                           << print_id(fragments_ctx->query_id)
                           << " limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
             } else {
-                // Already has a query fragmentscontext, use it
+                // Already has a query fragments context, use it
                 fragments_ctx = search->second;
             }
         }

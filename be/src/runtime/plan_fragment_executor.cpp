@@ -626,7 +626,9 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     LOG_INFO("PlanFragmentExecutor::cancel")
             .tag("query_id", _query_id)
-            .tag("instance_id", _runtime_state->fragment_instance_id());
+            .tag("instance_id", _runtime_state->fragment_instance_id())
+            .tag("reason", reason)
+            .tag("error message", msg);
     DCHECK(_prepared);
     _cancel_reason = reason;
     _cancel_msg = msg;
