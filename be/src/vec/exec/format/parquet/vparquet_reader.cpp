@@ -72,6 +72,10 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER(_profile, "ColumnReadTime", parquet_profile);
         _parquet_profile.parse_meta_time =
                 ADD_CHILD_TIMER(_profile, "ParseMetaTime", parquet_profile);
+        _parquet_profile.page_index_filter_time =
+                ADD_CHILD_TIMER(_profile, "PageIndexFilterTime", parquet_profile);
+        _parquet_profile.row_group_filter_time =
+                ADD_CHILD_TIMER(_profile, "RowGroupFilterTime", parquet_profile);
 
         _parquet_profile.file_read_time = ADD_TIMER(_profile, "FileReadTime");
         _parquet_profile.file_read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);

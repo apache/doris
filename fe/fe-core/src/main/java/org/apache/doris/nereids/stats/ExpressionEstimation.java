@@ -161,7 +161,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     .setNumNulls(numNulls).setDataSize(binaryArithmetic.getDataType().width()).setMinValue(min)
                     .setMaxValue(max).setSelectivity(1.0).setMaxExpr(null).setMinExpr(null).build();
         }
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.DEFAULT;
     }
 
     private double noneZeroDivisor(double d) {
@@ -172,8 +172,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitMin(Min min, StatsDeriveResult context) {
         Expression child = min.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
-            return ColumnStatistic.UNKNOWN;
+        if (columnStat == ColumnStatistic.DEFAULT) {
+            return ColumnStatistic.DEFAULT;
         }
         /*
         we keep columnStat.min and columnStat.max, but set ndv=1.
@@ -190,8 +190,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitMax(Max max, StatsDeriveResult context) {
         Expression child = max.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
-            return ColumnStatistic.UNKNOWN;
+        if (columnStat == ColumnStatistic.DEFAULT) {
+            return ColumnStatistic.DEFAULT;
         }
         /*
         we keep columnStat.min and columnStat.max, but set ndv=1.
@@ -210,8 +210,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         }
         Expression child = count.child(0);
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
-            return ColumnStatistic.UNKNOWN;
+        if (columnStat == ColumnStatistic.DEFAULT) {
+            return ColumnStatistic.DEFAULT;
         }
         double expectedValue = context.getRowCount() - columnStat.numNulls;
         double width = (double) count.getDataType().width();

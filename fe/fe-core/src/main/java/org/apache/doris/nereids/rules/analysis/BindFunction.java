@@ -170,8 +170,8 @@ public class BindFunction implements AnalysisRuleFactory {
                     return new Count();
                 }
                 if (arguments.size() == 1) {
-                    boolean isGlobalAgg = true;
-                    AggregateParam aggregateParam = new AggregateParam(unboundFunction.isDistinct(), isGlobalAgg);
+                    AggregateParam aggregateParam = new AggregateParam(
+                            unboundFunction.isDistinct(), true, false);
                     return new Count(aggregateParam, unboundFunction.getArguments().get(0));
                 }
             }

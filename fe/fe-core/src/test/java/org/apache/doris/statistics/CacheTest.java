@@ -47,7 +47,7 @@ public class CacheTest extends TestWithFeService {
                     try {
                         Thread.sleep(50);
                     } catch (InterruptedException e) {
-                        return ColumnStatistic.UNKNOWN;
+                        return ColumnStatistic.DEFAULT;
                     }
                     return ColumnStatistic.DEFAULT;
                 });
@@ -55,7 +55,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
-        Assertions.assertEquals(c, ColumnStatistic.UNKNOWN);
+        Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
         Thread.sleep(100);
         c = statisticsCache.getColumnStatistics(1, "col");
         Assertions.assertEquals(c, ColumnStatistic.DEFAULT);
@@ -118,7 +118,7 @@ public class CacheTest extends TestWithFeService {
         };
         StatisticsCache statisticsCache = new StatisticsCache();
         ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
-        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
+        Assertions.assertEquals(ColumnStatistic.DEFAULT, columnStatistic);
         Thread.sleep(100);
         columnStatistic = statisticsCache.getColumnStatistics(0, "col");
         Assertions.assertEquals(1, columnStatistic.count);

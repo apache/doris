@@ -100,10 +100,17 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
         return int128_to_string(
                 assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
                         .get_data()[row_num]);
-    } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
+    } else if constexpr (std::is_integral<T>::value) {
         return std::to_string(
                 assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
                         .get_data()[row_num]);
+    } else if constexpr (std::numeric_limits<T>::is_iec559) {
+        fmt::memory_buffer buffer;
+        fmt::format_to(
+                buffer, "{}",
+                assert_cast<const ColumnVector<T>&>(*column.convert_to_full_column_if_const().get())
+                        .get_data()[row_num]);
+        return std::string(buffer.data(), buffer.size());
     }
 }
 

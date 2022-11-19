@@ -32,4 +32,19 @@ suite("explain") {
         contains "project output tuple id: 1"
     }
 
+
+    explain {
+        sql("physical plan select 100")
+        contains "PhysicalOneRowRelation"
+    }
+
+    explain {
+        sql("logical plan select 100")
+        contains "LogicalOneRowRelation"
+    }
+
+    explain {
+        sql("parsed plan select 100")
+        contains "UnboundOneRowRelation"
+    }
 }
