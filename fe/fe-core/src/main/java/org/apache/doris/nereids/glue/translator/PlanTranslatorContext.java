@@ -23,11 +23,13 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -143,7 +145,16 @@ public class PlanTranslatorContext {
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
-        SlotRef slotRef = new SlotRef(slotDescriptor);
+        SlotRef slotRef;
+        if (slotReference instanceof VirtualSlotReference) {
+            slotRef = new VirtualSlotRef(slotDescriptor);
+            VirtualSlotReference virtualSlot = (VirtualSlotReference) slotReference;
+            slotDescriptor.setColumn(new Column(
+                    virtualSlot.getName(), virtualSlot.getDataType().toCatalogDataType()));
+            slotDescriptor.setLabel(slotReference.getName());
+        } else {
+            slotRef = new SlotRef(slotDescriptor);
+        }
         slotRef.setLabel(slotReference.getName());
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());

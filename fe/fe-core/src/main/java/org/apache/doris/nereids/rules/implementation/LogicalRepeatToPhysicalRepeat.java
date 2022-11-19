@@ -15,26 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
+package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.UnaryPlan;
-
-import java.util.List;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 
 /**
- * Common interface for logical/physical Aggregate.
+ * Implementation rule that convert logical repeat to physical repeat.
  */
-public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE> {
-
-    List<Expression> getGroupByExpressions();
-
-    List<NamedExpression> getOutputExpressions();
-
-    Aggregate withAggOutput(List<NamedExpression> newOutput);
-
+public class LogicalRepeatToPhysicalRepeat extends OneImplementationRuleFactory {
     @Override
-    Aggregate<Plan> withChildren(List<Plan> children);
+    public Rule build() {
+        return logicalRepeat().then(repeat ->
+            new PhysicalRepeat<>(
+                repeat.getGroupingSets(),
+                repeat.getOutputExpressions(),
+                repeat.getLogicalProperties(),
+                repeat.child()
+            )
+        ).toRule(RuleType.LOGICAL_TOP_N_TO_PHYSICAL_TOP_N_RULE);
+    }
 }

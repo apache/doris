@@ -71,6 +71,32 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * top-down rewrite short circuit.
+     * @param rewriteFunction rewrite function.
+     * @return rewritten result.
+     */
+    default NODE_TYPE rewriteDownShortCircuit(Function<NODE_TYPE, NODE_TYPE> rewriteFunction) {
+        NODE_TYPE currentNode = rewriteFunction.apply((NODE_TYPE) this);
+
+        if (currentNode == this) {
+            Builder<NODE_TYPE> newChildren = ImmutableList.builderWithExpectedSize(arity());
+            boolean changed = false;
+            for (NODE_TYPE child : children()) {
+                NODE_TYPE newChild = child.rewriteDownShortCircuit(rewriteFunction);
+                if (child != newChild) {
+                    changed = true;
+                }
+                newChildren.add(newChild);
+            }
+
+            if (changed) {
+                currentNode = currentNode.withChildren(newChildren.build());
+            }
+        }
+        return currentNode;
+    }
+
+    /**
      * bottom-up rewrite.
      * @param rewriteFunction rewrite function.
      * @return rewritten result.

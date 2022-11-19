@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -342,6 +343,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
                     arithmetic.getDataType().toCatalogDataType());
         }
+    }
+
+    @Override
+    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference, PlanTranslatorContext context) {
+        return context.findSlotRef(virtualSlotReference.getExprId());
     }
 
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(

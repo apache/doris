@@ -117,7 +117,7 @@ public class NereidsPlanner extends Planner {
         try {
             plan(queryStmt, statementContext.getConnectContext().getSessionVariable().toThrift());
         } catch (Exception e) {
-            throw new NereidsException(e);
+            throw new NereidsException(e.getMessage(), e);
         }
     }
 

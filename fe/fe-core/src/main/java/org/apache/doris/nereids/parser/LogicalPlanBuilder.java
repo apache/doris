@@ -35,6 +35,8 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.GroupingElementContext;
+import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
@@ -147,6 +149,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -1025,19 +1028,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
                                       Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
-            List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
+            GroupingElementContext groupingElementContext = aggCtx.get().groupingElement();
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+            if (groupingElementContext.GROUPING() != null) {
+                ImmutableList.Builder<List<Expression>> groupingSets = ImmutableList.builder();
+                for (GroupingSetContext groupingSetContext : groupingElementContext.groupingSet()) {
+                    groupingSets.add(visit(groupingSetContext.expression(), Expression.class));
+                }
+                return new LogicalRepeat<>(groupingSets.build(), namedExpressions, input);
+            } else if (groupingElementContext.CUBE() != null) {
+                List<Expression> cubeExpressions = visit(groupingElementContext.expression(), Expression.class);
+                List<List<Expression>> groupingSets = ExpressionUtils.cubeToGroupingSets(cubeExpressions);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+            } else if (groupingElementContext.ROLLUP() != null) {
+                List<Expression> rollupExpressions = visit(groupingElementContext.expression(), Expression.class);
+                List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(rollupExpressions);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+            } else {
+                List<Expression> groupByExpressions = visit(groupingElementContext.expression(), Expression.class);
+                return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+            }
         });
     }
 
     private LogicalPlan withHaving(LogicalPlan input, Optional<HavingClauseContext> havingCtx) {
-        return input.optionalMap(havingCtx, () -> {
-            if (!(input instanceof LogicalAggregate)) {
-                throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
-            }
-            return new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input);
-        });
+        return input.optionalMap(havingCtx, () ->
+            new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input)
+        );
     }
 
     /**
