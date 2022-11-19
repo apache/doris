@@ -6,8 +6,10 @@ hive01
 lineitem
 lineorder
 nation
+orc_all_types
 orders
 part
+partition_table
 partsupp
 region
 sale_table
