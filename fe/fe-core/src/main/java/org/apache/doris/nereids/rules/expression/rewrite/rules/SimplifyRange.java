@@ -69,6 +69,7 @@ import java.util.stream.Collectors;
  *    1. a > 1 => RangeValueDesc((1...+∞)), a > 2 => RangeValueDesc((2...+∞))
  *    2. (1...+∞) intersect (2...+∞) => (2...+∞)
  * 2. for `Or` expression (similar to `And`).
+ * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
  */
 public class SimplifyRange extends AbstractExpressionRewriteRule {
 
@@ -149,12 +150,6 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         private ValueDesc simplify(Expression originExpr, List<Expression> predicates,
                 BinaryOperator<ValueDesc> op, BinaryOperator<Expression> exprOp) {
 
-            List<ValueDesc> values = Lists.newArrayList();
-            for (Expression predicate : predicates) {
-                ValueDesc value = predicate.accept(this, null);
-                values.add(value);
-            }
-
             Map<Expression, List<ValueDesc>> groupByReference = predicates.stream()
                     .map(predicate -> predicate.accept(this, null))
                     .collect(Collectors.groupingBy(p -> p.reference, LinkedHashMap::new, Collectors.toList()));
@@ -180,7 +175,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         }
     }
 
-    private static abstract class ValueDesc {
+    private abstract static class ValueDesc {
         Expression expr;
         Expression reference;
 
