@@ -36,7 +36,7 @@ TPC-H是一个决策支持基准（Decision Support Benchmark），它由一套�
 
 在 TPC-H 标准测试数据集上的 22 个查询上，我们基于 Apache Doris 1.2.0-rc01， Apache Doris 1.1.3 及 Apache Doris 0.15.0 RC04 版本进行了对别测试， Apache Doris 1.2.0-rc01上相对 Apache Doris 1.1.3 整体性能提升了将近 3 倍，相对于 Apache Doris 0.15.0 RC04 ,性能提升了将近 11 倍 。
 
-![image-20220614114351241](/images/image-20220614114351241.png)
+![image-20220614114351241](/images/tpch.png)
 
 ## 1. 硬件环境
 

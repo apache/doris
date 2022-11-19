@@ -36,7 +36,7 @@ This document mainly introduces the performance of Doris on the TPC-H test set.
 
 On 22 queries on the TPC-H standard test dataset, we conducted pairwise tests based on Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions. The overall performance of Apache Doris 1.2.0-rc01 is nearly 3 times better than that of Apache Doris 1.1.3 and nearly 11 times better than that of Apache Doris 0.15.0 RC04.
 
-![image-20220614114351241](/images/image-20220614114351241.png)
+![image-20220614114351241](/images/tpch.png)
 
 ## 1. Hardware Environment
 

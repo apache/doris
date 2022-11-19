@@ -38,11 +38,11 @@ We conducted pairwise testing on 13 queries on the SSB standard test dataset bas
 
 The overall performance improvement on SSB FlAT wide tables was nearly 4x on Apache Doris 1.2.0-rc01 compared to Apache Doris 1.1.3, and nearly 10x on Apache Doris 0.15.0 RC04.
 
-![ssb_v11_v015_compare](/images/ssb_v11_v015_compare.png)
+![ssb_v11_v015_compare](/images/ssb_flat.png)
 
 On the standard SSB test SQL, Apache Doris 1.2.0-rc01 delivers an overall performance improvement of nearly 2X over Apache Doris 1.1.3 and nearly 31X over Apache Doris 0.15.0 RC04.
 
-![ssb_12_11_015](/images/ssb_12_11_015.png)
+![ssb_12_11_015](/images/ssb.png)
 
 ## 1. Hardware Environment
 
