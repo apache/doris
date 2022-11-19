@@ -1695,8 +1695,9 @@ public class Coordinator {
         // and returned_all_results_ is true.
         // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
         if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-            LOG.warn("one instance report fail, query_id={} instance_id={}",
-                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+            LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
+                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
+                    status.getErrorMsg());
             updateStatus(status, params.getFragmentInstanceId());
         }
         if (execState.done) {
