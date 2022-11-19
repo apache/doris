@@ -75,6 +75,10 @@ example:
 * [使用 LDB toolchain 编译](/docs/install/source-install/compilation-with-ldb-toolchain)
 * ......
 
-为了进行调试，需要在 fe 启动时，加上调试的参数，比如 `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005` 。
+为了进行调试，需要在 fe 启动时，加上调试的参数，比如 
 
-具体是在 `incubator-doris/output/fe/bin/start_fe.sh` 里 `$JAVA $final_java_opt` 后面加上上面的参数。
+```bash
+-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005
+```
+
+具体是在 `doris/output/fe/bin/start_fe.sh` 里 `$JAVA $final_java_opt` 后面加上上面的参数。

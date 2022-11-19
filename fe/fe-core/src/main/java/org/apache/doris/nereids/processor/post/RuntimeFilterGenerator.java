@@ -106,6 +106,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                                 slots.second, slots.first, type,
                                 cnt.getAndIncrement(), join);
+                        ctx.addJoinToTargetMap(join, slots.first.getExprId());
                         ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
                         ctx.setTargetsOnScanNode(
                                 aliasTransferMap.get((Slot) normalizedChildren.first).first,

@@ -22,12 +22,6 @@ package org.apache.doris.statistics;
  */
 public class MysqlStatsDerive extends BaseStatsDerive {
 
-    // Current ODBC_SCAN_NODE also uses this derivation method
-    @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
-
     @Override
     protected long deriveRowCount() {
         // this is just to avoid mysql scan node's rowCount being -1. So that we can calculate the join cost

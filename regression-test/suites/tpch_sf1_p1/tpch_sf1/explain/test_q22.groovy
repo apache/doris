@@ -64,23 +64,22 @@ suite("test_explain_tpch_sf_1_q22") {
             explainStr ->
 		explainStr.contains("VTOP-N\n" + 
 				"  |  order by: <slot 32> <slot 29> `cntrycode` ASC") && 
-		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
-				"  |  output: count(<slot 30> count(*)), sum(<slot 31> sum(<slot 37>))\n" + 
-				"  |  group by: <slot 29> `cntrycode`") && 
-		explainStr.contains("VAGGREGATE (update serialize)\n" + 
-				"  |  STREAMING\n" + 
-				"  |  output: count(*), sum(<slot 37>)\n" + 
-				"  |  group by: substr(<slot 36>, 1, 2)") && 
-		explainStr.contains("join op: LEFT ANTI JOIN(BROADCAST)[Tables are not in the same group]\n" + 
-				"  |  equal join conjunct: `c_custkey` = `o_custkey`") && 
-		explainStr.contains("vec output tuple id: 10") && 
-		explainStr.contains("output slot ids: 36 37 \n" + 
-				"  |  hash output slot ids: 25 26 ") && 
-		explainStr.contains("cross join:\n" + 
-				"  |  predicates: `c_acctbal` > <slot 3> avg(`c_acctbal`)") && 
-		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON\n" + 
-				"     PREDICATES: substr(`c_phone`, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17')") && 
-		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON") && 
+		explainStr.contains("VAGGREGATE (merge finalize)\n" +
+				"  |  output: count(<slot 30> count(*)), sum(<slot 31> sum(<slot 41>))\n" +
+				"  |  group by: <slot 29> `cntrycode`") &&
+		explainStr.contains("VAGGREGATE (update serialize)\n" +
+				"  |  STREAMING\n" +
+				"  |  output: count(*), sum(<slot 41>)\n" +
+				"  |  group by: substr(<slot 40>, 1, 2)") &&
+		explainStr.contains("vec output tuple id: 11") &&
+		explainStr.contains("output slot ids: 40 41 \n" +
+				"  |  hash output slot ids: 36 37 ") &&
+		explainStr.contains("VNESTED LOOP JOIN\n" +
+		        "  |  join op: CROSS JOIN()\n" +
+				"  |  predicates: <slot 45> > <slot 46>") &&
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON\n" +
+				"     PREDICATES: substr(`c_phone`, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17')") &&
+		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON") &&
 		explainStr.contains("VAGGREGATE (merge finalize)\n" + 
 				"  |  output: avg(<slot 2> avg(`c_acctbal`))\n" + 
 				"  |  group by: ") && 

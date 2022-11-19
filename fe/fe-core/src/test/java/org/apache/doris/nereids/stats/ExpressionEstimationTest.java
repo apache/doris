@@ -17,16 +17,17 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Multiply;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.statistics.ColumnStat;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import org.apache.commons.math3.util.Precision;
@@ -44,12 +45,22 @@ class ExpressionEstimationTest {
     public void test1() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         Max max = new Max(a);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 0, 500));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
-        ColumnStat estimated = ExpressionEstimation.estimate(max, stat);
-        Assertions.assertEquals(500, estimated.getMinValue());
-        Assertions.assertEquals(1, estimated.getNdv());
+
+        //min/max not changed. select min(A) as X from T group by B. X.max is A.max, not A.min
+        ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
+        Assertions.assertEquals(0, estimated.minValue);
+        Assertions.assertEquals(500, estimated.maxValue);
+        Assertions.assertEquals(1, estimated.ndv);
     }
 
     // MIN(a)
@@ -57,13 +68,22 @@ class ExpressionEstimationTest {
     @Test
     public void test2() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 0, 500));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
-        Min min = new Min(a);
-        ColumnStat estimated = ExpressionEstimation.estimate(min, stat);
-        Assertions.assertEquals(0, estimated.getMaxValue());
-        Assertions.assertEquals(1, estimated.getNdv());
+        Min max = new Min(a);
+        //min/max not changed. select max(A) as X from T group by B. X.min is A.min, not A.max
+        ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
+        Assertions.assertEquals(0, estimated.minValue);
+        Assertions.assertEquals(1000, estimated.maxValue);
+        Assertions.assertEquals(1, estimated.ndv);
     }
 
     // a + b
@@ -72,15 +92,28 @@ class ExpressionEstimationTest {
     @Test
     public void test3() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 0, 500));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500);
+        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(300)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, 300, 1000));
+        slotToColumnStat.put(b.getExprId(), builder1.build());
         Add add = new Add(a, b);
-        ColumnStat estimated = ExpressionEstimation.estimate(add, stat);
-        Assertions.assertEquals(300, estimated.getMinValue());
-        Assertions.assertEquals(1500, estimated.getMaxValue());
+        ColumnStatistic estimated = ExpressionEstimation.estimate(add, stat);
+        Assertions.assertEquals(300, estimated.minValue);
+        Assertions.assertEquals(1500, estimated.maxValue);
     }
 
     // a - b
@@ -89,15 +122,23 @@ class ExpressionEstimationTest {
     @Test
     public void test4() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, 0, 500));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, 300, 1000));
+        builder.setMinValue(300);
+        builder.setMaxValue(1000);
+        slotToColumnStat.put(b.getExprId(), builder.build());
         Subtract subtract = new Subtract(a, b);
-        ColumnStat estimated = ExpressionEstimation.estimate(subtract, stat);
-        Assertions.assertEquals(-1000, estimated.getMinValue());
-        Assertions.assertEquals(200, estimated.getMaxValue());
+        ColumnStatistic estimated = ExpressionEstimation.estimate(subtract, stat);
+        Assertions.assertEquals(-1000, estimated.minValue);
+        Assertions.assertEquals(200, estimated.maxValue);
     }
 
     // a * b
@@ -106,15 +147,23 @@ class ExpressionEstimationTest {
     @Test
     public void test5() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, -200, -100));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(-200)
+                .setMaxValue(-100);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, -300, 1000));
+        builder.setMinValue(-300);
+        builder.setMaxValue(1000);
+        slotToColumnStat.put(b.getExprId(), builder.build());
         Multiply multiply = new Multiply(a, b);
-        ColumnStat estimated = ExpressionEstimation.estimate(multiply, stat);
-        Assertions.assertEquals(-200 * 1000, estimated.getMinValue());
-        Assertions.assertEquals(-200 * -300, estimated.getMaxValue());
+        ColumnStatistic estimated = ExpressionEstimation.estimate(multiply, stat);
+        Assertions.assertEquals(-200 * 1000, estimated.minValue);
+        Assertions.assertEquals(-200 * -300, estimated.maxValue);
     }
 
     // a * b
@@ -123,15 +172,23 @@ class ExpressionEstimationTest {
     @Test
     public void test6() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, -200, -100));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(-200)
+                .setMaxValue(-100);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, -1000, -300));
+        builder.setMinValue(-1000);
+        builder.setMaxValue(-300);
+        slotToColumnStat.put(b.getExprId(), builder.build());
         Multiply multiply = new Multiply(a, b);
-        ColumnStat estimated = ExpressionEstimation.estimate(multiply, stat);
-        Assertions.assertEquals(-100 * -300, estimated.getMinValue());
-        Assertions.assertEquals(-200 * -1000, estimated.getMaxValue());
+        ColumnStatistic estimated = ExpressionEstimation.estimate(multiply, stat);
+        Assertions.assertEquals(-100 * -300, estimated.minValue);
+        Assertions.assertEquals(-200 * -1000, estimated.maxValue);
     }
 
     // a / b
@@ -140,15 +197,28 @@ class ExpressionEstimationTest {
     @Test
     public void test7() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, -200, -100));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(-200)
+                .setMaxValue(-100);
+        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(-300)
+                .setMaxValue(1000);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, -300, 1000));
+        slotToColumnStat.put(b.getExprId(), builder1.build());
         Divide divide = new Divide(a, b);
-        ColumnStat estimated = ExpressionEstimation.estimate(divide, stat);
-        Assertions.assertTrue(Precision.equals(-0.2, estimated.getMinValue(), 0.001));
-        Assertions.assertTrue(Precision.equals(0.666, estimated.getMaxValue(), 0.001));
+        ColumnStatistic estimated = ExpressionEstimation.estimate(divide, stat);
+        Assertions.assertTrue(Precision.equals(-0.2, estimated.minValue, 0.001));
+        Assertions.assertTrue(Precision.equals(0.666, estimated.maxValue, 0.001));
     }
 
     // a / b
@@ -157,14 +227,27 @@ class ExpressionEstimationTest {
     @Test
     public void test8() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
-        Map<Slot, ColumnStat> slotToColumnStat = new HashMap<>();
-        slotToColumnStat.put(a, new ColumnStat(500, 4, 4, 0, -200, -100));
+        Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
+
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(500)
+                .setMinValue(-200)
+                .setMaxValue(-100);
+        ColumnStatisticBuilder builder1 = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(-1000)
+                .setMaxValue(-100);
+        slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
-        slotToColumnStat.put(b, new ColumnStat(500, 4, 4, 0, -1000, -100));
+        slotToColumnStat.put(b.getExprId(), builder1.build());
         Divide divide = new Divide(a, b);
-        ColumnStat estimated = ExpressionEstimation.estimate(divide, stat);
-        Assertions.assertTrue(Precision.equals(0.1, estimated.getMinValue(), 0.001));
-        Assertions.assertEquals(2, estimated.getMaxValue());
+        ColumnStatistic estimated = ExpressionEstimation.estimate(divide, stat);
+        Assertions.assertTrue(Precision.equals(0.1, estimated.minValue, 0.001));
+        Assertions.assertEquals(2, estimated.maxValue);
     }
 }

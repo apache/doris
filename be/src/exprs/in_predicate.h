@@ -20,9 +20,6 @@
 
 #pragma once
 
-#include <string>
-#include <unordered_set>
-
 #include "exprs/hybrid_set.h"
 #include "exprs/predicate.h"
 
@@ -33,24 +30,22 @@ namespace doris {
 // 2. construct by new one, and push child.
 class InPredicate : public Predicate {
 public:
-    virtual ~InPredicate();
-    virtual Expr* clone(ObjectPool* pool) const override {
-        return pool->add(new InPredicate(*this));
-    }
+    ~InPredicate() override;
+    Expr* clone(ObjectPool* pool) const override { return pool->add(new InPredicate(*this)); }
 
     Status prepare(RuntimeState* state, HybridSetBase* hset);
     Status open(RuntimeState* state, ExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                           ExprContext* context) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   ExprContext* context) override;
 
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
+    BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
 
     // this function add one item in hashset, not add to children.
     // if add to children, when List is long, copy is a expensive op.
     void insert(void* value);
 
-    HybridSetBase* hybrid_set() const { return _hybrid_set.get(); }
+    HybridSetBase* hybrid_set() const { return _hybrid_set; }
 
     bool is_not_in() const { return _is_not_in; }
 
@@ -62,13 +57,14 @@ protected:
     InPredicate(const TExprNode& node);
 
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override;
 
 private:
     const bool _is_not_in;
     bool _is_prepare;
     bool _null_in_set;
-    std::shared_ptr<HybridSetBase> _hybrid_set;
+    HybridSetBase* _hybrid_set;
+    bool _should_delete = false;
 };
 
 } // namespace doris

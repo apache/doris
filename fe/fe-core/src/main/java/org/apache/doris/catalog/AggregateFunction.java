@@ -51,7 +51,7 @@ public class AggregateFunction extends Function {
             "bitmap_intersect", "orthogonal_bitmap_intersect", "orthogonal_bitmap_intersect_count", "intersect_count",
             "orthogonal_bitmap_union_count", FunctionSet.COUNT, "approx_count_distinct", "ndv",
             FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL,
-            FunctionSet.RETENTION);
+            FunctionSet.RETENTION, FunctionSet.SEQUENCE_MATCH, FunctionSet.SEQUENCE_COUNT);
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
@@ -181,6 +181,30 @@ public class AggregateFunction extends Function {
         isAnalyticFn = false;
         isAggregateFn = true;
         returnsNonNullOnEmpty = false;
+    }
+
+    public AggregateFunction(FunctionName fnName, List<Type> argTypes,
+            Type retType, Type intermediateType, boolean hasVarArgs,
+            URI location, String updateFnSymbol, String initFnSymbol,
+            String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
+            String removeFnSymbol, String finalizeFnSymbol, boolean ignoresDistinct,
+            boolean isAnalyticFn, boolean returnsNonNullOnEmpty, TFunctionBinaryType binaryType,
+            boolean userVisible, boolean vectorized, NullableMode nullableMode) {
+        // only `count` is always not nullable, other aggregate function is always nullable
+        super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, vectorized, nullableMode);
+        setLocation(location);
+        this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
+        this.updateFnSymbol = updateFnSymbol;
+        this.initFnSymbol = initFnSymbol;
+        this.serializeFnSymbol = serializeFnSymbol;
+        this.mergeFnSymbol = mergeFnSymbol;
+        this.getValueFnSymbol = getValueFnSymbol;
+        this.removeFnSymbol = removeFnSymbol;
+        this.finalizeFnSymbol = finalizeFnSymbol;
+        this.ignoresDistinct = ignoresDistinct;
+        this.isAnalyticFn = isAnalyticFn;
+        this.isAggregateFn = true;
+        this.returnsNonNullOnEmpty = returnsNonNullOnEmpty;
     }
 
     public static AggregateFunction createBuiltin(String name,

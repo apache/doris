@@ -78,7 +78,7 @@ private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     // Only for query task, save the columns' index which need to be read.
     // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3
-    // and the corressponding position in file is 0, 3, 5.
+    // and the corresponding position in file is 0, 3, 5.
     // So the _col_idx will be: <0, 3, 5>
     std::vector<int> _col_idxs;
     // True if this is a load task

@@ -22,6 +22,12 @@ suite("test_jdbc_query_mysql", "p0") {
         String mysql_57_port = context.config.otherConfigs.get("mysql_57_port")
         String jdbcResourceMysql57 = "jdbc_resource_mysql_57"
         String jdbcMysql57Table1 = "jdbc_mysql_57_table1"
+        String exMysqlTable = "doris_ex_tb";
+        String exMysqlTable1 = "doris_ex_tb1";
+        String exMysqlTable2 = "doris_ex_tb2";
+        String inDorisTable = "doris_in_tb";
+        String inDorisTable1 = "doris_in_tb1";
+        String inDorisTable2 = "doris_in_tb2";
 
         sql """drop resource if exists $jdbcResourceMysql57;"""
         sql """
@@ -60,6 +66,503 @@ suite("test_jdbc_query_mysql", "p0") {
             """
         order_qt_sql1 """select count(*) from $jdbcMysql57Table1"""
         order_qt_sql2 """select * from $jdbcMysql57Table1"""
+
+        // test for 'insert into inner_table from ex_table'
+        sql  """ drop table if exists ${exMysqlTable} """
+        sql  """ drop table if exists ${inDorisTable} """
+        sql  """
+              CREATE EXTERNAL TABLE ${exMysqlTable} (
+              `id` int(11) NOT NULL COMMENT "主键id",
+              `name` string NULL COMMENT "名字"
+              ) ENGINE=JDBC
+              COMMENT "JDBC Mysql 外部表"
+              PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb0",
+                "table_type"="mysql"
+              );
+        """
+        sql  """
+              CREATE TABLE ${inDorisTable} (
+                `id` int(11) NOT NULL COMMENT "主键id",
+                `name` string REPLACE_IF_NOT_NULL NULL COMMENT "名字"
+              ) ENGINE=OLAP
+              AGGREGATE KEY(`id`)
+              COMMENT "OLAP"
+              DISTRIBUTED BY HASH(`id`) BUCKETS 10
+              PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+              );
+        """
+        sql  """ insert into ${inDorisTable} select id, name from ${exMysqlTable}; """
+        order_qt_sql  """ select id, name from ${inDorisTable} order by id; """
+
+
+        // test for value column which type is string
+        sql  """ drop table if exists ${exMysqlTable2} """
+        sql  """ drop table if exists ${inDorisTable2} """
+        sql  """
+               CREATE EXTERNAL TABLE ${exMysqlTable2} (
+               `id` int(11) NOT NULL,
+               `count_value` varchar(20) NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb2",
+                "table_type"="mysql"
+               ); 
+        """
+        sql """
+                CREATE TABLE ${inDorisTable2} (
+                `id` int(11) NOT NULL,
+                `count_value` string REPLACE_IF_NOT_NULL NULL
+                ) ENGINE=OLAP
+                AGGREGATE KEY(`id`)
+                COMMENT "OLAP"
+                DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "true",
+                "storage_format" = "V2"
+                );
+        """
+        sql """ insert into ${inDorisTable2} select id, count_value from ${exMysqlTable2}; """
+        order_qt_sql """ select id,count_value  from ${inDorisTable2} order by id; """
+
+
+        // test for ex_table join in_table
+        sql  """ drop table if exists ${exMysqlTable} """
+        sql  """ drop table if exists ${inDorisTable} """
+        sql  """ drop table if exists ${inDorisTable1} """
+        sql  """ 
+                CREATE EXTERNAL TABLE `${exMysqlTable}` (
+                  `game_code` varchar(20) NOT NULL COMMENT "",
+                  `plat_code` varchar(20) NOT NULL COMMENT "",
+                  `account` varchar(100) NOT NULL COMMENT "",
+                  `login_time` bigint(20) NOT NULL COMMENT "",
+                  `register_time` bigint(20) NULL COMMENT "",
+                  `pid` varchar(20) NULL COMMENT "",
+                  `gid` varchar(20) NULL COMMENT "",
+                  `region` varchar(100) NULL COMMENT ""
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb3",
+                "table_type"="mysql"
+                ); 
+        """
+        sql  """
+                CREATE TABLE `${inDorisTable}`
+                (
+                    `day`      date         NULL COMMENT "",
+                    `game`     varchar(500) NULL COMMENT "",
+                    `plat`     varchar(500) NULL COMMENT "",
+                    `dt`       datetime     NULL COMMENT "",
+                    `time`     bigint(20)   NULL COMMENT "",
+                    `sid`      int(11)      NULL COMMENT "",
+                    `pid`      varchar(500) NULL COMMENT "",
+                    `gid`      varchar(500) NULL COMMENT "",
+                    `account`  varchar(500) NULL COMMENT "",
+                    `playerid` varchar(500) NULL COMMENT "",
+                    `prop`     varchar(500) NULL COMMENT "",
+                    `p01`      varchar(500) NULL COMMENT "",
+                    `p02`      varchar(500) NULL COMMENT "",
+                    `p03`      varchar(500) NULL COMMENT "",
+                    `p04`      varchar(500) NULL COMMENT "",
+                    `p05`      varchar(500) NULL COMMENT "",
+                    `p06`      varchar(500) NULL COMMENT "",
+                    `p07`      varchar(500) NULL COMMENT "",
+                    `p08`      varchar(500) NULL COMMENT "",
+                    `p09`      varchar(500) NULL COMMENT "",
+                    `p10`      varchar(500) NULL COMMENT "",
+                    `p11`      varchar(500) NULL COMMENT "",
+                    `p12`      varchar(500) NULL COMMENT "",
+                    `p13`      varchar(500) NULL COMMENT "",
+                    `p14`      varchar(500) NULL COMMENT "",
+                    `p15`      varchar(500) NULL COMMENT ""
+                ) ENGINE = OLAP DUPLICATE KEY(`day`, `game`, `plat`)
+                COMMENT "doris olap table"
+                DISTRIBUTED BY HASH(`game`, `plat`) BUCKETS 4
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+                );
+        """
+        sql  """ insert into ${inDorisTable} VALUES
+            ('2020-05-25','mus','plat_code','2020-05-25 23:34:32',1590420872639,300292,'11','1006061','1001169339','1448335986680242','{}','17001','223.104.103.102','a','808398','0.0','290','258','300292','','','','','','',''),
+            ('2020-05-25','mus','plat_code','2020-05-25 18:29:54',1590402594411,300292,'11','1006061','1001169339','1448335986660352','{}','17001','27.186.139.141','a','96855737','8173.0','290','290','300292','','','','','','',''),
+            ('2020-05-25','mus','plat_code','2020-05-25 12:37:13',1590381433914,300292,'11','1006061','1001169339','1448335986660352','{}','17001','36.98.31.111','a','96942383','8173.0','290','290','300292','','','','','','',''),
+            ('2020-05-25','mus','plat_code','2020-05-25 19:39:50',1590406790026,300292,'11','1006061','1001169339','1448335986660352','{}','17001','36.98.131.232','a','96855737','8173.0','290','290','300292','','','','','','',''),
+            ('2020-05-25','mus','plat_code','2020-05-25 23:28:02',1590420482288,300292,'11','1006061','1001169339','1448335986660317','{}','17001','223.104.103.102','a','15584051','116.0','290','290','300292','','','','','','','');
+        """
+        sql  """
+                CREATE TABLE `${inDorisTable1}`
+                (
+                    `game_code`          varchar(50)  NOT NULL DEFAULT "-",
+                    `plat_code`          varchar(50)  NOT NULL DEFAULT "-",
+                    `sid`                int(11)      NULL,
+                    `name`               varchar(50)  NULL,
+                    `day`                varchar(32)  NULL,
+                    `merged_to`          int(11)      NULL,
+                    `merge_count`        int(11)      NULL,
+                    `merge_path`         varchar(255) NULL,
+                    `merge_time`         bigint(20)   NULL,
+                    `merge_history_time` bigint(20)   NULL,
+                    `open_time`          bigint(20)   NULL,
+                    `open_day`           int(11)      NULL,
+                    `time_zone`          varchar(32)  NULL,
+                    `state`              smallint(6)  NULL
+                ) ENGINE = OLAP 
+                DUPLICATE KEY(`game_code`, `plat_code`, `sid`, `name`)
+                COMMENT "维度表"
+                DISTRIBUTED BY HASH(`game_code`, `plat_code`, `sid`, `name`) BUCKETS 4
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "true",
+                "storage_format" = "V2"
+                );
+        """
+        sql  """ 
+              INSERT INTO ${inDorisTable1} (game_code,plat_code,sid,name,`day`,merged_to,merge_count,merge_path,merge_time,merge_history_time,open_time,open_day,time_zone,state) VALUES
+                ('mus','plat_code',310132,'aa','2020-05-25',310200,NULL,NULL,1609726391000,1609726391000,1590406370000,606,'GMT+8',2),
+                ('mus','plat_code',310078,'aa','2020-05-05',310140,NULL,NULL,1620008473000,1604284571000,1588690010001,626,'GMT+8',2),
+                ('mus','plat_code',310118,'aa','2020-05-19',310016,NULL,NULL,1641178695000,1614565485000,1589871140001,612,'GMT+8',2),
+                ('mus','plat_code',421110,'aa','2020-05-24',421116,NULL,NULL,1641178695000,1635732967000,1590285600000,607,'GMT+8',2),
+                ('mus','plat_code',300417,'aa','2019-08-31',300499,NULL,NULL,1617590476000,1617590476000,1567243760000,874,'GMT+8',2),
+                ('mus','plat_code',310030,'aa','2020-04-25',310140,NULL,NULL,1620008473000,1604284571000,1587780830000,636,'GMT+8',2),
+                ('mus','plat_code',310129,'aa','2020-05-24',310033,NULL,NULL,1641178695000,1604284571000,1590274340000,607,'GMT+8',2),
+                ('mus','plat_code',310131,'aa','2020-05-25',310016,NULL,NULL,1604284571000,1604284571000,1590378830000,606,'GMT+8',2),
+                ('mus','plat_code',410083,'aa','2020-02-04',410114,NULL,NULL,1627872240000,1627872240000,1580749850000,717,'GMT+8',2),
+                ('mus','plat_code',310128,'aa','2020-05-23',310128,2,'310180,310114,310112,310107,310080,310076,310065,310066,310054,310038,310036,310018,310011,310012,310032,310031',1630895172000,NULL,1590226280000,608,'GMT+8',1),
+                ('mus','plat_code',410052,'aa','2019-12-17',410111,2,'410038,410028',1641178752000,1641178752000,1576517330000, 766,'GMT+8',2);
+        """
+        order_qt_sql  """
+                select l.game_code, l.plat_code, l.org_sid, l.account, l.playerid, l.gid gid_code, l.pid pid_code, 
+                coalesce(cast(l.ct_sid as int), l.org_sid, 0) ct_sid, coalesce(l.ip, '-') ip, l.dt dt , 
+                coalesce(l.player_name, '-') player_name, coalesce(mp.userid, '-') userid, uniqueKey, 
+                coalesce(from_unixtime(s.open_time / 1000, '%Y-%m-%d %H:%i:%s'), '9999-12-30 00:00:00') open_server_time, 
+                '-' country, '-' province, '-' city from ( select * from ( select game_code, plat_code, account, 
+                FROM_UNIXTIME( login_time / 1000) start_time, account userKey, concat('_', account, register_time) userid, 
+                FROM_UNIXTIME( LEAD (login_time , 1, 253402099200000) over (partition by game_code, plat_code, account order by login_time) / 1000 ) end_time 
+                from ${exMysqlTable} where game_code = 'mus' and plat_code = 'plat_code' and login_time < unix_timestamp(convert_tz(date_add('2020-05-25 00:00:00', 
+                INTERVAL 1 day), 'Asia/Shanghai', 'Asia/Shanghai'))* 1000 ) dim_account_userid_mapping where start_time < convert_tz(date_add('2020-05-25 00:00:00', INTERVAL 1 day), 
+                'Asia/Shanghai', 'Asia/Shanghai') and end_time >= convert_tz('2020-05-25 00:00:00', 'Asia/Shanghai', 'Asia/Shanghai') 
+                and game_code = 'mus' and plat_code = 'plat_code' ) mp right join ( select game game_code, `day`, `plat` plat_code, `playerid`, 
+                dt, `sid` ct_sid, `pid`, `gid`, `account`, p07 org_sid, p11 ip , get_json_string(prop, '\$.player_name') player_name, 
+                account userKey, CONCAT_WS('_', 'custom', game, plat, sid, day, ROW_NUMBER() over (partition by game, plat, sid, day order by `time`)) uniqueKey 
+                from ${inDorisTable} where dt BETWEEN convert_tz('2020-05-25 00:00:00', 'Asia/Shanghai', 'Asia/Shanghai') and convert_tz('22020-05-25 23:59:59', 
+                'Asia/Shanghai', 'Asia/Shanghai') and day BETWEEN date_sub('2020-05-25', INTERVAL 1 DAY ) and date_add('2020-05-25', INTERVAL 1 DAY ) 
+                and game = 'mus' and plat = 'plat_code' ) l on l.userKey = mp.userKey and l.game_code = mp.game_code and l.plat_code = mp.plat_code 
+                and l.dt >= mp.start_time and l.dt < mp.end_time left join ${inDorisTable1} s on l.org_sid = s.sid and l.game_code = s.game_code 
+                and l.plat_code = s.plat_code;
+        """
+
+
+        // test for insert null to string type column
+        sql  """ drop table if exists ${exMysqlTable} """
+        sql  """ drop table if exists ${inDorisTable} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable}` (
+                  `id` int(11) not NULL,
+                  `apply_id` varchar(32) NULL,
+                  `begin_value` string NULL,
+                  `operator` varchar(32) NULL,
+                  `operator_name` varchar(32) NULL,
+                  `state` varchar(8) NULL,
+                  `sub_state` varchar(8) NULL,
+                  `state_count` smallint(5) NULL,
+                  `create_time` datetime NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb5",
+                "table_type"="mysql"
+                );
+        """
+        sql  """
+                CREATE TABLE `${inDorisTable}` (
+                  `id` int(11) NULL,
+                  `apply_id` varchar(96) NULL,
+                  `begin_value` string,
+                  `operator` varchar(96),
+                  `operator_name` varchar(96) NULL,
+                  `state` varchar(24) NULL,
+                  `sub_state` varchar(24) NULL,
+                  `state_count` smallint(6) NULL,
+                  `create_time` datetime NULL,
+                  `binlog_file` varchar(64) NULL,
+                  `binlog_position` largeint(40) NULL,
+                  `os_ts_ms` bigint(20) NULL,
+                  `os_data_flg` varchar(4) NULL
+                ) ENGINE=OLAP
+                UNIQUE KEY(`id`)
+                COMMENT "OLAP"
+                DISTRIBUTED BY HASH(`id`) BUCKETS 5
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "in_memory" = "false",
+                "storage_format" = "V2"
+                );
+        """
+        sql  """  
+                insert into ${inDorisTable} (id, apply_id, begin_value, operator, operator_name, state, sub_state, 
+                                            create_time, binlog_file, binlog_position, os_ts_ms, os_data_flg)
+                select id,apply_id,begin_value,operator, operator_name, state, sub_state, create_time, 'init', 100, 100, 'd'
+                from ${exMysqlTable} where begin_value is null; 
+        """
+        order_qt_sql """
+                SELECT  min(LENGTH(begin_value)), max(LENGTH(begin_value)), sum(case when begin_value is null then 1 else 0 end)
+                from $exMysqlTable ;
+        """
+
+
+        // test for quotation marks in int
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable1}` (
+                    `id` bigint(20) NULL,
+                    `t_id` bigint(20) NULL,
+                    `name` text NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb6",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select * from $exMysqlTable1 where id in ('639215401565159424') and  id='639215401565159424';  """
+        order_qt_sql """ select * from $exMysqlTable1 where id in (639215401565159424) and  id=639215401565159424; """
+        order_qt_sql """ select * from $exMysqlTable1 where id in ('639215401565159424') ; """
+
+
+        // test for decimal
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable2}` (
+                    `id` varchar(32) NULL DEFAULT "",
+                    `user_name` varchar(32) NULL DEFAULT "",
+                    `member_list` DECIMAL(10,3)
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb7",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select  * from ${exMysqlTable2} order by member_list; """
+
+
+        // test for 'With in in select smt and group by will cause missing from GROUP BY'
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable}` (
+                    `date` date NOT NULL COMMENT "",
+                    `uid` varchar(64) NOT NULL,
+                    `stat_type` int(11) NOT NULL COMMENT "",
+                    `price` varchar(255) NULL COMMENT "price"
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb8",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select date, sum(if(stat_type in (1), 1, 0)) from ${exMysqlTable} group by date; """
+
+
+        // test for DATE_ADD
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql  """ CREATE EXTERNAL TABLE `${exMysqlTable1}` (
+                    c_date date NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb9",
+                "table_type"="mysql"
+                );
+        """
+        order_qt_sql """ select DATE_ADD(c_date, INTERVAL 1 month) as c from ${exMysqlTable1} order by c; """
+
+
+        // test for count(1) of subquery
+        // this external table will use doris_test.ex_tb2
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable2} (
+               `id` int(11) NOT NULL,
+               `count_value` varchar(20) NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb2",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ select count(1) from (select '2022' as dt, sum(id) from ${exMysqlTable2}) a; """
+
+
+
+        // test for 'select * from (select 1 as a) b  full outer join (select 2 as a) c using(a)'
+        // this external table will use doris_test.ex_tb0
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable} (
+              `id` int(11) NOT NULL COMMENT "主键id",
+              `name` string NULL COMMENT "名字"
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb0",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select * from 
+            (select id as a from ${exMysqlTable} where id = 111) b  
+            full outer join 
+            (select id as a from ${exMysqlTable} where id = 112) c 
+            using(a); 
+        """
+
+
+        // test for 'select CAST(NULL AS CHAR(1))'
+        // this external table will use doris_test.ex_tb9
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable1} (
+                c_date date NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb9",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select CAST(c_date AS CHAR(1)) as a from ${exMysqlTable1} order by a;
+        """
+
+
+        // test for string sort
+        // this external table will use doris_test.ex_tb7
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable2} (
+                    `date` date NOT NULL COMMENT "",
+                    `uid` varchar(64) NOT NULL,
+                    `stat_type` int(11) NOT NULL COMMENT "",
+                    `price` varchar(255) NULL COMMENT "price"
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb8",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select * from
+            (select uid as a, uid as b, uid as c, 6 from ${exMysqlTable2} where stat_type = 2
+            union all
+            select '汇总' as a, '汇总' as b, '汇总' as c, 6) a
+            order by 1,2,3,4;
+        """
+
+
+        // test for query int without quotation marks
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable} (
+                `aa` varchar(200) NULL COMMENT "",
+                `bb` int NULL COMMENT "",
+                `cc` bigint NULL COMMENT ""
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb10",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select t.aa, count(if(t.bb in (1,2) ,true ,null)) as c from ${exMysqlTable} t group by t.aa order by c;
+        """
+
+
+        // test for wrong result
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable1} (
+                `aa` varchar(200) NULL COMMENT "",
+                `bb` int NULL COMMENT ""
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb11",
+                "table_type"="mysql"
+               ); 
+        """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable2} (
+                `cc` varchar(200) NULL COMMENT "",
+                `dd` int NULL COMMENT ""
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb12",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            select t.* from ( select * from ${exMysqlTable1} t1 left join ${exMysqlTable2} t2 on t1.aa=t2.cc ) t
+            where dayofweek(current_date())=2 order by aa; 
+        """
+
+
+        // test for crash be sql
+        sql """ drop table if exists ${exMysqlTable} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable} (
+                 name varchar(128),
+                 age INT,
+                 idCode  varchar(128),
+                 cardNo varchar(128),
+                 number varchar(128),
+                 birthday DATETIME,
+                 country varchar(128),
+                 gender varchar(128),
+                 covid BOOLEAN
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb13",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ 
+            SELECT count(1) FROM (WITH t1 AS ( WITH t AS ( SELECT * FROM ${exMysqlTable}) 
+                SELECT idCode, COUNT(1) as dataAmount,ROUND(COUNT(1) / tableWithSum.sumResult,4) as proportion,                  
+                MD5(idCode) as virtuleUniqKey FROM t,(SELECT COUNT(1) as sumResult from t) tableWithSum  
+                GROUP BY idCode ,tableWithSum.sumResult  ) 
+                SELECT  idCode,dataAmount, (CASE WHEN t1.virtuleUniqKey = tableWithMaxId.max_virtuleUniqKey THEN
+                ROUND(proportion + calcTheTail, 4)  ELSE  proportion END) proportion  FROM t1, 
+                (SELECT (1 - sum(t1.proportion)) as calcTheTail FROM t1 ) tableWithTail,          
+                (SELECT virtuleUniqKey as  max_virtuleUniqKey FROM t1 ORDER BY proportion DESC LIMIT 1 ) tableWithMaxId  
+                ORDER BY idCode) t_aa;
+        """
     }
 }
+
+
 

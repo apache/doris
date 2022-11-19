@@ -16,7 +16,6 @@
 // under the License.
 
 #include <errno.h>
-#include <gperftools/malloc_extension.h>
 #include <libgen.h>
 #include <setjmp.h>
 #include <sys/file.h>
@@ -375,14 +374,14 @@ int main(int argc, char** argv) {
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
     Status status = Status::OK();
-#ifdef LIBJVM
-    // Init jni
-    status = doris::JniUtil::Init();
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
-        exit(1);
+    if (doris::config::enable_java_support) {
+        // Init jni
+        status = doris::JniUtil::Init();
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+            exit(1);
+        }
     }
-#endif
 
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
@@ -499,14 +498,15 @@ int main(int argc, char** argv) {
         __lsan_do_leak_check();
 #endif
         doris::PerfCounters::refresh_proc_status();
+        doris::MemInfo::refresh_proc_meminfo();
         doris::MemTrackerLimiter::refresh_global_counter();
         doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
-        !defined(USE_JEMALLOC)
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_allocator_mem();
 #endif
+        doris::MemInfo::refresh_proc_mem_no_allocator_cache();
         if (doris::config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage("memory_debug");
+            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
         }
         doris::MemTrackerLimiter::enable_print_log_process_usage();
         sleep(1);

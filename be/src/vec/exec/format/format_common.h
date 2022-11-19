@@ -38,7 +38,8 @@ struct DecimalScaleParams {
             return common::exp10_i32(n);
         } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
             return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128> ||
+                             std::is_same_v<DecimalPrimitiveType, Int128I>) {
             return common::exp10_i128(n);
         } else {
             return DecimalPrimitiveType(1);

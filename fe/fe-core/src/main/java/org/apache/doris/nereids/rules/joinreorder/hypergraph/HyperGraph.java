@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -27,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -38,10 +38,9 @@ import java.util.Set;
  * It's used for join ordering
  */
 public class HyperGraph {
-    List<Edge> edges = new ArrayList<>();
-    List<Node> nodes = new ArrayList<>();
-    // TODO: add system arg: limit
-    Receiver receiver = new Receiver(100);
+    private List<Edge> edges = new ArrayList<>();
+    private List<Node> nodes = new ArrayList<>();
+    private Plan bestPlan;
 
     public static HyperGraph fromPlan(Plan plan) {
         HyperGraph graph = new HyperGraph();
@@ -51,6 +50,10 @@ public class HyperGraph {
 
     public List<Edge> getEdges() {
         return edges;
+    }
+
+    public List<Node> getNodes() {
+        return nodes;
     }
 
     public Edge getEdge(int index) {
@@ -69,10 +72,13 @@ public class HyperGraph {
         return nodes.get(index).getPlan();
     }
 
+    /**
+     * Extract the best plan of HyperGraph
+     *
+     * @return return the best plan
+     */
     public Plan toPlan() {
-        BitSet bitSet = new BitSet();
-        bitSet.set(0, nodes.size());
-        return receiver.getBestPlan(bitSet);
+        return bestPlan;
     }
 
     public boolean simplify() {
@@ -81,6 +87,11 @@ public class HyperGraph {
         return graphSimplifier.simplifyGraph(1);
     }
 
+    /**
+     * Try to enumerate all csg-cmp pairs and get the best plan
+     *
+     * @return whether enumerate successfully
+     */
     public boolean emitPlan() {
         return false;
     }
@@ -112,7 +123,6 @@ public class HyperGraph {
         // TODO: Other joins can be added according CD-C algorithm
         if (join.getJoinType() != JoinType.INNER_JOIN) {
             Node node = new Node(nodes.size(), plan);
-            receiver.addNode(node);
             nodes.add(node);
             return;
         }
@@ -122,7 +132,7 @@ public class HyperGraph {
         addEdge(join);
     }
 
-    private BitSet findNode(Set<Slot> slots) {
+    private BitSet findNodes(Set<Slot> slots) {
         BitSet bitSet = new BitSet();
         for (Node node : nodes) {
             for (Slot slot : node.getPlan().getOutput()) {
@@ -136,20 +146,24 @@ public class HyperGraph {
     }
 
     private void addEdge(LogicalJoin<? extends Plan, ? extends Plan> join) {
-        Edge edge = new Edge(join, edges.size());
-        for (Expression expression : join.getHashJoinConjuncts()) {
-            EqualTo equal = (EqualTo) expression;
-            edge.addLeftNode(findNode(equal.left().getInputSlots()));
-            edge.addRightNode(findNode(equal.right().getInputSlots()));
+        for (Expression expression : join.getExpressions()) {
+            LogicalJoin singleJoin = new LogicalJoin(join.getJoinType(), ImmutableList.of(expression), join.left(),
+                    join.right());
+            Edge edge = new Edge(singleJoin, edges.size());
+            BitSet bitSet = findNodes(expression.getInputSlots());
+            Preconditions.checkArgument(bitSet.cardinality() == 2,
+                    String.format("HyperGraph has not supported polynomial %s yet", expression));
+            int leftIndex = bitSet.nextSetBit(0);
+            BitSet left = new BitSet();
+            left.set(leftIndex);
+            edge.addLeftNode(left);
+            int rightIndex = bitSet.nextSetBit(leftIndex + 1);
+            BitSet right = new BitSet();
+            right.set(rightIndex);
+            edge.addRightNode(right);
+            edge.getReferenceNodes().stream().forEach(index -> nodes.get(index).attachEdge(edge));
+            edges.add(edge);
         }
-
-        for (Expression expression : join.getOtherJoinConjuncts()) {
-            edge.addConstraintNode(findNode(expression.getInputSlots()));
-        }
-
-        // attach the edge to all reference nodes.
-        edge.getReferenceNodes().stream().forEach(index -> nodes.get(index).attachEdge(edge));
-        edges.add(edge);
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
         // We don't implement this trick now.
     }

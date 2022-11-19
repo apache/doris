@@ -290,6 +290,16 @@ public class TableProperty implements Writable {
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
+    public void setSequenceMapCol(String colName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);
+    }
+
+    public String getSequenceMapCol() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property

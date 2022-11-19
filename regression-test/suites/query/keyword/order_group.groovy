@@ -197,7 +197,7 @@ suite("order_group", "query,p0") {
         sum(k1) nulls last"""
     def res6 = order_sql"""select k6 + k5 as nu, sum(k1) from ${tableName1} group by nu order by nu, sum(k1)"""
     check2_doris(res5, res6)
-    //issue https://github.com/apache/incubator-doris/issues/2142
+    //issue https://github.com/apache/doris/issues/2142
     def res7 = sql "select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
          sum(k2) over (partition by k5 + k6)\
         as ss from ${tableName2})s  where s.k5 > 2000 order by k1,k2 nulls last"

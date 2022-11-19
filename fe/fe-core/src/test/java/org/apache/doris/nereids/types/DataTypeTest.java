@@ -23,16 +23,16 @@ import org.junit.jupiter.api.Test;
 public class DataTypeTest {
     @Test
     public void testDataTypeEquals() {
-        DecimalType decimalType1 = new DecimalType(27, 9);
-        DecimalType decimalType2 = new DecimalType(27, 9);
-        DecimalType decimalType3 = new DecimalType(28, 9);
-        DecimalType decimalType4 = new DecimalType(27, 10);
-        Assertions.assertEquals(decimalType1, decimalType2);
-        Assertions.assertEquals(decimalType1.hashCode(), decimalType2.hashCode());
-        Assertions.assertNotEquals(decimalType1, decimalType3);
-        Assertions.assertNotEquals(decimalType1.hashCode(), decimalType3.hashCode());
-        Assertions.assertNotEquals(decimalType1, decimalType4);
-        Assertions.assertNotEquals(decimalType1.hashCode(), decimalType4.hashCode());
+        DecimalV2Type decimalV2Type1 = new DecimalV2Type(27, 9);
+        DecimalV2Type decimalV2Type2 = new DecimalV2Type(27, 9);
+        DecimalV2Type decimalV2Type3 = new DecimalV2Type(26, 9);
+        DecimalV2Type decimalV2Type4 = new DecimalV2Type(27, 8);
+        Assertions.assertEquals(decimalV2Type1, decimalV2Type2);
+        Assertions.assertEquals(decimalV2Type1.hashCode(), decimalV2Type2.hashCode());
+        Assertions.assertNotEquals(decimalV2Type1, decimalV2Type3);
+        Assertions.assertNotEquals(decimalV2Type1.hashCode(), decimalV2Type3.hashCode());
+        Assertions.assertNotEquals(decimalV2Type1, decimalV2Type4);
+        Assertions.assertNotEquals(decimalV2Type1.hashCode(), decimalV2Type4.hashCode());
 
         CharType charType1 = new CharType(10);
         CharType charType2 = new CharType(10);

@@ -23,17 +23,27 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFact
 import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyCastRule;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -203,13 +213,92 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewrite(new Cast(new VarcharLiteral("123", 3), StringType.INSTANCE), new StringLiteral("123"));
 
         // decimal literal
-        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new SmallIntLiteral((short) 1), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new IntegerLiteral(1), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new IntegerLiteral(1), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
-        assertRewrite(new Cast(new BigIntLiteral(1L), DecimalType.createDecimalType(15, 9)),
+        assertRewrite(new Cast(new BigIntLiteral(1L), DecimalV2Type.createDecimalV2Type(15, 9)),
                 new DecimalLiteral(new BigDecimal(1)));
+    }
+
+    @Test
+    public void testSimplifyComparisonPredicateRule() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyComparisonPredicate.INSTANCE));
+
+        Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1);
+        Expression dt = new DateTimeLiteral(1, 1, 1, 1, 1, 1);
+        Expression dv2 = new DateV2Literal(1, 1, 1);
+        Expression dv2PlusOne = new DateV2Literal(1, 1, 2);
+        Expression d = new DateLiteral(1, 1, 1);
+        Expression dPlusOne = new DateLiteral(1, 1, 2);
+
+        // DateTimeV2 -> DateTime
+        assertRewrite(
+                new GreaterThan(new Cast(dt, DateTimeV2Type.INSTANCE), dtv2),
+                new GreaterThan(dt, dt));
+
+        // DateTimeV2 -> DateV2
+        assertRewrite(
+                new GreaterThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2),
+                new GreaterThan(dv2, dv2));
+        assertRewrite(
+                new LessThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2),
+                new LessThan(dv2, dv2PlusOne));
+        assertRewrite(
+                new EqualTo(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2),
+                new EqualTo(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2));
+
+        // DateTime -> DateV2
+        assertRewrite(
+                new GreaterThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dt),
+                new GreaterThan(dv2, dv2));
+        assertRewrite(
+                new LessThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dt),
+                new LessThan(dv2, dv2PlusOne));
+        assertRewrite(
+                new EqualTo(new Cast(dv2, DateTimeV2Type.INSTANCE), dt),
+                new EqualTo(new Cast(dv2, DateTimeV2Type.INSTANCE), dt));
+
+        // DateTimeV2 -> Date
+        assertRewrite(
+                new GreaterThan(new Cast(d, DateTimeV2Type.INSTANCE), dtv2),
+                new GreaterThan(d, d));
+        assertRewrite(
+                new LessThan(new Cast(d, DateTimeV2Type.INSTANCE), dtv2),
+                new LessThan(d, dPlusOne));
+        assertRewrite(
+                new EqualTo(new Cast(d, DateTimeV2Type.INSTANCE), dtv2),
+                new EqualTo(new Cast(d, DateTimeV2Type.INSTANCE), dtv2));
+
+        // DateTime -> Date
+        assertRewrite(
+                new GreaterThan(new Cast(d, DateTimeV2Type.INSTANCE), dt),
+                new GreaterThan(d, d));
+        assertRewrite(
+                new LessThan(new Cast(d, DateTimeV2Type.INSTANCE), dt),
+                new LessThan(d, dPlusOne));
+        assertRewrite(
+                new EqualTo(new Cast(d, DateTimeV2Type.INSTANCE), dt),
+                new EqualTo(new Cast(d, DateTimeV2Type.INSTANCE), dt));
+
+        // DateV2 -> Date
+        assertRewrite(
+                new GreaterThan(new Cast(d, DateTimeV2Type.INSTANCE), dv2),
+                new GreaterThan(d, d));
+
+        // test hour, minute and second all zero
+        Expression dtv2AtZeroClock = new DateTimeV2Literal(1, 1, 1, 0, 0, 0);
+        assertRewrite(
+                new GreaterThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2AtZeroClock),
+                new GreaterThan(dv2, dv2));
+        assertRewrite(
+                new LessThan(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2AtZeroClock),
+                new LessThan(dv2, dv2));
+        assertRewrite(
+                new EqualTo(new Cast(dv2, DateTimeV2Type.INSTANCE), dtv2AtZeroClock),
+                new EqualTo(dv2, dv2));
+
     }
 }

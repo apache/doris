@@ -262,6 +262,15 @@ protected:
     static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
+    void _set_push_down() { _is_push_down = true; }
+
+    std::string _format_status() {
+        return fmt::format(
+                "[IsPushDown = {}, IsEffective = {}, IsIgnored = {}, HasRemoteTarget = {}, "
+                "HasLocalTarget = {}]",
+                _is_push_down, _is_ready, _is_ignored, _has_remote_target, _has_local_target);
+    }
+
     RuntimeState* _state;
     ObjectPool* _pool;
     // _wrapper is a runtime filter function wrapper
@@ -286,6 +295,8 @@ protected:
     // used for await or signal
     std::mutex _inner_mutex;
     std::condition_variable _inner_cv;
+
+    bool _is_push_down = false;
 
     // if set always_true = true
     // this filter won't filter any data
@@ -318,8 +329,6 @@ protected:
     std::unique_ptr<RuntimeProfile> _profile;
     // unix millis
     RuntimeProfile::Counter* _await_time_cost = nullptr;
-    RuntimeProfile::Counter* _effect_time_cost = nullptr;
-    std::unique_ptr<ScopedTimer<MonotonicStopWatch>> _effect_timer;
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;

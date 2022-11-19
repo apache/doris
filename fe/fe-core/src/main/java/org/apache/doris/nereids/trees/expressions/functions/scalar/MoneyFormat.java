@@ -44,7 +44,7 @@ public class MoneyFormat extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(BigIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV2Type.MAX)
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT)
     );
 
     /**

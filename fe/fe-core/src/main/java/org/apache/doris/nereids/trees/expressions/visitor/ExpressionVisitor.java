@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
@@ -84,7 +85,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
  * Use the visitor to visit expression and forward to unified method(visitExpression).
  */
 public abstract class ExpressionVisitor<R, C>
-        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C> {
+        implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>, TableValuedFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
 
@@ -96,6 +97,11 @@ public abstract class ExpressionVisitor<R, C>
     @Override
     public R visitScalarFunction(ScalarFunction scalarFunction, C context) {
         return visitBoundFunction(scalarFunction, context);
+    }
+
+    @Override
+    public R visitTableValuedFunction(TableValuedFunction tableValuedFunction, C context) {
+        return visitBoundFunction(tableValuedFunction, context);
     }
 
     public R visitBoundFunction(BoundFunction boundFunction, C context) {

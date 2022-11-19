@@ -26,7 +26,7 @@
 #include "common/logging.h" // LOG
 #include "io/cache/file_cache_manager.h"
 #include "io/fs/file_system.h"
-#include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
+#include "olap/iterators.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
@@ -75,11 +75,12 @@ Segment::Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr table
         : _segment_id(segment_id),
           _rowset_id(rowset_id),
           _tablet_schema(tablet_schema),
-          _meta_mem_usage(0) {}
+          _meta_mem_usage(0),
+          _segment_meta_mem_tracker(StorageEngine::instance()->segment_meta_mem_tracker()) {}
 
 Segment::~Segment() {
 #ifndef BE_TEST
-    StorageEngine::instance()->segment_meta_mem_tracker()->release(_meta_mem_usage);
+    _segment_meta_mem_tracker->release(_meta_mem_usage);
 #endif
 }
 
@@ -133,7 +134,9 @@ Status Segment::_parse_footer() {
 
     uint8_t fixed_buf[12];
     size_t bytes_read = 0;
-    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read));
+    IOContext io_ctx;
+    RETURN_IF_ERROR(
+            _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), io_ctx, &bytes_read));
     DCHECK_EQ(bytes_read, 12);
 
     // validate magic number
@@ -149,11 +152,12 @@ Status Segment::_parse_footer() {
                                   _file_reader->path().native(), file_size, 12 + footer_length);
     }
     _meta_mem_usage += footer_length;
-    StorageEngine::instance()->segment_meta_mem_tracker()->consume(footer_length);
+    _segment_meta_mem_tracker->consume(footer_length);
 
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_file_reader->read_at(file_size - 12 - footer_length, footer_buf, &bytes_read));
+    RETURN_IF_ERROR(
+            _file_reader->read_at(file_size - 12 - footer_length, footer_buf, io_ctx, &bytes_read));
     DCHECK_EQ(bytes_read, footer_length);
 
     // validate footer PB's checksum
@@ -214,7 +218,7 @@ Status Segment::load_index() {
             DCHECK(footer.has_short_key_page_footer());
 
             _meta_mem_usage += body.get_size();
-            StorageEngine::instance()->segment_meta_mem_tracker()->consume(body.get_size());
+            _segment_meta_mem_tracker->consume(body.get_size());
             _sk_index_decoder.reset(new ShortKeyIndexDecoder);
             return _sk_index_decoder->parse(body, footer.short_key_page_footer());
         }

@@ -2313,3 +2313,55 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
+
+
+### `max_replica_count_when_schema_change`
+
+OlapTable在做schema change时，允许的最大副本数，副本数过大会导致FE OOM。
+
+默认值：100000
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `max_hive_partition_cache_num`
+
+hive partition 的最大缓存数量。
+
+默认值：100000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_external_file_cache_num`
+
+用于 external 外部表的最大文件缓存数量。
+
+默认值：100000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_external_schema_cache_num`
+
+用于 external 外部表的最大 schema 缓存数量。
+
+默认值：10000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `external_cache_expire_time_minutes_after_access`
+
+设置缓存中的数据，在最后一次访问后多久失效。单位为分钟。
+适用于 External Schema Cache 以及 Hive Partition Cache.
+
+默认值：1440
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -40,7 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -100,16 +102,16 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testSumImplicitCast() {
-        Expression expression = new Sum(new StringLiteral("1"));
-        Expression expected = new Sum(new Cast(new StringLiteral("1"), DoubleType.INSTANCE));
-        assertRewrite(expression, expected);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new Sum(new StringLiteral("1")).getDataType();
+        });
     }
 
     @Test
     public void testAvgImplicitCast() {
-        Expression expression = new Avg(new StringLiteral("1"));
-        Expression expected = new Avg(new Cast(new StringLiteral("1"), DoubleType.INSTANCE));
-        assertRewrite(expression, expected);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new Avg(new StringLiteral("1")).getDataType();
+        });
     }
 
     @Test
@@ -135,8 +137,8 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
         lessThanEq = new LessThanEqual(left, right);
         rewrittenPred =
                 new LessThanEqual(
-                        new Cast(left, DecimalType.forType(TinyIntType.INSTANCE)),
-                        new Cast(right, DecimalType.forType(TinyIntType.INSTANCE))
+                        new Cast(left, DecimalV2Type.forType(TinyIntType.INSTANCE)),
+                        new Cast(right, DecimalV2Type.forType(TinyIntType.INSTANCE))
                 );
         assertRewrite(lessThanEq, rewrittenPred);
     }

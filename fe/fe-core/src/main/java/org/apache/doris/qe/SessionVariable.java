@@ -38,6 +38,7 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * System variable.
@@ -197,10 +198,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN =
             "enable_nereids_reorder_to_eliminate_cross_join";
 
-    public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
-            "enable_remove_no_conjuncts_runtime_filter_policy";
+    public static final String ENABLE_RUNTIME_FILTER_PRUNE =
+            "enable_runtime_filter_prune";
 
     static final String SESSION_CONTEXT = "session_context";
+
+    public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
@@ -222,6 +225,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
 
+    public static final String INTERNAL_SESSION = "internal_session";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -240,6 +245,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
     public boolean enableExchangeNodeParallelMerge = false;
+
+    // By default, the number of Limit items after OrderBy is changed from 65535 items
+    // before v1.2.0 (not included), to return all items by default
+    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
+    public long defaultOrderByLimit = -1;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
@@ -488,7 +498,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 8;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
-    private int runtimeFilterMaxInNum = 1024;
+    private int runtimeFilterMaxInNum = 102400;
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
@@ -529,8 +539,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
     private boolean enableNereidsReorderToEliminateCrossJoin = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)
-    public boolean enableRemoveNoConjunctsRuntimeFilterPolicy = false;
+    @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE)
+    public boolean enableRuntimeFilterPrune = false;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -582,6 +592,19 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
     public boolean enableNereidsStatsDeriveV2 = false;
+
+    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
+    public boolean internalSession = false;
+
+    // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
+    // not the default value set in the code.
+    public void initFuzzyModeVariables() {
+        Random random = new Random();
+        this.parallelExecInstanceNum = random.nextInt(8) + 1;
+        this.enableLocalExchange = random.nextBoolean();
+        this.disableJoinReorder = random.nextBoolean();
+        this.disableStreamPreaggregations = random.nextBoolean();
+    }
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -1151,24 +1174,22 @@ public class SessionVariable implements Serializable, Writable {
         this.enableNereidsStatsDeriveV2 = enableNereidsStatsDeriveV2;
     }
 
-    /**
-     * Serialize to thrift object.
-     * Used for rest api.
-     **/
-    public boolean isEnableRemoveNoConjunctsRuntimeFilterPolicy() {
-        return enableRemoveNoConjunctsRuntimeFilterPolicy;
+    public boolean isEnableRuntimeFilterPrune() {
+        return enableRuntimeFilterPrune;
     }
 
-    public void setEnableRemoveNoConjunctsRuntimeFilterPolicy(boolean enableRemoveNoConjunctsRuntimeFilterPolicy) {
-        this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
+    public void setEnableRuntimeFilterPrune(boolean enableRuntimeFilterPrune) {
+        this.enableRuntimeFilterPrune = enableRuntimeFilterPrune;
     }
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }
 
-    // Serialize to thrift object
-    // used for rest api
+    /**
+     * Serialize to thrift object.
+     * Used for rest api.
+     */
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);

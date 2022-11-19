@@ -335,7 +335,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
-                case TYPE_DECIMAL128: {
+                case TYPE_DECIMAL128I: {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
@@ -462,7 +462,7 @@ Status VFileResultWriter::_send_result() {
 
     // The final stat result include:
     // FileNumber, TotalRows, FileSize and URL
-    // The type of these field should be conssitent with types defined
+    // The type of these field should be consistent with types defined
     // in OutFileClause.java of FE.
     MysqlRowBuffer row_buffer;
     row_buffer.push_int(_file_idx);                         // file number

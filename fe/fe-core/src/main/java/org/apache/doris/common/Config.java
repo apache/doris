@@ -1315,6 +1315,15 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
+     * When tablet size of decommissioned backend is lower than this threshold,
+     * SystemHandler will start to check if all tablets of this backend are in recycled status,
+     * this backend will be dropped immediately if the check result is true.
+     * For performance based considerations, better not set a very high value for this.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int decommission_tablet_check_threshold = 5000;
+
+    /**
      * Define thrift server's server model, default is TThreadPoolServer model
      */
     @ConfField
@@ -1473,6 +1482,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_dynamic_partition_num = 500;
+
+    /**
+     * Used to limit the maximum number of partitions that can be created when creating multi partition,
+     * to avoid creating too many partitions at one time.
+     * The number is determined by "start" and "end" in the multi partition parameters.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_multi_partition_num = 4096;
 
     /**
      * Control the max num of backup/restore job per db
@@ -1777,14 +1794,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_mtmv_scheduler_framework = false;
 
+    /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
     @ConfField(mutable = true, masterOnly = true)
     public static int max_running_mtmv_scheduler_task_num = 100;
 
+    /* Max pending task num keep in pending poll, otherwise it reject the task submit*/
     @ConfField(mutable = true, masterOnly = true)
     public static int max_pending_mtmv_scheduler_task_num = 100;
 
+    /* Remove the completed mtmv job after this expired time. */
     @ConfField(mutable = true, masterOnly = true)
-    public static long scheduler_mtmv_task_expire_ms = 24 * 60 * 60 * 1000L; // 1day
+    public static long scheduler_mtmv_job_expired = 24 * 60 * 60L; // 1day
+
+    /* Remove the finished mtmv task after this expired time. */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
 
     /**
      * The candidate of the backend node for federation query such as hive table and es table query.
@@ -1831,4 +1855,66 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static long hive_metastore_client_timeout_second = 10;
+
+    /**
+     * Used to determined how many statistics collection SQL could run simultaneously.
+     */
+    @ConfField
+    public static int statistics_simultaneously_running_job_num = 10;
+
+    /**
+     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
+     * otherwise the statistics related internal table creation would be failed.
+     */
+    @ConfField
+    public static int statistic_internal_table_replica_num = 1;
+
+    /**
+     * if table has too many replicas, Fe occur oom when schema change.
+     * 10W replicas is a reasonable value for testing.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_replica_count_when_schema_change = 100000;
+
+    /**
+     * Max cache num of hive partition.
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long max_hive_partition_cache_num = 100000;
+
+    /**
+     * Max cache num of external catalog's file
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long max_external_file_cache_num = 100000;
+
+    /**
+     * Max cache num of external table's schema
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long max_external_schema_cache_num = 10000;
+
+    /**
+     * The expiration time of a cache object after last access of it.
+     * For external schema cache and hive meta cache.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+
+    /**
+     * Set session variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean use_fuzzy_session_variable = false;
+
+    /**
+     * Collect external table statistic info by running sql when set to true.
+     * Otherwise, use external catalog metadata.
+     */
+    @ConfField(mutable = true)
+    public static boolean collect_external_table_stats_by_sql = false;
 }
+

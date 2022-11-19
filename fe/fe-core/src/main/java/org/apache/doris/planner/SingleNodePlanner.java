@@ -236,8 +236,13 @@ public class SingleNodePlanner {
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException {
         long newDefaultOrderByLimit = defaultOrderByLimit;
+        long defaultLimit = analyzer.getContext().getSessionVariable().defaultOrderByLimit;
         if (newDefaultOrderByLimit == -1) {
-            newDefaultOrderByLimit = 65535;
+            if (defaultLimit <= -1) {
+                newDefaultOrderByLimit = Long.MAX_VALUE;
+            } else {
+                newDefaultOrderByLimit = defaultLimit;
+            }
         }
         PlanNode root;
         if (stmt instanceof SelectStmt) {
@@ -1050,7 +1055,7 @@ public class SingleNodePlanner {
                         && candidateCardinalityIsSmaller(
                                 candidate, tblRefToPlanNodeOfCandidate.second.getCardinality(),
                                 newRoot, newRootRightChildCardinality)))
-                        || (candidate instanceof HashJoinNode && newRoot instanceof CrossJoinNode)) {
+                        || (candidate instanceof HashJoinNode && newRoot instanceof NestedLoopJoinNode)) {
                     newRoot = candidate;
                     minEntry = tblRefToPlanNodeOfCandidate;
                     newRootRightChildCardinality = cardinalityOfCandidate;
@@ -2040,24 +2045,6 @@ public class SingleNodePlanner {
         // are materialized)
         getHashLookupJoinConjuncts(analyzer, outer, inner,
                 eqJoinConjuncts, errMsg, innerRef.getJoinOp());
-        if (eqJoinConjuncts.isEmpty()) {
-
-            // only inner join can change to cross join
-            if (innerRef.getJoinOp().isOuterJoin() || innerRef.getJoinOp().isSemiAntiJoin()) {
-                throw new AnalysisException("non-equal " + innerRef.getJoinOp().toString()
-                        + " is not supported");
-            }
-
-            // construct cross join node
-            // LOG.debug("Join between {} and {} requires at least one conjunctive"
-            //        + " equality predicate between the two tables",
-            //        outerRef.getAliasAsName(), innerRef.getAliasAsName());
-            // TODO If there are eq join predicates then we should construct a hash join
-            CrossJoinNode result =
-                    new CrossJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
-            result.init(analyzer);
-            return result;
-        }
         analyzer.markConjunctsAssigned(eqJoinConjuncts);
 
         List<Expr> ojConjuncts = Lists.newArrayList();
@@ -2072,6 +2059,18 @@ public class SingleNodePlanner {
             ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
+        if (eqJoinConjuncts.isEmpty()) {
+            // construct cross join node
+            // LOG.debug("Join between {} and {} requires at least one conjunctive"
+            //        + " equality predicate between the two tables",
+            //        outerRef.getAliasAsName(), innerRef.getAliasAsName());
+            // TODO If there are eq join predicates then we should construct a hash join
+            NestedLoopJoinNode result =
+                    new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
+            result.addConjuncts(ojConjuncts);
+            result.init(analyzer);
+            return result;
+        }
 
         HashJoinNode result =
                 new HashJoinNode(ctx.getNextNodeId(), outer, inner, innerRef, eqJoinConjuncts,

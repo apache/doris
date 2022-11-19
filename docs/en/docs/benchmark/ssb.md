@@ -186,7 +186,7 @@ export FE_QUERY_PORT="9030"
 export USER="root"
 export PASSWORD='xxx'
 export DB="ssb"
-````
+```
 
 #### 7.3.2 Execute the following script to generate and create the SSB table:
 
@@ -275,6 +275,7 @@ We use the following command to complete the import of all data from SSB test se
 > 2. flat table data using 'INSERT INTO ... SELECT ... ' method to import.
 
 ### 7.5 Check imported data
+
 
 ```sql
 select count(*) from part;
@@ -601,4 +602,3 @@ WHERE
 GROUP BY d_year, s_city, p_brand
 ORDER BY d_year, s_city, p_brand;
 ```
-

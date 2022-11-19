@@ -101,6 +101,7 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                                                    std::placeholders::_3);
         }
     }
+    _agg_arena_pool = std::make_unique<Arena>();
     VLOG_ROW << "tnode=" << apache::thrift::ThriftDebugString(tnode)
              << " AnalyticFnScope: " << _fn_scope;
 }
@@ -184,8 +185,8 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-    _fn_place_ptr =
-            _agg_arena_pool.aligned_alloc(_total_size_of_aggregate_states, _align_aggregate_states);
+    _fn_place_ptr = _agg_arena_pool->aligned_alloc(_total_size_of_aggregate_states,
+                                                   _align_aggregate_states);
     _create_agg_status();
     _executor.insert_result =
             std::bind<void>(&VAnalyticEvalNode::_insert_result_info, this, std::placeholders::_1);
@@ -241,6 +242,7 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
     for (auto* agg_function : _agg_functions) agg_function->close(state);
 
     _destroy_agg_status();
+    _release_mem();
     return ExecNode::close(state);
 }
 
@@ -699,6 +701,20 @@ std::string VAnalyticEvalNode::debug_window_bound_string(TAnalyticWindowBoundary
         ss << " FOLLOWING";
     }
     return ss.str();
+}
+
+void VAnalyticEvalNode::_release_mem() {
+    _agg_arena_pool = nullptr;
+    _mem_pool = nullptr;
+
+    std::vector<Block> tmp_input_blocks;
+    _input_blocks.swap(tmp_input_blocks);
+
+    std::vector<std::vector<MutableColumnPtr>> tmp_agg_intput_columns;
+    _agg_intput_columns.swap(tmp_agg_intput_columns);
+
+    std::vector<MutableColumnPtr> tmp_result_window_columns;
+    _result_window_columns.swap(tmp_result_window_columns);
 }
 
 } // namespace doris::vectorized

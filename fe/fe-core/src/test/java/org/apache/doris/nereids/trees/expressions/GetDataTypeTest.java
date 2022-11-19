@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
 
@@ -73,7 +73,7 @@ public class GetDataTypeTest {
         Assertions.assertEquals(LargeIntType.INSTANCE, new Sum(largeIntLiteral).getDataType());
         Assertions.assertEquals(DoubleType.INSTANCE, new Sum(floatLiteral).getDataType());
         Assertions.assertEquals(DoubleType.INSTANCE, new Sum(doubleLiteral).getDataType());
-        Assertions.assertEquals(DecimalType.createDecimalType(27, 9), new Sum(decimalLiteral).getDataType());
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(27, 9), new Sum(decimalLiteral).getDataType());
         Assertions.assertEquals(BigIntType.INSTANCE, new Sum(bigIntLiteral).getDataType());
         Assertions.assertThrows(RuntimeException.class, () -> new Sum(charLiteral).getDataType());
         Assertions.assertThrows(RuntimeException.class, () -> new Sum(varcharLiteral).getDataType());

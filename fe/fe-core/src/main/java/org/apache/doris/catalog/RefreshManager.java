@@ -23,7 +23,6 @@ import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -160,7 +159,7 @@ public class RefreshManager {
         if (table == null) {
             throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
         }
-        ((ExternalTable) table).setUnInitialized();
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
         ExternalObjectLog log = new ExternalObjectLog();
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());

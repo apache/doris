@@ -1695,7 +1695,9 @@ public enum ErrorCode {
     ERR_CATALOG_ACCESS_DENIED(5087, new byte[]{'4', '2', '0', '0', '0'},
             "Access denied for user '%s' to catalog '%s'"),
     ERR_NONSUPPORT_HMS_TABLE(5088, new byte[]{'4', '2', '0', '0', '0'},
-            "Nonsupport hive metastore table named '%s' in database '%s' with catalog '%s'.");
+            "Nonsupport hive metastore table named '%s' in database '%s' with catalog '%s'."),
+    ERR_TABLE_NAME_LENGTH_LIMIT(5089, new byte[]{'4', '2', '0', '0', '0'}, "Table name length exceeds limit, "
+     + "the length of table name '%s' is %d which is greater than the configuration 'table_name_length_limit' (%d).");
 
     // This is error code
     private final int code;

@@ -185,6 +185,7 @@ public:
     virtual const RowDescriptor& row_desc() const {
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
+    virtual const RowDescriptor& intermediate_row_desc() const { return _row_descriptor; }
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
@@ -305,6 +306,7 @@ protected:
     RuntimeProfile::Counter* _rows_returned_rate;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
+    RuntimeProfile::Counter* _projection_timer;
 
     /// Since get_next is a frequent operation, it is not necessary to generate a span for each call
     /// to the get_next method. Therefore, the call of the get_next method in the ExecNode is

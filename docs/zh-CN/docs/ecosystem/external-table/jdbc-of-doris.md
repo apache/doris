@@ -223,6 +223,12 @@ PROPERTIES (
 
     Doris进行jdbc外表连接时，由于mysql之中默认的utf8编码为utf8mb3，无法表示需要4字节编码的emoji表情。这里需要在建立mysql外表时设置对应列的编码为utf8mb4,设置服务器编码为utf8mb4,JDBC Url中的characterEncoding不配置.（该属性不支持utf8mb4,配置了非utf8mb4将导致无法写入表情，因此要留空，不配置）
 
+3. 读mysql外表时，DateTime="0000:00:00 00:00:00"异常报错: "CAUSED BY: DataReadException: Zero date value prohibited"
+
+   这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数zeroDateTimeBehavior控制该行为.
+   可选参数为:EXCEPTION,CONVERT_TO_NULL,ROUND, 分别为异常报错，转为NULL值，转为"0001-01-01 00:00:00";
+   可在url中添加:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull" 
+
 
 ```
 可全局修改配置项

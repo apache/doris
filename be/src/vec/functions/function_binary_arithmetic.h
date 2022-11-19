@@ -259,7 +259,12 @@ struct DecimalBinaryOperation {
                               ArrayC& c, ResultType scale_a [[maybe_unused]],
                               ResultType scale_b [[maybe_unused]], NullMap& null_map) {
         size_t size = a.size();
-        if (config::enable_decimalv3) {
+        if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
+            /// default: use it if no return before
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a[i], b[i], null_map[i]);
+            }
+        } else {
             if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
                 for (size_t i = 0; i < size; ++i) {
                     c[i] = apply_scaled_div(a[i], b[i], scale_a, null_map[i]);
@@ -278,10 +283,6 @@ struct DecimalBinaryOperation {
                     return;
                 }
             }
-        }
-        /// default: use it if no return before
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a[i], b[i], null_map[i]);
         }
     }
 
@@ -508,7 +509,16 @@ struct DecimalBinaryOperation {
 private:
     /// there's implicit type conversion here
     static NativeResultType apply(NativeResultType a, NativeResultType b) {
-        if (config::enable_decimalv3) {
+        if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
+            // Now, Doris only support decimal +-*/ decimal.
+            // overflow in consider in operator
+            DecimalV2Value l(a);
+            DecimalV2Value r(b);
+            auto ans = Op::template apply(l, r);
+            NativeResultType result;
+            memcpy(&result, &ans, sizeof(NativeResultType));
+            return result;
+        } else {
             if constexpr (OpTraits::can_overflow && check_overflow) {
                 NativeResultType res;
                 // TODO handle overflow gracefully
@@ -521,29 +531,20 @@ private:
                 return Op::template apply<NativeResultType>(a, b);
             }
         }
-
-        // Now, Doris only support decimal +-*/ decimal.
-        // overflow in consider in operator
-        DecimalV2Value l(a);
-        DecimalV2Value r(b);
-        auto ans = Op::template apply(l, r);
-        NativeResultType result;
-        memcpy(&result, &ans, sizeof(NativeResultType));
-        return result;
     }
 
     /// null_map for divide and mod
     static NativeResultType apply(NativeResultType a, NativeResultType b, UInt8& is_null) {
-        if (config::enable_decimalv3) {
+        if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
+            DecimalV2Value l(a);
+            DecimalV2Value r(b);
+            auto ans = Op::template apply(l, r, is_null);
+            NativeResultType result;
+            memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
+            return result;
+        } else {
             return Op::template apply<NativeResultType>(a, b, is_null);
         }
-
-        DecimalV2Value l(a);
-        DecimalV2Value r(b);
-        auto ans = Op::template apply(l, r, is_null);
-        NativeResultType result;
-        memcpy(&result, &ans, std::min(sizeof(result), sizeof(ans)));
-        return result;
     }
 
     template <bool scale_left>
@@ -753,12 +754,11 @@ private:
         typename ResultDataType::FieldType scale_a;
         typename ResultDataType::FieldType scale_b;
 
-        if constexpr (OpTraits::is_division && IsDataTypeDecimal<RightDataType>) {
-            if (config::enable_decimalv3) {
-                scale_a = type_right.get_scale_multiplier();
-                scale_b = 1;
-                return std::make_tuple(type, scale_a, scale_b);
-            }
+        if constexpr (OpTraits::is_division && IsDataTypeDecimal<RightDataType> &&
+                      !IsDecimalV2<B> && !IsDecimalV2<A>) {
+            scale_a = type_right.get_scale_multiplier();
+            scale_b = 1;
+            return std::make_tuple(type, scale_a, scale_b);
         }
         scale_a = type.scale_factor_for(type_left, OpTraits::is_multiply);
         scale_b = type.scale_factor_for(type_right, OpTraits::is_multiply || OpTraits::is_division);

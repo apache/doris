@@ -24,7 +24,7 @@ class VRuntimeFilterWrapper final : public VExpr {
 public:
     VRuntimeFilterWrapper(const TExprNode& node, VExpr* impl);
     VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr);
-    ~VRuntimeFilterWrapper() = default;
+    ~VRuntimeFilterWrapper() override = default;
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
                           int* result_column_id) override;
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,

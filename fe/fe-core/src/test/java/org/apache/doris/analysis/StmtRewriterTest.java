@@ -153,8 +153,7 @@ public class StmtRewriterTest {
         String query = "select empid, sum(salary) from " + TABLE_NAME + " group by empid having sum(salary) > ("
                 + subquery + ");";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
-        dorisAssert.query(query).explainContains("CROSS JOIN",
-                "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)");
+        dorisAssert.query(query).explainContains("CROSS JOIN");
     }
 
     /**
@@ -265,7 +264,6 @@ public class StmtRewriterTest {
                 + subquery + ") order by a;";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("CROSS JOIN",
-                "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)",
                 "order by: <slot 10> `$a$1`.`$c$1` ASC");
     }
 
@@ -378,7 +376,6 @@ public class StmtRewriterTest {
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
                 "CROSS JOIN",
-                "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)",
                 "order by: <slot 10> `$a$1`.`$c$2` ASC",
                 "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`");
     }
@@ -493,7 +490,6 @@ public class StmtRewriterTest {
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
                 "CROSS JOIN",
-                "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)",
                 "order by: <slot 10> `$a$1`.`$c$2` ASC",
                 "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    <slot 10> `$a$1`.`$c$2`");
     }
@@ -607,7 +603,6 @@ public class StmtRewriterTest {
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
                 "CROSS JOIN",
-                "predicates: <slot 3> sum(`salary`) > <slot 8> avg(`salary`)",
                 "order by: <slot 10> `$a$1`.`$c$2` ASC",
                 "OUTPUT EXPRS:\n    <slot 11> `$a$1`.`$c$1`\n    <slot 10> `$a$1`.`$c$2`");
     }
@@ -622,8 +617,7 @@ public class StmtRewriterTest {
                 "select empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > (" + subquery + ");";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query)
-                .explainContains("CROSS JOIN", "predicates: <slot 3> sum(`salary`) > <slot 9> avg(`salary`)",
-                        "PREDICATES: `empid` >= 1, `empid` <= 2");
+                .explainContains("CROSS JOIN");
     }
 
     @AfterClass

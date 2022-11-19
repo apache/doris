@@ -2258,3 +2258,55 @@ Default: 1
 Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
+
+### `max_replica_count_when_schema_change`
+
+The maximum number of replicas allowed when OlapTable is doing schema changes. Too many replicas will lead to FE OOM.
+
+Default: 100000
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### `max_hive_partition_cache_num`
+
+The maximum number of caches for the hive partition.
+
+Default: 100000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_external_file_cache_num`
+
+Maximum number of file cache to use for external external tables.
+
+Default: 100000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_external_schema_cache_num`
+
+Maximum number of schema cache to use for external external tables.
+
+Default: 10000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `external_cache_expire_time_minutes_after_access`
+
+Set how long the data in the cache expires after the last access. The unit is minutes.
+Applies to External Schema Cache as well as Hive Partition Cache.
+
+Default: 1440
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+

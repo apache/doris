@@ -110,6 +110,15 @@ TESTING	AGAIN
 18000
 26988
 
+-- !aggregate32 --
+['sample', 'again', 'Sample']
+
+-- !aggregate33 --
+65.73903964620426
+
+-- !aggregate34 --
+[100, 5000, 5899.2]
+
 -- !aggregate --
 \N	other	98.52
 12	other	12.25
@@ -662,4 +671,15 @@ TESTING	AGAIN
 
 -- !aggregate31 --
 15
+
+-- !aggregate32 --
+1	1989
+2	1986
+3	1989
+4	1991
+5	1985
+6	32767
+7	-32767
+8	255
+9	1991
 

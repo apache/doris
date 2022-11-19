@@ -472,8 +472,8 @@ int Expr::compute_results_layout(const std::vector<Expr*>& exprs, std::vector<in
     int current_alignment = data[0].byte_size;
     int byte_offset = 0;
 
-    offsets->resize(exprs.size());
     offsets->clear();
+    offsets->resize(exprs.size());
     *var_result_begin = -1;
 
     for (int i = 0; i < data.size(); ++i) {
@@ -726,7 +726,7 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new Decimal64Val(get_decimal64_val(context, nullptr)));
         break;
     }
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         _constant_val.reset(new Decimal128Val(get_decimal128_val(context, nullptr)));
         break;
     }

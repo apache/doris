@@ -52,10 +52,12 @@ You can place this file on an http download server or copy(or unzip) it to the s
 
 ### Installation
 
-After deployment is complete, and before installing the plugin, you need to create the audit database and tables previously specified in `plugin.conf`. The table creation statement is as follows:
+After deployment is complete, and before installing the plugin, you need to create the audit database and tables previously specified in `plugin.conf`. The database and table creation statement is as follows:
 
 ```
-create table doris_audit_tbl__
+create database doris_audit_db__;
+
+create table doris_audit_db__.doris_audit_log_tbl__
 (
     query_id varchar(48) comment "Unique query id",
     `time` datetime not null comment "Query start time",
@@ -71,7 +73,41 @@ create table doris_audit_tbl__
     is_query tinyint comment "Is this statemt a query. 1 or 0",
     frontend_ip varchar(32) comment "Frontend ip of executing this statement",
     cpu_time_ms bigint comment "Total scan cpu time in millisecond of this query",
-    sql_hash varchar(50) comment "Hash value for this query",
+    sql_hash varchar(48) comment "Hash value for this query",
+    sql_digest varchar(48) comment "Sql digest for this query",
+    peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
+    stmt string comment "The original statement, trimed if longer than 2G "
+) engine=OLAP
+duplicate key(query_id, `time`, client_ip)
+partition by range(`time`) ()
+distributed by hash(query_id) buckets 1
+properties(
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-30",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "1",
+    "dynamic_partition.enable" = "true",
+    "replication_num" = "3"
+);
+
+create table doris_audit_db__.doris_slow_log_tbl__
+(
+    query_id varchar(48) comment "Unique query id",
+    `time` datetime not null comment "Query start time",
+    client_ip varchar(32) comment "Client IP",
+    user varchar(64) comment "User name",
+    db varchar(96) comment "Database of this query",
+    state varchar(8) comment "Query result state. EOF, ERR, OK",
+    query_time bigint comment "Query execution time in millisecond",
+    scan_bytes bigint comment "Total scan bytes of this query",
+    scan_rows bigint comment "Total scan rows of this query",
+    return_rows bigint comment "Returned rows of this query",
+    stmt_id int comment "An incremental id of statement",
+    is_query tinyint comment "Is this statemt a query. 1 or 0",
+    frontend_ip varchar(32) comment "Frontend ip of executing this statement",
+    cpu_time_ms bigint comment "Total scan cpu time in millisecond of this query",
+    sql_hash varchar(48) comment "Hash value for this query",
     sql_digest varchar(48) comment "Sql digest for this query",
     peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
     stmt string comment "The original statement, trimed if longer than 2G"

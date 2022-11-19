@@ -31,8 +31,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 CONTAINER_UID="doris--"
 
 # elasticsearch
-# docker compose -f "${ROOT}"/docker-compose/elasticsearch/elasticsearch.yaml down
-# docker compose -f "${ROOT}"/docker-compose/elasticsearch/elasticsearch.yaml up -d
+sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
+sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env down
+sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
+sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es6/*
+sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es7/
+sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es7/*
+sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
+sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
+sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
+sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
 
 # mysql 5.7
 sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml

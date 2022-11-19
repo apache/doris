@@ -19,15 +19,18 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterCatalogExecutor;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang.NotImplementedException;
@@ -87,17 +90,38 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
         this.extCatalog = extCatalog;
     }
 
-    public void setTableExtCatalog(ExternalCatalog extCatalog) {}
+    public void setTableExtCatalog(ExternalCatalog extCatalog) {
+    }
 
     public void setUnInitialized() {
         this.initialized = false;
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
     }
 
     public boolean isInitialized() {
         return initialized;
     }
 
-    public void makeSureInitialized() {}
+    public final synchronized void makeSureInitialized() {
+        if (!initialized) {
+            if (!Env.getCurrentEnv().isMaster()) {
+                // Forward to master and wait the journal to replay.
+                MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor();
+                try {
+                    remoteExecutor.forward(extCatalog.getId(), id);
+                } catch (Exception e) {
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("failed to forward init external db %s operation to master", name), e);
+                }
+                return;
+            }
+            init();
+        }
+    }
+
+    protected void init() {
+        throw new NotImplementedException();
+    }
 
     public T getTableForReplay(long tableId) {
         throw new NotImplementedException();

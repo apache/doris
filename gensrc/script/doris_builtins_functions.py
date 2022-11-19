@@ -110,13 +110,21 @@ visible_functions = [
         '15FunctionContextERKNS1_11LargeIntValE', '', '', 'vec', ''],
 
     # array functions
-    [['array'], 'ARRAY', ['INT', '...'],
-        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_6IntValE', '', '', '', ''],
-    [['array'], 'ARRAY', ['VARCHAR', '...'],
-        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE', '', '', '', ''],
-    [['array'], 'ARRAY', ['ARRAY', '...'], '', '', '', '', ''],
-    [['array'], 'ARRAY', ['MAP', '...'], '', '', '', '', ''],
-    [['array'], 'ARRAY', ['STRUCT', '...'], '', '', '', '', ''],
+    [['array'], 'ARRAY', ['BOOLEAN', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['TINYINT', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['SMALLINT', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['INT', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['BIGINT', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['LARGEINT', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['DATETIME', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['DATE', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['DATETIMEV2', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['DATEV2', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['FLOAT', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['DOUBLE', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['DECIMALV2', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['VARCHAR', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array'], 'ARRAY', ['STRING', '...'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 
     [['element_at', '%element_extract%'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'TINYINT', ['ARRAY_TINYINT', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -237,7 +245,7 @@ visible_functions = [
     [['array_difference'], 'ARRAY_BIGINT',    ['ARRAY_INT'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_LARGEINT',  ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
-    [['array_difference'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_difference'], 'ARRAY_DOUBLE',    ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
     [['array_difference'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
 
@@ -392,6 +400,21 @@ visible_functions = [
     [['array_except'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_except'], 'ARRAY_STRING',    ['ARRAY_STRING', 'ARRAY_STRING'], '', '', '', 'vec', ''],
 
+    [['array_compact'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_INT',       ['ARRAY_INT'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_BIGINT',    ['ARRAY_BIGINT'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_DATE',      ['ARRAY_DATE'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
+    [['array_compact'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
+
     [['array_intersect'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  '', '', '', 'vec', ''],
     [['array_intersect'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  '', '', '', 'vec', ''],
     [['array_intersect'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], '', '', '', 'vec', ''],
@@ -449,6 +472,20 @@ visible_functions = [
     [['array_popback'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], '', '', '', 'vec', ''],
     [['array_popback'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], '', '', '', 'vec', ''],
     [['array_popback'], 'ARRAY_STRING', ['ARRAY_STRING'], '', '', '', 'vec', ''],
+
+    [['array_with_constant'], 'ARRAY_BOOLEAN', ['BIGINT', 'BOOLEAN'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_TINYINT', ['BIGINT', 'TINYINT'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_SMALLINT', ['BIGINT','SMALLINT'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_INT', ['BIGINT', 'INT'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_BIGINT', ['BIGINT', 'BIGINT'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_LARGEINT', ['BIGINT', 'LARGEINT'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_DATETIME', ['BIGINT', 'DATETIME'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_DATE', ['BIGINT', 'DATE'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_FLOAT', ['BIGINT', 'FLOAT'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_DOUBLE', ['BIGINT', 'DOUBLE'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_DECIMALV2', ['BIGINT', 'DECIMALV2'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_VARCHAR', ['BIGINT', 'VARCHAR'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['array_with_constant'], 'ARRAY_STRING', ['BIGINT', 'STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     
     [['array_range'], 'ARRAY_INT',       ['INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_range'], 'ARRAY_INT',       ['INT', 'INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -2220,6 +2257,20 @@ visible_functions = [
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
     [['sub_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT', 'INT'],'','', '', 'vec', 'ALWAYS_NULLABLE'],
 
+    # runningdifference
+    [['running_difference'], 'SMALLINT', ['TINYINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'INT', ['SMALLINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'BIGINT', ['INT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'LARGEINT', ['BIGINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'LARGEINT', ['LARGEINT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['FLOAT'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['DOUBLE'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DECIMALV2', ['DECIMALV2'], '', '', '', 'vec', ''],
+    [['running_difference'], 'INT', ['DATE'], '', '', '', 'vec', ''],
+    [['running_difference'], 'INT', ['DATEV2'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['DATETIME'], '', '', '', 'vec', ''],
+    [['running_difference'], 'DOUBLE', ['DATETIMEV2'], '', '', '', 'vec', ''],
+
     # Longtext function
     [['substr', 'substring'], 'STRING', ['STRING', 'INT'],
         '_ZN5doris15StringFunctions9substringEPN'
@@ -2582,6 +2633,10 @@ visible_functions = [
     [['bitmap_from_string'], 'BITMAP', ['STRING'],
         '_ZN5doris15BitmapFunctions18bitmap_from_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['bitmap_from_array'], 'BITMAP', ['ARRAY_TINYINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['bitmap_from_array'], 'BITMAP', ['ARRAY_SMALLINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['bitmap_from_array'], 'BITMAP', ['ARRAY_INT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
+    [['bitmap_from_array'], 'BITMAP', ['ARRAY_BIGINT'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['bitmap_contains'], 'BOOLEAN', ['BITMAP','BIGINT'],
         '_ZN5doris15BitmapFunctions15bitmap_containsEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValE',
         '', '', 'vec', ''],
@@ -2817,6 +2872,8 @@ visible_functions = [
     # search functions
     [['multi_search_all_positions'], 'ARRAY_INT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], '', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+
+    [['uuid'], 'VARCHAR', [], '_ZN5doris15StringFunctions4uuidEPN9doris_udf15FunctionContextE', '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
 ]
 
 # Except the following functions, other function will directly return
@@ -2852,7 +2909,8 @@ nondeterministic_functions = [
     'current_date',
     'curtime',
     'current_time',
-    'utc_timestamp'
+    'utc_timestamp',
+    'uuid'
 ]
 # This is the subset of ALWAYS_NULLABLE
 # The function belongs to @null_result_with_one_null_param_functions,

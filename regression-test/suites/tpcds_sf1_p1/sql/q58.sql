@@ -83,11 +83,11 @@ FROM
 , ws_items
 WHERE (ss_items.item_id = cs_items.item_id)
    AND (ss_items.item_id = ws_items.item_id)
-   AND (ss_item_rev BETWEEN (CAST('0.9' AS DECIMAL) * cs_item_rev) AND (CAST('1.1' AS DECIMAL) * cs_item_rev))
-   AND (ss_item_rev BETWEEN (CAST('0.9' AS DECIMAL) * ws_item_rev) AND (CAST('1.1' AS DECIMAL) * ws_item_rev))
-   AND (cs_item_rev BETWEEN (CAST('0.9' AS DECIMAL) * ss_item_rev) AND (CAST('1.1' AS DECIMAL) * ss_item_rev))
-   AND (cs_item_rev BETWEEN (CAST('0.9' AS DECIMAL) * ws_item_rev) AND (CAST('1.1' AS DECIMAL) * ws_item_rev))
-   AND (ws_item_rev BETWEEN (CAST('0.9' AS DECIMAL) * ss_item_rev) AND (CAST('1.1' AS DECIMAL) * ss_item_rev))
-   AND (ws_item_rev BETWEEN (CAST('0.9' AS DECIMAL) * cs_item_rev) AND (CAST('1.1' AS DECIMAL) * cs_item_rev))
+   AND (ss_item_rev BETWEEN (CAST('0.9' AS DECIMAL(2,1)) * cs_item_rev) AND (CAST('1.1' AS DECIMAL(2,1)) * cs_item_rev))
+   AND (ss_item_rev BETWEEN (CAST('0.9' AS DECIMAL(2,1)) * ws_item_rev) AND (CAST('1.1' AS DECIMAL(2,1)) * ws_item_rev))
+   AND (cs_item_rev BETWEEN (CAST('0.9' AS DECIMAL(2,1)) * ss_item_rev) AND (CAST('1.1' AS DECIMAL(2,1)) * ss_item_rev))
+   AND (cs_item_rev BETWEEN (CAST('0.9' AS DECIMAL(2,1)) * ws_item_rev) AND (CAST('1.1' AS DECIMAL(2,1)) * ws_item_rev))
+   AND (ws_item_rev BETWEEN (CAST('0.9' AS DECIMAL(2,1)) * ss_item_rev) AND (CAST('1.1' AS DECIMAL(2,1)) * ss_item_rev))
+   AND (ws_item_rev BETWEEN (CAST('0.9' AS DECIMAL(2,1)) * cs_item_rev) AND (CAST('1.1' AS DECIMAL(2,1)) * cs_item_rev))
 ORDER BY ss_items.item_id ASC, ss_item_rev ASC
 LIMIT 100

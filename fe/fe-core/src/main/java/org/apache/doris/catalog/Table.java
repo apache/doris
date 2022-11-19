@@ -26,6 +26,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.statistics.AnalysisJob;
+import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisJobScheduler;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -41,8 +44,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -300,6 +305,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return nameToColumn.get(name);
     }
 
+    public List<Column> getColumns() {
+        return Lists.newArrayList(nameToColumn.values());
+    }
+
     public long getCreateTime() {
         return createTime;
     }
@@ -492,5 +501,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public boolean isHasCompoundKey() {
         return hasCompoundKey;
+    }
+
+    public Set<String> getPartitionNames() {
+        return Collections.EMPTY_SET;
+    }
+
+    @Override
+    public AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info) {
+        throw new NotImplementedException();
     }
 }

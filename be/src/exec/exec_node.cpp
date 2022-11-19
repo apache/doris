@@ -60,6 +60,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -75,7 +76,6 @@
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vintersect_node.h"
 #include "vec/exec/vmysql_scan_node.h"
-#include "vec/exec/vnested_loop_join_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
@@ -211,6 +211,7 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
     _rows_returned_counter = ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
+    _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
@@ -221,7 +222,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_vconjunct_ctx_ptr) {
-        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, _row_descriptor));
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
     }
 
     // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
@@ -230,7 +231,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
         RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, _row_descriptor));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
@@ -450,11 +451,13 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::JDBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
-#ifdef LIBJVM
-            *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
-#else
-            return Status::InternalError("Jdbc scan node is disabled since no libjvm is found!");
-#endif
+            if (config::enable_java_support) {
+                *node = pool->add(new vectorized::NewJdbcScanNode(pool, tnode, descs));
+            } else {
+                return Status::InternalError(
+                        "Jdbc scan node is disabled, you can change be config enable_java_support "
+                        "to true and restart be.");
+            }
         } else {
             return Status::InternalError("Jdbc scan node only support vectorized engine.");
         }
@@ -722,11 +725,8 @@ void ExecNode::try_do_aggregate_serde_improve() {
     if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
         typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
         typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewEsScanNode)
-#ifdef LIBJVM
-        || typeid(*child0) == typeid(vectorized::NewJdbcScanNode)
-#endif
-    ) {
+        typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
+        typeid(*child0) == typeid(vectorized::NewJdbcScanNode)) {
         vectorized::VScanNode* scan_node =
                 static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
         scan_node->set_no_agg_finalize();
@@ -807,6 +807,7 @@ std::string ExecNode::get_name() {
 }
 
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+    SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
@@ -834,8 +835,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 }
 
 Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    // delete the UNLIKELY after support new optimizers
-    if (UNLIKELY(_output_row_descriptor)) {
+    if (_output_row_descriptor) {
         _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
         auto status = get_next(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;

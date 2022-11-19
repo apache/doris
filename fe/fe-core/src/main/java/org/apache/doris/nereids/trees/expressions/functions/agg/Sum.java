@@ -17,17 +17,18 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 
@@ -37,11 +38,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** sum agg function. */
-public class Sum extends AggregateFunction implements UnaryExpression, ImplicitCastInputTypes {
-
-    // used in interface expectedInputTypes to avoid new list in each time it be called
-    private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(NumericType.INSTANCE);
-
+public class Sum extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
     public Sum(Expression child) {
         super("sum", child);
     }
@@ -51,34 +48,14 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
     }
 
     @Override
-    public DataType getFinalType() {
-        DataType dataType = child().getDataType();
-        if (dataType instanceof LargeIntType) {
-            return dataType;
-        } else if (dataType instanceof DecimalType) {
-            return DecimalType.SYSTEM_DEFAULT;
-        } else if (dataType instanceof IntegralType) {
-            return BigIntType.INSTANCE;
-        } else if (dataType instanceof FractionalType) {
-            return DoubleType.INSTANCE;
-        } else {
-            throw new IllegalStateException("Unsupported sum type: " + dataType);
-        }
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        DataType implicitCastType = implicitCast(argumentTypes.get(0));
+        return FunctionSignature.ret(implicitCastType).args(NumericType.INSTANCE);
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getFinalType();
-    }
-
-    @Override
-    public boolean nullable() {
-        return child().nullable();
-    }
-
-    @Override
-    public List<AbstractDataType> expectedInputTypes() {
-        return EXPECTED_INPUT_TYPES;
+    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+        return ImmutableList.of(getFinalType());
     }
 
     @Override
@@ -95,5 +72,19 @@ public class Sum extends AggregateFunction implements UnaryExpression, ImplicitC
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSum(this, context);
+    }
+
+    private DataType implicitCast(DataType dataType) {
+        if (dataType instanceof LargeIntType) {
+            return dataType;
+        } else if (dataType instanceof DecimalV2Type) {
+            return DecimalV2Type.SYSTEM_DEFAULT;
+        } else if (dataType instanceof IntegralType) {
+            return BigIntType.INSTANCE;
+        } else if (dataType instanceof NumericType) {
+            return DoubleType.INSTANCE;
+        } else {
+            throw new AnalysisException("sum requires a numeric parameter: " + dataType);
+        }
     }
 }

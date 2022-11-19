@@ -63,9 +63,9 @@ DORIS_HOME="$(
 export DORIS_HOME
 
 if [[ "$(uname -s)" != 'Darwin' ]]; then
-    MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
+    MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
     if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-        echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
+        echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
         exit 1
     fi
 fi

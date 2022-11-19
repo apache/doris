@@ -26,7 +26,9 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -106,10 +109,10 @@ public class TypeCoercionUtils {
             // Cast null type (usually from null literals) into target types
             returnType = expected.defaultConcreteType();
         } else if (input instanceof NumericType) {
-            if (expected instanceof DecimalType) {
+            if (expected instanceof DecimalV2Type) {
                 // If input is a numeric type but not decimal, and we expect a decimal type,
                 // cast the input to decimal.
-                returnType = DecimalType.forType(input);
+                returnType = DecimalV2Type.forType(input);
             } else if (expected instanceof DateTimeType) {
                 returnType = DateTimeType.INSTANCE;
             } else if (expected instanceof NumericType) {
@@ -117,8 +120,8 @@ public class TypeCoercionUtils {
                 returnType = expected.defaultConcreteType();
             }
         } else if (input instanceof CharacterType) {
-            if (expected instanceof DecimalType) {
-                returnType = DecimalType.SYSTEM_DEFAULT;
+            if (expected instanceof DecimalV2Type) {
+                returnType = DecimalV2Type.SYSTEM_DEFAULT;
             } else if (expected instanceof NumericType) {
                 returnType = expected.defaultConcreteType();
             } else if (expected instanceof DateTimeType) {
@@ -143,18 +146,20 @@ public class TypeCoercionUtils {
      * return ture if two type could do type coercion.
      */
     public static boolean canHandleTypeCoercion(DataType leftType, DataType rightType) {
-        if (leftType instanceof DecimalType && rightType instanceof NullType) {
+        if (leftType instanceof DecimalV2Type && rightType instanceof NullType) {
             return true;
         }
-        if (leftType instanceof NullType && rightType instanceof DecimalType) {
+        if (leftType instanceof NullType && rightType instanceof DecimalV2Type) {
             return true;
         }
-        if (leftType instanceof DecimalType && rightType instanceof IntegralType
-                || leftType instanceof IntegralType && rightType instanceof DecimalType) {
+        if (leftType instanceof DecimalV2Type && rightType instanceof IntegralType
+                || leftType instanceof IntegralType && rightType instanceof DecimalV2Type) {
             return true;
         }
         // TODO: add decimal promotion support
-        if (!(leftType instanceof DecimalType) && !(rightType instanceof DecimalType) && !leftType.equals(rightType)) {
+        if (!(leftType instanceof DecimalV2Type)
+                && !(rightType instanceof DecimalV2Type)
+                && !leftType.equals(rightType)) {
             return true;
         }
         return false;
@@ -183,14 +188,14 @@ public class TypeCoercionUtils {
             tightestCommonType = right;
         } else if (right instanceof NullType) {
             tightestCommonType = left;
-        } else if (left instanceof IntegralType && right instanceof DecimalType
-                && ((DecimalType) right).isWiderThan(left)) {
+        } else if (left instanceof IntegralType && right instanceof DecimalV2Type
+                && ((DecimalV2Type) right).isWiderThan(left)) {
             tightestCommonType = right;
-        } else if (right instanceof IntegralType && left instanceof DecimalType
-                && ((DecimalType) left).isWiderThan(right)) {
+        } else if (right instanceof IntegralType && left instanceof DecimalV2Type
+                && ((DecimalV2Type) left).isWiderThan(right)) {
             tightestCommonType = left;
         } else if (left instanceof NumericType && right instanceof NumericType
-                && !(left instanceof DecimalType) && !(right instanceof DecimalType)) {
+                && !(left instanceof DecimalV2Type) && !(right instanceof DecimalV2Type)) {
             for (DataType dataType : NUMERIC_PRECEDENCE) {
                 if (dataType.equals(left) || dataType.equals(right)) {
                     tightestCommonType = dataType;
@@ -201,10 +206,26 @@ public class TypeCoercionUtils {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
             tightestCommonType = StringType.INSTANCE;
-        } else if (left instanceof DecimalType && right instanceof IntegralType) {
-            tightestCommonType = DecimalType.widerDecimalType((DecimalType) left, DecimalType.forType(right));
-        } else if (left instanceof IntegralType && right instanceof DecimalType) {
-            tightestCommonType = DecimalType.widerDecimalType((DecimalType) right, DecimalType.forType(left));
+        } else if (left instanceof DecimalV2Type && right instanceof IntegralType) {
+            tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, DecimalV2Type.forType(right));
+        } else if (left instanceof IntegralType && right instanceof DecimalV2Type) {
+            tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) right, DecimalV2Type.forType(left));
+        } else if (left instanceof DateLikeType && right instanceof DateLikeType) {
+            if (left instanceof DateTimeV2Type && right instanceof DateTimeV2Type) {
+                if (((DateTimeV2Type) left).getScale() > ((DateTimeV2Type) right).getScale()) {
+                    tightestCommonType = left;
+                } else {
+                    tightestCommonType = right;
+                }
+            } else if (left instanceof DateTimeV2Type) {
+                tightestCommonType = left;
+            } else if (right instanceof DateTimeV2Type) {
+                tightestCommonType = right;
+            } else if (left instanceof DateTimeType || right instanceof DateTimeType) {
+                tightestCommonType = DateTimeType.INSTANCE;
+            } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
+                tightestCommonType = DateV2Type.INSTANCE;
+            }
         }
         return Optional.ofNullable(tightestCommonType);
     }
@@ -220,7 +241,7 @@ public class TypeCoercionUtils {
         } else if (type.isFloatType() || type.isDoubleType() || type.isStringType()) {
             return DoubleType.INSTANCE;
         } else if (type.isDecimalType()) {
-            return DecimalType.SYSTEM_DEFAULT;
+            return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (type.isNullType()) {
             return NullType.INSTANCE;
         }
@@ -234,7 +255,7 @@ public class TypeCoercionUtils {
         if (t1.isDoubleType() || t2.isDoubleType()) {
             return DoubleType.INSTANCE;
         } else if (t1.isDecimalType() || t2.isDecimalType()) {
-            return DecimalType.SYSTEM_DEFAULT;
+            return DecimalV2Type.SYSTEM_DEFAULT;
         } else if (t1.isLargeIntType() || t2.isLargeIntType()) {
             return LargeIntType.INSTANCE;
         } else {
@@ -286,14 +307,14 @@ public class TypeCoercionUtils {
     @Developing
     public static Optional<DataType> findWiderTypeForDecimal(DataType left, DataType right) {
         DataType commonType = null;
-        if (left instanceof DecimalType && right instanceof DecimalType) {
-            commonType = DecimalType.widerDecimalType((DecimalType) left, (DecimalType) right);
-        } else if (left instanceof IntegralType && right instanceof DecimalType) {
-            commonType = DecimalType.widerDecimalType(DecimalType.forType(left), (DecimalType) right);
-        } else if (left instanceof DecimalType && right instanceof IntegralType) {
-            commonType = DecimalType.widerDecimalType((DecimalType) left, DecimalType.forType(right));
-        } else if ((left instanceof FractionalType && right instanceof DecimalType)
-                || (left instanceof DecimalType && right instanceof FractionalType)) {
+        if (left instanceof DecimalV2Type && right instanceof DecimalV2Type) {
+            commonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, (DecimalV2Type) right);
+        } else if (left instanceof IntegralType && right instanceof DecimalV2Type) {
+            commonType = DecimalV2Type.widerDecimalV2Type(DecimalV2Type.forType(left), (DecimalV2Type) right);
+        } else if (left instanceof DecimalV2Type && right instanceof IntegralType) {
+            commonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, DecimalV2Type.forType(right));
+        } else if ((left instanceof FractionalType && right instanceof DecimalV2Type)
+                || (left instanceof DecimalV2Type && right instanceof FractionalType)) {
             commonType = DoubleType.INSTANCE;
         }
         return Optional.ofNullable(commonType);

@@ -102,7 +102,7 @@ Runtime Filter主要用于大表join小表的优化，如果左表的数据量�
   - `runtime_bloom_filter_min_size`: Runtime Filter中Bloom Filter的最小长度，默认1048576（1M）
   - `runtime_bloom_filter_max_size`: Runtime Filter中Bloom Filter的最大长度，默认16777216（16M）
   - `runtime_bloom_filter_size`: Runtime Filter中Bloom Filter的默认长度，默认2097152（2M）
-  - `runtime_filter_max_in_num`: 如果join右表数据行数大于这个值，我们将不生成IN predicate，默认1024
+  - `runtime_filter_max_in_num`: 如果join右表数据行数大于这个值，我们将不生成IN predicate，默认102400
 
 下面对查询选项做进一步说明。
 
@@ -125,7 +125,7 @@ set runtime_filter_type=7;
 **使用注意事项**
 
 - **IN or Bloom Filter**: 根据右表在执行过程中的真实行数，由系统自动判断使用 IN predicate 还是 Bloom Filter
-  - 默认在右表数据行数少于1024时会使用IN predicate（可通过session变量中的`runtime_filter_max_in_num`调整），否则使用Bloom filter。
+  - 默认在右表数据行数少于102400时会使用IN predicate（可通过session变量中的`runtime_filter_max_in_num`调整），否则使用Bloom filter。
 - **Bloom Filter**: 有一定的误判率，导致过滤的数据比预期少一点，但不会导致最终结果不准确，在大部分情况下Bloom Filter都可以提升性能或对性能没有显著影响，但在部分情况下会导致性能降低。
   - Bloom Filter构建和应用的开销较高，所以当过滤率较低时，或者左表数据量较少时，Bloom Filter可能会导致性能降低。
   - 目前只有左表的Key列应用Bloom Filter才能下推到存储引擎，而测试结果显示Bloom Filter不下推到存储引擎时往往会导致性能降低。
@@ -134,7 +134,6 @@ set runtime_filter_type=7;
   - 当join on clause中Key列的类型为int/bigint/double等时，极端情况下，如果左右表的最大最小值相同则没有效果，反之右表最大值小于左表最小值，或右表最小值大于左表最大值，则效果最好。
   - 当join on clause中Key列的类型为varchar等时，应用MinMax Filter往往会导致性能降低。
 - **IN predicate**: 根据join on clause中Key列在右表上的所有值构建IN predicate，使用构建的IN predicate在左表上过滤，相比Bloom Filter构建和应用的开销更低，在右表数据量较少时往往性能更高。
-  - 默认只有右表数据行数少于1024才会下推（可通过session变量中的`runtime_filter_max_in_num`调整）。
   - 目前IN predicate已实现合并方法。
   - 当同时指定In predicate和其他filter，并且in的过滤数值没达到runtime_filter_max_in_num时，会尝试把其他filter去除掉。原因是In predicate是精确的过滤条件，即使没有其他filter也可以高效过滤，如果同时使用则其他filter会做无用功。目前仅在Runtime filter的生产者和消费者处于同一个fragment时才会有去除非in filter的逻辑。
 

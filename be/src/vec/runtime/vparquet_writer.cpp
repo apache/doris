@@ -458,8 +458,8 @@ Status VParquetWriterWrapper::write(const Block& block) {
                 DISPATCH_PARQUET_DECIMAL_WRITER(Decimal64)
                 break;
             }
-            case TYPE_DECIMAL128: {
-                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal128)
+            case TYPE_DECIMAL128I: {
+                DISPATCH_PARQUET_DECIMAL_WRITER(Decimal128I)
                 break;
             }
             default: {

@@ -662,6 +662,9 @@ build_hyperscan() {
     check_if_source_exist "${HYPERSCAN_SOURCE}"
     cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
 
+    # We don't need to build tools/hsbench which depends on sqlite3 installed.
+    rm -rf "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}/tools/hsbench"
+
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 

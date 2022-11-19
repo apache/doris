@@ -170,11 +170,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
             typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
-            typeid(*node) == typeid(vectorized::NewEsScanNode)
-#ifdef LIBJVM
-            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
-#endif
-        ) {
+            typeid(*node) == typeid(vectorized::NewEsScanNode) ||
+            typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
             vectorized::VScanNode* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             const std::vector<TScanRangeParams>& scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);

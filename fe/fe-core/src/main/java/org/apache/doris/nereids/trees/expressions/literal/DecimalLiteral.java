@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 
 import java.math.BigDecimal;
 import java.util.Objects;
@@ -32,7 +32,7 @@ public class DecimalLiteral extends Literal {
     private final BigDecimal value;
 
     public DecimalLiteral(BigDecimal value) {
-        super(DecimalType.createDecimalType(value));
+        super(DecimalV2Type.createDecimalV2Type(value));
         this.value = Objects.requireNonNull(value);
     }
 

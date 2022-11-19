@@ -46,7 +46,7 @@ namespace stream_load {
 
 NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id)
         : _parent(parent), _index_channel(index_channel), _node_id(node_id) {
-    _node_channel_tracker = std::make_unique<MemTracker>(fmt::format(
+    _node_channel_tracker = std::make_shared<MemTracker>(fmt::format(
             "NodeChannel:indexID={}:threadId={}", std::to_string(_index_channel->_index_id),
             thread_context()->get_thread_id()));
 }
@@ -353,6 +353,12 @@ Status NodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
         }
     }
 
+    while (!_cancelled && _pending_batches_num > 0 &&
+           _pending_batches_bytes > _max_pending_batches_bytes) {
+        SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
     constexpr size_t BATCH_SIZE_FOR_SEND = 2 * 1024 * 1024; //2M
     auto row_no = _cur_batch->add_row();
     if (row_no == RowBatch::INVALID_ROW_INDEX ||
@@ -518,7 +524,7 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
 void NodeChannel::try_send_batch(RuntimeState* state) {
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
     AddBatchReq send_batch;
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
@@ -833,7 +839,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
     _mem_tracker =
-            std::make_unique<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
+            std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -1407,7 +1413,7 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
 void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {

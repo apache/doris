@@ -19,8 +19,10 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
@@ -28,6 +30,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -48,6 +51,7 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -163,6 +167,19 @@ public class TabletReplicaTooSlowTest {
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
 
+        Database db = null;
+
+        do {
+            db = Env.getCurrentEnv().getInternalCatalog()
+                    .getDb(SystemInfoService.DEFAULT_CLUSTER + ":" + StatisticConstants.STATISTIC_DB_NAME)
+                    .orElse(null);
+            Thread.sleep(100);
+        } while (db == null);
+        Set<Long> replicaIdSet = db.getTables().stream().map(t -> {
+            return (OlapTable) t;
+        }).flatMap(t -> t.getPartitions().stream()).flatMap(p -> p.getBaseIndex().getTablets().stream())
+                .flatMap(t -> t.getReplicas().stream()).map(r -> r.getId()).collect(Collectors.toSet());
+
         int maxLoop = 300;
         boolean delete = false;
         while (maxLoop-- > 0) {
@@ -170,7 +187,7 @@ public class TabletReplicaTooSlowTest {
             boolean found = false;
             for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
                 Replica replica = cell.getValue();
-                if (replica.getVersionCount() == 401) {
+                if (replica.getVersionCount() == 401 && !replicaIdSet.contains(cell.getValue().getId())) {
                     if (replica.tooSlow()) {
                         LOG.info("set to TOO_SLOW.");
                     }

@@ -26,13 +26,13 @@ under the License.
 
 # Star Schema Benchmark
 
-[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) 是一个轻量级的数仓场景下的性能测试集。SSB基于 [TPC-H](http://www.tpc.org/tpch/) 提供了一个简化版的星型模型数据集，主要用于测试在星型模型下，多表关联查询的性能表现。另外，业界内通常也会将SSB打平为宽表模型（以下简称：SSB flat），来测试查询引擎的性能，参考[Clickhouse](https://clickhouse.com/docs/zh/getting-started/example-datasets/star-schema)。
+[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) 是一个轻量级的数仓场景下的性能测试集。SSB 基于 [TPC-H](http://www.tpc.org/tpch/) 提供了一个简化版的星型模型数据集，主要用于测试在星型模型下，多表关联查询的性能表现。另外，业界内通常也会将 SSB 打平为宽表模型（以下简称：SSB flat），来测试查询引擎的性能，参考[Clickhouse](https://clickhouse.com/docs/zh/getting-started/example-datasets/star-schema)。
 
 本文档主要介绍Apache Doris 在 SSB 100G 测试集上的性能表现。
 
-> 注1：包括 SSB 在内的标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
+> 注 1：包括 SSB 在内的标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
 >
-> 注2：本文档涉及的操作都在 Ubuntu Server 20.04 环境进行，CentOS 7 也可测试。
+> 注 2：本文档涉及的操作都在 Ubuntu Server 20.04 环境进行，CentOS 7 也可测试。
 
 在 SSB 标准测试数据集上的 13 个查询上，我们基于 Apache Doris 1.2.0-rc01， Apache Doris 1.1.3 及 Apache Doris 0.15.0 RC04 版本进行了对别测试。
 
@@ -55,7 +55,7 @@ under the License.
 
 ## 2. 软件环境
 
-- Doris部署 3BE 1FE；
+- Doris 部署 3BE 1FE；
 - 内核版本：Linux version 5.4.0-96-generic (buildd@lgw01-amd64-051)
 - 操作系统版本：Ubuntu Server 20.04 LTS 64位
 - Doris 软件版本： Apache Doris 1.2.0-rc01、Apache Doris 1.1.3 及 Apache Doris 0.15.0 RC04
@@ -96,8 +96,8 @@ under the License.
 
 **结果说明**
 
-- 测试结果对应的数据集为scale 100, 约6亿条。
-- 测试环境配置为用户常用配置，云服务器4台，16核 64G SSD，1 FE 3 BE 部署。
+- 测试结果对应的数据集为 scale 100, 约 6 亿条。
+- 测试环境配置为用户常用配置，云服务器 4 台，16 核 64G SSD，1 FE 3 BE 部署。
 - 选用用户常见配置测试以降低用户选型评估成本，但整个测试过程中不会消耗如此多的硬件资源。
 
 ## 5. 标准 SSB 测试结果
@@ -126,6 +126,7 @@ under the License.
 - 测试结果对应的数据集为scale 100, 约6亿条。
 - 测试环境配置为用户常用配置，云服务器4台，16核 64G SSD，1 FE 3 BE 部署。
 - 选用用户常见配置测试以降低用户选型评估成本，但整个测试过程中不会消耗如此多的硬件资源。
+
 
 ## 6. 环境准备
 
@@ -257,10 +258,10 @@ PROPERTIES (
 );
 ```
 
-
 ### 7.4 导入数据
 
 我们使用以下命令完成 SSB 测试集所有数据导入及 SSB FLAT 宽表数据合成并导入到表里。
+
 
 ```shell
 sh bin/load-ssb-data.sh -c 10
@@ -273,6 +274,7 @@ sh bin/load-ssb-data.sh -c 10
 > 1. 为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
 >
 > 2. flat 表数据采用 'INSERT INTO ... SELECT ... ' 的方式导入。
+
 
 ### 7.5 检查导入数据
 
@@ -300,9 +302,11 @@ select count(*) from lineorder_flat;
 
 SSB-FlAT 查询语句 ：[ssb-flat-queries](https://github.com/apache/doris/tree/master/tools/ssb-tools/ssb-flat-queries)
 
+
 标准 SSB 查询语句 ：[ssb-queries](https://github.com/apache/doris/tree/master/tools/ssb-tools/ssb-queries)
 
 #### 7.6.1 SSB FLAT 测试 SQL
+
 
 ```sql
 --Q1.1
@@ -607,4 +611,3 @@ WHERE
 GROUP BY d_year, s_city, p_brand
 ORDER BY d_year, s_city, p_brand;
 ```
-

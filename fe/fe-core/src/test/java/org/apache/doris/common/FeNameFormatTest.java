@@ -35,6 +35,9 @@ public class FeNameFormatTest {
         // length 64
         String tblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb_uniq";
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkTableName(tblName));
+        // length 70
+        String largeTblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb_uniq_large";
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName(largeTblName));
     }
 
 }

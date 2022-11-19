@@ -41,8 +41,8 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         DataTypePtr res;
-        if constexpr (IsDataTypeDecimal<ToDataType>) {
-            res = create_decimal(27, 9);
+        if constexpr (IsDataTypeDecimalV2<ToDataType>) {
+            res = create_decimal(27, 9, true);
             if (!res) {
                 LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
             }
