@@ -38,12 +38,14 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 
@@ -78,52 +80,63 @@ public class BindFunction implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_PROJECT_FUNCTION.build(
-                logicalProject().thenApply(ctx -> {
+                logicalProject().when(Plan::canBind).thenApply(ctx -> {
                     LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundExpr = bind(project.getProjects(), ctx.connectContext.getEnv());
                     return new LogicalProject<>(boundExpr, project.child());
                 })
             ),
             RuleType.BINDING_AGGREGATE_FUNCTION.build(
-                logicalAggregate().thenApply(ctx -> {
+                logicalAggregate().when(Plan::canBind).thenApply(ctx -> {
                     LogicalAggregate<GroupPlan> agg = ctx.root;
                     List<Expression> groupBy = bind(agg.getGroupByExpressions(), ctx.connectContext.getEnv());
                     List<NamedExpression> output = bind(agg.getOutputExpressions(), ctx.connectContext.getEnv());
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
+            RuleType.BINDING_REPEAT_FUNCTION.build(
+                logicalRepeat().when(Plan::canBind).thenApply(ctx -> {
+                    LogicalRepeat<GroupPlan> repeat = ctx.root;
+                    List<List<Expression>> groupingSets = repeat.getGroupingSets()
+                            .stream()
+                            .map(groupingSet -> bind(groupingSet, ctx.connectContext.getEnv()))
+                            .collect(ImmutableList.toImmutableList());
+                    List<NamedExpression> output = bind(repeat.getOutputExpressions(), ctx.connectContext.getEnv());
+                    return repeat.withGroupSetsAndOutput(groupingSets, output);
+                })
+            ),
             RuleType.BINDING_FILTER_FUNCTION.build(
-               logicalFilter().thenApply(ctx -> {
+               logicalFilter().when(Plan::canBind).thenApply(ctx -> {
                    LogicalFilter<GroupPlan> filter = ctx.root;
                    List<Expression> predicates = bind(filter.getExpressions(), ctx.connectContext.getEnv());
                    return new LogicalFilter<>(predicates.get(0), filter.child());
                })
             ),
             RuleType.BINDING_HAVING_FUNCTION.build(
-                logicalHaving().thenApply(ctx -> {
+                logicalHaving().when(Plan::canBind).thenApply(ctx -> {
                     LogicalHaving<GroupPlan> having = ctx.root;
                     List<Expression> predicates = bind(having.getExpressions(), ctx.connectContext.getEnv());
                     return new LogicalHaving<>(predicates.get(0), having.child());
                 })
             ),
             RuleType.BINDING_SORT_FUNCTION.build(
-                    logicalSort().thenApply(ctx -> {
-                        LogicalSort<GroupPlan> sort = ctx.root;
-                        List<OrderKey> orderKeys = sort.getOrderKeys().stream()
-                                .map(orderKey -> new OrderKey(
-                                        FunctionBinder.INSTANCE.bind(orderKey.getExpr(), ctx.connectContext.getEnv()),
-                                        orderKey.isAsc(),
-                                        orderKey.isNullFirst()
-                                ))
-                                .collect(ImmutableList.toImmutableList());
-                        return new LogicalSort<>(orderKeys, sort.child());
-                    })
+                logicalSort().when(Plan::canBind).thenApply(ctx -> {
+                    LogicalSort<GroupPlan> sort = ctx.root;
+                    List<OrderKey> orderKeys = sort.getOrderKeys().stream()
+                            .map(orderKey -> new OrderKey(
+                                    FunctionBinder.INSTANCE.bind(orderKey.getExpr(), ctx.connectContext.getEnv()),
+                                    orderKey.isAsc(),
+                                    orderKey.isNullFirst()
+                            ))
+                            .collect(ImmutableList.toImmutableList());
+                    return new LogicalSort<>(orderKeys, sort.child());
+                })
             ),
             RuleType.BINDING_UNBOUND_TVF_RELATION_FUNCTION.build(
-                    unboundTVFRelation().thenApply(ctx -> {
-                        UnboundTVFRelation relation = ctx.root;
-                        return FunctionBinder.INSTANCE.bindTableValuedFunction(relation, ctx.statementContext);
-                    })
+                unboundTVFRelation().thenApply(ctx -> {
+                    UnboundTVFRelation relation = ctx.root;
+                    return FunctionBinder.INSTANCE.bindTableValuedFunction(relation, ctx.statementContext);
+                })
             )
         );
     }

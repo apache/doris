@@ -22,6 +22,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -33,6 +35,7 @@ import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -68,17 +71,27 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalAggregate()).then(filter -> {
             LogicalAggregate<GroupPlan> aggregate = filter.child();
-            Set<Slot> groupBySlots = new HashSet<>();
+            Set<Slot> canPushDownSlots = new HashSet<>();
             for (Expression groupByExpression : aggregate.getGroupByExpressions()) {
-                if (groupByExpression instanceof Slot) {
-                    groupBySlots.add((Slot) groupByExpression);
+                if (groupByExpression instanceof VirtualSlotReference) {
+                    continue;
+                }
+
+                if (groupByExpression instanceof SlotReference) {
+                    SlotReference slotReference = (SlotReference) groupByExpression;
+                    Optional<Boolean> canPushDownPredicate = slotReference.canPushDownPredicate();
+                    if (!canPushDownPredicate.isPresent() || canPushDownPredicate.get()) {
+                        canPushDownSlots.add((Slot) groupByExpression);
+                    }
+                } else if (groupByExpression instanceof Slot) {
+                    canPushDownSlots.add((Slot) groupByExpression);
                 }
             }
             List<Expression> pushDownPredicates = Lists.newArrayList();
             List<Expression> filterPredicates = Lists.newArrayList();
             ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
-                if (groupBySlots.containsAll(conjunctSlots)) {
+                if (canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {
                     filterPredicates.add(conjunct);

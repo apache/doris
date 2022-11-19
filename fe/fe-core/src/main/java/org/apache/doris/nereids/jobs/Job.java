@@ -102,7 +102,8 @@ public abstract class Job {
                     .getMemo()
                     .copyIn(after, targetGroup, true);
 
-            if (result.generateNewExpression && enableTrace) {
+            if ((result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup)
+                    && enableTrace) {
                 String traceAfter = getPlanTraceLog();
                 printTraceLog(rule, traceBefore, traceAfter);
             }
