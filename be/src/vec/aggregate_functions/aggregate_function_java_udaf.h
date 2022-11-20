@@ -72,7 +72,7 @@ public:
         env->DeleteGlobalRef(executor_obj);
     }
 
-    Status init_udaf(const TFunction& fn) {
+    Status init_udaf(const TFunction& fn, const string& local_location) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf init_udaf function");
         RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, UDAF_EXECUTOR_CLASS, &executor_cl));
@@ -82,12 +82,6 @@ public:
         // Add a scoped cleanup jni reference object. This cleans up local refs made below.
         JniLocalFrame jni_frame;
         {
-            std::string local_location;
-            auto function_cache = UserFunctionCache::instance();
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum,
-                                                &local_location),
-                    "java udaf couldn't find implement jar");
             TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn);
             ctor_params.__set_location(local_location);
@@ -315,12 +309,18 @@ public:
                                        const Array& parameters, const DataTypePtr& return_type) {
         return std::make_shared<AggregateJavaUdaf>(fn, argument_types, parameters, return_type);
     }
+    //Note: The condition is added because maybe the BE can't find java-udaf impl jar
+    //So need to check as soon as possible, before call Data function
+    Status check_udaf(const TFunction& fn) override {
+        auto function_cache = UserFunctionCache::instance();
+        return function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum, &_local_location);
+    }
 
     void create(AggregateDataPtr __restrict place) const override {
         if (_first_created) {
             new (place) Data(argument_types.size());
             Status status = Status::OK();
-            RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn));
+            RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn, _local_location));
             _first_created = false;
             _exec_place = place;
         }
@@ -346,12 +346,6 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
-        //Note: The if condition is added because maybe the BE can't find java-udaf impl jar
-        //Add now agg function can't return status, so it's will return directly and then cause core dump
-        //if we could return status or thrown exception this will be deleted.
-        if (_exec_place == nullptr) {
-            return;
-        }
         int64_t places_address[batch_size];
         for (size_t i = 0; i < batch_size; ++i) {
             places_address[i] = reinterpret_cast<int64_t>(places[i]);
@@ -363,9 +357,6 @@ public:
     // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        if (_exec_place == nullptr) {
-            return;
-        }
         int64_t places_address[1];
         places_address[0] = reinterpret_cast<int64_t>(place);
         this->data(_exec_place).add(places_address, true, columns, 0, batch_size, argument_types);
@@ -379,16 +370,10 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        if (_exec_place == nullptr) {
-            return;
-        }
         this->data(_exec_place).merge(this->data(rhs), reinterpret_cast<int64_t>(place));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        if (_exec_place == nullptr) {
-            return;
-        }
         this->data(const_cast<AggregateDataPtr&>(_exec_place))
                 .write(buf, reinterpret_cast<int64_t>(place));
     }
@@ -401,22 +386,17 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
         new (place) Data(argument_types.size());
-        if (_exec_place == nullptr) {
-            return;
-        }
         this->data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        if (_exec_place == nullptr) {
-            return;
-        }
         this->data(_exec_place).get(to, _return_type, reinterpret_cast<int64_t>(place));
     }
 
 private:
     TFunction _fn;
     DataTypePtr _return_type;
+    std::string _local_location;
     mutable bool _first_created;
     mutable AggregateDataPtr _exec_place;
 };
