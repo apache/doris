@@ -561,8 +561,155 @@ suite("test_jdbc_query_mysql", "p0") {
                 (SELECT virtuleUniqKey as  max_virtuleUniqKey FROM t1 ORDER BY proportion DESC LIMIT 1 ) tableWithMaxId  
                 ORDER BY idCode) t_aa;
         """
+
+        // test for query like
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql  """                
+               CREATE EXTERNAL TABLE ${exMysqlTable1} (
+                 tid varchar(128),
+                 log_time date,
+                 dt  date,
+                 cmd varchar(128),
+                 dp_from varchar(128)
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb14",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """
+               select APPROX_COUNT_DISTINCT(tid) as counts 
+               from ${exMysqlTable1} 
+               where log_time >= '2022-11-02 20:00:00' AND log_time < '2022-11-02 21:00:00'
+               and dt = '2022-11-02'
+               and cmd = '8011' and tid is not null and tid != '' 
+               and (dp_from like '%gdt%' or dp_from like '%vivo%' or dp_from like '%oppo%');
+        """
+
+
+        // test for IFNULL, IFNULL and get_json_str
+        // this external table will use doris_test.ex_tb1
+        sql """ drop table if exists ${exMysqlTable} """
+        sql """
+            CREATE EXTERNAL TABLE ${exMysqlTable} (
+                  id varchar(128)
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb1",
+                "table_type"="mysql"
+             );
+        """
+        order_qt_sql """ select IFNULL(get_json_string(id, "\$.k1"), 'SUCCESS')= 'FAIL' from ${exMysqlTable}; """
+        order_qt_sql """ select CONCAT(SPLIT_PART(reverse(id),'.',1),".",IFNULL(SPLIT_PART(reverse(id),'.',2),' ')) from ${exMysqlTable}; """
+
+
+        // test for complex query cause be core
+        sql """ drop table if exists ${exMysqlTable1} """
+        sql """ drop table if exists ${exMysqlTable2} """
+        sql """
+            CREATE EXTERNAL TABLE ${exMysqlTable1} (
+                `id` bigint(20) NOT NULL COMMENT '',
+                `name` varchar(192) NOT NULL COMMENT '',
+                `is_delete` tinyint(4) NULL,
+                `create_uid` bigint(20) NULL,
+                `modify_uid` bigint(20) NULL,
+                `ctime` bigint(20) NULL,
+                `mtime` bigint(20) NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb16",
+                "table_type"="mysql"
+             );
+        """
+        sql """
+            CREATE EXTERNAL TABLE ${exMysqlTable2} (
+                `id` bigint(20) NULL,
+                `media_order_id` int(11) NULL,
+                `supplier_id` int(11) NULL,
+                `agent_policy_type` tinyint(4) NULL,
+                `agent_policy` decimal(6, 2) NULL,
+                `capital_type` bigint(20) NULL,
+                `petty_cash_type` tinyint(4) NULL,
+                `recharge_amount` decimal(10, 2) NULL,
+                `need_actual_amount` decimal(10, 2) NULL,
+                `voucher_url` varchar(765) NULL,
+                `ctime` bigint(20) NULL,
+                `mtime` bigint(20) NULL,
+                `is_delete` tinyint(4) NULL,
+                `media_remark` text NULL,
+                `account_number` varchar(765) NULL,
+                `currency_type` tinyint(4) NULL,
+                `order_source` tinyint(4) NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb17",
+                "table_type"="mysql"
+             );
+        """
+        order_qt_sql """ 
+        with tmp_media_purchase as (
+            select media_order_id, supplier_id, agent_policy_type, agent_policy, capital_type, petty_cash_type, 
+                recharge_amount, need_actual_amount, voucher_url, m.`ctime`, m.`mtime`, m.`is_delete`, media_remark, 
+                account_number, currency_type, order_source, `name`
+        from ${exMysqlTable2} m left join ${exMysqlTable1} s on s.id = m.supplier_id where m.is_delete = 0),
+        t1 as (select media_order_id, from_unixtime(MIN(ctime), '%Y-%m-%d') AS first_payment_date,
+              from_unixtime(max(ctime), '%Y-%m-%d') AS last_payment_date,
+              sum(IFNULL(recharge_amount, 0.00)) recharge_total_amount,
+              sum(case when capital_type = '2' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_amount,
+              sum(case when capital_type = '2' and petty_cash_type = '1' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_change_amount,
+              sum(case when capital_type = '2' and petty_cash_type = '2' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_recharge_amount,
+              sum(case when capital_type = '2' and petty_cash_type = '3' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_return_amount,
+              sum(case when capital_type = '3' then IFNULL(need_actual_amount, 0.00) else 0.00 end) as return_goods_amount,
+              GROUP_CONCAT(distinct cast(supplier_id as varchar (12))) supplier_id_list
+       from tmp_media_purchase group by media_order_id),
+        t2 as (select media_order_id, GROUP_CONCAT(distinct (case agent_policy_type 
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' when '4' then 'D' when '5' then 'E' when '6' then 'F'
+        when '7' then 'G' when '8' then 'H' when '9' then 'I' when '10' then 'J' when '11' then 'K' when '12' then 'L'
+        when '13' then 'M'  else agent_policy_type end)) agent_policy_type_list
+       from tmp_media_purchase group by media_order_id),
+       t3 as (select media_order_id, GROUP_CONCAT(distinct cast(agent_policy as varchar (12))) agent_policy_list
+       from tmp_media_purchase group by media_order_id),
+       t4 as (select media_order_id, GROUP_CONCAT(distinct (case capital_type
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else capital_type end)) capital_type_list
+       from tmp_media_purchase group by media_order_id),
+       t5 as (select media_order_id, GROUP_CONCAT(distinct (case petty_cash_type
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else petty_cash_type end)) petty_cash_type_list
+       from tmp_media_purchase group by media_order_id),
+       t6 as (select media_order_id, GROUP_CONCAT(distinct `name`) company_name_list
+            from tmp_media_purchase group by media_order_id)
+        select distinct tmp_media_purchase.`media_order_id`,
+                first_payment_date,
+                last_payment_date,
+                recharge_total_amount,
+                petty_amount,
+                petty_change_amount,
+                petty_recharge_amount,
+                petty_return_amount,
+                return_goods_amount,
+                supplier_id_list,
+                agent_policy_type_list,
+                agent_policy_list,
+                capital_type_list,
+                petty_cash_type_list,
+                company_name_list
+        from tmp_media_purchase
+         left join t1 on tmp_media_purchase.media_order_id = t1.media_order_id
+         left join t2 on tmp_media_purchase.media_order_id = t2.media_order_id
+         left join t3 on tmp_media_purchase.media_order_id = t3.media_order_id
+         left join t4 on tmp_media_purchase.media_order_id = t4.media_order_id
+         left join t5 on tmp_media_purchase.media_order_id = t5.media_order_id
+         left join t6 on tmp_media_purchase.media_order_id = t6.media_order_id
+        order by tmp_media_purchase.media_order_id
+        """
     }
 }
-
 
 

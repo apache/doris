@@ -132,3 +132,59 @@ CREATE TABLE doris_test.ex_tb13 (
 );
 
 
+CREATE TABLE doris_test.ex_tb14 (
+     tid varchar(128),
+     log_time date,
+     dt  date,
+     cmd varchar(128),
+     dp_from varchar(128)
+);
+
+CREATE TABLE doris_test.ex_tb15 (
+    col1 varchar(10) NULL ,
+    col2 varchar(10) NULL ,
+    col3 varchar(10) NULL ,
+    col4 int(11) NULL ,
+    col5 double NULL ,
+    col6 double NULL ,
+    col7 int(11) NULL ,
+    col8 int(11) NULL ,
+    col9 int(11) NULL ,
+    col10 varchar(10) NULL ,
+    col11 varchar(10) NULL ,
+    col12 datetime NULL
+);
+
+CREATE TABLE doris_test.ex_tb16 (
+   `id` bigint(20) NOT NULL COMMENT '',
+   `name` varchar(192) NOT NULL COMMENT '',
+   `is_delete` tinyint(4) NULL,
+   `create_uid` bigint(20) NULL,
+   `modify_uid` bigint(20) NULL,
+   `ctime` bigint(20) NULL,
+   `mtime` bigint(20) NULL
+);
+
+CREATE TABLE doris_test.ex_tb17 (
+  `id` bigint(20) NULL,
+  `media_order_id` int(11) NULL,
+  `supplier_id` int(11) NULL,
+  `agent_policy_type` tinyint(4) NULL,
+  `agent_policy` decimal(6, 2) NULL,
+  `capital_type` bigint(20) NULL,
+  `petty_cash_type` tinyint(4) NULL,
+  `recharge_amount` decimal(10, 2) NULL,
+  `need_actual_amount` decimal(10, 2) NULL,
+  `voucher_url` varchar(765) NULL,
+  `ctime` bigint(20) NULL,
+  `mtime` bigint(20) NULL,
+  `is_delete` tinyint(4) NULL,
+  `media_remark` text NULL,
+  `account_number` varchar(765) NULL,
+  `currency_type` tinyint(4) NULL,
+  `order_source` tinyint(4) NULL
+);
+
+
+
+
