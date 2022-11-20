@@ -843,7 +843,7 @@ order by
     t3.s_name
 limit 100;
 
---Q21
+--Q22
 
 with tmp as (select
                     avg(c_acctbal) as av
