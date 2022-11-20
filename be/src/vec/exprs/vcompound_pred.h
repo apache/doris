@@ -142,6 +142,7 @@ public:
 private:
     bool _all_child_is_compound_and_not_const() const {
         for (auto child : _children) {
+            // we can make sure non const compound predicate's return column is allow modifyied locally.
             if (child->is_constant() || !child->is_compound_predicate()) {
                 return false;
             }
