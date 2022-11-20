@@ -229,6 +229,8 @@ select count(*)  from  revenue0;
 
 ## 7.6.2 单个 SQL 执行
 
+下面是测试时使用的 SQL 语句，你也可以从代码库里获取最新的 SQL 。最新测试查询语句地址：[TPC-H 测试查询语句](https://github.com/apache/doris/tree/master/tools/tpch-tools/queries)
+
 ```sql
 --Q1
 select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=false) */
@@ -844,7 +846,7 @@ order by
     t3.s_name
 limit 100;
 
---Q21
+--Q22
 
 with tmp as (select
                     avg(c_acctbal) as av
