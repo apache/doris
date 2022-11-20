@@ -272,7 +272,11 @@
                                 "sql-manual/sql-functions/array-functions/array_difference",
                                 "sql-manual/sql-functions/array-functions/array_union",
                                 "sql-manual/sql-functions/array-functions/array_sum",
-                                "sql-manual/sql-functions/array-functions/array_join"
+                                "sql-manual/sql-functions/array-functions/array_join",
+                                "sql-manual/sql-functions/array-functions/array_with_constant",
+                                "sql-manual/sql-functions/array-functions/array_enumerate",
+                                "sql-manual/sql-functions/array-functions/array_popback",
+                                "sql-manual/sql-functions/array-functions/array_compact"
                             ]
                         },
                         {
@@ -409,6 +413,8 @@
                                 "sql-manual/sql-functions/string-functions/mask/mask",
                                 "sql-manual/sql-functions/string-functions/mask/mask_first_n",
                                 "sql-manual/sql-functions/string-functions/mask/mask_last_n",
+                                "sql-manual/sql-functions/string-functions/search/multi_search_all_positions",
+                                "sql-manual/sql-functions/string-functions/search/multi_match_any",
                                 {
                                     "type": "category",
                                     "label": "Fuzzy Match",
@@ -500,7 +506,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/intersect_count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect",
-                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count"
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_hash64"
                             ]
                         },
                         {
@@ -544,7 +551,8 @@
                             "type": "category",
                             "label": "Hash Functions",
                             "items": [
-                                "sql-manual/sql-functions/hash-functions/murmur_hash3_32"
+                                "sql-manual/sql-functions/hash-functions/murmur_hash3_32",
+                                "sql-manual/sql-functions/hash-functions/murmur_hash3_64"
                             ]
                         },
                         {
