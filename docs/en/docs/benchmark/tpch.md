@@ -228,6 +228,8 @@ Execute the above test SQL or execute the following command
 
 #### 7.6.2 Single SQL Execution
 
+The following is the SQL statement used in the test, you can also get the latest SQL from the code base. Latest test query statement address: [TPC-H test statement](https://github.com/apache/doris/tree master/tools/tpch-tools/query)
+
 ```SQL
 --Q1
 select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, enable_vectorized_engine=true, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=false, enable_projection=false) */
@@ -843,7 +845,7 @@ order by
     t3.s_name
 limit 100;
 
---Q21
+--Q22
 
 with tmp as (select
                     avg(c_acctbal) as av
