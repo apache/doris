@@ -217,9 +217,9 @@ Status NodeChannel::open_wait() {
                 // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
                 // will be blocked.
                 _add_batches_finished = true;
-                LOG(INFO)
-                    << "node channel " << channel_info()
-                    << "sended rpc failed but reached intolerable failure set add_batches_finished";
+                LOG(INFO) << "node channel " << channel_info()
+                          << "sended rpc failed but reached intolerable failure set "
+                             "add_batches_finished";
             }
         });
 
@@ -275,9 +275,9 @@ Status NodeChannel::open_wait() {
                         }
                     }
                     LOG(INFO) << "node channel " << channel_info()
-                          << "sended rpc successfully and reached intolerable failure set "
-                             "add_batches_finished and handled "
-                          << result.tablet_errors().size() << " tablets errors";
+                              << "sended rpc successfully and reached intolerable failure set "
+                                 "add_batches_finished and handled "
+                              << result.tablet_errors().size() << " tablets errors";
                 }
             } else {
                 _cancel_with_msg(
@@ -733,7 +733,7 @@ void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, cons
         }
         std::stringstream ss;
         ss << "mark as failed, tablest:[";
-        for (auto id: tablet_ids) {
+        for (auto id : tablet_ids) {
             ss << id << ",";
         }
         ss << "], err=" << err;
