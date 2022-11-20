@@ -24,61 +24,65 @@
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_vector.h"
-#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 
 template <typename T>
-struct AggregateFunctionGroupBitOrData {
+struct AggregateFunctionBaseData {
+public:
+    AggregateFunctionBaseData(T init_value) : res_bit(init_value) {}
+    void write(BufferWritable& buf) const { write_binary(res_bit, buf); }
+    void read(BufferReadable& buf) { read_binary(res_bit, buf); }
+    T get() const { return res_bit; }
+
+protected:
+    T res_bit = {};
+};
+
+template <typename T>
+struct AggregateFunctionGroupBitOrData : public AggregateFunctionBaseData<T> {
+public:
     static constexpr auto name = "group_bit_or";
+    AggregateFunctionGroupBitOrData() : AggregateFunctionBaseData<T>(0) {}
 
-    T bit = 0;
+    void add(T value) { AggregateFunctionBaseData<T>::res_bit |= value; }
 
-    void add(T value) { bit |= value; }
+    void merge(const AggregateFunctionGroupBitOrData<T>& rhs) {
+        AggregateFunctionBaseData<T>::res_bit |= rhs.res_bit;
+    }
 
-    void merge(const AggregateFunctionGroupBitOrData& rhs) { bit |= rhs.bit; }
-
-    void write(BufferWritable& buf) const { write_binary(bit, buf); }
-
-    void read(BufferReadable& buf) { read_binary(bit, buf); }
-
-    T get() const { return bit; }
+    void reset() { AggregateFunctionBaseData<T>::res_bit = 0; }
 };
 
 template <typename T>
-struct AggregateFunctionGroupBitAndData {
+struct AggregateFunctionGroupBitAndData : public AggregateFunctionBaseData<T> {
+public:
     static constexpr auto name = "group_bit_and";
+    AggregateFunctionGroupBitAndData() : AggregateFunctionBaseData<T>(-1) {}
 
-    T bit = -1;
+    void add(T value) { AggregateFunctionBaseData<T>::res_bit &= value; }
 
-    void add(T value) { bit &= value; }
+    void merge(const AggregateFunctionGroupBitAndData<T>& rhs) {
+        AggregateFunctionBaseData<T>::res_bit &= rhs.res_bit;
+    }
 
-    void merge(const AggregateFunctionGroupBitAndData& rhs) { bit &= rhs.bit; }
-
-    void write(BufferWritable& buf) const { write_binary(bit, buf); }
-
-    void read(BufferReadable& buf) { read_binary(bit, buf); }
-
-    T get() const { return bit; }
+    void reset() { AggregateFunctionBaseData<T>::res_bit = -1; }
 };
 
 template <typename T>
-struct AggregateFunctionGroupBitXorData {
+struct AggregateFunctionGroupBitXorData : public AggregateFunctionBaseData<T> {
     static constexpr auto name = "group_bit_xor";
+    AggregateFunctionGroupBitXorData() : AggregateFunctionBaseData<T>(0) {}
 
-    T bit = 0;
+    void add(T value) { AggregateFunctionBaseData<T>::res_bit ^= value; }
 
-    void add(T value) { bit ^= value; }
+    void merge(const AggregateFunctionGroupBitXorData& rhs) {
+        AggregateFunctionBaseData<T>::res_bit ^= rhs.res_bit;
+    }
 
-    void merge(const AggregateFunctionGroupBitXorData& rhs) { bit ^= rhs.bit; }
-
-    void write(BufferWritable& buf) const { write_binary(bit, buf); }
-
-    void read(BufferReadable& buf) { read_binary(bit, buf); }
-
-    T get() const { return bit; }
+    void reset() { AggregateFunctionBaseData<T>::res_bit = 0; }
 };
 
 /// Counts bitwise operation on numbers.
@@ -86,18 +90,9 @@ template <typename T, typename Data>
 class AggregateFunctionBitwise final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>> {
 public:
-    // AggregateFunctionBitwise(const DataTypePtr& type)
-    //         : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(type, {}) {}
-
     AggregateFunctionBitwise(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(argument_types_,
                                                                                     {}) {}
-
-    using ResultType = std::conditional_t<IsNumber<T>, Int64, Int32>;
-    using ResultDataType =
-            std::conditional_t<IsNumber<T>, DataTypeNumber<Int64>, DataTypeNumber<Int32>>;
-    using ColVecType = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnVector<T>>;
-    using ColVecResult = std::conditional_t<IsNumber<T>, ColumnVector<Int64>, ColumnVector<Int32>>;
 
     String get_name() const override { return Data::name; }
 
@@ -105,11 +100,11 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& column = static_cast<const ColVecType&>(*columns[0]);
+        const auto& column = static_cast<const ColumnVector<T>&>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
-    // void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
+    void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
@@ -126,7 +121,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColVecResult&>(to);
+        auto& column = static_cast<ColumnVector<T>&>(to);
         column.get_data().push_back(this->data(place).get());
     }
 };

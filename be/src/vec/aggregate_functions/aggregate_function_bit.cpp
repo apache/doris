@@ -42,17 +42,19 @@ AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
 
     WhichDataType which(*type);
     if (which.is_int8()) {
-        return AggregateFunctionPtr(
-                new AggregateFunctionBitwise<Int32, Data<Int8>>(argument_types));
+        return AggregateFunctionPtr(new AggregateFunctionBitwise<Int8, Data<Int8>>(argument_types));
     } else if (which.is_int16()) {
         return AggregateFunctionPtr(
-                new AggregateFunctionBitwise<Int32, Data<Int16>>(argument_types));
+                new AggregateFunctionBitwise<Int16, Data<Int16>>(argument_types));
     } else if (which.is_int32()) {
         return AggregateFunctionPtr(
                 new AggregateFunctionBitwise<Int32, Data<Int32>>(argument_types));
     } else if (which.is_int64()) {
         return AggregateFunctionPtr(
-                new AggregateFunctionBitwise<Int32, Data<Int64>>(argument_types));
+                new AggregateFunctionBitwise<Int64, Data<Int64>>(argument_types));
+    } else if (which.is_int128()) {
+        return AggregateFunctionPtr(
+                new AggregateFunctionBitwise<Int128, Data<Int128>>(argument_types));
     }
 
     LOG(WARNING) << fmt::format("Illegal type " + argument_types[0]->get_name() +
