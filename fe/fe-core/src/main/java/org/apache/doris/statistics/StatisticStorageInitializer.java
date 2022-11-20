@@ -49,7 +49,7 @@ public class StatisticStorageInitializer extends Thread {
 
     private static final Logger LOG = LogManager.getLogger(StatisticStorageInitializer.class);
 
-    public static boolean forTest = true;
+    public static boolean forTest = false;
 
     public void run() {
         if (forTest) {
