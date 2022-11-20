@@ -83,6 +83,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // id for this plan fragment
     private PlanFragmentId fragmentId;
+    private int fragmentSequenceNum;
     // private PlanId planId_;
     // private CohortId cohortId_;
 
@@ -413,5 +414,17 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean isTransferQueryStatisticsWithEveryBatch() {
         return transferQueryStatisticsWithEveryBatch;
+    }
+
+    public int getFragmentSequenceNum() {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
+            return fragmentSequenceNum;
+        } else {
+            return fragmentId.asInt();
+        }
+    }
+
+    public void setFragmentSequenceNum(int seq) {
+        fragmentSequenceNum = seq;
     }
 }
