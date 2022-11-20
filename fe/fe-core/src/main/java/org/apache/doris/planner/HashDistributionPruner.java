@@ -58,7 +58,7 @@ public class HashDistributionPruner implements DistributionPruner {
     private Map<String, PartitionColumnFilter> distributionColumnFilters;
     private int                                hashMod;
 
-    HashDistributionPruner(List<Long> bucketsList, List<Column> columns,
+    public HashDistributionPruner(List<Long> bucketsList, List<Column> columns,
                            Map<String, PartitionColumnFilter> filters, int hashMod) {
         this.bucketsList = bucketsList;
         this.distributionColumns = columns;

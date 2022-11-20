@@ -19,9 +19,13 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -312,6 +316,31 @@ public class ExpressionUtils {
             }
         }
         return coveredPredicates;
+    }
+
+    /**
+     * check and maybe commute for predications except not pred.
+     */
+    public static Expression checkAndMaybeCommute(Expression expression) {
+        if (expression instanceof Not) {
+            return null;
+        }
+        if (expression instanceof InPredicate) {
+            InPredicate predicate = ((InPredicate) expression);
+            if (!predicate.getCompareExpr().isSlot()) {
+                return null;
+            }
+            return predicate.getOptions().stream().allMatch(Expression::isLiteral) ? expression : null;
+        } else if (expression instanceof ComparisonPredicate) {
+            ComparisonPredicate predicate = ((ComparisonPredicate) expression);
+            if (predicate.left() instanceof Literal) {
+                predicate = predicate.commute();
+            }
+            return predicate.left().isSlot() && predicate.right().isLiteral() ? predicate : null;
+        } else if (expression instanceof IsNull) {
+            return ((IsNull) expression).child().isSlot() ? expression : null;
+        }
+        return null;
     }
 }
 
