@@ -24,13 +24,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `HDFS`
+## HDFS
 
-## description
+### Name
 
-HDFS表函数（table-valued-function,tvf），可以读取hdfs上的文件，将文件中的内容转换为doris中的内存表,生成一张doris临时表。目前支持`csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`文件格式。
+hdfs
 
-## 语法
+### Description
+
+HDFS表函数（table-valued-function,tvf），可以让用户像访问关系表格式数据一样，读取并访问 HDFS 上的文件内容。目前支持`csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`文件格式。
+
+**语法**
 
 ```
 hdfs(
@@ -43,7 +47,7 @@ hdfs(
   );
 ```
 
-## 参数说明
+**参数说明**
 
 访问hdfs相关参数：
 - `uri`：（必填） 访问S3的uri，S3表函数会根据 `use_path_style` 参数来决定是否使用 path style 访问方式，默认为 virtual-hosted style 方式
@@ -70,10 +74,40 @@ hdfs(
 - `num_as_string`： (选填) 默认为 `false`
 - `fuzzy_parse`： (选填) 默认为 `false`
 
-## 使用说明
+### Examples
 
-关于HDFS tvf的详细使用方法可以参照 [S3](./s3.md) tvf, 唯一的不同的是访问存储系统的方式不一样。
+读取并访问 HDFS 存储上的csv格式文件
+```sql
+MySQL [(none)]> select * from hdfs(
+            "uri" = "hdfs://127.0.0.1:842/user/doris/csv_format_test/student.csv",
+            "fs.defaultFS" = "hdfs://127.0.0.1:8424",
+            "hadoop.username" = "doris",
+            "format" = "csv");
++------+---------+------+
+| c1   | c2      | c3   |
++------+---------+------+
+| 1    | alice   | 18   |
+| 2    | bob     | 20   |
+| 3    | jack    | 24   |
+| 4    | jackson | 19   |
+| 5    | liming  | 18   |
++------+---------+------+
+```
 
-### keywords
+可以配合`desc function`使用
+
+```sql
+MySQL [(none)]> desc function hdfs(
+            "uri" = "hdfs://127.0.0.1:8424/user/doris/csv_format_test/student_with_names.csv",
+            "fs.defaultFS" = "hdfs://127.0.0.1:8424",
+            "hadoop.username" = "doris",
+            "format" = "csv_with_names");
+```
+
+### Keywords
 
     hdfs, table-valued-function, tvf
+
+### Best Practice
+
+  关于HDFS tvf的更详细使用方法可以参照 [S3](./s3.md) tvf, 唯一不同的是访问存储系统的方式不一样。
