@@ -203,6 +203,8 @@ public class SessionVariable implements Serializable, Writable {
 
     static final String SESSION_CONTEXT = "session_context";
 
+    public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
+
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
@@ -245,6 +247,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
     public boolean enableExchangeNodeParallelMerge = false;
+
+    // By default, the number of Limit items after OrderBy is changed from 65535 items
+    // before v1.2.0 (not included), to return all items by default
+    @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
+    public long defaultOrderByLimit = -1;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)

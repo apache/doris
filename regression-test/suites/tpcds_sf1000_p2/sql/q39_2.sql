@@ -48,5 +48,5 @@ WHERE (inv1.i_item_sk = inv2.i_item_sk)
    AND (inv1.w_warehouse_sk = inv2.w_warehouse_sk)
    AND (inv1.d_moy = 1)
    AND (inv2.d_moy = (1 + 1))
-   AND (inv1.cov > CAST('1.5' AS DECIMAL))
+   AND (inv1.cov > CAST('1.5' AS DECIMAL(2,1)))
 ORDER BY inv1.w_warehouse_sk ASC, inv1.i_item_sk ASC, inv1.d_moy ASC, inv1.mean ASC, inv1.cov ASC, inv2.d_moy ASC, inv2.mean ASC, inv2.cov ASC

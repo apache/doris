@@ -401,7 +401,7 @@ public class MaterializedViewSelector {
             Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
             Set<String> indexColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             List<Column> candidateIndexSchema = entry.getValue().getSchema();
-            candidateIndexSchema.stream().forEach(column -> indexColumnNames.add(column.getName()));
+            candidateIndexSchema.forEach(column -> indexColumnNames.add(column.getName()));
             // The columns in query output must be subset of the columns in SPJ view
             if (!indexColumnNames.containsAll(columnNamesInQueryOutput)) {
                 iterator.remove();

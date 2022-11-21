@@ -60,6 +60,6 @@ public class TVFProperties extends Expression implements LeafExpression {
 
     @Override
     public String toString() {
-        return "KeyValuesExpression(" + toSql() + ")";
+        return "TVFProperties(" + toSql() + ")";
     }
 }

@@ -220,16 +220,22 @@ public class FunctionCallExpr extends Expr {
         this.argTypesForNereids = argTypes;
     }
 
-    // nereids constructor without finalize/analyze
-    public FunctionCallExpr(FunctionName functionName, Function function, FunctionParams functionParams) {
-        this.fnName = functionName;
+    // nereids scalar function call expr constructor without finalize/analyze
+    public FunctionCallExpr(Function function, FunctionParams functionParams) {
+        this(function, functionParams, null, false, functionParams.exprs());
+    }
+
+    // nereids aggregate function call expr constructor without finalize/analyze
+    public FunctionCallExpr(Function function, FunctionParams functionParams, FunctionParams aggFnParams,
+            boolean isMergeAggFn, List<Expr> children) {
+        this.fnName = function.getFunctionName();
         this.fn = function;
         this.type = function.getReturnType();
         this.fnParams = functionParams;
-        if (functionParams.exprs() != null) {
-            this.children.addAll(functionParams.exprs());
-        }
+        this.aggFnParams = aggFnParams;
+        this.children.addAll(children);
         this.originChildSize = children.size();
+        this.isMergeAggFn = isMergeAggFn;
         this.shouldFinalizeForNereids = false;
     }
 

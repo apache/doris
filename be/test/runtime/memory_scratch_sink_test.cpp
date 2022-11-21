@@ -71,7 +71,7 @@ public:
 
         EXPECT_EQ(system("mkdir -p ./test_run/output/"), 0);
         EXPECT_EQ(system("pwd"), 0);
-        EXPECT_EQ(system("cp -r ./be/test/runtime/test_data/ ./test_run/."), 0);
+        EXPECT_EQ(system("cp -r ./be/test/runtime/test_data ./test_run/."), 0);
 
         init();
     }

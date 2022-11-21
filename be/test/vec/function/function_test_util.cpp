@@ -48,7 +48,7 @@ uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_forma
     return binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v);
 }
 
-size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t index,
+size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
                                ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type) {
     doris_udf::FunctionContext::TypeDesc& desc = ut_desc.type_desc;
     if (index < 0 || index >= input_types.size()) {
@@ -56,19 +56,19 @@ size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t 
     }
 
     TypeIndex tp;
-    if (input_types[index].type() == typeid(Consted)) {
-        tp = std::any_cast<Consted>(input_types[index]).tp;
-    } else if (input_types[index].type() == typeid(ConstedNotnull)) {
-        tp = std::any_cast<ConstedNotnull>(input_types[index]).tp;
+    if (input_types[index].type() == &typeid(Consted)) {
+        tp = any_cast<Consted>(input_types[index]).tp;
+    } else if (input_types[index].type() == &typeid(ConstedNotnull)) {
+        tp = any_cast<ConstedNotnull>(input_types[index]).tp;
         ut_desc.is_nullable = false;
-    } else if (input_types[index].type() == typeid(Nullable)) {
-        tp = std::any_cast<Nullable>(input_types[index]).tp;
+    } else if (input_types[index].type() == &typeid(Nullable)) {
+        tp = any_cast<Nullable>(input_types[index]).tp;
         ut_desc.is_nullable = true;
-    } else if (input_types[index].type() == typeid(Notnull)) {
-        tp = std::any_cast<Notnull>(input_types[index]).tp;
+    } else if (input_types[index].type() == &typeid(Notnull)) {
+        tp = any_cast<Notnull>(input_types[index]).tp;
         ut_desc.is_nullable = false;
     } else {
-        tp = std::any_cast<TypeIndex>(input_types[index]);
+        tp = any_cast<TypeIndex>(input_types[index]);
     }
 
     switch (tp) {
@@ -164,13 +164,13 @@ size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t 
         return 0;
     }
 }
-bool parse_ut_data_type(const std::vector<std::any>& input_types, ut_type::UTDataTypeDescs& descs) {
+bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTDataTypeDescs& descs) {
     descs.clear();
     descs.reserve(input_types.size());
     for (size_t i = 0; i < input_types.size();) {
         ut_type::UTDataTypeDesc desc;
-        if (input_types[i].type() == typeid(Consted) ||
-            input_types[i].type() == typeid(ConstedNotnull)) {
+        if (input_types[i].type() == &typeid(Consted) ||
+            input_types[i].type() == &typeid(ConstedNotnull)) {
             desc.is_const = true;
         }
         size_t res = type_index_to_data_type(input_types, i, desc, desc.data_type);
@@ -188,8 +188,8 @@ bool parse_ut_data_type(const std::vector<std::any>& input_types, ut_type::UTDat
 }
 
 template <typename Date, TypeIndex type_index = TypeIndex::Nothing>
-bool insert_date_cell(MutableColumnPtr& column, const std::string& format, const std::any& cell) {
-    auto datetime_str = std::any_cast<std::string>(cell);
+bool insert_date_cell(MutableColumnPtr& column, const std::string& format, const AnyType& cell) {
+    auto datetime_str = any_cast<std::string>(cell);
     Date v;
     auto result = v.from_date_format_str(format.c_str(), format.size(), datetime_str.c_str(),
                                          datetime_str.size());
@@ -208,8 +208,8 @@ bool insert_date_cell(MutableColumnPtr& column, const std::string& format, const
     return true;
 }
 
-bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any& cell) {
-    if (cell.type() == typeid(Null)) {
+bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell) {
+    if (cell.type() == &typeid(Null)) {
         column->insert_data(nullptr, 0);
         return true;
     }
@@ -219,41 +219,41 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any&
 
     WhichDataType type(type_ptr);
     if (type.is_string()) {
-        auto str = std::any_cast<ut_type::STRING>(cell);
+        auto str = any_cast<ut_type::STRING>(cell);
         column->insert_data(str.c_str(), str.size());
     } else if (type.is_json()) {
-        auto str = std::any_cast<ut_type::STRING>(cell);
+        auto str = any_cast<ut_type::STRING>(cell);
         JsonBinaryValue jsonb_val(str.c_str(), str.size());
         column->insert_data(jsonb_val.value(), jsonb_val.size());
     } else if (type.idx == TypeIndex::BitMap) {
-        BitmapValue* bitmap = std::any_cast<BitmapValue*>(cell);
+        BitmapValue* bitmap = any_cast<BitmapValue*>(cell);
         column->insert_data((char*)bitmap, sizeof(BitmapValue));
     } else if (type.is_uint8()) {
-        auto value = std::any_cast<ut_type::BOOLEAN>(cell);
+        auto value = any_cast<ut_type::BOOLEAN>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_int8()) {
-        auto value = std::any_cast<ut_type::TINYINT>(cell);
+        auto value = any_cast<ut_type::TINYINT>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_int16()) {
-        auto value = std::any_cast<ut_type::SMALLINT>(cell);
+        auto value = any_cast<ut_type::SMALLINT>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_int32()) {
-        auto value = std::any_cast<ut_type::INT>(cell);
+        auto value = any_cast<ut_type::INT>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_int64()) {
-        auto value = std::any_cast<ut_type::BIGINT>(cell);
+        auto value = any_cast<ut_type::BIGINT>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_int128()) {
-        auto value = std::any_cast<ut_type::LARGEINT>(cell);
+        auto value = any_cast<ut_type::LARGEINT>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_float32()) {
-        auto value = std::any_cast<ut_type::FLOAT>(cell);
+        auto value = any_cast<ut_type::FLOAT>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_float64()) {
-        auto value = std::any_cast<ut_type::DOUBLE>(cell);
+        auto value = any_cast<ut_type::DOUBLE>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_decimal128()) {
-        auto value = std::any_cast<Decimal<Int128>>(cell);
+        auto value = any_cast<Decimal<Int128>>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_date_time()) {
         static std::string date_time_format("%Y-%m-%d %H:%i:%s");
@@ -272,7 +272,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any&
         RETURN_IF_FALSE((insert_date_cell<DateV2Value<DateTimeV2ValueType>>(
                 column, date_time_format, cell)));
     } else if (type.is_array()) {
-        auto v = std::any_cast<Array>(cell);
+        auto v = any_cast<Array>(cell);
         column->insert(v);
     } else {
         LOG(WARNING) << "dataset not supported for TypeIndex:" << (int)type.idx;

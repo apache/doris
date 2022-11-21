@@ -70,6 +70,7 @@ class ColumnDecimal final : public COWHelper<ColumnVectorHelper, ColumnDecimal<T
 private:
     using Self = ColumnDecimal;
     friend class COWHelper<ColumnVectorHelper, Self>;
+    static constexpr bool IsDecimal128I = std::is_same_v<T, Decimal128I>;
 
 public:
     using value_type = T;
@@ -175,10 +176,28 @@ public:
         return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-    bool get_bool(size_t n) const override { return bool(data[n]); }
-    Int64 get_int(size_t n) const override { return Int64(data[n] * scale); }
+    bool get_bool(size_t n) const override {
+        if constexpr (IsDecimal128I) {
+            return bool(data[n].value.val);
+        } else {
+            return bool(data[n]);
+        }
+    }
+    Int64 get_int(size_t n) const override {
+        if constexpr (IsDecimal128I) {
+            return Int64(data[n].value.val * scale);
+        } else {
+            return Int64(data[n] * scale);
+        }
+    }
     UInt64 get64(size_t n) const override;
-    bool is_default_at(size_t n) const override { return data[n] == 0; }
+    bool is_default_at(size_t n) const override {
+        if constexpr (IsDecimal128I) {
+            return data[n].value.val == 0;
+        } else {
+            return data[n] == 0;
+        }
+    }
 
     void clear() override { data.clear(); }
 
@@ -240,8 +259,20 @@ public:
     UInt32 get_scale() const { return scale; }
 
     T get_scale_multiplier() const;
-    T get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
-    T get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+    T get_whole_part(size_t n) const {
+        if constexpr (IsDecimal128I) {
+            return data[n].value.val / get_scale_multiplier().value.val;
+        } else {
+            return data[n] / get_scale_multiplier();
+        }
+    }
+    T get_fractional_part(size_t n) const {
+        if constexpr (IsDecimal128I) {
+            return data[n].value.val % get_scale_multiplier().value.val;
+        } else {
+            return data[n] % get_scale_multiplier();
+        }
+    }
 
 protected:
     Container data;
@@ -256,12 +287,23 @@ protected:
         auto sort_end = res.end();
         if (limit && limit < s) sort_end = res.begin() + limit;
 
-        if (reverse)
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] > data[b]; });
-        else
-            std::partial_sort(res.begin(), sort_end, res.end(),
-                              [this](size_t a, size_t b) { return data[a] < data[b]; });
+        if constexpr (doris::vectorized::IsDecimal128I<T>) {
+            if (reverse)
+                std::partial_sort(res.begin(), sort_end, res.end(), [this](size_t a, size_t b) {
+                    return data[a].value.val > data[b].value.val;
+                });
+            else
+                std::partial_sort(res.begin(), sort_end, res.end(), [this](size_t a, size_t b) {
+                    return data[a].value.val < data[b].value.val;
+                });
+        } else {
+            if (reverse)
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] > data[b]; });
+            else
+                std::partial_sort(res.begin(), sort_end, res.end(),
+                                  [this](size_t a, size_t b) { return data[a] < data[b]; });
+        }
     }
 };
 

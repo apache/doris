@@ -45,21 +45,42 @@ bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
 std::string MemInfo::_s_mem_limit_str = "";
-size_t MemInfo::_s_allocator_physical_mem = 0;
-size_t MemInfo::_s_pageheap_unmapped_bytes = 0;
-size_t MemInfo::_s_tcmalloc_pageheap_free_bytes = 0;
-size_t MemInfo::_s_tcmalloc_central_bytes = 0;
-size_t MemInfo::_s_tcmalloc_transfer_bytes = 0;
-size_t MemInfo::_s_tcmalloc_thread_bytes = 0;
-size_t MemInfo::_s_allocator_cache_mem = 0;
+
+int64_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
-size_t MemInfo::_s_virtual_memory_used = 0;
+int64_t MemInfo::_s_virtual_memory_used = 0;
 int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 int64_t MemInfo::_s_sys_mem_available = 0;
 std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = 0;
+
+void MemInfo::refresh_allocator_mem() {
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
+#elif defined(USE_JEMALLOC)
+    uint64_t epoch = 0;
+    size_t sz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+
+    // https://jemalloc.net/jemalloc.3.html
+    _s_allocator_cache_mem =
+            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL));
+    _s_allocator_cache_mem_str =
+            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
+    _s_virtual_memory_used = get_je_metrics("stats.mapped");
+#else
+    _s_allocator_cache_mem = get_tc_metrics("tcmalloc.pageheap_free_bytes") +
+                             get_tc_metrics("tcmalloc.central_cache_free_bytes") +
+                             get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
+                             get_tc_metrics("tcmalloc.thread_cache_free_bytes");
+    _s_allocator_cache_mem_str =
+            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
+    _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
+                             get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
+#endif
+}
 
 #ifndef __APPLE__
 void MemInfo::refresh_proc_meminfo() {
@@ -88,6 +109,11 @@ void MemInfo::refresh_proc_meminfo() {
 
     _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
     _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
+
+    LOG_EVERY_N(INFO, 10) << fmt::format(
+            "Physical Memory: {}, Sys Mem Available {}, Tc/Jemalloc Allocator Cache {}",
+            PrettyPrinter::print(_mem_info_bytes["MemTotal"], TUnit::BYTES),
+            _s_sys_mem_available_str, MemInfo::allocator_cache_mem_str());
 }
 
 void MemInfo::init() {
@@ -183,9 +209,6 @@ std::string MemInfo::debug_string() {
     stream << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
     stream << "Memory Limt: " << PrettyPrinter::print(_s_mem_limit, TUnit::BYTES) << std::endl;
-    stream << "Current Usage: "
-           << PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_physical_mem), TUnit::BYTES)
-           << std::endl;
     stream << "CGroup Info: " << util.debug_string() << std::endl;
     return stream.str();
 }

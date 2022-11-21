@@ -17,11 +17,15 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorder;
+import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupLeft;
 import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupRight;
 import org.apache.doris.nereids.rules.joinreorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +36,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.statistics.StatsDeriveResult;
+
+import com.google.common.base.Preconditions;
+import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -52,6 +59,48 @@ public class HyperGraphBuilder {
         return graph;
     }
 
+    public HyperGraph randomBuildWith(int tableNum, int edgeNum) {
+        Preconditions.checkArgument(edgeNum >= tableNum - 1,
+                String.format("We can't build a connected graph with %d tables %d edges", tableNum, edgeNum));
+        Preconditions.checkArgument(edgeNum <= tableNum * (tableNum - 1) / 2,
+                String.format("The edges are redundant with %d tables %d edges", tableNum, edgeNum));
+
+        int[] tableRowCounts = new int[tableNum];
+        for (int i = 1; i <= tableNum; i++) {
+            tableRowCounts[i - 1] = i;
+        }
+        this.init(tableRowCounts);
+
+        List<Pair<Integer, Integer>> edges = new ArrayList<>();
+        for (int i = 0; i < tableNum; i++) {
+            for (int j = i + 1; j < tableNum; j++) {
+                edges.add(Pair.of(i, j));
+            }
+        }
+
+        while (edges.size() > 0) {
+            int index = (int) (Math.random() * edges.size());
+            Pair<Integer, Integer> edge = edges.get(index);
+            edges.remove(index);
+            this.addEdge(JoinType.INNER_JOIN, edge.first, edge.second);
+            edgeNum -= 1;
+            if (plans.size() - 1 == edgeNum) {
+                // We must keep all tables connected.
+                break;
+            }
+        }
+
+        BitSet[] keys = new BitSet[plans.size()];
+        plans.keySet().toArray(keys);
+        int size = plans.size();
+        for (int i = 1; i < size; i++) {
+            int left = keys[0].nextSetBit(0);
+            int right = keys[i].nextSetBit(0);
+            this.addEdge(JoinType.INNER_JOIN, left, right);
+        }
+        return this.build();
+    }
+
     public HyperGraphBuilder init(int... rowCounts) {
         for (int i = 0; i < rowCounts.length; i++) {
             this.rowCounts.add(rowCounts[i]);
@@ -66,23 +115,20 @@ public class HyperGraphBuilder {
     }
 
     public HyperGraphBuilder addEdge(JoinType joinType, int node1, int node2) {
-        assert node1 >= 0 && node1 < rowCounts.size() : String.format("%d must in [%d, %d)", node1, 0,
-                rowCounts.size());
-        assert node2 >= 0 && node2 < rowCounts.size() : String.format("%d must in [%d, %d)", node1, 0,
-                rowCounts.size());
+        Preconditions.checkArgument(node1 >= 0 && node1 < rowCounts.size(),
+                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
+        Preconditions.checkArgument(node2 >= 0 && node1 < rowCounts.size(),
+                String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
 
-        BitSet leftBitmap = new BitSet();
-        leftBitmap.set(node1);
-        BitSet rightBitmap = new BitSet();
-        rightBitmap.set(node2);
-        BitSet fullBitmap = new BitSet();
-        fullBitmap.or(leftBitmap);
-        fullBitmap.or(rightBitmap);
+        BitSet leftBitmap = Bitmap.newBitmap(node1);
+        BitSet rightBitmap = Bitmap.newBitmap(node2);
+        BitSet fullBitmap = Bitmap.newBitmapUnion(leftBitmap, rightBitmap);
         Optional<BitSet> fullKey = findPlan(fullBitmap);
         if (!fullKey.isPresent()) {
             Optional<BitSet> leftKey = findPlan(leftBitmap);
             Optional<BitSet> rightKey = findPlan(rightBitmap);
-            assert leftKey.isPresent() && rightKey.isPresent();
+            assert leftKey.isPresent() && rightKey.isPresent() : String.format("can not find plan %s-%s", leftBitmap,
+                    rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
             LogicalJoin join = new LogicalJoin<>(joinType, new ArrayList<>(), leftPlan, rightPlan);
@@ -122,8 +168,19 @@ public class HyperGraphBuilder {
         return bitSet.equals(bitSet2);
     }
 
+    private Rule selectRuleForPlan(Plan plan) {
+        Assertions.assertTrue(plan instanceof LogicalJoin);
+        LogicalJoin join = (LogicalJoin) plan;
+        if (!(join.left() instanceof LogicalJoin)) {
+            return new HyperGraphJoinReorderGroupLeft().build();
+        } else if (!(join.right() instanceof LogicalJoin)) {
+            return new HyperGraphJoinReorderGroupRight().build();
+        }
+        return new HyperGraphJoinReorder().build();
+    }
+
     private Plan extractJoinCluster(Plan plan) {
-        Rule rule = new HyperGraphJoinReorderGroupRight().build();
+        Rule rule = selectRuleForPlan(plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         GroupExpressionMatching groupExpressionMatching

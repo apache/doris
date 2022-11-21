@@ -53,6 +53,7 @@ import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
+import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
@@ -219,8 +220,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = Lists.newArrayList();
         for (org.apache.doris.nereids.DorisParser.StatementContext statement : ctx.statement()) {
             StatementContext statementContext = new StatementContext();
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().setStatementContext(statementContext);
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null) {
+                connectContext.setStatementContext(statementContext);
+                statementContext.setConnectContext(connectContext);
             }
             logicalPlans.add(Pair.of(
                     ParserUtils.withOrigin(ctx, () -> (LogicalPlan) visit(statement)), statementContext));
@@ -258,12 +261,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitExplain(ExplainContext ctx) {
-        LogicalPlan logicalPlan = plan(ctx.query());
-        ExplainLevel explainLevel = ExplainLevel.NORMAL;
-        if (ctx.level != null) {
-            explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
-        }
-        return new ExplainCommand(explainLevel, logicalPlan);
+        return ParserUtils.withOrigin(ctx, () -> {
+            LogicalPlan logicalPlan = plan(ctx.query());
+            ExplainLevel explainLevel = ExplainLevel.NORMAL;
+
+            if (ctx.planType() != null) {
+                if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
+                    throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
+                }
+            }
+
+            if (ctx.level != null) {
+                if (!ctx.level.getText().equalsIgnoreCase("plan")) {
+                    explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
+                } else {
+                    explainLevel = parseExplainPlanType(ctx.planType());
+                }
+            }
+            return new ExplainCommand(explainLevel, logicalPlan);
+        });
     }
 
     @Override
@@ -687,8 +703,52 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .map(ParseTree::getText)
                 .map(str -> str.substring(1, str.length() - 1))
                 .reduce((s1, s2) -> s1 + s2)
+                .map(this::escapeBackSlash)
                 .orElse("");
         return new VarcharLiteral(s);
+    }
+
+    private String escapeBackSlash(String str) {
+        StringBuilder sb = new StringBuilder();
+        int strLen = str.length();
+        for (int i = 0; i < strLen; ++i) {
+            char c = str.charAt(i);
+            if (c == '\\' && (i + 1) < strLen) {
+                switch (str.charAt(i + 1)) {
+                    case 'n':
+                        sb.append('\n');
+                        break;
+                    case 't':
+                        sb.append('\t');
+                        break;
+                    case 'r':
+                        sb.append('\r');
+                        break;
+                    case 'b':
+                        sb.append('\b');
+                        break;
+                    case '0':
+                        sb.append('\0'); // Ascii null
+                        break;
+                    case 'Z': // ^Z must be escaped on Win32
+                        sb.append('\032');
+                        break;
+                    case '_':
+                    case '%':
+                        sb.append('\\'); // remember prefix for wildcard
+                        sb.append(str.charAt(i + 1));
+                        break;
+                    default:
+                        sb.append(str.charAt(i + 1));
+                        break;
+                }
+                i++;
+            } else {
+                sb.append(c);
+            }
+        }
+
+        return sb.toString();
     }
 
     @Override
@@ -1074,5 +1134,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return item.getText();
+    }
+
+    private ExplainLevel parseExplainPlanType(PlanTypeContext planTypeContext) {
+        if (planTypeContext == null || planTypeContext.ALL() != null) {
+            return ExplainLevel.ALL_PLAN;
+        }
+        if (planTypeContext.PHYSICAL() != null || planTypeContext.OPTIMIZED() != null) {
+            return ExplainLevel.OPTIMIZED_PLAN;
+        }
+        if (planTypeContext.REWRITTEN() != null || planTypeContext.LOGICAL() != null) {
+            return ExplainLevel.REWRITTEN_PLAN;
+        }
+        if (planTypeContext.ANALYZED() != null) {
+            return ExplainLevel.ANALYZED_PLAN;
+        }
+        if (planTypeContext.PARSED() != null) {
+            return ExplainLevel.PARSED_PLAN;
+        }
+        return ExplainLevel.ALL_PLAN;
     }
 }

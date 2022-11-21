@@ -273,7 +273,7 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_JEMALLOC='OFF'
+        USE_JEMALLOC='ON'
     else
         USE_JEMALLOC='OFF'
     fi

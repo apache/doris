@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PaloRole;
 
@@ -46,10 +47,13 @@ public class FeNameFormat {
 
     public static void checkTableName(String tableName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)
-                || !tableName.matches(COMMON_TABLE_NAME_REGEX)
-                || tableName.length() > Config.table_name_length_limit) {
+                || !tableName.matches(COMMON_TABLE_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME, tableName,
                     COMMON_TABLE_NAME_REGEX);
+        }
+        if (tableName.length() > Config.table_name_length_limit) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_NAME_LENGTH_LIMIT, tableName,
+                    tableName.length(), Config.table_name_length_limit);
         }
     }
 
@@ -69,6 +73,10 @@ public class FeNameFormat {
                     columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }
         if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.COLUMN_NAME_REGEX);
+        }
+        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }

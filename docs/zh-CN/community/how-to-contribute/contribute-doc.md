@@ -310,3 +310,122 @@ under the License.
 4. 图片
 
    所有图片都在 `static/images `目录下面
+
+## 文档多版本
+
+网站文档支持通过 html 标签标记版本。可以通过 `<version>` 标签标记文档中的某段内容是从哪个版本开始的，或者从哪个版本移除。
+
+### 参数介绍
+
+| 参数 | 说明 | 值 |
+|---|---|---|
+| since | 从该版本支持 | 版本号 |
+| deprecated | 从该版本移除 | 版本号 |
+| comment | 注释 |  |
+| type | 有默认和行内两种样式 | 不传值表示默认样式，传inline表示行内样式 |
+
+注意：`<version>` 标签前后要有空行，避免样式渲染异常。
+
+### 单标签
+
+```
+
+<version since="1.1">
+
+Apache Doris was first born as Palo project for Baidu's ad reporting business,
+ officially open-sourced in 2017, donated by Baidu to the Apache Foundation 
+ for incubation in July 2018, and then incubated and operated by members of 
+ the incubator project management committee under the guidance of 
+ Apache mentors. Currently, the Apache Doris community has gathered 
+ more than 300 contributors from nearly 100 companies in different 
+ industries, and the number of active contributors is close to 100 per month. 
+ Apache Doris has graduated from Apache incubator successfully and 
+ become a Top-Level Project in June 2022.
+
+</version>
+
+```
+
+渲染样式：
+
+<version since="1.1">
+
+Apache Doris was first born as Palo project for Baidu's ad reporting business,
+ officially open-sourced in 2017, donated by Baidu to the Apache Foundation 
+ for incubation in July 2018, and then incubated and operated by members of 
+ the incubator project management committee under the guidance of 
+ Apache mentors. Currently, the Apache Doris community has gathered 
+ more than 300 contributors from nearly 100 companies in different 
+ industries, and the number of active contributors is close to 100 per month. 
+ Apache Doris has graduated from Apache incubator successfully and 
+ become a Top-Level Project in June 2022.
+
+</version>
+
+### 多标签
+
+```
+
+<version since="1.2" deprecated="1.5">
+
+# Usage Scenarios
+
+As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/sekvbs5ih5rb16wz6n9k.png)
+
+Apache Doris is widely used in the following scenarios:
+
+</version>
+
+```
+
+渲染样式：
+
+<version since="1.2" deprecated="1.5">
+
+# Usage Scenarios
+
+As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/sekvbs5ih5rb16wz6n9k.png)
+
+Apache Doris is widely used in the following scenarios:
+
+</version>
+
+### 包含注释
+
+```
+
+<version since="1.3" comment="This is comment, Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. ">
+
+-   Frontend（FE）: It is mainly responsible for user request access, query parsing and planning, management of metadata, and node management-related work.
+-   Backend（BE）: It is mainly responsible for data storage and query plan execution.
+
+Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. And these two types of processes guarantee high availability of services and high reliability of data through consistency protocols. This highly integrated architecture design greatly reduces the operation and maintenance cost of a distributed system.
+
+</version>
+
+```
+
+渲染样式：
+
+<version since="1.3" comment="This is comment, Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. ">
+
+-   Frontend（FE）: It is mainly responsible for user request access, query parsing and planning, management of metadata, and node management-related work.
+-   Backend（BE）: It is mainly responsible for data storage and query plan execution.
+
+Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. And these two types of processes guarantee high availability of services and high reliability of data through consistency protocols. This highly integrated architecture design greatly reduces the operation and maintenance cost of a distributed system.
+
+</version>
+
+### 行内标签
+
+```
+In terms of the storage engine, Doris uses columnar storage to encode and compress and read data by column, <version since="1.0" type="inline" > enabling a very high compression ratio while reducing a large number of scans of non-relevant data,</version> thus making more efficient use of IO and CPU resources.
+```
+
+渲染样式：
+
+In terms of the storage engine, Doris uses columnar storage to encode and compress and read data by column, <version since="1.0" type="inline" > enabling a very high compression ratio while reducing a large number of scans of non-relevant data,</version> thus making more efficient use of IO and CPU resources.
+
+

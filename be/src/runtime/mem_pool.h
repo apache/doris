@@ -104,7 +104,9 @@ public:
     /// Allocates a section of memory of 'size' bytes with DEFAULT_ALIGNMENT at the end
     /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
-    uint8_t* allocate(int64_t size) { return allocate<false>(size, DEFAULT_ALIGNMENT); }
+    uint8_t* allocate(int64_t size, bool free_old_chunks = false) {
+        return allocate<false>(size, DEFAULT_ALIGNMENT, free_old_chunks);
+    }
 
     uint8_t* allocate_aligned(int64_t size, int alignment) {
         DCHECK_GE(alignment, 1);
@@ -202,7 +204,7 @@ private:
     /// if a new chunk needs to be created.
     /// If check_limits is true, this call can fail (returns false) if adding a
     /// new chunk exceeds the mem limits.
-    Status find_chunk(size_t min_size, bool check_limits);
+    Status find_chunk(size_t min_size, bool check_limits, bool free_old_chunks);
 
     /// Check integrity of the supporting data structures; always returns true but DCHECKs
     /// all invariants.
@@ -248,7 +250,7 @@ private:
     }
 
     template <bool CHECK_LIMIT_FIRST>
-    uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment) {
+    uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment, bool free_old_chunks = false) {
         DCHECK_GE(size, 0);
         if (UNLIKELY(size == 0)) return reinterpret_cast<uint8_t*>(&k_zero_length_region_);
 
@@ -264,7 +266,8 @@ private:
         // guarantee alignment.
         //static_assert(
         //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
-        if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST))) return nullptr;
+        if (UNLIKELY(!find_chunk(size + DEFAULT_PADDING_SIZE, CHECK_LIMIT_FIRST, free_old_chunks)))
+            return nullptr;
 
         uint8_t* result = allocate_from_current_chunk(size, alignment);
         return result;
@@ -306,6 +309,6 @@ private:
 };
 
 // Stamp out templated implementations here so they're included in IR module
-template uint8_t* MemPool::allocate<false>(int64_t size, int alignment);
-template uint8_t* MemPool::allocate<true>(int64_t size, int alignment);
+template uint8_t* MemPool::allocate<false>(int64_t size, int alignment, bool free_old_chunks);
+template uint8_t* MemPool::allocate<true>(int64_t size, int alignment, bool free_old_chunks);
 } // namespace doris

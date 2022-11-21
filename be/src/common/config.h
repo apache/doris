@@ -784,8 +784,6 @@ CONF_mInt32(orc_natural_read_size_mb, "8");
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
-CONF_Bool(enable_decimalv3, "false");
-
 //whether turn on quick compaction feature
 CONF_Bool(enable_quick_compaction, "false");
 // For continuous versions that rows less than quick_compaction_max_rows will  trigger compaction quickly

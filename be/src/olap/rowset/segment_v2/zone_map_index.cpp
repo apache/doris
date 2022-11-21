@@ -181,7 +181,7 @@ Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     M(TYPE_STRING)               \
     M(TYPE_DECIMAL32)            \
     M(TYPE_DECIMAL64)            \
-    M(TYPE_DECIMAL128)
+    M(TYPE_DECIMAL128I)
 
 Status ZoneMapIndexWriter::create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (field->type()) {

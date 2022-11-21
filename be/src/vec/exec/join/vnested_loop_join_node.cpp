@@ -74,6 +74,7 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::close");
+    _release_mem();
     return VJoinNodeBase::close(state);
 }
 
@@ -514,6 +515,16 @@ void VNestedLoopJoinNode::debug_string(int indentation_level, std::stringstream*
          << " left_block_pos=" << _left_block_pos;
     VJoinNodeBase::debug_string(indentation_level, out);
     *out << ")";
+}
+
+void VNestedLoopJoinNode::_release_mem() {
+    _left_block.clear();
+
+    Blocks tmp_build_blocks;
+    _build_blocks.swap(tmp_build_blocks);
+
+    MutableColumns tmp_build_side_visited_flags;
+    _build_side_visited_flags.swap(tmp_build_side_visited_flags);
 }
 
 } // namespace doris::vectorized
