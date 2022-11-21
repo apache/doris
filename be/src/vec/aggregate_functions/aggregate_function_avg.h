@@ -53,17 +53,18 @@ struct AggregateFunctionAvgData {
             // null is handled in AggregationNode::_get_without_key_result
             return static_cast<ResultT>(sum);
         }
-        if (!config::enable_decimalv3) {
-            // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
-            if constexpr (std::is_same_v<ResultT, Decimal128> && std::is_same_v<T, Decimal128>) {
-                DecimalV2Value decimal_val_count(count, 0);
-                DecimalV2Value decimal_val_sum(static_cast<Int128>(sum));
-                DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-                Decimal128 ret(cal_ret.value());
-                return ret;
-            }
+        // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
+        if constexpr (IsDecimalV2<T> && IsDecimalV2<ResultT>) {
+            DecimalV2Value decimal_val_count(count, 0);
+            DecimalV2Value decimal_val_sum(static_cast<Int128>(sum));
+            DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
+            Decimal128 ret(cal_ret.value());
+            return ret;
+        } else if constexpr (IsDecimal128I<T> && IsDecimal128I<ResultT>) {
+            return static_cast<ResultT>(sum).value.val / count;
+        } else {
+            return static_cast<ResultT>(sum) / count;
         }
-        return static_cast<ResultT>(sum) / count;
     }
 
     void write(BufferWritable& buf) const {
@@ -82,12 +83,18 @@ template <typename T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
-    using ResultType = std::conditional_t<IsDecimalNumber<T>, Decimal128, Float64>;
-    using ResultDataType = std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128>,
-                                              DataTypeNumber<Float64>>;
+    using ResultType =
+            std::conditional_t<IsDecimalV2<T>, Decimal128,
+                               std::conditional_t<IsDecimalNumber<T>, Decimal128I, Float64>>;
+    using ResultDataType =
+            std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
+                               std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128I>,
+                                                  DataTypeNumber<Float64>>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>,
-                                            ColumnVector<Float64>>;
+    using ColVecResult =
+            std::conditional_t<IsDecimalV2<T>, ColumnDecimal<Decimal128>,
+                               std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128I>,
+                                                  ColumnVector<Float64>>>;
 
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
@@ -114,7 +121,13 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& column = static_cast<const ColVecType&>(*columns[0]);
-        this->data(place).sum += column.get_data()[row_num];
+        if constexpr (IsDecimal128I<ResultType> && IsDecimal128I<T>) {
+            this->data(place).sum.value.val += column.get_data()[row_num].value.val;
+        } else if constexpr (IsDecimal128I<ResultType> && IsDecimalNumber<T>) {
+            this->data(place).sum.value.val += column.get_data()[row_num];
+        } else {
+            this->data(place).sum += column.get_data()[row_num];
+        }
         ++this->data(place).count;
     }
 

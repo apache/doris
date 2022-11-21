@@ -148,6 +148,10 @@ PROPERTIES (
 
 At present, only this version has been tested, and other versions will be added after testing
 
+#### 4.ClickHouse
+| ClickHouse Version | ClickHouse JDBC Driver Version        |
+|-------------|---------------------------------------|
+| 22          | clickhouse-jdbc-0.3.2-patch11-all.jar |
 
 ## Type matching
 
@@ -215,12 +219,34 @@ There are different data types among different databases. Here is a list of the 
 | DATETIME  | DATETIME |
 |  DECIMAL  | DECIMAL  |
 
+### ClickHouse
+
+| ClickHouse |  Doris   |
+|:----------:|:--------:|
+|  BOOLEAN   | BOOLEAN  |
+|    CHAR    |   CHAR   |
+|  VARCHAR   | VARCHAR  |
+|   STRING   |  STRING  |
+|    DATE    |   DATE   |
+|  Float32   |  FLOAT   |
+|  Float64   |  DOUBLE  |
+|    Int8    | TINYINT  |
+|   Int16    | SMALLINT |
+|   Int32    |   INT    |
+|   Int64    |  BIGINT  |
+|   Int128   | LARGEINT |
+|  DATETIME  | DATETIME |
+|  DECIMAL   | DECIMAL  |
+
+**Note:**
+- For some specific types in ClickHouse, For example, UUID,IPv4,IPv6, and Enum8 can be matched with Doris's Varchar/String type. However, in the display of IPv4 and IPv6, an extra `/` is displayed before the data, which needs to be processed by the `split_part` function
+- For the Geo type Point of ClickHouse, the match cannot be made
 
 ## Q&A
 
-1. Besides mysql, Oracle, PostgreSQL, and SQL Server support more databases
+1. Besides mysql, Oracle, PostgreSQL, SQL Server and ClickHouse support more databases
 
-At present, Doris only adapts to MySQL, Oracle, SQL Server, and PostgreSQL.  And planning to adapt other databases. In principle, any database that supports JDBC access can be accessed through the JDBC facade. If you need to access other appearances, you are welcome to modify the code and contribute to Doris.
+At present, Doris only adapts to MySQL, Oracle, PostgreSQL, SQL Server and ClickHouse.  And planning to adapt other databases. In principle, any database that supports JDBC access can be accessed through the JDBC facade. If you need to access other appearances, you are welcome to modify the code and contribute to Doris.
 
 2. Read the Emoji expression on the surface of MySQL, and there is garbled code
 

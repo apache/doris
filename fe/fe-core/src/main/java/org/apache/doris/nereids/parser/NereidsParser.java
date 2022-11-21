@@ -53,19 +53,20 @@ public class NereidsParser {
     public List<StatementBase> parseSQL(String originStr) {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = parseMultiple(originStr);
         List<StatementBase> statementBases = Lists.newArrayList();
-        for (Pair<LogicalPlan, StatementContext> logicalPlan : logicalPlans) {
+        for (Pair<LogicalPlan, StatementContext> parsedPlanToContext : logicalPlans) {
             // TODO: this is a trick to support explain. Since we do not support any other command in a short time.
             //     It is acceptable. In the future, we need to refactor this.
-            if (logicalPlan.first instanceof ExplainCommand) {
-                ExplainCommand explainCommand = (ExplainCommand) logicalPlan.first;
+            StatementContext statementContext = parsedPlanToContext.second;
+            if (parsedPlanToContext.first instanceof ExplainCommand) {
+                ExplainCommand explainCommand = (ExplainCommand) parsedPlanToContext.first;
                 LogicalPlan innerPlan = explainCommand.getLogicalPlan();
-                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan, logicalPlan.second);
-                logicalPlanAdapter.setIsExplain(new ExplainOptions(
-                        explainCommand.getLevel() == ExplainLevel.VERBOSE,
-                        explainCommand.getLevel() == ExplainLevel.GRAPH));
+                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(innerPlan, statementContext);
+                ExplainLevel explainLevel = explainCommand.getLevel();
+                ExplainOptions explainOptions = new ExplainOptions(explainLevel);
+                logicalPlanAdapter.setIsExplain(explainOptions);
                 statementBases.add(logicalPlanAdapter);
             } else {
-                statementBases.add(new LogicalPlanAdapter(logicalPlan.first, logicalPlan.second));
+                statementBases.add(new LogicalPlanAdapter(parsedPlanToContext.first, statementContext));
             }
         }
         return statementBases;

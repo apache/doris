@@ -35,6 +35,8 @@ echo "hadoop fs -put /mnt/scripts/orc /user/doris/"
 hadoop fs -put /mnt/scripts/orc /user/doris/
 echo "hadoop fs -put /mnt/scripts/csv_format_test /user/doris/"
 hadoop fs -put /mnt/scripts/csv_format_test /user/doris/
+echo "hadoop fs -put /mnt/scripts/data_case /user/doris/"
+hadoop fs -put /mnt/scripts/data_case /user/doris/
 echo "hive -f /mnt/scripts/create.hql"
 hive -f /mnt/scripts/create.hql
 

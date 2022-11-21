@@ -217,11 +217,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputTupleDesc = localAggNode.getAggInfo().getOutputTupleDesc();
         }
 
-        if (aggregate.getAggPhase() == AggPhase.GLOBAL) {
-            for (FunctionCallExpr execAggregateFunction : execAggregateFunctions) {
-                execAggregateFunction.setMergeForNereids(true);
-            }
-        }
+        // TODO: move setMergeForNereids to ExpressionTranslator.visitAggregateFunction
         if (aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
             for (FunctionCallExpr execAggregateFunction : execAggregateFunctions) {
                 if (!execAggregateFunction.isDistinct()) {

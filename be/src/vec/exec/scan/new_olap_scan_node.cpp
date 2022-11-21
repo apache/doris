@@ -17,6 +17,7 @@
 
 #include "vec/exec/scan/new_olap_scan_node.h"
 
+#include "common/status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "util/to_string.h"
@@ -135,6 +136,18 @@ static std::string olap_filters_to_string(const std::vector<doris::TCondition>& 
     return filters_string;
 }
 
+inline std::string push_down_agg_to_string(const TPushAggOp::type& op) {
+    if (op == TPushAggOp::MINMAX) {
+        return "MINMAX";
+    } else if (op == TPushAggOp::COUNT) {
+        return "COUNT";
+    } else if (op == TPushAggOp::MIX) {
+        return "MIX";
+    } else {
+        return "NONE";
+    }
+}
+
 static std::string tablets_id_to_string(
         const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
     if (scan_ranges.empty()) {
@@ -160,57 +173,64 @@ Status NewOlapScanNode::_process_conjuncts() {
 }
 
 Status NewOlapScanNode::_build_key_ranges_and_filters() {
-    const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
-    const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
-    DCHECK(column_types.size() == column_names.size());
+    if (!_olap_scan_node.__isset.push_down_agg_type_opt ||
+        _olap_scan_node.push_down_agg_type_opt == TPushAggOp::NONE) {
+        const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
+        const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
+        DCHECK(column_types.size() == column_names.size());
 
-    // 1. construct scan key except last olap engine short key
-    _scan_keys.set_is_convertible(limit() == -1);
+        // 1. construct scan key except last olap engine short key
+        _scan_keys.set_is_convertible(limit() == -1);
 
-    // we use `exact_range` to identify a key range is an exact range or not when we convert
-    // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
-    bool exact_range = true;
-    bool eos = false;
-    for (int column_index = 0;
-         column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
-         ++column_index) {
-        auto iter = _colname_to_value_range.find(column_names[column_index]);
-        if (_colname_to_value_range.end() == iter) {
-            break;
-        }
+        // we use `exact_range` to identify a key range is an exact range or not when we convert
+        // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
+        bool exact_range = true;
+        bool eos = false;
+        for (int column_index = 0;
+             column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
+             ++column_index) {
+            auto iter = _colname_to_value_range.find(column_names[column_index]);
+            if (_colname_to_value_range.end() == iter) {
+                break;
+            }
 
-        RETURN_IF_ERROR(std::visit(
-                [&](auto&& range) {
-                    // make a copy or range and pass to extend_scan_key, keep the range unchanged
-                    // because extend_scan_key method may change the first parameter.
-                    // but the original range may be converted to olap filters, if it's not a exact_range.
-                    auto temp_range = range;
-                    if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
-                        RETURN_IF_ERROR(_scan_keys.extend_scan_key(temp_range, _max_scan_key_num,
-                                                                   &exact_range, &eos));
-                        if (exact_range) {
-                            _colname_to_value_range.erase(iter->first);
+            RETURN_IF_ERROR(std::visit(
+                    [&](auto&& range) {
+                        // make a copy or range and pass to extend_scan_key, keep the range unchanged
+                        // because extend_scan_key method may change the first parameter.
+                        // but the original range may be converted to olap filters, if it's not a exact_range.
+                        auto temp_range = range;
+                        if (range.get_fixed_value_size() <= _max_pushdown_conditions_per_column) {
+                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
+                                    temp_range, _max_scan_key_num, &exact_range, &eos));
+                            if (exact_range) {
+                                _colname_to_value_range.erase(iter->first);
+                            }
                         }
-                    }
-                    return Status::OK();
-                },
-                iter->second));
-    }
-    _eos |= eos;
-
-    for (auto& iter : _colname_to_value_range) {
-        std::vector<TCondition> filters;
-        std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
-
-        for (const auto& filter : filters) {
-            _olap_filters.push_back(filter);
+                        return Status::OK();
+                    },
+                    iter->second));
         }
-    }
+        _eos |= eos;
 
-    // Append value ranges in "_not_in_value_ranges"
-    for (auto& range : _not_in_value_ranges) {
-        std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
-                   range);
+        for (auto& iter : _colname_to_value_range) {
+            std::vector<TCondition> filters;
+            std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
+
+            for (const auto& filter : filters) {
+                _olap_filters.push_back(filter);
+            }
+        }
+
+        // Append value ranges in "_not_in_value_ranges"
+        for (auto& range : _not_in_value_ranges) {
+            std::visit([&](auto&& the_range) { the_range.to_in_condition(_olap_filters, false); },
+                       range);
+        }
+    } else {
+        _runtime_profile->add_info_string(
+                "PushDownAggregate",
+                push_down_agg_to_string(_olap_scan_node.push_down_agg_type_opt));
     }
 
     if (_state->enable_profile()) {

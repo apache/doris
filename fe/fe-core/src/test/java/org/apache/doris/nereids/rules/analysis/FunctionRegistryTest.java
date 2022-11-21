@@ -18,15 +18,19 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -136,9 +140,17 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         });
     }
 
-    public static class ExtendFunction extends BoundFunction implements UnaryExpression, PropagateNullable {
+    public static class ExtendFunction extends BoundFunction implements UnaryExpression, PropagateNullable,
+            ExplicitlyCastableSignature {
         public ExtendFunction(Expression a1) {
             super("foo", a1);
+        }
+
+        @Override
+        public List<FunctionSignature> getSignatures() {
+            return ImmutableList.of(
+                    FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE)
+            );
         }
 
         @Override
@@ -147,13 +159,21 @@ public class FunctionRegistryTest implements PatternMatchSupported {
         }
     }
 
-    public static class AmbiguousFunction extends BoundFunction implements UnaryExpression, PropagateNullable {
+    public static class AmbiguousFunction extends ScalarFunction implements UnaryExpression, PropagateNullable,
+            ExplicitlyCastableSignature {
         public AmbiguousFunction(Expression a1) {
             super("abc", a1);
         }
 
         public AmbiguousFunction(Literal a1) {
             super("abc", a1);
+        }
+
+        @Override
+        public List<FunctionSignature> getSignatures() {
+            return ImmutableList.of(
+                    FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE)
+            );
         }
 
         @Override

@@ -1055,13 +1055,39 @@ insert into doris_test.ex_tb3 values
 ('mus','plat_code','1001169339',1590406790026,1590420872639,'11','1006061','beijing'),
 ('mus','plat_code','1001169339',1590420482288,1590420872639,'11','1006061','beijing');
 
+-- remove NO_ZERO_IN_DATE and NO_ZERO_DATE to allow insert 0000-00-00 00:00:00
+set sql_mode="ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION";
 insert into doris_test.ex_tb4 values
 (1, 111, '2021-09-01 07:01:01', '2021-09-01 08:01:01', 1),
 (2, 112, '2021-09-02 07:01:01', '2021-09-02 08:01:01', 1),
 (3, 113, '0000-01-01 00:00:00', '2021-12-01 08:01:01', 2),
-(4, 114, '0000-00-00 00:00:00', '2021-12-01 09:01:02', 3),
 (5, 115, '2021-09-01 07:02:01', '2021-09-01 08:01:04', 4),
 (6, 116, '2021-10-01 07:03:01', '2022-09-01 08:02:05', 5);
 
-insert into doris_test.ex_tb5 values ('test_apply_id', '123321', 'zhangsan', 'zhangsan', 'ready', 'ok', 2, '2022-01-01 02:03:04');
+insert into doris_test.ex_tb5 values (1, 'test_apply_id', '123321', 'zhangsan', 'zhangsan', 'ready', 'ok', 2, '2022-01-01 02:03:04');
+
+insert into doris_test.ex_tb6 values (639215401565159424,1143681147589283841,'test'),(639237839376089088,1143681147589283841,"test123");
+
+INSERT INTO doris_test.ex_tb7 VALUES ('2','sim',1.000), ('2','sim',1.001), ('2','sim',1.002);
+
+insert into doris_test.ex_tb8 values ('2022-07-15', '2222', 1, NULL), ('2022-07-15', 'ddddd', 2, '0.5');
+
+insert into doris_test.ex_tb9 values ('2022-01-01'), (null);
+
+insert into doris_test.ex_tb10 values ('a', 1, 2), ('b', 1, 2), ('c', 1, 2), ('d', 3, 2);
+
+insert into doris_test.ex_tb11 values ('a', 1), ('b', 1), ('c', 1);
+
+insert into doris_test.ex_tb12 values ('a', 1), ('b', 1), ('c', 1);
+
+insert into doris_test.ex_tb13 values
+('张三0',11,'1234567','123','321312','1999-02-13','中国','男',false),
+('张三1',11,'12345678','123','321312','1999-02-13','中国','男',false),
+('张三2',11,'12345671','123','321312','1999-02-13','中国','男',false),
+('张三3',11,'12345673','123','321312','1999-02-13','中国','男',false),
+('张三4',11,'123456711','123','321312','1999-02-13','中国','男',false),
+('张三5',11,'1232134567','123','321312','1999-02-13','中国','男',false),
+('张三6',11,'124314567','123','321312','1999-02-13','中国','男',false),
+('张三7',11,'123445167','123','321312','1998-02-13','中国','男',false);
+
 

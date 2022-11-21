@@ -43,6 +43,8 @@ public class StatementContext {
     private CTEContext cteContext;
 
     public StatementContext() {
+        this.connectContext = ConnectContext.get();
+        this.cteContext = new CTEContext();
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {

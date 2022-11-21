@@ -174,7 +174,12 @@ public class JdbcExecutor {
     }
 
     public long convertDateToLong(Object obj) {
-        LocalDate date = ((Date) obj).toLocalDate();
+        LocalDate date;
+        if (obj instanceof LocalDate) {
+            date = (LocalDate) obj;
+        } else {
+            date = ((Date) obj).toLocalDate();
+        }
         long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 0, 0, 0, true);
         return time;

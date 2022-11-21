@@ -335,7 +335,7 @@ Status VFileResultWriter::_write_csv_file(const Block& block) {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
-                case TYPE_DECIMAL128: {
+                case TYPE_DECIMAL128I: {
                     _plain_text_outstream << col.type->to_string(*col.column, i);
                     break;
                 }
