@@ -226,9 +226,9 @@ distribution_desc
             PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
         )
         ```
-
+    
     <version since="1.2.0">
-
+    
     3. MULTI RANGE：批量创建RANGE分区，定义分区的左闭右开区间，设定时间单位和步长，时间单位支持年、月、日、周和小时。
 
         ```
@@ -240,9 +240,9 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
-
+    
     </version>
-
+    
 * `distribution_desc`
   
     定义数据分桶方式。

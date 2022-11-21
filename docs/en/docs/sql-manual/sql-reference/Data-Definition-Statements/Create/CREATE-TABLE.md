@@ -225,9 +225,9 @@ distribution_desc
             PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
         )
         ```
-
+           
     <version since="1.2.0">
-
+    
     3. MULTI RANGE：Multi build RANGE partitions,Define the left closed and right open interval of the zone, Set the time unit and step size, the time unit supports year, month, day, week and hour.
 
         ```
@@ -239,9 +239,9 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
-
+    
     </version>
-
+    
 * `distribution_desc`
 
     Define the data bucketing method.
