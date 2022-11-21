@@ -266,6 +266,8 @@ suite("test_aggregate_all_functions") {
 
     qt_select "select min(k1) from (select k1 from ${tableName_11} union select null) t"
     qt_select "select min(k1) from (select k1,a1 from ${tableName_11} union select null,null) t"
+
+    sql "DROP TABLE IF EXISTS ${tableName_11}"
     
     // PERCENTILE
     def tableName_13 = "percentile"
