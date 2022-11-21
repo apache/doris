@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -41,13 +41,13 @@ import java.util.Optional;
  */
 public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
-    protected final Table table;
+    protected final TableIf table;
     protected final ImmutableList<String> qualifier;
     protected final ImmutableList<Long> selectedPartitionIds;
 
     protected final RelationId id;
 
-    public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier) {
+    public LogicalRelation(RelationId id, PlanType type, TableIf table, List<String> qualifier) {
         this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
@@ -57,7 +57,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
      * @param table Doris table
      * @param qualifier qualified relation name
      */
-    public LogicalRelation(RelationId id, PlanType type, Table table, List<String> qualifier,
+    public LogicalRelation(RelationId id, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Long> selectedPartitionIds) {
         super(type, groupExpression, logicalProperties);
@@ -69,7 +69,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     }
 
     @Override
-    public Table getTable() {
+    public TableIf getTable() {
         return table;
     }
 

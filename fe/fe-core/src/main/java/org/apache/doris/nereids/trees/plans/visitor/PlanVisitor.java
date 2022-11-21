@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -151,6 +153,10 @@ public abstract class PlanVisitor<R, C> {
         return visitLogicalRelation(olapScan, context);
     }
 
+    public R visitLogicalFileScan(LogicalFileScan fileScan, C context) {
+        return visitLogicalRelation(fileScan, context);
+    }
+
     public R visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, C context) {
         return visitLogicalRelation(tvfRelation, context);
     }
@@ -217,6 +223,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
         return visitPhysicalScan(olapScan, context);
+    }
+
+    public R visitPhysicalFileScan(PhysicalFileScan fileScan, C context) {
+        return visitPhysicalScan(fileScan, context);
     }
 
     public R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {

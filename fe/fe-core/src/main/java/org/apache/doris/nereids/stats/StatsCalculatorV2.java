@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -152,6 +154,12 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
     }
 
     @Override
+    public StatsDeriveResult visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
+        fileScan.getExpressions();
+        return computeScan(fileScan);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
         return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
     }
@@ -201,6 +209,11 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
     @Override
     public StatsDeriveResult visitPhysicalOlapScan(PhysicalOlapScan olapScan, Void context) {
         return computeScan(olapScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
+        return computeScan(fileScan);
     }
 
     @Override
@@ -280,7 +293,7 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
-        Table table = scan.getTable();
+        TableIf table = scan.getTable();
         double rowCount = Double.NaN;
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();

@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs;
 
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -104,11 +104,11 @@ public class RewriteTopDownJobTest {
 
     private static class LogicalBoundRelation extends LogicalRelation {
 
-        public LogicalBoundRelation(Table table, List<String> qualifier) {
+        public LogicalBoundRelation(TableIf table, List<String> qualifier) {
             super(RelationId.createGenerator().getNextId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier);
         }
 
-        public LogicalBoundRelation(Table table, List<String> qualifier, Optional<GroupExpression> groupExpression,
+        public LogicalBoundRelation(TableIf table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
             super(RelationId.createGenerator().getNextId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
                     groupExpression, logicalProperties, Collections.emptyList());

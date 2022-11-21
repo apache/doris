@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -133,24 +132,24 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
+    public LogicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
+        return new LogicalOlapScan(id, (Table) table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, candidateIndexIds, indexSelected, preAggStatus);
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties, selectedPartitionIds,
-                partitionPruned, candidateIndexIds, indexSelected, preAggStatus);
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), logicalProperties,
+                selectedPartitionIds, partitionPruned, candidateIndexIds, indexSelected, preAggStatus);
     }
 
     public LogicalOlapScan withSelectedPartitionId(List<Long> selectedPartitionId) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionId, true, candidateIndexIds, indexSelected, preAggStatus);
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, List<Long> candidateIndexIds) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
                 selectedPartitionIds, partitionPruned, candidateIndexIds, true, preAgg);
     }
 

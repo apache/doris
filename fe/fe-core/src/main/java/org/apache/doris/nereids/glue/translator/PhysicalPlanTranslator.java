@@ -34,6 +34,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -88,6 +91,7 @@ import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 
@@ -410,6 +414,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             dataPartition = new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs);
         }
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), olapScanNode, dataPartition);
+        context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalFileScan(PhysicalFileScan fileScan, PlanTranslatorContext context) {
+        // Create OlapScanNode
+        List<Slot> slotList = fileScan.getOutput();
+        ExternalTable table = fileScan.getTable();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
+        tupleDescriptor.setTable(table);
+        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        TableName tableName = new TableName(null, "", "");
+        TableRef ref = new TableRef(tableName, null, null);
+        BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
+        tupleDescriptor.setRef(tableRef);
+
+        context.addScanNode(fileScanNode);
+        // Create PlanFragment
+        DataPartition dataPartition = DataPartition.RANDOM;
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), fileScanNode, dataPartition);
         context.addPlanFragment(planFragment);
         return planFragment;
     }
@@ -1056,7 +1081,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
-    private TupleDescriptor generateTupleDesc(List<Slot> slotList, Table table, PlanTranslatorContext context) {
+    private TupleDescriptor generateTupleDesc(List<Slot> slotList, TableIf table, PlanTranslatorContext context) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {

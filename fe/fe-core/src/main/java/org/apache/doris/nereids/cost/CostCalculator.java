@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -91,6 +92,12 @@ public class CostCalculator {
 
         @Override
         public CostEstimate visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.computeSize());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             return CostEstimate.ofCpu(statistics.computeSize());
         }

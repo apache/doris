@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -298,7 +298,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
-        Table table = scan.getTable();
+        TableIf table = scan.getTable();
         double rowCount = Double.NaN;
         long card = -1;
         for (SlotReference slotReference : slotSet) {
