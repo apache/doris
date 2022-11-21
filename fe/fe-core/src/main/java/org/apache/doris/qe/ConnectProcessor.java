@@ -307,7 +307,7 @@ public class ConnectProcessor {
                 Exception exception = new Exception(
                         String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
                         parsedStmt.toSql()), nereidsParseException);
-                // An exception occurs, audit it and return
+                // an exception occurs, audit it and return
                 handleQueryException(exception, auditStmt, null, null);
                 break;
             }
@@ -316,6 +316,7 @@ public class ConnectProcessor {
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
+
             try {
                 executor.execute();
                 if (i != stmts.size() - 1) {
@@ -323,6 +324,7 @@ public class ConnectProcessor {
                     finalizeCommand();
                 }
                 auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+                // execute failed, skip remaining stmts
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                     break;
                 }
@@ -334,11 +336,12 @@ public class ConnectProcessor {
             } finally {
                 executor.addProfileToSpan();
             }
+
         }
 
     }
 
-    // Use a handler for exception to avoid big try catch block which is very hard to understand
+    // Use a handler for exception to avoid big try catch block which is a little hard to understand
     private void handleQueryException(Throwable throwable, String origStmt,
                                       StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         if (throwable instanceof IOException) {
