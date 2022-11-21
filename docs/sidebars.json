@@ -597,7 +597,9 @@
                                 "sql-manual/sql-functions/table-functions/explode-bitmap",
                                 "sql-manual/sql-functions/table-functions/outer-combinator",
                                 "sql-manual/sql-functions/table-functions/numbers",
-                                "sql-manual/sql-functions/table-functions/explode-numbers"
+                                "sql-manual/sql-functions/table-functions/explode-numbers",
+                                "sql-manual/sql-functions/table-functions/s3",
+                                "sql-manual/sql-functions/table-functions/hdfs"
                             ]
                         },
                         {
@@ -957,15 +959,15 @@
                                 "admin-manual/maint-monitor/monitor-metrics/metrics"
                             ]
                         },
-                       "admin-manual/maint-monitor/disk-capacity",
-                       "admin-manual/maint-monitor/tablet-repair-and-balance",
-                       "admin-manual/maint-monitor/be-olap-error-code",
-                       "admin-manual/maint-monitor/doris-error-code",
-                       "admin-manual/maint-monitor/tablet-meta-tool",
-                       "admin-manual/maint-monitor/monitor-alert",
-                       "admin-manual/maint-monitor/tablet-local-debug",
-                       "admin-manual/maint-monitor/tablet-restore-tool",
-                       "admin-manual/maint-monitor/metadata-operation"
+                        "admin-manual/maint-monitor/disk-capacity",
+                        "admin-manual/maint-monitor/tablet-repair-and-balance",
+                        "admin-manual/maint-monitor/be-olap-error-code",
+                        "admin-manual/maint-monitor/doris-error-code",
+                        "admin-manual/maint-monitor/tablet-meta-tool",
+                        "admin-manual/maint-monitor/monitor-alert",
+                        "admin-manual/maint-monitor/tablet-local-debug",
+                        "admin-manual/maint-monitor/tablet-restore-tool",
+                        "admin-manual/maint-monitor/metadata-operation"
                     ]
                 },
                 {
