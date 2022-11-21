@@ -226,7 +226,7 @@ distribution_desc
         )
         ```
            
-    <version since="1.2.0">
+<version since="1.2.0">
     
     3. MULTI RANGE：Multi build RANGE partitions,Define the left closed and right open interval of the zone, Set the time unit and step size, the time unit supports year, month, day, week and hour.
 
@@ -240,7 +240,7 @@ distribution_desc
         )
         ```
     
-    </version>
+</version>
     
 * `distribution_desc`
 

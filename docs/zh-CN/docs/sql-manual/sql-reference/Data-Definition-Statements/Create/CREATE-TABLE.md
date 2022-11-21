@@ -227,7 +227,7 @@ distribution_desc
         )
         ```
     
-    <version since="1.2.0">
+<version since="1.2.0">
     
     3. MULTI RANGE：批量创建RANGE分区，定义分区的左闭右开区间，设定时间单位和步长，时间单位支持年、月、日、周和小时。
 
@@ -241,7 +241,7 @@ distribution_desc
         )
         ```
     
-    </version>
+</version>
     
 * `distribution_desc`
   

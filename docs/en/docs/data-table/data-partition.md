@@ -247,7 +247,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * 2017-05-01, 1000  --> Unable to import
     ```
     
-    <version since="1.2.0">
+<version since="1.2.0">
     
     Range partition also supports use partition desc: `FROM ("2022-01-03") TO ("2022-01-06") INTERVAL 1 DAY`, can multi create partitions by day：2022-01-03 to 2022-01-06（not include 2022-01-06）, the partition result is as follows:
 
@@ -257,7 +257,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     p20220105:    [2022-01-05,  2022-01-06)
     ```
     
-    </version>
+</version>
     
     #### List Partition
 
