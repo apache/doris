@@ -21,7 +21,7 @@
 
 #include "vec/common/hash_table/hash_table.h"
 
-/** Two-level hash table.
+/** Partitioned hash table.
   * Represents 16 (or 1ULL << BITS_FOR_SUB_TABLE) small hash tables (sub table count of the first level).
   * To determine which one to use, one of the bytes of the hash function is taken.
   *
@@ -95,9 +95,14 @@ public:
     void delete_zero_key(Key key) {
         if constexpr (ENABLE_PARTITIONED) {
             if (_is_partitioned) {
+                const auto key_hash = hash(key);
+                size_t bucket = get_sub_table_from_hash(key_hash);
+                level1_sub_tables[bucket].delete_zero_key(key);
             } else {
+                level0_sub_table.delete_zero_key(key);
             }
         } else {
+            level0_sub_table.delete_zero_key(key);
         }
     }
 
@@ -132,19 +137,19 @@ public:
     }
 
     std::vector<size_t> get_buffer_sizes_in_cells() const {
+        std::vector<size_t> sizes;
         if constexpr (ENABLE_PARTITIONED) {
             if (_is_partitioned) {
-                std::vector<size_t> sizes;
                 for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
                     sizes.push_back(level1_sub_tables[i].get_buffer_size_in_cells());
                 }
-                return sizes;
             } else {
-                return level0_sub_table.get_buffer_size_in_cells();
+                sizes.push_back(level0_sub_table.get_buffer_size_in_cells());
             }
         } else {
-            return level0_sub_table.get_buffer_size_in_cells();
+            sizes.push_back(level0_sub_table.get_buffer_size_in_cells());
         }
+        return sizes;
     }
 
     void reset_resize_timer() {
@@ -218,32 +223,7 @@ public:
         if constexpr (ENABLE_PARTITIONED) {
             level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
         }
-        // for (auto& impl : level1_sub_tables) impl.reserve(size_hint / NUM_LEVEL1_SUB_TABLES);
     }
-
-    /// Copy the data from another (normal) hash table. It should have the same hash function.
-    /*
-    template <typename Source>
-    explicit PartitionedHashTable(const Source& src) {
-        if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
-        }
-        typename Source::const_iterator it = src.begin();
-
-        /// It is assumed that the zero key (stored separately) is first in iteration order.
-        if (it != src.end() && it.get_ptr()->is_zero(src)) {
-            insert(it->get_value());
-            ++it;
-        }
-
-        for (; it != src.end(); ++it) {
-            const Cell* cell = it.get_ptr();
-            size_t hash_value = cell->get_hash(src);
-            size_t buck = get_sub_table_from_hash(hash_value);
-            level1_sub_tables[buck].insert_unique_non_zero(cell, hash_value);
-        }
-    }
-    */
 
     PartitionedHashTable(PartitionedHashTable&& rhs) {
         if constexpr (ENABLE_PARTITIONED) {
@@ -263,7 +243,7 @@ public:
 
     void set_partitioned_threshold(int threshold) {
         if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
+            level0_sub_table.set_partitioned_threshold(threshold);
         }
     }
 
@@ -567,19 +547,19 @@ public:
     }
 
     std::vector<size_t> sizes() const {
+        std::vector<size_t> sizes;
         if constexpr (ENABLE_PARTITIONED) {
             if (_is_partitioned) {
-                std::vector<size_t> sizes;
                 for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
                     sizes.push_back(level1_sub_tables[i].size());
                 }
-                return sizes;
             } else {
-                return level0_sub_table.size();
+                sizes.push_back(level0_sub_table.size());
             }
         } else {
-            return level0_sub_table.size();
+            sizes.push_back(level0_sub_table.size());
         }
+        return sizes;
     }
 
     bool empty() const {

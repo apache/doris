@@ -21,8 +21,8 @@
 #pragma once
 
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
-#include "vec/common/hash_table/partitioned_hash_table.h"
 /** NOTE HashMap could only be used for memmoveable (position independent) types.
   * Example: std::string is not position independent in libstdc++ with C++11 ABI or in libc++.
   * Also, key in hash table must be of type, that zero bytes is compared equals to zero key.

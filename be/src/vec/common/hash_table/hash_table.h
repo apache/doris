@@ -829,7 +829,7 @@ protected:
                 throw;
             }
 
-            if (UNLIKELY(!_need_partition)) {
+            if (LIKELY(!_need_partition)) {
                 // The hash table was rehashed, so we have to re-find the key.
                 size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
                 assert(!buf[new_place].is_zero(*this));
@@ -868,7 +868,7 @@ protected:
                 throw;
             }
 
-            if (UNLIKELY(!_need_partition)) {
+            if (LIKELY(!_need_partition)) {
                 // The hash table was rehashed, so we have to re-find the key.
                 size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
                 assert(!buf[new_place].is_zero(*this));
