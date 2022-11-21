@@ -103,8 +103,6 @@ private:
                         (int64_t)(1 + (expr_column_concrete.get_data()[i] - min_value) /
                                               ((max_value - min_value) / num_buckets));
             }
-            LOG(WARNING) << std::to_string(i) + "   " +
-                                    std::to_string(nested_column_concrete.get_data()[i]);
         }
     }
 
