@@ -27,11 +27,11 @@ ENV JAVA_HOME="/usr/local/openjdk-8/" \
 ADD ./resource/apache-doris-be-x.x.x-bin-x86_64.tar.gz /opt/
 
 # deploy software
-RUN apt-get update &&
-	apt-get install -y default-mysql-client &&
-	apt-get clean &&
-	mkdir /opt/apache-doris &&
-	cd /opt &&
+RUN apt-get update && \
+	apt-get install -y default-mysql-client && \
+	apt-get clean && \
+	mkdir /opt/apache-doris && \
+	cd /opt && \
 	mv apache-doris-be-x.x.x-bin-x86_64 /opt/apache-doris/be
 
 ADD ./resource/run_be.sh /opt/apache-doris/be/bin
