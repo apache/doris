@@ -21,20 +21,20 @@ FROM openjdk:8u342-jdk
 
 # set environment variables
 ENV JAVA_HOME="/usr/local/openjdk-8/" \
-	PATH="/opt/apache-doris/be/bin:${PATH}"
+    PATH="/opt/apache-doris/be/bin:${PATH}"
 
 # download the software to the mirror and replace it as needed
-ADD ./resource/apache-doris-be-x.x.x-bin-x86_64.tar.gz /opt/
+ADD ./resource/apache-doris-be-"${*.*.*}"-bin-x86_64.tar.gz /opt/
 
 # deploy software
 RUN apt-get update && \
-	apt-get install -y default-mysql-client && \
-	apt-get clean && \
-	mkdir /opt/apache-doris && \
-	cd /opt && \
-	mv apache-doris-be-x.x.x-bin-x86_64 /opt/apache-doris/be
+    apt-get install -y default-mysql-client && \
+    apt-get clean && \
+    mkdir /opt/apache-doris && \
+    cd /opt && \
+    mv apache-doris-be-"${*.*.*}"-bin-x86_64 /opt/apache-doris/be
 
-ADD resource/init_be.sh /opt/apache-doris/be/bin
-RUN chmod 755 /opt/apache-doris/be/bin/init_be.sh
+ADD ./resource/run_be.sh /opt/apache-doris/be/bin
+RUN chmod 755 /opt/apache-doris/be/bin/run_be.sh
 
-ENTRYPOINT ["/opt/apache-doris/be/bin/init_be.sh"]
+ENTRYPOINT ["/opt/apache-doris/be/bin/run_be.sh"]
