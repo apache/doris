@@ -194,6 +194,7 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public boolean isView() {
+        makeSureInitialized();
         return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
     }
 
