@@ -232,12 +232,12 @@ public class GlobalDictBuilder {
 
     private String getCreateIntermediateHiveTableSql() {
         StringBuilder sql = new StringBuilder();
-        sql.append("create table if not exists " + dorisIntermediateHiveTable + " ( ");
+        sql.append("create table if not exists ").append(dorisIntermediateHiveTable).append(" ( ");
 
         Set<String> allDictColumn = new HashSet<>();
         allDictColumn.addAll(dictColumn.keySet());
         allDictColumn.addAll(dictColumn.values());
-        dorisOlapTableColumnList.stream().forEach(columnName -> {
+        dorisOlapTableColumnList.forEach(columnName -> {
             sql.append(columnName).append(" ");
             if (allDictColumn.contains(columnName)) {
                 sql.append(" string ,");
@@ -251,7 +251,7 @@ public class GlobalDictBuilder {
     private String getInsertIntermediateHiveTableSql() {
         StringBuilder sql = new StringBuilder();
         sql.append("insert overwrite table ").append(dorisIntermediateHiveTable).append(" select ");
-        dorisOlapTableColumnList.stream().forEach(columnName -> {
+        dorisOlapTableColumnList.forEach(columnName -> {
             sql.append(columnName).append(" ,");
         });
         sql.deleteCharAt(sql.length() - 1)
