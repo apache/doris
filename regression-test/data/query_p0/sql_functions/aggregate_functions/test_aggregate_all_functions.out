@@ -93,19 +93,19 @@ beijing chengdu shanghai
 8
 
 -- !select --
-4
-3
+\N
 1
 2
-\N
+3
+4
 
 -- !select --
-1	1
-4	\N
-3	3
-2	2
 \N	5
 \N	\N
+1	1
+2	2
+3	3
+4	\N
 
 -- !select --
 1
