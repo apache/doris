@@ -56,6 +56,32 @@ int64_t MemInfo::_s_sys_mem_available = 0;
 std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = 0;
 
+void MemInfo::refresh_allocator_mem() {
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
+#elif defined(USE_JEMALLOC)
+    uint64_t epoch = 0;
+    size_t sz = sizeof(epoch);
+    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+
+    // https://jemalloc.net/jemalloc.3.html
+    _s_allocator_cache_mem =
+            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL));
+    _s_allocator_cache_mem_str =
+            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
+    _s_virtual_memory_used = get_je_metrics("stats.mapped");
+#else
+    _s_allocator_cache_mem = get_tc_metrics("tcmalloc.pageheap_free_bytes") +
+                             get_tc_metrics("tcmalloc.central_cache_free_bytes") +
+                             get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
+                             get_tc_metrics("tcmalloc.thread_cache_free_bytes");
+    _s_allocator_cache_mem_str =
+            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
+    _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
+                             get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
+#endif
+}
+
 #ifndef __APPLE__
 void MemInfo::refresh_proc_meminfo() {
     std::ifstream meminfo("/proc/meminfo", std::ios::in);
@@ -88,32 +114,6 @@ void MemInfo::refresh_proc_meminfo() {
             "Physical Memory: {}, Sys Mem Available {}, Tc/Jemalloc Allocator Cache {}",
             PrettyPrinter::print(_mem_info_bytes["MemTotal"], TUnit::BYTES),
             _s_sys_mem_available_str, MemInfo::allocator_cache_mem_str());
-}
-
-void MemInfo::refresh_allocator_mem() {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
-#elif defined(USE_JEMALLOC)
-    uint64_t epoch = 0;
-    size_t sz = sizeof(epoch);
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
-
-    // https://jemalloc.net/jemalloc.3.html
-    _s_allocator_cache_mem =
-            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL));
-    _s_allocator_cache_mem_str =
-            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
-    _s_virtual_memory_used = get_je_metrics("stats.mapped");
-#else
-    _s_allocator_cache_mem = get_tc_metrics("tcmalloc.pageheap_free_bytes") +
-                             get_tc_metrics("tcmalloc.central_cache_free_bytes") +
-                             get_tc_metrics("tcmalloc.transfer_cache_free_bytes") +
-                             get_tc_metrics("tcmalloc.thread_cache_free_bytes");
-    _s_allocator_cache_mem_str =
-            PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
-    _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
-                             get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
-#endif
 }
 
 void MemInfo::init() {
