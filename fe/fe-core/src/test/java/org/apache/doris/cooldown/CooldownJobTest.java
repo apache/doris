@@ -28,12 +28,13 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cluster.Cluster;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TCooldownType;
 import org.apache.doris.thrift.TStorageMedium;
 
-import org.junit.AfterClass;
+import mockit.Mocked;
 import org.junit.Assert;
-import org.junit.BeforeClass;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -52,40 +53,34 @@ public class CooldownJobTest {
     private static long timeoutMs = 10000L;
     private static Replica replica = new Replica(replicaId, backendId, 1, Replica.ReplicaState.NORMAL);
 
+    @Mocked
+    private EditLog editLog;
+
     public static CooldownJob createCooldownJob() {
         return new CooldownJob(jobId, dbId, tableId, partitionId, indexId, tabletId, replicaId, backendId, cooldownType,
                 timeoutMs);
     }
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-
-        try {
-            Cluster testCluster = new Cluster("test_cluster", 0);
-            Database db = new Database(dbId, "db1");
-            db.setClusterName("test_cluster");
-            Env.getCurrentEnv().addCluster(testCluster);
-            Env.getCurrentEnv().unprotectCreateDb(db);
-            OlapTable table = new OlapTable(tableId, "testTable", new ArrayList<>(), KeysType.DUP_KEYS,
-                    new PartitionInfo(), null);
-            table.setId(tableId);
-            db.createTable(table);
-            MaterializedIndex baseIndex = new MaterializedIndex();
-            baseIndex.setIdForRestore(indexId);
-            Partition partition = new Partition(partitionId, "part1", baseIndex, null);
-            table.addPartition(partition);
-            Tablet tablet = new Tablet(tabletId);
-            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1, TStorageMedium.HDD);
-            baseIndex.addTablet(tablet, tabletMeta);
-            tablet.addReplica(replica);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @AfterClass
-    public static void tearDown() throws Exception {
-
+    @Before
+    public void setUp() {
+        Cluster testCluster = new Cluster("test_cluster", 0);
+        Database db = new Database(dbId, "db1");
+        db.setClusterName("test_cluster");
+        Env.getCurrentEnv().addCluster(testCluster);
+        Env.getCurrentEnv().unprotectCreateDb(db);
+        OlapTable table = new OlapTable(tableId, "testTable", new ArrayList<>(), KeysType.DUP_KEYS,
+                new PartitionInfo(), null);
+        table.setId(tableId);
+        db.createTable(table);
+        MaterializedIndex baseIndex = new MaterializedIndex();
+        baseIndex.setIdForRestore(indexId);
+        Partition partition = new Partition(partitionId, "part1", baseIndex, null);
+        table.addPartition(partition);
+        Tablet tablet = new Tablet(tabletId);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 1, TStorageMedium.HDD);
+        baseIndex.addTablet(tablet, tabletMeta);
+        tablet.addReplica(replica);
+        Env.getCurrentEnv().setEditLog(editLog);
     }
 
     @Test
@@ -93,21 +88,31 @@ public class CooldownJobTest {
         CooldownJob cooldownJob = createCooldownJob();
         cooldownJob.runPendingJob();
         Assert.assertEquals(CooldownJob.JobState.SEND_CONF, cooldownJob.jobState);
+        Assert.assertEquals(TCooldownType.UPLOAD_DATA, replica.getCooldownType());
         CooldownJob job1 = createCooldownJob();
-        cooldownJob.replay(cooldownJob);
+        job1.replay(cooldownJob);
         Assert.assertEquals(CooldownJob.JobState.SEND_CONF, job1.jobState);
+        // run send job
+        cooldownJob.runSendJob();
+        Assert.assertEquals(CooldownJob.JobState.RUNNING, cooldownJob.jobState);
+        // run replay finish job
+        cooldownJob.jobState = CooldownJob.JobState.FINISHED;
+        job1.replay(cooldownJob);
+        Assert.assertEquals(CooldownJob.JobState.FINISHED, job1.jobState);
     }
 
     @Test
-    public void testSendConf() throws Exception {
+    public void testCancelJob() throws Exception {
         CooldownJob cooldownJob = createCooldownJob();
         cooldownJob.runPendingJob();
+        Assert.assertEquals(CooldownJob.JobState.SEND_CONF, cooldownJob.jobState);
+        Assert.assertEquals(TCooldownType.UPLOAD_DATA, replica.getCooldownType());
+        // run send job
         cooldownJob.runSendJob();
         Assert.assertEquals(CooldownJob.JobState.RUNNING, cooldownJob.jobState);
-        CooldownJob job1 = createCooldownJob();
-        cooldownJob.replay(cooldownJob);
-        Assert.assertEquals(CooldownJob.JobState.RUNNING, job1.jobState);
-        Assert.assertEquals(TCooldownType.UPLOAD_DATA, replica.getCooldownType());
+        // run cancel job
+        cooldownJob.cancelImpl("test cancel");
+        Assert.assertEquals(CooldownJob.JobState.CANCELLED, cooldownJob.jobState);
     }
 
 }
