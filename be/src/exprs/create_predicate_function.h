@@ -108,8 +108,8 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         return Creator::template create<TYPE_DECIMAL32>();
     case TYPE_DECIMAL64:
         return Creator::template create<TYPE_DECIMAL64>();
-    case TYPE_DECIMAL128:
-        return Creator::template create<TYPE_DECIMAL128>();
+    case TYPE_DECIMAL128I:
+        return Creator::template create<TYPE_DECIMAL128I>();
 
     default:
         DCHECK(false) << "Invalid type.";

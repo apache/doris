@@ -311,3 +311,122 @@ Directory structure description:
 3. Pictures
 
    All images are in the `static/images` directory
+
+## Multiple Versions
+
+Website documentation supports version tagging via html tags. You can use the `<version>` tag to mark which version a section of content in the document started from, or which version it was removed from.
+
+### Parameters introduction
+
+| parameter | description | value |
+|---|---|---|
+| since | supported from this version | version number |
+| deprecated | removed from this version | version number |
+| comment | Comment | |
+| type | There are default and inline styles | No value is passed to indicate the default style, and inline is passed to indicate the inline style |
+
+Note: There must be blank lines before and after the `<version>` tag to avoid abnormal style rendering.
+
+### Single Tag
+
+```
+
+<version since="1.1">
+
+Apache Doris was first born as Palo project for Baidu's ad reporting business,
+ officially open-sourced in 2017, donated by Baidu to the Apache Foundation 
+ for incubation in July 2018, and then incubated and operated by members of 
+ the incubator project management committee under the guidance of 
+ Apache mentors. Currently, the Apache Doris community has gathered 
+ more than 300 contributors from nearly 100 companies in different 
+ industries, and the number of active contributors is close to 100 per month. 
+ Apache Doris has graduated from Apache incubator successfully and 
+ become a Top-Level Project in June 2022.
+
+</version>
+
+```
+
+Rendering style:
+
+<version since="1.1">
+
+Apache Doris was first born as Palo project for Baidu's ad reporting business,
+ officially open-sourced in 2017, donated by Baidu to the Apache Foundation 
+ for incubation in July 2018, and then incubated and operated by members of 
+ the incubator project management committee under the guidance of 
+ Apache mentors. Currently, the Apache Doris community has gathered 
+ more than 300 contributors from nearly 100 companies in different 
+ industries, and the number of active contributors is close to 100 per month. 
+ Apache Doris has graduated from Apache incubator successfully and 
+ become a Top-Level Project in June 2022.
+
+</version>
+
+### Multi Tag
+
+```
+
+<version since="1.2" deprecated="1.5">
+
+# Usage Scenarios
+
+As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/sekvbs5ih5rb16wz6n9k.png)
+
+Apache Doris is widely used in the following scenarios:
+
+</version>
+
+```
+
+Rendering style:
+
+<version since="1.2" deprecated="1.5">
+
+# Usage Scenarios
+
+As shown in the figure below, after various data integration and processing, the data sources are usually stored in the real-time data warehouse Doris and the offline data lake or data warehouse (in Apache Hive, Apache Iceberg or Apache Hudi).
+![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/sekvbs5ih5rb16wz6n9k.png)
+
+Apache Doris is widely used in the following scenarios:
+
+</version>
+
+### Comments
+
+```
+
+<version since="1.3" comment="This is comment, Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. ">
+
+-   Frontend（FE）: It is mainly responsible for user request access, query parsing and planning, management of metadata, and node management-related work.
+-   Backend（BE）: It is mainly responsible for data storage and query plan execution.
+
+Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. And these two types of processes guarantee high availability of services and high reliability of data through consistency protocols. This highly integrated architecture design greatly reduces the operation and maintenance cost of a distributed system.
+
+</version>
+
+```
+
+Rendering style:
+
+<version since="1.3" comment="This is comment, Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. ">
+
+-   Frontend（FE）: It is mainly responsible for user request access, query parsing and planning, management of metadata, and node management-related work.
+-   Backend（BE）: It is mainly responsible for data storage and query plan execution.
+
+Both types of processes are horizontally scalable, and a single cluster can support up to hundreds of machines and tens of petabytes of storage capacity. And these two types of processes guarantee high availability of services and high reliability of data through consistency protocols. This highly integrated architecture design greatly reduces the operation and maintenance cost of a distributed system.
+
+</version>
+
+### Inline Tag
+
+```
+In terms of the storage engine, Doris uses columnar storage to encode and compress and read data by column, <version since="1.0" type="inline" > enabling a very high compression ratio while reducing a large number of scans of non-relevant data,</version> thus making more efficient use of IO and CPU resources.
+```
+
+渲染样式：
+
+In terms of the storage engine, Doris uses columnar storage to encode and compress and read data by column, <version since="1.0" type="inline" > enabling a very high compression ratio while reducing a large number of scans of non-relevant data,</version> thus making more efficient use of IO and CPU resources.
+
+

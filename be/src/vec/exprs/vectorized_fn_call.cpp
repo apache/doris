@@ -126,7 +126,7 @@ std::string VectorizedFnCall::debug_string() const {
         } else {
             out << ",";
         }
-        out << input_expr->debug_string();
+        out << "\n" << input_expr->debug_string();
     }
     out << "}";
     return out.str();

@@ -187,7 +187,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128: {
+        case TYPE_DECIMAL128I: {
             DataTypePtr& type_ptr = probe_exprs[0]->root()->data_type();
             TypeIndex idx = is_nullable ? assert_cast<const DataTypeNullable&>(*type_ptr)
                                                   .get_nested_type()

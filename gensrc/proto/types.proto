@@ -103,6 +103,7 @@ message PGenericType {
         DATETIMEV2 = 29;
         FIXEDLENGTHOBJECT = 30;
         JSONB = 31;
+        DECIMAL128I = 32;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

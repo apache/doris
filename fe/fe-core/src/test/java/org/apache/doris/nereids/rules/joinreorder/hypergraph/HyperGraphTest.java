@@ -91,4 +91,17 @@ public class HyperGraphTest {
                 + "}\n";
         Assertions.assertEquals(dottyGraph, target);
     }
+
+    @Test
+    void testRandomQuery() {
+        int tableNum = 10;
+        int edgeNum = 20;
+        // repeat 10 times
+        for (int i = 0; i < 10; i++) {
+            HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
+            HyperGraph hyperGraph = hyperGraphBuilder.randomBuildWith(tableNum, edgeNum);
+            Assertions.assertEquals(hyperGraph.getNodes().size(), tableNum);
+            Assertions.assertEquals(hyperGraph.getEdges().size(), edgeNum);
+        }
+    }
 }
