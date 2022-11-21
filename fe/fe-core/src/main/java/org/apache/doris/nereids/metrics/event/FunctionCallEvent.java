@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * function call event
@@ -25,8 +26,13 @@ import org.apache.doris.nereids.metrics.Event;
 public class FunctionCallEvent extends Event {
     private final String callFuncNameAndLine;
 
-    public FunctionCallEvent(String callFuncNameAndLine) {
+    private FunctionCallEvent(String callFuncNameAndLine) {
         this.callFuncNameAndLine = callFuncNameAndLine;
+    }
+
+    public static FunctionCallEvent of(String callFuncNameAndLine) {
+        return ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+                ? new FunctionCallEvent(callFuncNameAndLine) : null;
     }
 
     @Override

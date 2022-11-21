@@ -20,6 +20,7 @@ package org.apache.doris.nereids.metrics.event;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
@@ -31,10 +32,16 @@ public class GroupMergeEvent extends Event {
     private final Group destination;
     private final List<GroupExpression> needReplaceGroupExpressions;
 
-    public GroupMergeEvent(Group source, Group destination, List<GroupExpression> needReplaceGroupExpressions) {
+    private GroupMergeEvent(Group source, Group destination, List<GroupExpression> needReplaceGroupExpressions) {
         this.source = source;
         this.destination = destination;
         this.needReplaceGroupExpressions = needReplaceGroupExpressions;
+    }
+
+    public static GroupMergeEvent of(Group source, Group destination,
+            List<GroupExpression> needReplaceGroupExpressions) {
+        return ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+                ? new GroupMergeEvent(source, destination, needReplaceGroupExpressions) : null;
     }
 
     @Override

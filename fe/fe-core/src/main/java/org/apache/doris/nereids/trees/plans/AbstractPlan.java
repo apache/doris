@@ -72,7 +72,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
         this.statsDeriveResult = statsDeriveResult;
-        PLAN_CONSTRUCT_TRACER.log(new CounterEvent(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
+        PLAN_CONSTRUCT_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
     }
 
     @Override

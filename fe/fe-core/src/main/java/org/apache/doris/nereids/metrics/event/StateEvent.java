@@ -26,7 +26,7 @@ import org.apache.doris.nereids.metrics.Event;
 public abstract class StateEvent extends Event {
     private final GroupExpression groupExpression;
 
-    public StateEvent(GroupExpression groupExpression) {
+    protected StateEvent(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
     }
 

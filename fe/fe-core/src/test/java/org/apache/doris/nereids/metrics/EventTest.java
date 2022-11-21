@@ -117,22 +117,22 @@ public class EventTest extends TestWithFeService {
         channel.setConnectContext(connectContext);
         for (int i = 0; i < 10; ++i) {
             producers.get(i % 2).log(i % 2 == 0
-                    ? new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
-                    : new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
+                    ? CounterEvent.of(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
+                    : TransformEvent.of(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
         }
         connectContext.getSessionVariable().setNereidsEventMode("all");
         channel.setConnectContext(connectContext);
         for (int i = 0; i < 10; ++i) {
             producers.get(i % 2).log(i % 2 == 0
-                    ? new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
-                    : new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
+                    ? CounterEvent.of(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
+                    : TransformEvent.of(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
         }
         connectContext.getSessionVariable().setNereidsEventMode("counter, transform");
         channel.setConnectContext(connectContext);
         for (int i = 0; i < 10; ++i) {
             producers.get(i % 2).log(i % 2 == 0
-                    ? new CounterEvent(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
-                    : new TransformEvent(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
+                    ? CounterEvent.of(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
+                    : TransformEvent.of(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
         }
     }
 }

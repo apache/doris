@@ -147,7 +147,7 @@ public class EnforceMissingPropertiesHelper {
             PhysicalProperties oldOutputProperty,
             PhysicalProperties newOutputProperty) {
         context.getCascadesContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
-        ENFORCER_TRACER.log(new EnforcerEvent(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
+        ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
                 oldOutputProperty, newOutputProperty));
         curTotalCost += CostCalculator.calculateCost(enforcer);
 

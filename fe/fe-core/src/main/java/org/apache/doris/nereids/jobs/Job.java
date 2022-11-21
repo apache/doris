@@ -94,7 +94,7 @@ public abstract class Job {
     protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup,
             EventProducer transformTracer) {
         context.onInvokeRule(rule.getRuleType());
-        COUNTER_TRACER.log(new CounterEvent(Memo.getStateId(),
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(),
                 CounterType.EXPRESSION_TRANSFORM, targetGroup, targetGroup.getLogicalExpression(), before));
 
         List<Plan> afters = rule.transform(before, context.getCascadesContext());
@@ -109,7 +109,7 @@ public abstract class Job {
                 .copyIn(after, targetGroup, true);
 
         if (result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup) {
-            transformTracer.log(new TransformEvent(targetGroup.getLogicalExpression(), before, afters,
+            transformTracer.log(TransformEvent.of(targetGroup.getLogicalExpression(), before, afters,
                             rule.getRuleType()), rule::isRewrite);
         }
 
@@ -117,7 +117,7 @@ public abstract class Job {
     }
 
     protected void trace(GroupExpression groupExpression) {
-        COUNTER_TRACER.log(new CounterEvent(Memo.getStateId(), CounterType.JOB_EXECUTION,
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION,
                 groupExpression.getOwnerGroup(), groupExpression, groupExpression.getPlan()));
     }
 }

@@ -76,7 +76,7 @@ public class DeriveStatsJob extends Job {
             }
         } else {
             StatsCalculator.estimate(groupExpression);
-            STATS_STATE_TRACER.log(new StatsStateEvent(groupExpression,
+            STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
                     groupExpression.getOwnerGroup().getStatistics()));
         }
     }

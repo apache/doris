@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 /**
@@ -26,9 +27,14 @@ import org.apache.doris.statistics.StatsDeriveResult;
 public class StatsStateEvent extends StateEvent {
     private final StatsDeriveResult statsDeriveResult;
 
-    public StatsStateEvent(GroupExpression groupExpression, StatsDeriveResult statsDeriveResult) {
+    private StatsStateEvent(GroupExpression groupExpression, StatsDeriveResult statsDeriveResult) {
         super(groupExpression);
         this.statsDeriveResult = statsDeriveResult;
+    }
+
+    public static StatsStateEvent of(GroupExpression groupExpression, StatsDeriveResult statsDeriveResult) {
+        return ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+                ? new StatsStateEvent(groupExpression, statsDeriveResult) : null;
     }
 
     @Override

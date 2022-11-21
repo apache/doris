@@ -397,7 +397,7 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         }
-        GROUP_MERGE_TRACER.log(new GroupMergeEvent(source, destination, needReplaceChild));
+        GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
         for (GroupExpression groupExpression : needReplaceChild) {
             // After change GroupExpression children, the hashcode will change,
             // so need to reinsert into map.

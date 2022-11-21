@@ -63,6 +63,9 @@ public class EventProducer {
     }
 
     public void log(Event event) {
+        if (event == null) {
+            return;
+        }
         Preconditions.checkArgument(event.getClass().equals(eventClass));
         checkAndLog(event);
     }

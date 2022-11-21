@@ -52,7 +52,7 @@ public class VisitorRewriteJob extends Job {
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
         Plan root = context.getCascadesContext().getMemo().copyOut(logicalExpression, true);
-        COUNTER_TRACER.log(new CounterEvent(Memo.getStateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
                 root));
         Plan rewrittenRoot = root.accept(planRewriter, context);
         context.getCascadesContext().getMemo().copyIn(rewrittenRoot, group, true);

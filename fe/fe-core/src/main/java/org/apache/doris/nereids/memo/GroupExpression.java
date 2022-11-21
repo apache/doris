@@ -173,7 +173,7 @@ public class GroupExpression {
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties, double cost) {
-        COST_STATE_TRACER.log(new CostStateUpdateEvent(this, cost, outputProperties));
+        COST_STATE_TRACER.log(CostStateUpdateEvent.of(this, cost, outputProperties));
         if (lowestCostTable.containsKey(outputProperties)) {
             if (lowestCostTable.get(outputProperties).first > cost) {
                 lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));

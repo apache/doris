@@ -83,7 +83,7 @@ public class ApplyRuleJob extends Job {
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
-                APPLY_RULE_TRACER.log(new TransformEvent(groupExpression, plan, newPlans, rule.getRuleType()),
+                APPLY_RULE_TRACER.log(TransformEvent.of(groupExpression, plan, newPlans, rule.getRuleType()),
                         rule::isRewrite);
             }
         }
