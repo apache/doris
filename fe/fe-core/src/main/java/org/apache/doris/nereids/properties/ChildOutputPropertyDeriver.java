@@ -79,18 +79,17 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
-        // TODO: add distinct phase output properties
         switch (agg.getAggPhase()) {
             case LOCAL:
             case GLOBAL:
             case DISTINCT_LOCAL:
+            case DISTINCT_GLOBAL:
                 DistributionSpec childSpec = childOutputProperty.getDistributionSpec();
                 if (childSpec instanceof DistributionSpecHash) {
                     DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childSpec;
                     return new PhysicalProperties(distributionSpecHash.withShuffleType(ShuffleType.BUCKETED));
                 }
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
-            case DISTINCT_GLOBAL:
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }

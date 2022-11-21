@@ -24,7 +24,9 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
@@ -36,9 +38,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -94,8 +98,16 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
         // 2. second phase agg, need to return shuffle with partition key
         List<Expression> partitionExpressions = agg.getPartitionExpressions();
-        if (partitionExpressions.isEmpty()) {
+        if (partitionExpressions.isEmpty() && agg.getAggPhase() != AggPhase.DISTINCT_LOCAL) {
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
+            return null;
+        }
+        if (agg.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
+            // use slots in distinct agg as shuffle slots
+            List<ExprId> shuffleSlots = extractFromDistinctFunction(agg.getOutputExpressions());
+            Preconditions.checkState(!shuffleSlots.isEmpty());
+            addRequestPropertyToChildren(
+                    PhysicalProperties.createHash(new DistributionSpecHash(shuffleSlots, ShuffleType.AGGREGATE)));
             return null;
         }
         // TODO: when parent is a join node,
@@ -169,6 +181,24 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      */
     private void addRequestPropertyToChildren(PhysicalProperties... physicalProperties) {
         requestPropertyToChildren.add(Lists.newArrayList(physicalProperties));
+    }
+
+    private List<ExprId> extractFromDistinctFunction(List<NamedExpression> outputExpression) {
+        List<ExprId> exprIds = Lists.newArrayList();
+        for (NamedExpression originOutputExpr : outputExpression) {
+            Set<AggregateFunction> aggregateFunctions
+                    = originOutputExpr.collect(AggregateFunction.class::isInstance);
+            for (AggregateFunction aggregateFunction : aggregateFunctions) {
+                if (aggregateFunction.isDistinct()) {
+                    for (Expression expr : aggregateFunction.children()) {
+                        Preconditions.checkState(expr instanceof SlotReference, "normalize aggregate failed to"
+                                + " normalize aggregate function " + aggregateFunction.toSql());
+                        exprIds.add(((SlotReference) expr).getExprId());
+                    }
+                }
+            }
+        }
+        return exprIds;
     }
 }
 
