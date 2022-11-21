@@ -40,8 +40,6 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -318,10 +316,8 @@ public class SelectStmt extends QueryStmt {
                     continue;
                 }
                 tblRef.getName().analyze(analyzer);
-                String ctl = tblRef.getName().getCtl();
-                CatalogMgr mrg = analyzer.getEnv().getCatalogMgr();
-                CatalogIf cif = mrg.getCatalogOrAnalysisException(ctl);
-                DatabaseIf db = cif.getDbOrAnalysisException(dbName);
+                DatabaseIf db = analyzer.getEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(tblRef.getName().getCtl()).getDbOrAnalysisException(dbName);
                 TableIf table = db.getTableOrAnalysisException(tableName);
 
                 if (expandView && (table instanceof View)) {
@@ -1671,40 +1667,39 @@ public class SelectStmt extends QueryStmt {
         selectList.rewriteExprs(rewriter, analyzer);
     }
 
-    /**
-     * equal subquery in case when to an inline view
-     * subquery in case when statement like
-     * <p>
+    /** equal subquery in case when to an inline view
+     *  subquery in case when statement like
+     *
      * SELECT CASE
-     * WHEN (
-     * SELECT COUNT(*) / 2
-     * FROM t
-     * ) > k4 THEN (
-     * SELECT AVG(k4)
-     * FROM t
-     * )
-     * ELSE (
-     * SELECT SUM(k4)
-     * FROM t
-     * )
-     * END AS kk4
+     *         WHEN (
+     *             SELECT COUNT(*) / 2
+     *             FROM t
+     *         ) > k4 THEN (
+     *             SELECT AVG(k4)
+     *             FROM t
+     *         )
+     *         ELSE (
+     *             SELECT SUM(k4)
+     *             FROM t
+     *         )
+     *     END AS kk4
      * FROM t;
      * this statement will be equal to
-     * <p>
+     *
      * SELECT CASE
-     * WHEN t1.a > k4 THEN t2.a
-     * ELSE t3.a
-     * END AS kk4
+     *         WHEN t1.a > k4 THEN t2.a
+     *         ELSE t3.a
+     *     END AS kk4
      * FROM t, (
-     * SELECT COUNT(*) / 2 AS a
-     * FROM t
-     * ) t1,  (
-     * SELECT AVG(k4) AS a
-     * FROM t
-     * ) t2,  (
-     * SELECT SUM(k4) AS a
-     * FROM t
-     * ) t3;
+     *         SELECT COUNT(*) / 2 AS a
+     *         FROM t
+     *     ) t1,  (
+     *         SELECT AVG(k4) AS a
+     *         FROM t
+     *     ) t2,  (
+     *         SELECT SUM(k4) AS a
+     *         FROM t
+     *     ) t3;
      */
     private Expr rewriteSubquery(Expr expr, Analyzer analyzer)
             throws AnalysisException {

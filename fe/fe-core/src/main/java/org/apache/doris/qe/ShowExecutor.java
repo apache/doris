@@ -2170,7 +2170,7 @@ public class ShowExecutor {
                 columnStatistics.add(Pair.of(column.getName(), columnStatistic));
             } else {
                 columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                        colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
                         .stream().map(s -> Pair.of(colName, s))
                         .collect(Collectors.toList()));
             }
