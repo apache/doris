@@ -82,7 +82,7 @@ suite("load") {
     }
 
     def table = "lineorder_flat"
-    def table_rows = 6001215
+    def table_rows = 600572
     sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
     def rowCount = sql "select count(*) from ${table}"
     if (rowCount[0][0] != table_rows) {
