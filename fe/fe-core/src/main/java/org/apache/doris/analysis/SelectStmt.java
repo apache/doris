@@ -987,8 +987,8 @@ public class SelectStmt extends QueryStmt {
              */
             try {
                 // use col name from tableRefs first
-                havingClause.analyze(analyzer);
-                havingClauseAfterAnaylzed = havingClause;
+                havingClauseAfterAnaylzed = havingClause.clone();
+                havingClauseAfterAnaylzed.analyze(analyzer);
             } catch (AnalysisException ex) {
                 // then consider alias name
                 havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
