@@ -820,6 +820,7 @@ build_cyrus_sasl() {
     CFLAGS="-fPIC" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
+        LIBS="-lcrypto" \
         ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --enable-shared=no --with-openssl="${TP_INSTALL_DIR}" --with-pic --enable-gssapi="${TP_INSTALL_DIR}" --with-gss_impl=mit --with-dblib=none
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
