@@ -269,6 +269,22 @@ curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
 3. Replace the image file in the `meta_dir/image` directory on the OBSERVER FE node with the image_mem file, restart the OBSERVER FE node, and verify the integrity and correctness of the image_mem file. You can check whether the DB and Table metadata are normal on the FE Web page, whether there is an exception in `fe.log`, whether it is in a normal replayed jour.
 
+<version since="1.2.0">
+
+    Since 1.2.0, it is recommanded to use following method to verify the `image_mem` file:
+
+    ```
+    sh start_fe.sh --image path_to_image_mem
+    ```
+
+    > Notice: `path_to_image_mem` is the path of `image_mem`.
+    >
+    > If verify succeed, it will print: `Load image success. Image file /absolute/path/to/image.xxxxxx is valid`.
+    >
+    > If verify failed, it will print: `Load image failed. Image file /absolute/path/to/image.xxxxxx is invalid`.
+
+<version>
+
 4. Replace the image file in the `meta_dir/image` directory on the FOLLOWER FE node with the image_mem file in turn, restart the FOLLOWER FE node, and confirm that the metadata and query services are normal.
 
 5. Replace the image file in the `meta_dir/image` directory on the Master FE node with the image_mem file, restart the Master FE node, and then confirm that the FE Master switch is normal and The Master FE node can generate a new image file through checkpoint.
