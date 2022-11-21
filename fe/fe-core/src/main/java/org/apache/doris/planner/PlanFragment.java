@@ -83,6 +83,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // id for this plan fragment
     private PlanFragmentId fragmentId;
+    // nereids planner and original planner generate fragments in different order.
+    // This makes nereids fragment id different from that of original planner, and
+    // hence different from that in profile.
+    // in original planner, fragmentSequenceNum is fragmentId, and in nereids planner,
+    // fragmentSequenceNum is the id displayed in profile
     private int fragmentSequenceNum;
     // private PlanId planId_;
     // private CohortId cohortId_;
