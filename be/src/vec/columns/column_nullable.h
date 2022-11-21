@@ -311,6 +311,10 @@ public:
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
+    void set_need_update_to_true() {
+        _need_update_has_null = true;
+    }
+
 private:
     WrappedPtr nested_column;
     WrappedPtr null_map;
