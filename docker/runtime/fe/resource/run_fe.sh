@@ -23,23 +23,22 @@ ARGS=$(getopt -o -h: --long fe_id:,fe_servers: -n "$0" -- "$@")
 
 eval set -- "${ARGS}"
 
-while [[ -n "$1" ]]
-do
+while [[ -n "$1" ]]; do
     case "$1" in
-        --fe_id)
-            FE_ID=$2
-            shift
-            ;;
-        --fe_servers)
-            FE_SERVERS=$2
-            shift
-            ;;
-        --)
-            ;;
-        *)
-            echo "Error option $1"
-            break
-            ;;
+    --fe_id)
+        FE_ID=$2
+        shift
+        ;;
+    --fe_servers)
+        FE_SERVERS=$2
+        shift
+        ;;
+    --) ;;
+
+    *)
+        echo "Error option $1"
+        break
+        ;;
     esac
     shift
 done
@@ -74,10 +73,9 @@ echo "DEBUG >>>>>> feEditLogPortArray = ${feEditLogPortArray[*]}"
 echo "DEBUG >>>>>> masterFe = ${feIpArray[1]}:${feEditLogPortArray[1]}"
 echo "DEBUG >>>>>> currentFe = ${feIpArray[FE_ID]}:${feEditLogPortArray[FE_ID]}"
 
-
 priority_networks=$(echo "${feIpArray[FE_ID]}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
 echo "DEBUG >>>>>> Append the configuration [priority_networks = ${priority_networks}] to /opt/doris-fe/conf/fe.conf"
-echo "priority_networks = ${priority_networks}" >> /opt/apache-doris/fe/conf/fe.conf
+echo "priority_networks = ${priority_networks}" >>/opt/apache-doris/fe/conf/fe.conf
 
 if [[ "${FE_ID}" != 1 ]]; then
 
@@ -96,11 +94,11 @@ if [[ "${FE_ID}" != 1 ]]; then
     echo "DEBUG >>>>>> FE is follower, fe_id = ${FE_ID}"
     echo "DEBUG >>>>>> registerMySQL = 【${registerMySQL}】"
     echo "DEBUG >>>>>> registerShell = 【${registerShell}】"
-    echo "DEBUG >>>>>> feMasterStat =  【mysql -uroot -P9030 -h${feIpArray[1]} -e \"show frontends\" | grep \"${feIpArray[1]}_9010\" | grep -E \"true[[:space:]]*true\"】"
+    echo "DEBUG >>>>>> feMasterStat =  【mysql -uroot -P9030 -h"${feIpArray[1]}" -e \"show frontends\" | grep \"${feIpArray[1]}_9010\" | grep -E \"true[[:space:]]*true\"】"
 
     ## STEP1: check FE master status
 
-    for (( i=0; i<=2000; i++)); do
+    for ((i = 0; i <= 2000; i++)); do
 
         ## run STEP1 & STEP2, and then break
         echo "Run registerShell command, [ registerMySQL = ${registerMySQL} ]"

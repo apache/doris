@@ -23,23 +23,22 @@ ARGS=$(getopt -o -h: --long fe_servers:,be_addr: -n "$0" -- "$@")
 
 eval set -- "${ARGS}"
 
-while [[ -n "$1" ]]
-do
+while [[ -n "$1" ]]; do
     case "$1" in
-        --fe_servers)
-            FE_SERVERS=$2
-            shift
-            ;;
-        --be_addr)
-            BE_ADDR=$2
-            shift
-            ;;
-        --)
-            ;;
-        *)
-           echo "Error option $1"
-           break
-           ;;
+    --fe_servers)
+        FE_SERVERS=$2
+        shift
+        ;;
+    --be_addr)
+        BE_ADDR=$2
+        shift
+        ;;
+    --) ;;
+
+    *)
+        echo "Error option $1"
+        break
+        ;;
     esac
     shift
 done
@@ -66,10 +65,8 @@ for i in "${!feServerArray[@]}"; do
     feEditLogPortArray[tmpFeId]=${tmpFeEditLogPort}
 done
 
-
 be_ip=$(echo ${BE_ADDR} | awk -F ':' '{ sub(/ /, ""); print$1}')
 be_heartbeat_port=$(echo ${BE_ADDR} | awk -F ':' '{ sub(/ /, ""); print$2}')
-
 
 echo "DEBUG >>>>>> feIpArray = ${feIpArray[*]}"
 echo "DEBUG >>>>>> feEditLogPortArray = ${feEditLogPortArray[*]}"
@@ -78,7 +75,7 @@ echo "DEBUG >>>>>> be_addr = ${be_ip}:${be_heartbeat_port}"
 
 priority_networks=$(echo ${be_ip} | awk -F '.' '{print$1"."$2"."$3".0/24"}')
 echo "DEBUG >>>>>> Append the configuration [priority_networks = ${priority_networks}] to /opt/apache-doris/be/conf/fe.conf"
-echo "priority_networks = ${priority_networks}" >> /opt/apache-doris/be/conf/be.conf
+echo "priority_networks = ${priority_networks}" >>/opt/apache-doris/be/conf/be.conf
 
 registerMySQL=$(echo "mysql -uroot -P9030 -h${feIpArray[1]} -e" "\"alter system add backend '${be_ip}:${be_heartbeat_port}'\"")
 registerShell="/opt/apache-doris/be/bin/start_be.sh"
@@ -86,8 +83,7 @@ registerShell="/opt/apache-doris/be/bin/start_be.sh"
 echo "DEBUG >>>>>> registerMySQL = ${registerMySQL}"
 echo "DEBUG >>>>>> registerShell = ${registerShell}"
 
-
-for (( i=0; i<=20; i++)); do
+for ((i = 0; i <= 20; i++)); do
 
     echo "DEBUG >>>>>> The " "$i" "time to register BE node, be_join_status=${be_join_status}"
 
