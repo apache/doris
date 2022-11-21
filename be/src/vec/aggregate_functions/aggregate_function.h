@@ -199,9 +199,6 @@ public:
 
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
 
-    //only used to check java udaf jar is valided, so it's could retrn error for user before open phase
-    virtual Status check_udaf(const TFunction& fn) { return Status::OK(); }
-
 protected:
     DataTypes argument_types;
     Array parameters;

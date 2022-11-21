@@ -311,7 +311,7 @@ public:
     }
     //Note: The condition is added because maybe the BE can't find java-udaf impl jar
     //So need to check as soon as possible, before call Data function
-    Status check_udaf(const TFunction& fn) override {
+    Status check_udaf(const TFunction& fn) {
         auto function_cache = UserFunctionCache::instance();
         return function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum, &_local_location);
     }
