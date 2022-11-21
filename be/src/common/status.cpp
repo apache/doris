@@ -70,7 +70,8 @@ Status Status::OLAPInternalError(int16_t precise_code, std::string_view msg = ""
     return ConstructErrorStatus(TStatusCode::INTERNAL_ERROR, precise_code, msg);
 }
 
-Status Status::ConstructErrorStatus(TStatusCode tcode, int16_t precise_code, std::string_view msg) {
+Status Status::ConstructErrorStatus(TStatusCode::type tcode, int16_t precise_code,
+                                    std::string_view msg) {
 // This will print all error status's stack, it maybe too many, but it is just used for debug
 #ifdef PRINT_ALL_ERR_STATUS_STACKTRACE
     LOG(WARNING) << "Error occurred, error code = " << precise_code << ", with message: " << msg

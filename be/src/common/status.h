@@ -408,7 +408,7 @@ public:
     //      All Status Error is treated as Internal Error
     static Status OLAPInternalError(int16_t precise_code, std::string_view msg = "");
 
-    static Status ConstructErrorStatus(TStatusCode tcode, int16_t precise_code,
+    static Status ConstructErrorStatus(TStatusCode::type tcode, int16_t precise_code,
                                        std::string_view msg);
 
     bool ok() const { return _code == TStatusCode::OK; }
