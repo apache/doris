@@ -328,7 +328,7 @@ struct Decimal {
     T value;
 };
 
-template<>
+template <>
 struct Decimal<Int128I> : public Decimal<Int128> {
     Decimal() = default;
 

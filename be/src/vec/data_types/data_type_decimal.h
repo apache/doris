@@ -184,9 +184,7 @@ public:
         return x % get_scale_multiplier();
     }
 
-    T max_whole_value() const {
-        return get_scale_multiplier(max_precision() - scale) - T(1);
-    }
+    T max_whole_value() const { return get_scale_multiplier(max_precision() - scale) - T(1); }
 
     bool can_store_whole(T x) const {
         T max = max_whole_value();
@@ -341,8 +339,8 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
             LOG(WARNING) << "Decimal convert overflow";
         }
     } else {
-        converted_value = value / DataTypeDecimal<MaxFieldType>::get_scale_multiplier(
-                                          scale_from - scale_to);
+        converted_value =
+                value / DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
     }
 
     if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {

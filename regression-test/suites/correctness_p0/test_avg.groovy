@@ -34,7 +34,7 @@ suite("test_avg") {
             )
         """
 
-    for (i in range(1, 1000)) {
+    for (i in range(1, 100)) {
         sql """ INSERT INTO ${tableName} values (10000000000000${i}) """
     }
     qt_select """ SELECT AVG(c_bigint) FROM ${tableName} """
