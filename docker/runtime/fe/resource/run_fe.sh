@@ -19,11 +19,11 @@
 FE_ID=0
 FE_SERVERS=""
 
-ARGS=`getopt -o -h: --long fe_id:,fe_servers: -n "$0" -- "$@"`
+ARGS=$(getopt -o -h: --long fe_id:,fe_servers: -n "$0" -- "$@")
 
 eval set -- "${ARGS}"
 
-while [ -n "$1" ]
+while [[ -n "$1" ]]
 do
     case "$1" in
         --fe_id)
@@ -44,43 +44,42 @@ do
     shift
 done
 
-echo "DEBUG >>>>>> FE_ID = [$FE_ID]"
-echo "DEBUG >>>>>> FE_SERVERS = [$FE_SERVERS]"
+echo "DEBUG >>>>>> FE_ID = [${FE_ID}]"
+echo "DEBUG >>>>>> FE_SERVERS = [${FE_SERVERS}]"
 
 feIpArray=()
 feEditLogPortArray=()
 
 IFS=","
-feServerArray=($FE_SERVERS)
+feServerArray=(${FE_SERVERS})
 
 for i in "${!feServerArray[@]}"; do
 
     val=${feServerArray[i]}
     val=${val// /}
-    #echo "DEBUG >>>>>>>>> $i => 【$val】"
-    tmpFeId=`echo $val | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}'`
-    tmpFeIp=`echo $val | awk -F ':' '{ sub(/ /, ""); print$2}'`
-    tmpFeEditLogPort=`echo $val | awk -F ':' '{ sub(/ /, ""); print$3}'`
-    echo "DEBUG >>>>>> tmpFeId = [$tmpFeId]"
-    echo "DEBUG >>>>>> tmpFeIp = [$tmpFeIp]"
-    echo "DEBUG >>>>>> tmpFeEditLogPort = [$tmpFeEditLogPort]"
+    tmpFeId=$(echo "$val" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
+    tmpFeIp=$(echo "$val" | awk -F ':' '{ sub(/ /, ""); print$2}')
+    tmpFeEditLogPort=$(echo "$val" | awk -F ':' '{ sub(/ /, ""); print$3}')
+    echo "DEBUG >>>>>> tmpFeId = [${tmpFeId}]"
+    echo "DEBUG >>>>>> tmpFeIp = [${tmpFeIp}]"
+    echo "DEBUG >>>>>> tmpFeEditLogPort = [${tmpFeEditLogPort}]"
 
-    feIpArray[tmpFeId]=$tmpFeIp
-    feEditLogPortArray[tmpFeId]=$tmpFeEditLogPort
+    feIpArray[tmpFeId]=${tmpFeIp}
+    feEditLogPortArray[tmpFeId]=${tmpFeEditLogPort}
 
 done
 
-echo "DEBUG >>>>>> feIpArray = ${feIpArray[@]}"
-echo "DEBUG >>>>>> feEditLogPortArray = ${feEditLogPortArray[@]}"
+echo "DEBUG >>>>>> feIpArray = ${feIpArray[*]}"
+echo "DEBUG >>>>>> feEditLogPortArray = ${feEditLogPortArray[*]}"
 echo "DEBUG >>>>>> masterFe = ${feIpArray[1]}:${feEditLogPortArray[1]}"
 echo "DEBUG >>>>>> currentFe = ${feIpArray[FE_ID]}:${feEditLogPortArray[FE_ID]}"
 
 
-priority_networks=`echo ${feIpArray[FE_ID]} | awk -F '.' '{print$1"."$2"."$3".0/24"}'`
-echo "DEBUG >>>>>> Append the configuration [priority_networks = $priority_networks] to /opt/doris-fe/conf/fe.conf"
-echo "priority_networks = $priority_networks" >> /opt/apache-doris/fe/conf/fe.conf
+priority_networks=$(echo "${feIpArray[FE_ID]}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
+echo "DEBUG >>>>>> Append the configuration [priority_networks = ${priority_networks}] to /opt/doris-fe/conf/fe.conf"
+echo "priority_networks = ${priority_networks}" >> /opt/apache-doris/fe/conf/fe.conf
 
-if [[ "$FE_ID" != 1 ]]; then
+if [[ "${FE_ID}" != 1 ]]; then
 
     ## if current node is not master
     ## PREPARE1: registe follower from mysql client
@@ -89,14 +88,14 @@ if [[ "$FE_ID" != 1 ]]; then
     ## STEP2: if feMasterStat == true; register PREPARE1 & PREPARE2 [retry 3 times, sleep 10s]
 
     ## PREPARE1: registe follower from mysql client
-    registerMySQL=`echo "mysql -uroot -P9030 -h${feIpArray[1]} -e" "\"alter system add follower '${feIpArray[FE_ID]}:${feEditLogPortArray[FE_ID]}'\""`
+    registerMySQL=$(echo "mysql -uroot -P9030 -h${feIpArray[1]} -e" "\"alter system add follower '${feIpArray[FE_ID]}:${feEditLogPortArray[FE_ID]}'\"")
 
     ## PREPARE2: call start_fe.sh using --help optional
     registerShell="/opt/apache-doris/fe/bin/start_fe.sh --helper '${feIpArray[1]}:${feEditLogPortArray[1]}'"
 
-    echo "DEBUG >>>>>> FE is follower, fe_id = $FE_ID"
-    echo "DEBUG >>>>>> registerMySQL = 【$registerMySQL】"
-    echo "DEBUG >>>>>> registerShell = 【$registerShell】"
+    echo "DEBUG >>>>>> FE is follower, fe_id = ${FE_ID}"
+    echo "DEBUG >>>>>> registerMySQL = 【${registerMySQL}】"
+    echo "DEBUG >>>>>> registerShell = 【${registerShell}】"
     echo "DEBUG >>>>>> feMasterStat =  【mysql -uroot -P9030 -h${feIpArray[1]} -e \"show frontends\" | grep \"${feIpArray[1]}_9010\" | grep -E \"true[[:space:]]*true\"】"
 
     ## STEP1: check FE master status
@@ -125,7 +124,7 @@ else
 
     registerShell="/opt/apache-doris/fe/bin/start_fe.sh"
     eval ${registerShell}
-    echo "DEBUG >>>>>> FE is master, fe_id = $FE_ID"
-    echo "DEBUG >>>>>> registerShell = $registerShell"
+    echo "DEBUG >>>>>> FE is master, fe_id = ${FE_ID}"
+    echo "DEBUG >>>>>> registerShell = ${registerShell}"
 
 fi
