@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -220,8 +221,13 @@ public class LargeIntLiteral extends LiteralExpr {
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isFloatingPointType()) {
             return new FloatLiteral(new Double(value.doubleValue()), targetType);
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
+        } else if (targetType.isDecimalV2()) {
             return new DecimalLiteral(new BigDecimal(value));
+        } else if (targetType.isDecimalV3()) {
+            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+            res.setType(ScalarType.createDecimalV3Type(res.getType().getPrecision(),
+                    ((ScalarType) res.getType()).decimalScale()));
+            return res;
         } else if (targetType.isIntegerType()) {
             try {
                 return new IntLiteral(value.longValueExact(), targetType);

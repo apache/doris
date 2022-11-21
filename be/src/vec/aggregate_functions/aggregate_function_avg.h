@@ -81,9 +81,13 @@ template <typename T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
-    using ResultType = std::conditional_t<IsDecimalNumber<T>, Decimal128, Float64>;
-    using ResultDataType = std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128>,
-                                              DataTypeNumber<Float64>>;
+    using ResultType =
+            std::conditional_t<IsDecimalV2<T>, Decimal128,
+                               std::conditional_t<IsDecimalNumber<T>, Decimal128I, Float64>>;
+    using ResultDataType =
+            std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
+                               std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128I>,
+                                                  DataTypeNumber<Float64>>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     using ColVecResult =
             std::conditional_t<IsDecimalV2<T>, ColumnDecimal<Decimal128>,

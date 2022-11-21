@@ -63,6 +63,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -215,6 +216,15 @@ public class GenerateScalarFunction {
     );
 
     static final Set<String> customCastFunctions = ImmutableSet.of("%element_extract%", "concat_ws", "str_to_date");
+
+    private static final ImmutableSet<String> DECIMAL_SAME_TYPE_SET =
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("min").add("max").add("lead").add("lag")
+                    .add("first_value").add("last_value").add("abs")
+                    .add("positive").add("negative").build();
+    private static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("sum").add("avg").add("multi_distinct_sum").build();
 
     static boolean isIdenticalSignature(String functionName) {
         return functionName.startsWith("castto") || identicalSignatureFunctions.contains(functionName);
@@ -670,9 +680,9 @@ public class GenerateScalarFunction {
             }
         }
 
-        if (FunctionCallExpr.DECIMAL_SAME_TYPE_SET.contains(functionName)) {
+        if (DECIMAL_SAME_TYPE_SET.contains(functionName)) {
             interfaces.add(DecimalSamePrecision.class);
-        } else if (FunctionCallExpr.DECIMAL_WIDER_TYPE_SET.contains(functionName)) {
+        } else if (DECIMAL_WIDER_TYPE_SET.contains(functionName)) {
             interfaces.add(DecimalWiderPrecision.class);
         } else if (FunctionCallExpr.STDDEV_FUNCTION_SET.contains(functionName)) {
             interfaces.add(DecimalStddevPrecision.class);

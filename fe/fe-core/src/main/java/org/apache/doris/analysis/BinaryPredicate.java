@@ -320,6 +320,9 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Type getCmpType() throws AnalysisException {
+        if (getChild(0).getType().isDecimalV3() && getChild(1).isConstantImpl()) {
+            getChild(1).compactForDecimalV3Literal(getChild(0).getType());
+        }
         PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
         PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
 

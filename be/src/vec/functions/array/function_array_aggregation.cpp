@@ -55,20 +55,27 @@ struct ArrayAggregateResultImpl<Element, AggregateOperation::MAX> {
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::AVERAGE> {
-    using Result = std::conditional_t<IsDecimalNumber<Element>, Decimal128, Float64>;
+    using Result =
+            std::conditional_t<IsDecimalV2<Element>, Decimal128,
+                               std::conditional_t<IsDecimalNumber<Element>, Decimal128I, Float64>>;
 };
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT> {
-    using Result = std::conditional_t<IsDecimalNumber<Element>, Decimal128, Float64>;
+    using Result =
+            std::conditional_t<IsDecimalV2<Element>, Decimal128,
+                               std::conditional_t<IsDecimalNumber<Element>, Decimal128I, Float64>>;
 };
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::SUM> {
     using Result = std::conditional_t<
-            IsDecimalNumber<Element>, Decimal128,
-            std::conditional_t<IsFloatNumber<Element>, Float64,
-                               std::conditional_t<std::is_same_v<Element, Int128>, Int128, Int64>>>;
+            IsDecimalV2<Element>, Decimal128,
+            std::conditional_t<
+                    IsDecimalNumber<Element>, Decimal128I,
+                    std::conditional_t<
+                            IsFloatNumber<Element>, Float64,
+                            std::conditional_t<std::is_same_v<Element, Int128>, Int128, Int64>>>>;
 };
 
 template <typename Element, AggregateOperation operation>

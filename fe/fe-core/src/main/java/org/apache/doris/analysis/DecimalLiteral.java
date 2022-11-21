@@ -48,6 +48,11 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
+        try {
+            value = new BigDecimal(value.longValueExact());
+        } catch (ArithmeticException e) {
+            // ignore
+        }
         init(value);
         analysisDone();
     }
@@ -56,8 +61,11 @@ public class DecimalLiteral extends LiteralExpr {
         BigDecimal v = null;
         try {
             v = new BigDecimal(value);
+            v = new BigDecimal(v.longValueExact());
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
+        } catch (ArithmeticException e) {
+            // ignore
         }
         init(v);
         analysisDone();
@@ -265,6 +273,14 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     @Override
+    protected void compactForDecimalV3Literal(Type type) throws AnalysisException {
+        if (type.isDecimalV3()) {
+            this.type = ScalarType.createDecimalV3Type(Math.max(this.value.precision(), type.getPrecision()),
+                    Math.max(this.value.scale(), ((ScalarType) type).decimalScale()));
+        }
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
         Text.writeString(out, value.toString());
@@ -316,9 +332,13 @@ public class DecimalLiteral extends LiteralExpr {
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isDecimalV2() && type.isDecimalV2()) {
             return this;
-        } else if (targetType.isDecimalV3() && type.isDecimalV3()
-                && (((ScalarType) targetType).decimalPrecision() == value.precision())
-                && (((ScalarType) targetType).decimalScale() == value.precision())) {
+        } else if ((targetType.isDecimalV3() && type.isDecimalV3()
+                && (((ScalarType) targetType).decimalPrecision() >= value.precision())
+                && (((ScalarType) targetType).decimalScale() >= value.scale()))
+                || (targetType.isDecimalV3() && type.isDecimalV2()
+                && (((ScalarType) targetType).decimalScale() >= value.scale()))) {
+            // If target type is DECIMALV3, we should set type for literal
+            setType(targetType);
             return this;
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);
