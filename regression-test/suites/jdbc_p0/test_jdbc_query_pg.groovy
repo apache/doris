@@ -397,6 +397,72 @@ suite("test_jdbc_query_pg", "p0") {
         order_qt_sql """ select count(*) from $dorisInTable1;"""
         order_qt_sql """ select * from $dorisInTable1 order by id limit 5; """
 
+
+        // test for aggregate
+        order_qt_sql1 """ SELECT COUNT(true) FROM $jdbcPg14Table1 """
+        order_qt_sql2 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE k7 < k8 """
+        order_qt_sql3 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE NOT k7 < k8 """
+        order_qt_sql4 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE NULL """
+        order_qt_sql5 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE NULLIF(k2, 'F') IS NULL """
+        order_qt_sql6 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE NULLIF(k2, 'F') IS NOT NULL """
+        order_qt_sql7 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE NULLIF(k2, 'F') = k2 """
+        order_qt_sql8 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE COALESCE(NULLIF(k2, 'abc'), 'abc') = 'abc' """
+        order_qt_sql9 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE k7 < k8 AND k8 > 30 AND k8 < 40 """
+        order_qt_sql10 """ SELECT COUNT(*) FROM (SELECT k1 FROM $jdbcPg14Table1) x """
+        order_qt_sql11 """ SELECT COUNT(*) FROM (SELECT k1, COUNT(*) FROM $jdbcPg14Table1 GROUP BY k1) x """
+        order_qt_sql12 """ SELECT k1, c, count(*) FROM (SELECT k1, count(*) c FROM $jdbcPg14Table1 GROUP BY k1) as a GROUP BY k1, c """
+        order_qt_sql13 """ SELECT k2, sum(CAST(NULL AS BIGINT)) FROM $jdbcPg14Table1 GROUP BY k2 """
+        order_qt_sql14 """ SELECT `key`, COUNT(*) as c FROM (
+                            SELECT CASE WHEN k8 % 3 = 0 THEN NULL WHEN k8 % 5 = 0 THEN 0 ELSE k8 END AS `key`
+                            FROM $jdbcPg14Table1) as a GROUP BY `key` order by c desc limit 10"""
+        order_qt_sql15 """ SELECT lines, COUNT(*) as c FROM (SELECT k7, COUNT(*) lines FROM $jdbcPg14Table1 GROUP BY k7) U GROUP BY lines order by c"""
+        order_qt_sql16 """ SELECT COUNT(DISTINCT k8 + 1) FROM $jdbcPg14Table1 """
+        order_qt_sql17 """ SELECT COUNT(*) FROM (SELECT DISTINCT k8 + 1 FROM $jdbcPg14Table1) t """
+        order_qt_sql18 """ SELECT COUNT(DISTINCT k8), COUNT(*) from $jdbcPg14Table1 where k8 > 40 """
+        order_qt_sql19 """ SELECT COUNT(DISTINCT k8) AS count, k7 FROM $jdbcPg14Table1 GROUP BY k7 ORDER BY count, k7 """
+        order_qt_sql20 """ SELECT k2, k3, COUNT(DISTINCT k5), SUM(DISTINCT k8) FROM $jdbcPg14Table1 GROUP BY k2, k3 order by k2, k3 """
+        order_qt_sql21 """ SELECT k2, COUNT(DISTINCT k7), COUNT(DISTINCT k8) FROM $jdbcPg14Table1 GROUP BY k2 """
+        order_qt_sql22 """ SELECT SUM(DISTINCT x) FROM (SELECT k7, COUNT(DISTINCT k8) x FROM $jdbcPg14Table1 GROUP BY k7) t """
+        order_qt_sql23 """ SELECT max(k8), COUNT(k7), sum(DISTINCT k6) FROM $jdbcPg14Table1 """
+        order_qt_sql24 """ SELECT s, MAX(k6), SUM(a) FROM (SELECT k6, avg(k8) AS a, SUM(DISTINCT k7) AS s FROM $jdbcPg14Table1 GROUP BY k6) as b  group by s"""
+        order_qt_sql25 """ SELECT COUNT(DISTINCT k8) FROM $jdbcPg14Table1 WHERE LENGTH(k2) > 2 """
+        sql  """ drop table if exists $dorisExTable2 """
+        sql  """
+            CREATE EXTERNAL TABLE `$dorisExTable2` (
+                `id` int NULL COMMENT "",
+                `name` varchar(20) NULL COMMENT ""
+            ) ENGINE=JDBC
+            PROPERTIES (
+            "resource" = "$jdbcResourcePg14",
+            "table" = "test3", 
+            "table_type"="postgresql"
+            );
+        """
+        order_qt_sql26 """ 
+                        SELECT max(id), min(id), count(id) + 1, count(id)
+                        FROM (SELECT DISTINCT k8 FROM $jdbcPg14Table1) AS r1
+                        LEFT JOIN ${dorisExTable2} as a ON r1.k8 = a.id GROUP BY r1.k8 
+                        HAVING sum(id) < 110 """
+        order_qt_sql27 """ SELECT id BETWEEN 110 AND 115 from $dorisExTable2 GROUP BY id BETWEEN 110 AND 115;  """
+        order_qt_sql28 """ SELECT CAST(id BETWEEN 1 AND 120 AS BIGINT) FROM $dorisExTable2 GROUP BY id """
+        order_qt_sql29 """ SELECT CAST(50 BETWEEN id AND 120 AS BIGINT) FROM $dorisExTable2 GROUP BY id """
+        order_qt_sql30 """ SELECT CAST(50 BETWEEN 1 AND id AS BIGINT) FROM $dorisExTable2 GROUP BY id """
+        order_qt_sql31 """ SELECT CAST(id AS VARCHAR) as a, count(*) FROM $dorisExTable2 GROUP BY CAST(id AS VARCHAR) order by a """
+        order_qt_sql32 """ SELECT NULLIF(k7, k8), count(*) as c FROM $jdbcPg14Table1 GROUP BY NULLIF(k7, k8) order by c desc"""
+        order_qt_sql33 """ SELECT id + 1, id + 2, id + 3, id + 4, id + 5, id + 6, id + 7,id + 8, id + 9, id + 10, COUNT(*) AS c
+                            FROM $dorisExTable2 GROUP BY id + 1, id + 2, id + 3, id + 4, id + 5, id + 6, id + 7,id + 8, id + 9, id + 10
+                            ORDER BY c desc """
+        order_qt_sql35 """ 
+                        SELECT name,SUM(CAST(id AS BIGINT))
+                        FROM $dorisExTable2
+                        WHERE name = 'abc'
+                        GROUP BY name
+                        UNION
+                        SELECT NULL, SUM(CAST(id AS BIGINT))
+                        FROM $dorisExTable2
+                        WHERE name = 'abd' """
+
     }
 }
+
 
