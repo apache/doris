@@ -57,9 +57,9 @@ for i in "${!feServerArray[@]}"; do
     val=${feServerArray[i]}
     val=${val// /}
     #echo "DEBUG >>>>>>>>> $i => 【$val】"
-    tmpFeId=$(echo ${val} | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
-    tmpFeIp=$(echo ${val} | awk -F ':' '{ sub(/ /, ""); print$2}')
-    tmpFeEditLogPort=$(echo ${val} | awk -F ':' '{ sub(/ /, ""); print$3}')
+    tmpFeId=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
+    tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+    tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
     #echo "DEBUG >>>>>>>>> tmpFeId = $tmpFeIdi, tmpFeIp = $tmpFeIp, tmpFeEditLogPort = $tmpFeEditLogPort"
     feIpArray[tmpFeId]=${tmpFeIp}
     feEditLogPortArray[tmpFeId]=${tmpFeEditLogPort}
