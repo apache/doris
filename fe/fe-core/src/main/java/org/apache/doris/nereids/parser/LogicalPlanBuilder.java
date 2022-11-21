@@ -138,6 +138,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -1052,9 +1053,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withHaving(LogicalPlan input, Optional<HavingClauseContext> havingCtx) {
-        return input.optionalMap(havingCtx, () ->
-            new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input)
-        );
+        return input.optionalMap(havingCtx, () -> {
+            if (!(input instanceof Aggregate)) {
+                throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
+            }
+            return new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input);
+        });
     }
 
     /**
