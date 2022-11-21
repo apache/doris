@@ -17,22 +17,21 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
 public class GraphSimplifierTest {
     @Test
     void testStarQuery() {
-        //      t2
+        //      t1
         //      |
-        //t3-- t1 -- t4
+        //t3-- t0 -- t4
         //      |
-        //     t5
+        //     t2
         HyperGraph hyperGraph = new HyperGraphBuilder()
                 .init(10, 20, 30, 40, 50)
                 .addEdge(JoinType.INNER_JOIN, 0, 1)
@@ -44,11 +43,16 @@ public class GraphSimplifierTest {
         graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
-        List<Edge> edges = hyperGraph.getEdges();
-        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
-        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
-        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
-        Assertions.assertEquals(edges.get(3).toString(), "<{0, 1, 2, 3} - {4}>");
+        for (Node node : hyperGraph.getNodes()) {
+            System.out.println(
+                    String.format("node %d has simple neighborhood %s", node.getIndex(), node.getSimpleNeighborhood()));
+        }
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        for (int count : counter.getAllCount().values()) {
+            Assertions.assertEquals(count, 1);
+        }
     }
 
     @Test
@@ -70,12 +74,12 @@ public class GraphSimplifierTest {
         graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
-        List<Edge> edges = hyperGraph.getEdges();
-        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
-        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
-        Assertions.assertEquals(edges.get(2).toString(), "<{0} - {1, 2, 3}>");
-        Assertions.assertEquals(edges.get(3).toString(), "<{1} - {0, 2}>");
-        Assertions.assertEquals(edges.get(4).toString(), "<{0, 1, 2} - {3}>");
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        for (int count : counter.getAllCount().values()) {
+            Assertions.assertEquals(count, 1);
+        }
     }
 
     @Test
@@ -98,13 +102,12 @@ public class GraphSimplifierTest {
         graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
-        List<Edge> edges = hyperGraph.getEdges();
-        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
-        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
-        Assertions.assertEquals(edges.get(2).toString(), "<{0} - {1, 2, 3}>");
-        Assertions.assertEquals(edges.get(3).toString(), "<{1} - {0, 2}>");
-        Assertions.assertEquals(edges.get(4).toString(), "<{1} - {0, 2, 3}>");
-        Assertions.assertEquals(edges.get(5).toString(), "<{0, 1, 2} - {3}>");
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        for (int count : counter.getAllCount().values()) {
+            Assertions.assertEquals(count, 1);
+        }
     }
 
     @Test
@@ -132,17 +135,26 @@ public class GraphSimplifierTest {
         graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
-        List<Edge> edges = hyperGraph.getEdges();
-        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
-        Assertions.assertEquals(edges.get(1).toString(), "<{0, 1} - {2}>");
-        Assertions.assertEquals(edges.get(2).toString(), "<{0, 1, 2} - {3}>");
-        Assertions.assertEquals(edges.get(3).toString(), "<{0, 1, 2, 3} - {4}>");
-        Assertions.assertEquals(edges.get(4).toString(), "<{0, 1, 2, 3, 4, 6} - {5}>");
-        Assertions.assertEquals(edges.get(5).toString(), "<{0, 1, 2, 3, 4} - {6}>");
-        Assertions.assertEquals(edges.get(6).toString(), "<{0, 1, 2, 3, 4, 5, 6} - {7}>");
-        Assertions.assertEquals(edges.get(7).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7} - {8}>");
-        Assertions.assertEquals(edges.get(8).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7, 8} - {9}>");
-        Assertions.assertEquals(edges.get(9).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7, 8, 9} - {10}>");
-        Assertions.assertEquals(edges.get(10).toString(), "<{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10} - {11}>");
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        for (int count : counter.getAllCount().values()) {
+            Assertions.assertEquals(count, 1);
+        }
+    }
+
+    @Test
+    void testRandomQuery() {
+        HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(10, 30);
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.initFirstStep();
+        while (graphSimplifier.applySimplificationStep()) {
+        }
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        for (int count : counter.getAllCount().values()) {
+            Assertions.assertEquals(count, 1);
+        }
     }
 }

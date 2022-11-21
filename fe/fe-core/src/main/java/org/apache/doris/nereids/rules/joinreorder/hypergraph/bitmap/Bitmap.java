@@ -38,12 +38,88 @@ public class Bitmap {
         return bitSet;
     }
 
-    public static BitSet unionBitmap(BitSet... bitSets) {
+    public static BitSet newBitmap(BitSet bitSet) {
+        BitSet n = new BitSet();
+        n.or(bitSet);
+        return n;
+    }
+
+    public static BitSet newBitmap() {
+        return new BitSet();
+    }
+
+    public static BitSet newBitmapUnion(BitSet... bitSets) {
         BitSet u = new BitSet();
         for (BitSet bitSet : bitSets) {
             u.or(bitSet);
         }
         return u;
+    }
+
+    // return bitSet1 - bitSet2
+    public static BitSet newBitmapDiff(BitSet bitSet1, BitSet bitSet2) {
+        BitSet u = new BitSet();
+        u.or(bitSet1);
+        u.andNot(bitSet2);
+        return u;
+    }
+
+    public static BitSet newBitmapBetween(int start, int end) {
+        BitSet bitSet = new BitSet();
+        bitSet.set(start, end);
+        return bitSet;
+    }
+
+    public static int nextSetBit(BitSet bitSet, int fromIndex) {
+        return bitSet.nextSetBit(fromIndex);
+    }
+
+    public static boolean get(BitSet bitSet, int index) {
+        return bitSet.get(index);
+    }
+
+    public static void set(BitSet bitSet, int index) {
+        bitSet.set(index);
+    }
+
+    public static void unset(BitSet bitSet, int index) {
+        bitSet.set(index, false);
+    }
+
+    public static void clear(BitSet bitSet) {
+        bitSet.clear();
+    }
+
+    public static int getCardinality(BitSet bitSet) {
+        return bitSet.cardinality();
+    }
+
+    public static BitSetIterator getIterator(BitSet bitSet) {
+        return new BitSetIterator(bitSet);
+    }
+
+    public static ReverseBitSetIterator getReverseIterator(BitSet bitSet) {
+        return new ReverseBitSetIterator(bitSet);
+    }
+
+    public static void or(BitSet bitSet1, BitSet bitSet2) {
+        bitSet1.or(bitSet2);
+    }
+
+    public static boolean isOverlap(BitSet bitSet1, BitSet bitSet2) {
+        return bitSet1.intersects(bitSet2);
+    }
+
+    public static void andNot(BitSet bitSet1, BitSet bitSet2) {
+        bitSet1.andNot(bitSet2);
+    }
+
+    public static void and(BitSet bitSet1, BitSet bitSet2) {
+        bitSet1.and(bitSet2);
+    }
+
+    public static SubsetIterator getSubsetIterator(BitSet bitSet) {
+        return new SubsetIterator(bitSet);
     }
 }
 

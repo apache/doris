@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -64,14 +65,6 @@ public class HyperGraph {
         return nodes.get(index);
     }
 
-    public Plan getPlan(BitSet bitSet) {
-        // In HyperGraph, we assume that each edge is a simple edge at first.
-        // Therefore, it only supports to get simple plan
-        Preconditions.checkArgument(bitSet.cardinality() == 1);
-        int index = bitSet.nextSetBit(0);
-        return nodes.get(index).getPlan();
-    }
-
     /**
      * Extract the best plan of HyperGraph
      *
@@ -98,6 +91,12 @@ public class HyperGraph {
 
     public boolean optimize() {
         return simplify() && emitPlan();
+    }
+
+    public void splitEdgesForNodes() {
+        for (Node node : nodes) {
+            node.splitEdges();
+        }
     }
 
     private void buildGraph(Plan plan) {
@@ -133,11 +132,11 @@ public class HyperGraph {
     }
 
     private BitSet findNodes(Set<Slot> slots) {
-        BitSet bitSet = new BitSet();
+        BitSet bitSet = Bitmap.newBitmap();
         for (Node node : nodes) {
             for (Slot slot : node.getPlan().getOutput()) {
                 if (slots.contains(slot)) {
-                    bitSet.set(node.getIndex());
+                    Bitmap.set(bitSet, node.getIndex());
                     break;
                 }
             }
@@ -153,13 +152,11 @@ public class HyperGraph {
             BitSet bitSet = findNodes(expression.getInputSlots());
             Preconditions.checkArgument(bitSet.cardinality() == 2,
                     String.format("HyperGraph has not supported polynomial %s yet", expression));
-            int leftIndex = bitSet.nextSetBit(0);
-            BitSet left = new BitSet();
-            left.set(leftIndex);
+            int leftIndex = Bitmap.nextSetBit(bitSet, 0);
+            BitSet left = Bitmap.newBitmap(leftIndex);
             edge.addLeftNode(left);
-            int rightIndex = bitSet.nextSetBit(leftIndex + 1);
-            BitSet right = new BitSet();
-            right.set(rightIndex);
+            int rightIndex = Bitmap.nextSetBit(bitSet, leftIndex + 1);
+            BitSet right = Bitmap.newBitmap(rightIndex);
             edge.addRightNode(right);
             edge.getReferenceNodes().stream().forEach(index -> nodes.get(index).attachEdge(edge));
             edges.add(edge);
@@ -187,15 +184,11 @@ public class HyperGraph {
     }
 
     private void updateEdges(Edge edge, BitSet oldNodes, BitSet newNodes) {
-        BitSet removeNodes = new BitSet();
-        removeNodes.or(oldNodes);
-        removeNodes.andNot(newNodes);
-        removeNodes.stream().forEach(index -> nodes.get(index).removeEdge(edge));
+        BitSet removeNodes = Bitmap.newBitmapDiff(oldNodes, newNodes);
+        Bitmap.getIterator(removeNodes).forEach(index -> nodes.get(index).removeEdge(edge));
 
-        BitSet addedNodes = new BitSet();
-        addedNodes.or(newNodes);
-        addedNodes.andNot(oldNodes);
-        addedNodes.stream().forEach(index -> nodes.get(index).attachEdge(edge));
+        BitSet addedNodes = Bitmap.newBitmapDiff(newNodes, oldNodes);
+        Bitmap.getIterator(addedNodes).forEach(index -> nodes.get(index).attachEdge(edge));
     }
 
     /**
