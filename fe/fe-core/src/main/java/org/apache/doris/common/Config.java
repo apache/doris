@@ -1916,5 +1916,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean collect_external_table_stats_by_sql = false;
+
+    /**
+     * Max num of same name meta informatntion in catalog recycle bin.
+     * Default is 3.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_same_name_catalog_trash_num = 3;
 }
 
