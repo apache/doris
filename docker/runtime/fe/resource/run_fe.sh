@@ -121,7 +121,7 @@ if [[ "${FE_ID}" != 1 ]]; then
 else
 
     registerShell="/opt/apache-doris/fe/bin/start_fe.sh"
-    eval ${registerShell}
+    eval "${registerShell}"
     echo "DEBUG >>>>>> FE is master, fe_id = ${FE_ID}"
     echo "DEBUG >>>>>> registerShell = ${registerShell}"
 
