@@ -69,12 +69,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                         .stream()
                         .map(expr -> (NamedExpression) rewriter.rewrite(expr))
                         .collect(Collectors.toList());
-                // TODO:
-                // trick logic: currently XxxRelation in GroupExpression always difference to each other,
-                // so this rule must check the expression whether is changed to prevent dead loop because
-                // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
-                // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
-                // GroupExpression by id
                 if (projects.equals(newProjects)) {
                     return oneRowRelation;
                 }
