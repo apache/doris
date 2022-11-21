@@ -138,7 +138,8 @@ public class JdbcScanNode extends ScanNode {
         if (shouldPushDownLimit()
                 && (jdbcType == TOdbcTableType.MYSQL
                 || jdbcType == TOdbcTableType.POSTGRESQL
-                || jdbcType == TOdbcTableType.MONGODB)) {
+                || jdbcType == TOdbcTableType.MONGODB
+                || jdbcType == TOdbcTableType.CLICKHOUSE)) {
             sql.append(" LIMIT ").append(limit);
         }
 
