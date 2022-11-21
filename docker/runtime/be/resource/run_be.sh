@@ -51,6 +51,7 @@ feIpArray=()
 feEditLogPortArray=()
 
 IFS=","
+# shellcheck disable=SC2206
 feServerArray=(${FE_SERVERS})
 
 for i in "${!feServerArray[@]}"; do
