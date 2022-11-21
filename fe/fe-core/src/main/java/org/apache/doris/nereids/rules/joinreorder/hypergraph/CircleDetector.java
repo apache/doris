@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
+
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
@@ -37,6 +39,7 @@ public class CircleDetector {
     List<Integer> nodes = new ArrayList<>();
     // stored the dependency of each node
     List<BitSet> directedEdges = new ArrayList<>();
+    List<BitSet> forbiddenEdges = new ArrayList<>();
     // whether the node has been visited in dfs
     BitSet visited;
 
@@ -44,9 +47,10 @@ public class CircleDetector {
         for (int i = 0; i < size; i++) {
             orders.add(i);
             nodes.add(i);
-            directedEdges.add(new BitSet());
+            directedEdges.add(Bitmap.newBitmap());
+            forbiddenEdges.add(Bitmap.newBitmap());
         }
-        visited = new BitSet(size);
+        visited = Bitmap.newBitmap();
     }
 
     /**
@@ -59,16 +63,18 @@ public class CircleDetector {
     public boolean tryAddDirectedEdge(int node1, int node2) {
         // Add dependency node1 -> node2
         if (!checkCircleWithEdge(node1, node2)) {
-            directedEdges.get(node1).set(node2);
+            Bitmap.set(directedEdges.get(node1), node2);
+            Bitmap.set(forbiddenEdges.get(node2), node1);
             return true;
         }
         return false;
     }
 
     public void deleteDirectedEdge(int node1, int node2) {
-        Preconditions.checkArgument(directedEdges.get(node1).get(node2),
+        Preconditions.checkArgument(Bitmap.get(directedEdges.get(node1), node2),
                 String.format("The edge %d -> %d is not existed", node1, node2));
-        directedEdges.get(node1).set(node2, false);
+        Bitmap.unset(directedEdges.get(node1), node2);
+        forbiddenEdges.forEach(bitSet -> Bitmap.clear(bitSet));
     }
 
     public List<Integer> getTopologicalOrder() {
@@ -84,12 +90,16 @@ public class CircleDetector {
      */
     public boolean checkCircleWithEdge(int node1, int node2) {
         // return true when there is a circle
+        if (Bitmap.get(forbiddenEdges.get(node1), node2)) {
+            return true;
+        }
         int order1 = orders.get(node1);
         int order2 = orders.get(node2);
         if (order1 >= order2) {
-            visited.clear();
+            Bitmap.clear(visited);
             // It means node2 -> node1, and we try to dfs from node2 to node1
             if (!tryDFS(node2, node1)) {
+                Bitmap.set(forbiddenEdges.get(node1), node2);
                 return true;
             }
             shift(order2, order1 + 1);
@@ -103,13 +113,13 @@ public class CircleDetector {
             return false;
         }
 
-        if (visited.get(endNode) || orders.get(node) > orders.get(endNode)) {
+        if (Bitmap.get(visited, endNode) || orders.get(node) > orders.get(endNode)) {
             // If the node has been visited, return true
             // If the node comes after than end node, we don't care it and terminated.
             return true;
         }
-        visited.set(node);
-        for (int nextNode : directedEdges.get(node).stream().toArray()) {
+        Bitmap.set(visited, node);
+        for (int nextNode : Bitmap.getIterator(directedEdges.get(node))) {
             Preconditions.checkArgument(orders.get(nextNode) > orders.get(node),
                     String.format("node %d must come after node %d", nextNode, node));
             if (!tryDFS(nextNode, endNode)) {
@@ -126,7 +136,7 @@ public class CircleDetector {
         List<Integer> shiftNodes = new ArrayList<>();
         for (int o = startOrder; o < endOrder; o++) {
             int node = nodes.get(o);
-            if (visited.get(node)) {
+            if (Bitmap.get(visited, node)) {
                 shiftNodes.add(node);
             } else {
                 // the relative orders of visited nodes are not changed
@@ -150,7 +160,7 @@ public class CircleDetector {
         StringBuilder builder = new StringBuilder();
         int size = directedEdges.size();
         for (int i = 0; i < size; i++) {
-            if (directedEdges.get(i).cardinality() != 0) {
+            if (Bitmap.getCardinality(directedEdges.get(i)) != 0) {
                 builder.append(String.format("%d -> %s; ", i, directedEdges.get(i)));
             }
         }

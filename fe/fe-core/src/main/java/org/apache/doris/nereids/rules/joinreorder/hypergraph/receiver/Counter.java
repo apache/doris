@@ -47,9 +47,9 @@ public class Counter implements AbstractReceiver {
         bitSet.or(left);
         bitSet.or(right);
         if (!counter.containsKey(bitSet)) {
-            counter.put(bitSet, 1);
+            counter.put(bitSet, counter.get(left) * counter.get(right));
         } else {
-            counter.put(bitSet, counter.get(bitSet) + 1);
+            counter.put(bitSet, counter.get(bitSet) + counter.get(left) * counter.get(right));
         }
         return true;
     }

@@ -18,12 +18,17 @@
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
 import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.SubsetIterator;
 import org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.BitSet;
+import java.util.HashMap;
+import java.util.HashSet;
 
 public class SubgraphEnumeratorTest {
     @Test
@@ -43,55 +48,57 @@ public class SubgraphEnumeratorTest {
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(1)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(2)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(3)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(4)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 2)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 3)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 4)), 1);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1, 2)), 2);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1, 3)), 2);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1, 4)), 2);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 2, 3)), 2);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 2, 4)), 2);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 3, 4)), 2);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1, 2, 3)), 3);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1, 2, 4)), 3);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1, 3, 4)), 3);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 2, 3, 4)), 3);
-        Assertions.assertEquals(counter.getCount(Bitmap.newBitmap(0, 1, 2, 3, 4)), 4);
+        BitSet fullSet = new BitSet();
+        fullSet.set(0, 5);
+        HashMap<BitSet, Integer> cache = new HashMap<>();
+        countAndCheck(fullSet, hyperGraph, counter.getAllCount(), cache);
+    }
+
+    @Test
+    void testCircleQuery() {
+        //    .--t0\
+        //   /    | \
+        //   |   t1  t3
+        //   \    | /
+        //    `--t2/
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init(10, 20, 30, 40)
+                .addEdge(JoinType.INNER_JOIN, 0, 1)
+                .addEdge(JoinType.INNER_JOIN, 0, 2)
+                .addEdge(JoinType.INNER_JOIN, 0, 3)
+                .addEdge(JoinType.INNER_JOIN, 1, 2)
+                .addEdge(JoinType.INNER_JOIN, 2, 3)
+                .build();
+        BitSet fullSet = new BitSet();
+        fullSet.set(0, 4);
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        HashMap<BitSet, Integer> cache = new HashMap<>();
+        countAndCheck(fullSet, hyperGraph, counter.getAllCount(), cache);
+    }
+
+    @Test
+    void testRandomQuery() {
+        int tableNum = 10;
+        int edgeNum = 40;
+        BitSet fullSet = new BitSet();
+        fullSet.set(0, tableNum);
+        for (int i = 0; i < 10; i++) {
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
+            Counter counter = new Counter();
+            SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+            subgraphEnumerator.enumerate();
+            HashMap<BitSet, Integer> cache = new HashMap<>();
+            countAndCheck(fullSet, hyperGraph, counter.getAllCount(), cache);
+        }
     }
 
     @Test
     void testTime() {
-        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
-        // generate 14 tables and 90 edges
-        int tableNum = 5;
-        int edgeNum = 10;
-        int[] rowCounts = new int[tableNum];
-        for (int i = 0; i < tableNum; i++) {
-            rowCounts[i] = i + 1;
-        }
-        hyperGraphBuilder.init(rowCounts);
-
-        int left = 0;
-        int right = 1;
-        for (int i = 0; i < edgeNum; i++) {
-            hyperGraphBuilder.addEdge(JoinType.INNER_JOIN, left, right);
-            left += (right + 1) / tableNum;
-            right = (right + 1) % tableNum;
-            if (left == right) {
-                left += (right + 1) / tableNum;
-                right = (right + 1) % tableNum;
-            }
-        }
-
-        HyperGraph hyperGraph = hyperGraphBuilder.build();
-        Assertions.assertEquals(hyperGraph.getEdges().size(), edgeNum);
-        Assertions.assertEquals(hyperGraph.getNodes().size(), tableNum);
+        int tableNum = 10;
+        int edgeNum = 40;
+        HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
 
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
@@ -100,5 +107,51 @@ public class SubgraphEnumeratorTest {
         double endTime = System.currentTimeMillis();
         System.out.println(
                 String.format("enumerate %d tables %d edges cost %f ms", tableNum, edgeNum, endTime - startTime));
+    }
+
+    private int countAndCheck(BitSet bitSet, HyperGraph hyperGraph, HashMap<BitSet, Integer> counter,
+            HashMap<BitSet, Integer> cache) {
+        if (cache.containsKey(bitSet)) {
+            return cache.get(bitSet);
+        }
+        if (bitSet.cardinality() == 1) {
+            Assertions.assertEquals(counter.get(bitSet), 1,
+                    String.format("The csg-cmp pairs of %s should be %d rather than %s", bitSet, 1,
+                            counter.get(bitSet)));
+            cache.put(bitSet, 1);
+            return 1;
+        }
+        SubsetIterator subsetIterator = new SubsetIterator(bitSet);
+        int count = 0;
+        HashSet<BitSet> visited = new HashSet<>();
+        for (BitSet subset : subsetIterator) {
+            BitSet left = subset;
+            BitSet right = new BitSet();
+            right.or(bitSet);
+            right.andNot(left);
+            if (visited.contains(left) || visited.contains(right)) {
+                continue;
+            }
+            visited.add(left);
+            visited.add(right);
+            for (Edge edge : hyperGraph.getEdges()) {
+                if ((Bitmap.isSubset(edge.getLeft(), left) && Bitmap.isSubset(edge.getRight(), right)) || (
+                        Bitmap.isSubset(edge.getLeft(), right) && Bitmap.isSubset(edge.getRight(), left))) {
+                    count += countAndCheck(left, hyperGraph, counter, cache) * countAndCheck(right, hyperGraph,
+                            counter, cache);
+                    break;
+                }
+            }
+        }
+        if (count == 0) {
+            Assertions.assertEquals(counter.get(bitSet), null,
+                    String.format("The plan %s should be invalid", bitSet));
+        } else {
+            Assertions.assertEquals(counter.get(bitSet), count,
+                    String.format("The csg-cmp pairs of %s should be %d rather than %d", bitSet, count,
+                            counter.get(bitSet)));
+        }
+        cache.put(bitSet, count);
+        return count;
     }
 }
