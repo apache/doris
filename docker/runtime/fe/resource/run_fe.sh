@@ -86,7 +86,7 @@ if [[ "${FE_ID}" != 1 ]]; then
     ## STEP2: if feMasterStat == true; register PREPARE1 & PREPARE2 [retry 3 times, sleep 10s]
 
     ## PREPARE1: registe follower from mysql client
-    registerMySQL=echo "mysql -uroot -P9030 -h${feIpArray[1]} -e" "\"alter system add follower '${feIpArray[FE_ID]}:${feEditLogPortArray[FE_ID]}'\""
+    registerMySQL="mysql -uroot -P9030 -h${feIpArray[1]} -e \"alter system add follower '${feIpArray[FE_ID]}:${feEditLogPortArray[FE_ID]}'\""
 
     ## PREPARE2: call start_fe.sh using --help optional
     registerShell="/opt/apache-doris/fe/bin/start_fe.sh --helper '${feIpArray[1]}:${feEditLogPortArray[1]}'"

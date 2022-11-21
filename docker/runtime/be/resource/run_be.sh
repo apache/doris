@@ -77,7 +77,7 @@ priority_networks=$(echo "${be_ip}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
 echo "DEBUG >>>>>> Append the configuration [priority_networks = ${priority_networks}] to /opt/apache-doris/be/conf/fe.conf"
 echo "priority_networks = ${priority_networks}" >>/opt/apache-doris/be/conf/be.conf
 
-registerMySQL="mysql -uroot -P9030 -h${feIpArray[1]} -e" "\"alter system add backend '${be_ip}:${be_heartbeat_port}'\""
+registerMySQL="mysql -uroot -P9030 -h${feIpArray[1]} -e \"alter system add backend '${be_ip}:${be_heartbeat_port}'\""
 registerShell="/opt/apache-doris/be/bin/start_be.sh"
 
 echo "DEBUG >>>>>> registerMySQL = ${registerMySQL}"
