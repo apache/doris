@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite.logical;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -49,7 +48,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /** NormalizeRepeat */
-public class NormalizeRepeat extends OneRewriteRuleFactory {
+public class NormalizeRepeat extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.NORMALIZE_REPEAT.build(
