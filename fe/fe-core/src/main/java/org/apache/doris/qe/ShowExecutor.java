@@ -2472,4 +2472,3 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 }
- 

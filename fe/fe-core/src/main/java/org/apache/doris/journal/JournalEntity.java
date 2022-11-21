@@ -58,7 +58,6 @@ import org.apache.doris.mtmv.metadata.DropMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
-import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;

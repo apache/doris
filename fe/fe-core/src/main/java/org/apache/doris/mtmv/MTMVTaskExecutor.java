@@ -18,12 +18,13 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
@@ -35,10 +36,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Future;
-
-import org.apache.doris.mtmv.MTMVUtils.TaskState;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
-import org.apache.doris.catalog.Env;
 
 public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
     private static final Logger LOG = LogManager.getLogger(MTMVTaskExecutor.class);
@@ -117,7 +114,6 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         Map<String, String> properties = Maps.newHashMap();
         taskContext.setProperties(properties);
         processor.process(taskContext);
-        //write log 
         ChangeMTMVTask changeTask = new ChangeMTMVTask(job.getId(), task, TaskState.RUNNING, task.getState());
         Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
         return task.getState() == TaskState.SUCCESS;

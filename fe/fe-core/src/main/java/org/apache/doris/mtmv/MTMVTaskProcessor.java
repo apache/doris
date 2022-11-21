@@ -17,59 +17,35 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.MTMVUtils.TaskState;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
-
-import java.util.concurrent.atomic.AtomicLong;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.concurrent.TimeUnit;
-
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
-
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.datasource.InternalCatalog;
-
-import org.apache.doris.mtmv.MTMVUtils;
-import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.catalog.MaterializedView;
-import org.apache.doris.common.UserException;
-
-import java.util.UUID;
-
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.mtmv.MTMVUtils.TaskState;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
-
-import java.io.IOException;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 public class MTMVTaskProcessor {
@@ -107,7 +83,7 @@ public class MTMVTaskProcessor {
                 throw new Throwable("create tmp table failed, sql:" + tmpCreateTableStmt);
             }
 
-            //step2  insert data to tmp table 
+            //step2 insert data to tmp table
             String insertStmt = genInsertIntoStmt(context, tmpTableName);
             ConnectContext insertDataResult = execSQL(context, insertStmt);
             LOG.info("exec insert into stmt, taskid:{}, stmt:{}, ret:{}, msg:{}, effected_row:{}", taskId, insertStmt,
@@ -117,8 +93,8 @@ public class MTMVTaskProcessor {
                 throw new Throwable("insert data failed, sql:" + insertStmt);
             }
 
-            //step3  swap tmp table with origin table 
-            String swapStmt = genSwapStmt(context, tableName, tmpTableName); 
+            //step3 swap tmp table with origin table
+            String swapStmt = genSwapStmt(context, tableName, tmpTableName);
             ConnectContext swapResult = execSQL(context, swapStmt);
             LOG.info("exec swap stmt, taskid:{}, stmt:{}, ret:{}, msg:{}", taskId, swapStmt, swapResult.getState(),
                     swapResult.getState().getInfoMessage());
@@ -140,7 +116,7 @@ public class MTMVTaskProcessor {
         } finally {
             context.getTask().setFinishTime(MTMVUtils.getNowTimeStamp());
             table.mvTaskUnLock();
-            //double check 
+            //double check
             if (db.isTableExist(tmpTableName)) {
                 String dropStml = genDropStml(context, tmpTableName);
                 ConnectContext dropResult = execSQL(context, dropStml);
@@ -161,7 +137,7 @@ public class MTMVTaskProcessor {
         return tmpTableName;
     }
 
-    // ALTER TABLE t1 REPLACE WITH TABLE t1_mirror PROPERTIES('swap' = 'false');  
+    // ALTER TABLE t1 REPLACE WITH TABLE t1_mirror PROPERTIES('swap' = 'false');
     private String genSwapStmt(MTMVTaskContext context, String tableName, String tmpTableName) {
         String stmt = "ALTER TABLE " + tableName + " REPLACE WITH TABLE " + tmpTableName
                 + " PROPERTIES('swap' = 'false');";
@@ -211,7 +187,6 @@ public class MTMVTaskProcessor {
         DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)
                 .getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrAnalysisException(tableName);
-        List<List<String>> rows = Lists.newArrayList();
         table.readLock();
         try {
             List<String> createTableStmt = Lists.newArrayList();
@@ -288,4 +263,3 @@ public class MTMVTaskProcessor {
         }
     }
 }
- 

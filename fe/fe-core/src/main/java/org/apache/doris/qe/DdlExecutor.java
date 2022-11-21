@@ -120,7 +120,6 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.statistics.StatisticsRepository;
 
-import org.apache.doris.mtmv.MTMVTaskProcessor;
 /**
  * Use for execute ddl.
  **/

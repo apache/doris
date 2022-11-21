@@ -40,6 +40,8 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -65,8 +67,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.CatalogIf;
 /**
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
  * clauses.
@@ -2072,4 +2072,3 @@ public class SelectStmt extends QueryStmt {
         return this.id.equals(((SelectStmt) obj).id);
     }
 }
- 

@@ -23,20 +23,19 @@ import org.apache.doris.analysis.MVRefreshInfo.RefreshTrigger;
 import org.apache.doris.analysis.MVRefreshIntervalTriggerInfo;
 import org.apache.doris.analysis.MVRefreshTriggerInfo;
 import org.apache.doris.catalog.MaterializedView;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVJob.JobSchedule;
-import org.apache.doris.common.FeConstants;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
 
 public class MTMVJobFactory {
     private static final Logger LOG = LogManager.getLogger(MTMVTaskProcessor.class);
@@ -105,4 +104,3 @@ public class MTMVJobFactory {
         return new JobSchedule(startTime, info.getInterval(), MTMVUtils.getTimeUint(info.getTimeUnit()));
     }
 }
- 
