@@ -71,6 +71,7 @@ public class JdbcTable extends Table {
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
         tempMap.put("oracle", TOdbcTableType.ORACLE);
+        tempMap.put("clickhouse", TOdbcTableType.CLICKHOUSE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
