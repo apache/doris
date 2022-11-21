@@ -60,8 +60,6 @@ struct AggregateFunctionAvgData {
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
             Decimal128 ret(cal_ret.value());
             return ret;
-        } else if constexpr (IsDecimal128I<T> && IsDecimal128I<ResultT>) {
-            return static_cast<ResultT>(sum).value.val / count;
         } else {
             return static_cast<ResultT>(sum) / count;
         }
@@ -83,13 +81,9 @@ template <typename T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
-    using ResultType =
-            std::conditional_t<IsDecimalV2<T>, Decimal128,
-                               std::conditional_t<IsDecimalNumber<T>, Decimal128I, Float64>>;
-    using ResultDataType =
-            std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
-                               std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128I>,
-                                                  DataTypeNumber<Float64>>>;
+    using ResultType = std::conditional_t<IsDecimalNumber<T>, Decimal128, Float64>;
+    using ResultDataType = std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128>,
+                                              DataTypeNumber<Float64>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     using ColVecResult =
             std::conditional_t<IsDecimalV2<T>, ColumnDecimal<Decimal128>,
@@ -121,10 +115,8 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& column = static_cast<const ColVecType&>(*columns[0]);
-        if constexpr (IsDecimal128I<ResultType> && IsDecimal128I<T>) {
-            this->data(place).sum.value.val += column.get_data()[row_num].value.val;
-        } else if constexpr (IsDecimal128I<ResultType> && IsDecimalNumber<T>) {
-            this->data(place).sum.value.val += column.get_data()[row_num];
+        if constexpr (IsDecimalNumber<T>) {
+            this->data(place).sum += column.get_data()[row_num].value;
         } else {
             this->data(place).sum += column.get_data()[row_num];
         }
@@ -138,7 +130,11 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).sum += this->data(rhs).sum;
+        if constexpr (IsDecimalNumber<T>) {
+            this->data(place).sum += this->data(rhs).sum.value;
+        } else {
+            this->data(place).sum += this->data(rhs).sum;
+        }
         this->data(place).count += this->data(rhs).count;
     }
 
@@ -198,7 +194,11 @@ public:
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
 
         for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).sum += data[i].sum;
+            if constexpr (IsDecimalNumber<T>) {
+                this->data(place).sum += data[i].sum.value;
+            } else {
+                this->data(place).sum += data[i].sum;
+            }
             this->data(place).count += data[i].count;
         }
     }

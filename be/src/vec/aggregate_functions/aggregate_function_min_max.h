@@ -196,7 +196,11 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num];
+        if constexpr (IsDecimal128I<T>) {
+            value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num].value.val;
+        } else {
+            value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num];
+        }
     }
 
     /// Assuming to.has()
@@ -209,7 +213,7 @@ public:
         if constexpr (IsDecimal128I<T>) {
             if (!has() ||
                 (assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num]).value.val <
-                        value.val) {
+                        value) {
                 change(column, row_num, arena);
                 return true;
             } else {
@@ -239,7 +243,7 @@ public:
         if constexpr (IsDecimal128I<T>) {
             if (!has() ||
                 (assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num]).value.val >
-                        value.val) {
+                        value) {
                 change(column, row_num, arena);
                 return true;
             } else {

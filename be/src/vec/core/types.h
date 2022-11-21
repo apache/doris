@@ -294,7 +294,9 @@ struct Int128I {
         return *this;
     };
 
-    operator Int128() const { return val; }
+    operator Int128() const {
+        return val;
+    }
 
     const Int128I& operator+=(const Int128& x) {
         val += x;
@@ -360,7 +362,7 @@ struct Decimal {
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
     constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
 
-    operator T() const { return value; }
+    operator int128_t() const { return value; }
 
     const Decimal<T>& operator+=(const T& x) {
         value += x;
@@ -471,7 +473,7 @@ struct NativeType<Decimal128> {
 };
 template <>
 struct NativeType<Decimal128I> {
-    using Type = Int128I;
+    using Type = Int128;
 };
 
 inline const char* getTypeName(TypeIndex idx) {

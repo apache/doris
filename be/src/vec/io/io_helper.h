@@ -85,7 +85,7 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
         }
     }
 
-    T whole_part = value;
+    T whole_part = value.value;
 
     if (scale) {
         if constexpr (std::is_same_v<Int128I, T>) {
@@ -104,11 +104,11 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
     if (scale) {
         ostr << '.';
         String str_fractional(scale, '0');
-        for (Int32 pos = scale - 1; pos >= 0; --pos, value /= Decimal<T>(10)) {
+        for (Int32 pos = scale - 1; pos >= 0; --pos, value /= 10) {
             if constexpr (std::is_same_v<T, Int128I>) {
                 str_fractional[pos] += value.value.val % 10;
             } else {
-                str_fractional[pos] += value % Decimal<T>(10);
+                str_fractional[pos] += value % 10;
             }
         }
         ostr.write(str_fractional.data(), scale);
