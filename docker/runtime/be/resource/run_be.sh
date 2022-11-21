@@ -57,27 +57,27 @@ for i in "${!feServerArray[@]}"; do
     val=${feServerArray[i]}
     val=${val// /}
     #echo "DEBUG >>>>>>>>> $i => 【$val】"
-    tmpFeId=$(echo $val | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
-    tmpFeIp=$(echo $val | awk -F ':' '{ sub(/ /, ""); print$2}')
-    tmpFeEditLogPort=$(echo $val | awk -F ':' '{ sub(/ /, ""); print$3}')
+    tmpFeId=$(echo ${val} | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
+    tmpFeIp=$(echo ${val} | awk -F ':' '{ sub(/ /, ""); print$2}')
+    tmpFeEditLogPort=$(echo ${val} | awk -F ':' '{ sub(/ /, ""); print$3}')
     #echo "DEBUG >>>>>>>>> tmpFeId = $tmpFeIdi, tmpFeIp = $tmpFeIp, tmpFeEditLogPort = $tmpFeEditLogPort"
     feIpArray[tmpFeId]=${tmpFeIp}
     feEditLogPortArray[tmpFeId]=${tmpFeEditLogPort}
 done
 
-be_ip=$(echo ${BE_ADDR} | awk -F ':' '{ sub(/ /, ""); print$1}')
-be_heartbeat_port=$(echo ${BE_ADDR} | awk -F ':' '{ sub(/ /, ""); print$2}')
+be_ip=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+be_heartbeat_port=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
 
 echo "DEBUG >>>>>> feIpArray = ${feIpArray[*]}"
 echo "DEBUG >>>>>> feEditLogPortArray = ${feEditLogPortArray[*]}"
 echo "DEBUG >>>>>> masterFe = ${feIpArray[1]}:${feEditLogPortArray[1]}"
 echo "DEBUG >>>>>> be_addr = ${be_ip}:${be_heartbeat_port}"
 
-priority_networks=$(echo ${be_ip} | awk -F '.' '{print$1"."$2"."$3".0/24"}')
+priority_networks=$(echo "${be_ip}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
 echo "DEBUG >>>>>> Append the configuration [priority_networks = ${priority_networks}] to /opt/apache-doris/be/conf/fe.conf"
 echo "priority_networks = ${priority_networks}" >>/opt/apache-doris/be/conf/be.conf
 
-registerMySQL=$(echo "mysql -uroot -P9030 -h${feIpArray[1]} -e" "\"alter system add backend '${be_ip}:${be_heartbeat_port}'\"")
+registerMySQL="mysql -uroot -P9030 -h${feIpArray[1]} -e" "\"alter system add backend '${be_ip}:${be_heartbeat_port}'\""
 registerShell="/opt/apache-doris/be/bin/start_be.sh"
 
 echo "DEBUG >>>>>> registerMySQL = ${registerMySQL}"
@@ -85,7 +85,7 @@ echo "DEBUG >>>>>> registerShell = ${registerShell}"
 
 for ((i = 0; i <= 20; i++)); do
 
-    echo "DEBUG >>>>>> The " "$i" "time to register BE node, be_join_status=${be_join_status}"
+    echo "DEBUG >>>>>> The " "${i}" "time to register BE node, be_join_status=${be_join_status}"
 
     ## check be register status
     echo "mysql -uroot -P9030 -h${feIpArray[1]} -e \"show backends\" | grep \" ${be_ip} \" | grep \" ${be_heartbeat_port} \""
@@ -95,11 +95,11 @@ for ((i = 0; i <= 20; i++)); do
     if [[ "${be_join_status}" == 0 ]]; then
         ## be registe successfully
         echo "DEBUG >>>>>> run command ${registerShell}"
-        eval ${registerShell}
+        eval "${registerShell}"
     else
         ## be doesn't registe
         echo "DEBUG >>>>>> run commnad ${registerMySQL}"
-        eval ${registerMySQL}
+        eval "${registerMySQL}"
         sleep 5
     fi
 done
