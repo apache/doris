@@ -294,9 +294,7 @@ struct Int128I {
         return *this;
     };
 
-    operator Int128() const {
-        return val;
-    }
+    operator Int128() const { return val; }
 
     const Int128I& operator+=(const Int128& x) {
         val += x;
