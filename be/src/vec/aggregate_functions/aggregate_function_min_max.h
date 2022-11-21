@@ -196,11 +196,7 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        if constexpr (IsDecimal128I<T>) {
-            value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num].value.val;
-        } else {
-            value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num];
-        }
+        value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num];
     }
 
     /// Assuming to.has()
@@ -210,23 +206,12 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
-        if constexpr (IsDecimal128I<T>) {
-            if (!has() ||
-                (assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num]).value.val <
-                        value) {
-                change(column, row_num, arena);
-                return true;
-            } else {
-                return false;
-            }
+        if (!has() ||
+            assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] < value) {
+            change(column, row_num, arena);
+            return true;
         } else {
-            if (!has() ||
-                assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] < value) {
-                change(column, row_num, arena);
-                return true;
-            } else {
-                return false;
-            }
+            return false;
         }
     }
 
@@ -240,23 +225,12 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
-        if constexpr (IsDecimal128I<T>) {
-            if (!has() ||
-                (assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num]).value.val >
-                        value) {
-                change(column, row_num, arena);
-                return true;
-            } else {
-                return false;
-            }
+        if (!has() ||
+            assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] > value) {
+            change(column, row_num, arena);
+            return true;
         } else {
-            if (!has() ||
-                assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] > value) {
-                change(column, row_num, arena);
-                return true;
-            } else {
-                return false;
-            }
+            return false;
         }
     }
 

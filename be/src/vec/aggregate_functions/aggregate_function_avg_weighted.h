@@ -32,8 +32,6 @@ struct AggregateFunctionAvgWeightedData {
         if constexpr (IsDecimalV2<T>) {
             DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
             data_sum = data_sum + (static_cast<double>(value) * weight_val);
-        } else if constexpr (IsDecimal128I<T>) {
-            data_sum = data_sum + (data_val.value.val * weight_val);
         } else {
             data_sum = data_sum + (data_val * weight_val);
         }

@@ -137,11 +137,7 @@ public:
         auto data = assert_cast<const ColVecResult&>(column).get_data().data();
         const size_t num_rows = column.size();
         for (size_t i = 0; i != num_rows; ++i) {
-            if constexpr (IsDecimal128I<TResult>) {
-                this->data(place).sum += data[i].value.val;
-            } else {
-                this->data(place).sum += data[i];
-            }
+            this->data(place).sum += data[i];
         }
     }
 

@@ -692,7 +692,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         return _decode_decimal_column<Int128>(col_name, data_column, data_type,
                                               _decimal_scale_params, cvb, num_values);
     case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Int128I>(col_name, data_column, data_type,
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
                                                _decimal_scale_params, cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch>(

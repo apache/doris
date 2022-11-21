@@ -194,11 +194,7 @@ public:
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
 
         for (size_t i = 0; i != num_rows; ++i) {
-            if constexpr (IsDecimalNumber<T>) {
-                this->data(place).sum += data[i].sum.value;
-            } else {
-                this->data(place).sum += data[i].sum;
-            }
+            this->data(place).sum += data[i].sum;
             this->data(place).count += data[i].count;
         }
     }

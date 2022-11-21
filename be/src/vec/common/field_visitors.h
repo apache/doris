@@ -243,11 +243,7 @@ public:
         if constexpr (std::is_floating_point_v<T>)
             return static_cast<T>(x.get_value()) / x.get_scale_multiplier();
         else {
-            if constexpr (std::is_same_v<U, Decimal128I>) {
-                return x.get_value().value.val / x.get_scale_multiplier().value.val;
-            } else {
-                return x.get_value() / x.get_scale_multiplier();
-            }
+            return x.get_value() / x.get_scale_multiplier();
         }
     }
 
