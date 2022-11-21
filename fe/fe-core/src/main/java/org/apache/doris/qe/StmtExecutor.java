@@ -1868,5 +1868,4 @@ public class StmtExecutor implements ProfileWriter {
         }
         return resultRows;
     }
-
 }

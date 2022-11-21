@@ -325,7 +325,7 @@ public class RoutineLoadManager implements Writable {
                         .add("msg", "routine load job has been resumed by user")
                         .build());
             } catch (UserException e) {
-                LOG.warn("failed to resume routine load job {}, err:{}", routineLoadJob.getName());
+                LOG.warn("failed to resume routine load job {}", routineLoadJob.getName(), e);
                 // if user want to resume a certain job and failed, return error.
                 // if user want to resume all possible jobs, skip error jobs.
                 if (!resumeRoutineLoadStmt.isAll()) {
