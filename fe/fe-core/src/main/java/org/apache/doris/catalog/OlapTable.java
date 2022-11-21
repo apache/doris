@@ -237,7 +237,7 @@ public class OlapTable extends Table {
     public Map<String, Index> getIndexesMap() {
         Map<String, Index> indexMap = new HashMap<>();
         if (indexes != null) {
-            Optional.ofNullable(indexes.getIndexes()).orElse(Collections.emptyList()).stream().forEach(
+            Optional.ofNullable(indexes.getIndexes()).orElse(Collections.emptyList()).forEach(
                     i -> indexMap.put(i.getIndexName(), i));
         }
         return indexMap;

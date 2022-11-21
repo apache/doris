@@ -276,6 +276,16 @@ fi
 cd -
 echo "Finished patching ${GSASL_SOURCE}"
 
+# cyrus-sasl patch to force compile gssapi plugin when static linking
+# this is for librdkafka with sasl
+cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
+if [[ ! -f ${PATCHED_MARK} ]]; then
+    patch -p1 <"${TP_PATCH_DIR}/cyrus-sasl-2.1.27.patch"
+    touch "${PATCHED_MARK}"
+fi
+cd -
+echo "Finished patching ${CYRUS_SASL_SOURCE}"
+
 # rocksdb patch to fix compile error
 if [[ "${ROCKSDB_SOURCE}" == "rocksdb-5.14.2" ]]; then
     cd "${TP_SOURCE_DIR}/${ROCKSDB_SOURCE}"

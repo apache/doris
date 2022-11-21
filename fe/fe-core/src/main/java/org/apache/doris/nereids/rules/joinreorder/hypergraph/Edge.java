@@ -32,10 +32,10 @@ public class Edge {
     final LogicalJoin join;
     final double selectivity;
 
-    // The endpoints (hypernodes) of this hyperedge.
+    // The endpoints (hyperNodes) of this hyperEdge.
     // left and right may not overlap, and both must have at least one bit set.
-    private BitSet left = new BitSet(32);
-    private BitSet right = new BitSet(32);
+    private BitSet left = Bitmap.newBitmap();
+    private BitSet right = Bitmap.newBitmap();
 
     /**
      * Create simple edge.
@@ -51,26 +51,26 @@ public class Edge {
     }
 
     public boolean isSimple() {
-        return left.cardinality() == 1 && right.cardinality() == 1;
+        return Bitmap.getCardinality(left) == 1 && Bitmap.getCardinality(right) == 1;
     }
 
     public void addLeftNode(BitSet left) {
-        this.left.or(left);
+        Bitmap.or(this.left, left);
     }
 
     public void addLeftNodes(BitSet... bitSets) {
         for (BitSet bitSet : bitSets) {
-            this.left.or(bitSet);
+            Bitmap.or(this.left, bitSet);
         }
     }
 
     public void addRightNode(BitSet right) {
-        this.right.or(right);
+        Bitmap.or(this.right, right);
     }
 
     public void addRightNodes(BitSet... bitSets) {
         for (BitSet bitSet : bitSets) {
-            this.right.or(bitSet);
+            Bitmap.or(this.right, bitSet);
         }
     }
 
@@ -98,11 +98,7 @@ public class Edge {
     }
 
     public BitSet getReferenceNodes() {
-        // TODO: do we need consider constraints
-        BitSet bitSet = new BitSet();
-        bitSet.or(left);
-        bitSet.or(right);
-        return bitSet;
+        return Bitmap.newBitmapUnion(this.left, this.right);
     }
 
     public Edge reverse(int index) {

@@ -60,6 +60,10 @@ public class SubsetIterator implements Iterable<BitSet> {
         subsets.remove(0);
     }
 
+    public void reset() {
+        cursor = 0;
+    }
+
     @NotNull
     @Override
     public Iterator<BitSet> iterator() {
