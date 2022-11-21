@@ -47,9 +47,9 @@ suite("test_aggregate_bit") {
     qt_select "select group_bit_xor(tint),group_bit_xor(sint),group_bit_xor(`int`),group_bit_xor(bint),group_bit_xor(lint) from ${tableName}"
 
     //test without null and with group by
-    qt_select "select flag, group_bit_and(tint),group_bit_and(sint),group_bit_and(`int`),group_bit_and(bint),group_bit_and(lint) from ${tableName} group by flag"
-    qt_select "select flag, group_bit_or(tint),group_bit_or(sint),group_bit_or(`int`),group_bit_or(bint),group_bit_or(lint) from ${tableName} group by flag"
-    qt_select "select flag, group_bit_xor(tint),group_bit_xor(sint),group_bit_xor(`int`),group_bit_xor(bint),group_bit_xor(lint) from ${tableName} group by flag"
+    qt_select "select flag, group_bit_and(tint),group_bit_and(sint),group_bit_and(`int`),group_bit_and(bint),group_bit_and(lint) from ${tableName} group by flag order by flag"
+    qt_select "select flag, group_bit_or(tint),group_bit_or(sint),group_bit_or(`int`),group_bit_or(bint),group_bit_or(lint) from ${tableName} group by flag order by flag"
+    qt_select "select flag, group_bit_xor(tint),group_bit_xor(sint),group_bit_xor(`int`),group_bit_xor(bint),group_bit_xor(lint) from ${tableName} group by flag order by flag"
 
     //test with negative number
     sql "truncate table ${tableName}"
