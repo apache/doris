@@ -283,7 +283,7 @@ curl -u $root_user:$password http://$master_hostname:8030/dump
     >
     > If verify failed, it will print: `Load image failed. Image file /absolute/path/to/image.xxxxxx is invalid`.
 
-<version>
+</version>
 
 4. Replace the image file in the `meta_dir/image` directory on the FOLLOWER FE node with the image_mem file in turn, restart the FOLLOWER FE node, and confirm that the metadata and query services are normal.
 
@@ -409,3 +409,4 @@ The deployment recommendation of FE is described in the Installation and [Deploy
     ```
 
 This means that some transactions that have been persisted need to be rolled back, but the number of entries exceeds the upper limit. Here our default upper limit is 100, which can be changed by setting `txn_rollback_limit`. This operation is only used to attempt to start FE normally, but lost metadata cannot be recovered.
+

@@ -83,7 +83,7 @@ public class CancelLoadStmt extends DdlStmt {
             if (like) {
                 throw new AnalysisException("Only label can use like");
             }
-            new HdfsCon state = inputValue;
+            state = inputValue;
             try {
                 JobState jobState = JobState.valueOf(state);
                 if (jobState != JobState.PENDING && jobState != JobState.ETL && jobState != JobState.LOADING) {
