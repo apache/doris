@@ -461,7 +461,7 @@ suite("test_jdbc_query_pg", "p0") {
                         SELECT NULL, SUM(CAST(id AS BIGINT))
                         FROM $dorisExTable2
                         WHERE name = 'abd' """
-        
+
 
         // test for distribute queries
         sql """ drop table if exists $dorisExTable1 """
@@ -538,6 +538,4 @@ suite("test_jdbc_query_pg", "p0") {
 
     }
 }
-
-
 

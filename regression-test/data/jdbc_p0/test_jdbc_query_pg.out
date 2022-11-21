@@ -1181,6 +1181,7 @@ false
 \N	\N
 abc	246
 
+<<<<<<< HEAD
 -- !sql38 --
 3
 
@@ -1291,3 +1292,5 @@ true	abc                                                                        
 123
 234
 
+=======
+>>>>>>> 1aa46307b (add new pg case from other source)
