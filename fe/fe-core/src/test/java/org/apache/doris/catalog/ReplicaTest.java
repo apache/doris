@@ -18,7 +18,9 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.FeConstants;
 
+import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
@@ -80,7 +82,14 @@ public class ReplicaTest {
 
     @Test
     public void testSerialization() throws Exception {
+        new Expectations() {
+            {
+                Env.getCurrentEnvJournalVersion();
+                result = FeConstants.meta_version;
+            }
+        };
         // 1. Write objects to file
+        Files.deleteIfExists(Paths.get("./olapReplicaTest"));
         Path path = Files.createFile(Paths.get("./olapReplicaTest"));
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
