@@ -321,26 +321,27 @@ public class ExpressionUtils {
     /**
      * check and maybe commute for predications except not pred.
      */
-    public static Expression checkAndMaybeCommute(Expression expression) {
+    public static Optional<Expression> checkAndMaybeCommute(Expression expression) {
         if (expression instanceof Not) {
-            return null;
+            return Optional.empty();
         }
         if (expression instanceof InPredicate) {
             InPredicate predicate = ((InPredicate) expression);
             if (!predicate.getCompareExpr().isSlot()) {
-                return null;
+                return Optional.empty();
             }
-            return predicate.getOptions().stream().allMatch(Expression::isLiteral) ? expression : null;
+            return Optional.ofNullable(predicate.getOptions().stream()
+                    .allMatch(Expression::isLiteral) ? expression : null);
         } else if (expression instanceof ComparisonPredicate) {
             ComparisonPredicate predicate = ((ComparisonPredicate) expression);
             if (predicate.left() instanceof Literal) {
                 predicate = predicate.commute();
             }
-            return predicate.left().isSlot() && predicate.right().isLiteral() ? predicate : null;
+            return Optional.ofNullable(predicate.left().isSlot() && predicate.right().isLiteral() ? predicate : null);
         } else if (expression instanceof IsNull) {
-            return ((IsNull) expression).child().isSlot() ? expression : null;
+            return Optional.ofNullable(((IsNull) expression).child().isSlot() ? expression : null);
         }
-        return null;
+        return Optional.empty();
     }
 }
 

@@ -52,11 +52,12 @@ public class ExpressionColumnFilterConverter
 
     @Override
     public Expression visitComparisonPredicate(ComparisonPredicate predicate,
-            Map<String, PartitionColumnFilter> context) {
+            Map<String, PartitionColumnFilter> columnFilterMap) {
         if (predicate instanceof NullSafeEqual) {
             return null;
         }
-        PartitionColumnFilter filter = new PartitionColumnFilter();
+        String colName = ((Slot) predicate.left()).getName();
+        PartitionColumnFilter filter = columnFilterMap.getOrDefault(colName, new PartitionColumnFilter());
         LiteralExpr literal = ((Literal) predicate.right()).toLegacyLiteral();
         if (predicate instanceof EqualTo) {
             setFilter(filter, literal, true, literal, true);
@@ -69,13 +70,13 @@ public class ExpressionColumnFilterConverter
         } else if (predicate instanceof LessThanEqual) {
             setFilter(filter, null, false, literal, true);
         }
-        context.put(((Slot) predicate.left()).getName(), filter);
+        columnFilterMap.put(((Slot) predicate.left()).getName(), filter);
         return null;
     }
 
     @Override
-    public Expression visitInPredicate(InPredicate predicate, Map<String, PartitionColumnFilter> context) {
-        PartitionColumnFilter filter = context.computeIfAbsent(((Slot) predicate.getCompareExpr()).getName(),
+    public Expression visitInPredicate(InPredicate predicate, Map<String, PartitionColumnFilter> columnFilterMap) {
+        PartitionColumnFilter filter = columnFilterMap.computeIfAbsent(((Slot) predicate.getCompareExpr()).getName(),
                 k -> new PartitionColumnFilter());
         List<Expr> literals = predicate.getOptions().stream()
                 .map(expr -> ((Expr) ((Literal) expr).toLegacyLiteral()))
@@ -89,10 +90,10 @@ public class ExpressionColumnFilterConverter
     }
 
     @Override
-    public Expression visitIsNull(IsNull predicate, Map<String, PartitionColumnFilter> context) {
+    public Expression visitIsNull(IsNull predicate, Map<String, PartitionColumnFilter> columnFilterMap) {
         PartitionColumnFilter filter = new PartitionColumnFilter();
         setFilter(filter, new NullLiteral(), true, new NullLiteral(), true);
-        context.put(((Slot) predicate.child()).getName(), filter);
+        columnFilterMap.put(((Slot) predicate.child()).getName(), filter);
         return null;
     }
 
