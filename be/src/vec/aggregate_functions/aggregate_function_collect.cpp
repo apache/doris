@@ -70,6 +70,8 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
         return create_agg_function_collect<Decimal64>(distinct, argument_types);
     } else if (type.is_decimal128()) {
         return create_agg_function_collect<Decimal128>(distinct, argument_types);
+    } else if (type.is_decimal128i()) {
+        return create_agg_function_collect<Decimal128I>(distinct, argument_types);
     } else if (type.is_date()) {
         return create_agg_function_collect<Int64>(distinct, argument_types);
     } else if (type.is_date_time()) {

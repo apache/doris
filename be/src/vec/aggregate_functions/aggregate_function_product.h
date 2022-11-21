@@ -114,7 +114,9 @@ public:
     }
 
     void reset(AggregateDataPtr place) const override {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (IsDecimal128I<TResult>) {
+            this->data(place).reset(T(1 * ResultDataType::get_scale_multiplier(scale).value.val));
+        } else if constexpr (IsDecimalNumber<T>) {
             this->data(place).reset(T(1 * ResultDataType::get_scale_multiplier(scale)));
         } else {
             this->data(place).reset(1);

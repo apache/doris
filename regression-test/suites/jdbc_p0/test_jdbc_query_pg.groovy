@@ -75,7 +75,7 @@ suite("test_jdbc_query_pg", "p0") {
                 `code` varchar(100) NULL COMMENT "",
                 `value` text NULL COMMENT "",
                 `label` text NULL COMMENT "",
-                `deleted` int(11) NULL COMMENT "",
+                `deleted` boolean NULL COMMENT "",
                 `o_idx` int(11) NULL COMMENT ""
             ) ENGINE=JDBC
             PROPERTIES (
@@ -374,6 +374,7 @@ suite("test_jdbc_query_pg", "p0") {
           "storage_format" = "V2"
           ); 
         """
+        sql """ drop view if exists $dorisViewName """
         sql """
             CREATE VIEW $dorisViewName as select `ID` AS `ID`, `c_user` AS `c_user`, 
             `c_time` AS `c_time`, `m_user` AS `m_user`, `m_time` AS `m_time`, 
@@ -388,7 +389,7 @@ suite("test_jdbc_query_pg", "p0") {
             (id, c_user, c_time, m_user, m_time, app_id, t_id, w_t_s, rf_id, e_info, org_id, id_code, weight, remark, 
             herd_code, e_no, gbcode, c_u_n, compute_time, dt_str)
             select w.id, w.c_user, w.c_time, w.m_user, w.m_time,w.app_id, w.t_id, w.w_t_s, w.rf_id, w.e_info, w.org_id,
-            w.id_code, w.weight, w.remark, f.herd_code, f.eno, f.gbcode, p.name as c_u_n, NOW() as compute_time,
+            w.id_code, w.weight, w.remark, f.herd_code, f.eno, f.gbcode, p.name as c_u_n, '2022-11-19 14:43:54' as compute_time,
             w.dt_str from $dorisViewName w 
             left join $dorisInTable3 f on f.ltid = w.rf_id and f.org_id = w.org_id and f.o_l_eFarmDesc = 1
             left join $dorisInTable4 p on p.id = cast(w.c_user as bigint) limit 1025;
@@ -398,5 +399,4 @@ suite("test_jdbc_query_pg", "p0") {
 
     }
 }
-
 

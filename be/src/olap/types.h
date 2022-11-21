@@ -513,7 +513,7 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL64> {
     using UnsignedCppType = uint64_t;
 };
 template <>
-struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL128> {
+struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL128I> {
     using CppType = int128_t;
     using UnsignedCppType = uint128_t;
 };
@@ -991,8 +991,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128>
-        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL128> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128I>
+        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL128I> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
