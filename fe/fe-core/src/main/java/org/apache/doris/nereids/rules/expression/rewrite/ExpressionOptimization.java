@@ -19,11 +19,8 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.ExtractCommonFactorRule;
-<<<<<<< HEAD
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyComparisonPredicate;
-=======
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyRange;
->>>>>>> 1ea2780630 (fix some code)
 
 import com.google.common.collect.ImmutableList;
 
