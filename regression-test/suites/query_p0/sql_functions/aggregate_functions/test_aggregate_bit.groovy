@@ -67,5 +67,5 @@ suite("test_aggregate_bit") {
     qt_select "select group_bit_or(tint),group_bit_or(sint),group_bit_or(`int`),group_bit_or(bint),group_bit_or(lint) from ${tableName}"
     qt_select "select group_bit_xor(tint),group_bit_xor(sint),group_bit_xor(`int`),group_bit_xor(bint),group_bit_xor(lint) from ${tableName}"
 
-//     sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS ${tableName}"
 }
