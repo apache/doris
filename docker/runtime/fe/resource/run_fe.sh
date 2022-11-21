@@ -94,7 +94,7 @@ if [[ "${FE_ID}" != 1 ]]; then
     echo "DEBUG >>>>>> FE is follower, fe_id = ${FE_ID}"
     echo "DEBUG >>>>>> registerMySQL = 【${registerMySQL}】"
     echo "DEBUG >>>>>> registerShell = 【${registerShell}】"
-    echo "DEBUG >>>>>> feMasterStat =  【mysql -uroot -P9030 -h"${feIpArray[1]}" -e \"show frontends\" | grep \"${feIpArray[1]}_9010\" | grep -E \"true[[:space:]]*true\"】"
+    echo "DEBUG >>>>>> feMasterStat =  【mysql -uroot -P9030 -h ${feIpArray[1]} -e \"show frontends\" | grep \"${feIpArray[1]}_9010\" | grep -E \"true[[:space:]]*true\"】"
 
     ## STEP1: check FE master status
 
@@ -102,16 +102,16 @@ if [[ "${FE_ID}" != 1 ]]; then
 
         ## run STEP1 & STEP2, and then break
         echo "Run registerShell command, [ registerMySQL = ${registerMySQL} ]"
-        eval ${registerMySQL}
+        eval "${registerMySQL}"
         sleep 2
 
         ## followerJoined: Joined = 0, doesn't join = 1
-        mysql -uroot -P9030 -h${feIpArray[1]} -e "show frontends" | grep "${feIpArray[FE_ID]}_9010" | grep -E "false[[:space:]]*false"
+        mysql -uroot -P9030 -h"${feIpArray[1]}" -e "show frontends" | grep "${feIpArray[FE_ID]}_9010" | grep -E "false[[:space:]]*false"
         followerJoined=$?
 
-        if [[ "$followerJoined" == 0 ]]; then
+        if [[ "${followerJoined}" == 0 ]]; then
             echo "Run registerShell command, [ registerShell = ${registerShell} ]"
-            eval ${registerShell}
+            eval "${registerShell}"
             echo "The resutl of run registerShell command, [ res = $? ]"
         fi
         sleep 5
