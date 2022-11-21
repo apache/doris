@@ -22,7 +22,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.CounterType;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 
@@ -52,8 +51,7 @@ public class CounterEvent extends Event {
 
     public static CounterEvent of(long stateId, CounterType counterType, Group group,
             GroupExpression groupExpression, Plan plan) {
-        return ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
-                ? new CounterEvent(stateId, counterType, group, groupExpression, plan) : null;
+        return checkConnectContext() ? new CounterEvent(stateId, counterType, group, groupExpression, plan) : null;
     }
 
     @Override

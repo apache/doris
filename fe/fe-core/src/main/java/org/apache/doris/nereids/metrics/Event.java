@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.metrics;
 
+import org.apache.doris.qe.ConnectContext;
+
 /**
  * event
  */
@@ -29,6 +31,10 @@ public abstract class Event implements Cloneable {
 
     protected Event(long stateId) {
         this.stateId = stateId;
+    }
+
+    protected static boolean checkConnectContext() {
+        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isEnableNereidsTrace();
     }
 
     public final String toJson() {

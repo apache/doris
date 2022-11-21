@@ -21,7 +21,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
@@ -43,8 +42,7 @@ public class TransformEvent extends Event {
 
     public static TransformEvent of(GroupExpression groupExpression, Plan before, List<Plan> afters,
             RuleType ruleType) {
-        return ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
-                ? new TransformEvent(groupExpression, before, afters, ruleType) : null;
+        return checkConnectContext() ? new TransformEvent(groupExpression, before, afters, ruleType) : null;
     }
 
     public GroupExpression getGroupExpression() {

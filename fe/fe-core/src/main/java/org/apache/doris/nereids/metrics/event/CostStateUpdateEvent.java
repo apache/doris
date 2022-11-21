@@ -19,7 +19,6 @@ package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.qe.ConnectContext;
 
 /**
  * cost state event
@@ -36,8 +35,7 @@ public class CostStateUpdateEvent extends StateEvent {
 
     public static CostStateUpdateEvent of(GroupExpression groupExpression, double cost,
             PhysicalProperties physicalProperties) {
-        return ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
-                ? new CostStateUpdateEvent(groupExpression, cost, physicalProperties) : null;
+        return checkConnectContext() ? new CostStateUpdateEvent(groupExpression, cost, physicalProperties) : null;
     }
 
     @Override

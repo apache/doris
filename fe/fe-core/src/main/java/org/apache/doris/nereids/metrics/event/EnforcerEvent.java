@@ -21,7 +21,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.qe.ConnectContext;
 
 /**
  * enforcer event
@@ -42,8 +41,7 @@ public class EnforcerEvent extends Event {
 
     public static EnforcerEvent of(GroupExpression groupExpression, PhysicalPlan enforce, PhysicalProperties before,
             PhysicalProperties after) {
-        return ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
-                ? new EnforcerEvent(groupExpression, enforce, before, after) : null;
+        return checkConnectContext() ? new EnforcerEvent(groupExpression, enforce, before, after) : null;
     }
 
     @Override
