@@ -24,6 +24,8 @@ import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 public class GraphSimplifierTest {
     @Test
     void testStarQuery() {
@@ -39,10 +41,7 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
                 .build();
-        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
-        while (graphSimplifier.applySimplificationStep()) {
-        }
+        hyperGraph.simplify();
         for (Node node : hyperGraph.getNodes()) {
             System.out.println(
                     String.format("node %d has simple neighborhood %s", node.getIndex(), node.getSimpleNeighborhood()));
@@ -53,6 +52,30 @@ public class GraphSimplifierTest {
         for (int count : counter.getAllCount().values()) {
             Assertions.assertEquals(count, 1);
         }
+    }
+
+    @Test
+    void testSimpleCircleGraph() {
+        //    t0
+        //   /  \
+        //  t1--t2
+        HyperGraph hyperGraph = new HyperGraphBuilder()
+                .init(10, 20, 30)
+                .addEdge(JoinType.INNER_JOIN, 0, 1)
+                .addEdge(JoinType.INNER_JOIN, 0, 2)
+                .addEdge(JoinType.INNER_JOIN, 1, 2)
+                .build();
+        hyperGraph.simplify();
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        subgraphEnumerator.enumerate();
+        for (int count : counter.getAllCount().values()) {
+            Assertions.assertEquals(count, 1);
+        }
+        List<Edge> edges = hyperGraph.getEdges();
+        Assertions.assertEquals(edges.get(0).toString(), "<{0} - {1}>");
+        Assertions.assertEquals(edges.get(1).toString(), "<{0} - {1, 2}>");
+        Assertions.assertEquals(edges.get(2).toString(), "<{0, 1} - {2}>");
     }
 
     @Test
@@ -70,10 +93,7 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 1, 2)
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
                 .build();
-        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
-        while (graphSimplifier.applySimplificationStep()) {
-        }
+        hyperGraph.simplify();
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
@@ -98,10 +118,7 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 1, 3)
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
                 .build();
-        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
-        while (graphSimplifier.applySimplificationStep()) {
-        }
+        hyperGraph.simplify();
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
@@ -131,10 +148,7 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 10)
                 .addEdge(JoinType.INNER_JOIN, 0, 11)
                 .build();
-        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
-        while (graphSimplifier.applySimplificationStep()) {
-        }
+        hyperGraph.simplify();
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
@@ -146,10 +160,7 @@ public class GraphSimplifierTest {
     @Test
     void testRandomQuery() {
         HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(10, 30);
-        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
-        while (graphSimplifier.applySimplificationStep()) {
-        }
+        hyperGraph.simplify();
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();

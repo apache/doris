@@ -37,6 +37,9 @@ public class Edge {
     private BitSet left = Bitmap.newBitmap();
     private BitSet right = Bitmap.newBitmap();
 
+    private BitSet originLeft = new BitSet(32);
+    private BitSet originRight = new BitSet(32);
+
     /**
      * Create simple edge.
      */
@@ -52,6 +55,11 @@ public class Edge {
 
     public boolean isSimple() {
         return Bitmap.getCardinality(left) == 1 && Bitmap.getCardinality(right) == 1;
+    }
+
+    public void setOriginLeftAndRight() {
+        originLeft = (BitSet) left.clone();
+        originRight = (BitSet) right.clone();
     }
 
     public void addLeftNode(BitSet left) {

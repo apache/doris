@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -39,14 +40,21 @@ import java.util.Set;
  * It's used for join ordering
  */
 public class HyperGraph {
-    private List<Edge> edges = new ArrayList<>();
-    private List<Node> nodes = new ArrayList<>();
+    private final List<Edge> edges;
+    private final ImmutableList<Node> nodes;
     private Plan bestPlan;
 
+    private HyperGraph(List<Edge> edges, List<Node> nodes) {
+        this.edges = edges;
+        this.nodes = ImmutableList.copyOf(nodes);
+    }
+
     public static HyperGraph fromPlan(Plan plan) {
-        HyperGraph graph = new HyperGraph();
-        graph.buildGraph(plan);
-        return graph;
+        List<Node> nodes = Lists.newArrayList();
+        List<Edge> edges = Lists.newArrayList();
+        buildGraph(plan, edges, nodes);
+
+        return new HyperGraph(edges, nodes);
     }
 
     public List<Edge> getEdges() {
@@ -99,7 +107,7 @@ public class HyperGraph {
         }
     }
 
-    private void buildGraph(Plan plan) {
+    private static void buildGraph(Plan plan, List<Edge> edges, List<Node> nodes) {
         if ((plan instanceof LogicalProject && plan.child(0) instanceof GroupPlan)
                 || plan instanceof GroupPlan) {
             nodes.add(new Node(nodes.size(), plan));
@@ -126,12 +134,12 @@ public class HyperGraph {
             return;
         }
 
-        buildGraph(join.left());
-        buildGraph(join.right());
-        addEdge(join);
+        buildGraph(join.left(), edges, nodes);
+        buildGraph(join.right(), edges, nodes);
+        addEdge(join, edges, nodes);
     }
 
-    private BitSet findNodes(Set<Slot> slots) {
+    private static BitSet findNodes(List<Node> nodes, Set<Slot> slots) {
         BitSet bitSet = Bitmap.newBitmap();
         for (Node node : nodes) {
             for (Slot slot : node.getPlan().getOutput()) {
@@ -144,12 +152,13 @@ public class HyperGraph {
         return bitSet;
     }
 
-    private void addEdge(LogicalJoin<? extends Plan, ? extends Plan> join) {
+    private static void addEdge(LogicalJoin<? extends Plan, ? extends Plan> join,
+            List<Edge> edges, List<Node> nodes) {
         for (Expression expression : join.getExpressions()) {
-            LogicalJoin singleJoin = new LogicalJoin(join.getJoinType(), ImmutableList.of(expression), join.left(),
+            LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), ImmutableList.of(expression), join.left(),
                     join.right());
             Edge edge = new Edge(singleJoin, edges.size());
-            BitSet bitSet = findNodes(expression.getInputSlots());
+            BitSet bitSet = findNodes(nodes, expression.getInputSlots());
             Preconditions.checkArgument(bitSet.cardinality() == 2,
                     String.format("HyperGraph has not supported polynomial %s yet", expression));
             int leftIndex = Bitmap.nextSetBit(bitSet, 0);
@@ -159,6 +168,7 @@ public class HyperGraph {
             BitSet right = Bitmap.newBitmap(rightIndex);
             edge.addRightNode(right);
             edge.getReferenceNodes().stream().forEach(index -> nodes.get(index).attachEdge(edge));
+            edge.setOriginLeftAndRight();
             edges.add(edge);
         }
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
