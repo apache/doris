@@ -564,6 +564,9 @@ struct NameToDecimal64 {
 struct NameToDecimal128 {
     static constexpr auto name = "toDecimal128";
 };
+struct NameToDecimal128I {
+    static constexpr auto name = "toDecimal128I";
+};
 struct NameToUInt8 {
     static constexpr auto name = "toUInt8";
 };
@@ -805,9 +808,9 @@ public:
     using Monotonic = MonotonicityImpl;
 
     static constexpr auto name = Name::name;
-    static constexpr bool to_decimal = std::is_same_v<Name, NameToDecimal32> ||
-                                       std::is_same_v<Name, NameToDecimal64> ||
-                                       std::is_same_v<Name, NameToDecimal128>;
+    static constexpr bool to_decimal =
+            std::is_same_v<Name, NameToDecimal32> || std::is_same_v<Name, NameToDecimal64> ||
+            std::is_same_v<Name, NameToDecimal128> || std::is_same_v<Name, NameToDecimal128I>;
 
     static FunctionPtr create() { return std::make_shared<FunctionConvert>(); }
 
@@ -918,6 +921,8 @@ using FunctionToDecimal64 =
         FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64, UnknownMonotonicity>;
 using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
+using FunctionToDecimal128I =
+        FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
@@ -981,6 +986,10 @@ struct FunctionTo<DataTypeDecimal<Decimal64>> {
 template <>
 struct FunctionTo<DataTypeDecimal<Decimal128>> {
     using Type = FunctionToDecimal128;
+};
+template <>
+struct FunctionTo<DataTypeDecimal<Decimal128I>> {
+    using Type = FunctionToDecimal128I;
 };
 template <>
 struct FunctionTo<DataTypeDate> {
@@ -1131,6 +1140,9 @@ struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128I>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128I>, Name> {};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -1649,7 +1661,8 @@ private:
 
             if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>>) {
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));
                 return true;

@@ -40,6 +40,7 @@ void register_function_array_range(SimpleFunctionFactory&);
 void register_function_array_compact(SimpleFunctionFactory&);
 void register_function_array_popback(SimpleFunctionFactory&);
 void register_function_array_with_constant(SimpleFunctionFactory&);
+void register_function_array_constructor(SimpleFunctionFactory&);
 
 void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_element(factory);
@@ -60,6 +61,7 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_compact(factory);
     register_function_array_popback(factory);
     register_function_array_with_constant(factory);
+    register_function_array_constructor(factory);
 }
 
 } // namespace doris::vectorized

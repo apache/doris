@@ -179,8 +179,8 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
         return doris::vectorized::PredicateColumnType<TYPE_DECIMAL32>::create();
     case OLAP_FIELD_TYPE_DECIMAL64:
         return doris::vectorized::PredicateColumnType<TYPE_DECIMAL64>::create();
-    case OLAP_FIELD_TYPE_DECIMAL128:
-        return doris::vectorized::PredicateColumnType<TYPE_DECIMAL128>::create();
+    case OLAP_FIELD_TYPE_DECIMAL128I:
+        return doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
 
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << type;

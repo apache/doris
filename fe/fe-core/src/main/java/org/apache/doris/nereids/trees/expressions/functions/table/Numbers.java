@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.NereidsException;
@@ -26,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.tablefunction.NumbersTableValuedFunction;
@@ -44,9 +47,14 @@ public class Numbers extends TableValuedFunction {
     }
 
     @Override
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        return FunctionSignature.of(BigIntType.INSTANCE, (List) argumentTypes);
+    }
+
+    @Override
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
-            Map<String, String> arguments = getKeyValuesExpression().getMap();
+            Map<String, String> arguments = getTVFProperties().getMap();
             return new NumbersTableValuedFunction(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build NumbersTableValuedFunction by "
@@ -81,10 +89,5 @@ public class Numbers extends TableValuedFunction {
         Preconditions.checkArgument(children().size() == 1
                 && children().get(0) instanceof TVFProperties);
         return new Numbers((TVFProperties) children.get(0));
-    }
-
-    @Override
-    public boolean hasVarArguments() {
-        return false;
     }
 }

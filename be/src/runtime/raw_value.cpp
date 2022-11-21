@@ -109,7 +109,7 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
         stream->write(chars, 8);
         break;
 
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
         stream->write(chars, 16);
         break;
 
@@ -214,8 +214,8 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         break;
     }
 
-    case TYPE_DECIMAL128: {
-        auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal128*>(value);
+    case TYPE_DECIMAL128I: {
+        auto decimal_val = reinterpret_cast<const doris::vectorized::Decimal128I*>(value);
         write_text(*decimal_val, type.scale, *stream);
         break;
     }
@@ -248,7 +248,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
                     iter.get(&data);
                     auto datetime_value = DateTimeValue::from_datetime_val(data);
                     print_value(&datetime_value, child_type, scale, stream);
-                } else if (child_type.is_decimal_type()) {
+                } else if (child_type.is_decimal_v2_type()) {
                     DecimalV2Val data;
                     iter.get(&data);
                     auto decimal_value = DecimalV2Value::from_decimal_val(data);
@@ -405,9 +405,9 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         *reinterpret_cast<doris::vectorized::Decimal64*>(dst) =
                 *reinterpret_cast<const doris::vectorized::Decimal64*>(value);
         break;
-    case TYPE_DECIMAL128:
-        *reinterpret_cast<doris::vectorized::Decimal128*>(dst) =
-                *reinterpret_cast<const doris::vectorized::Decimal128*>(value);
+    case TYPE_DECIMAL128I:
+        *reinterpret_cast<doris::vectorized::Decimal128I*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal128I*>(value);
         break;
 
     case TYPE_OBJECT:
@@ -529,9 +529,9 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
         *reinterpret_cast<doris::vectorized::Decimal64*>(dst) =
                 *reinterpret_cast<const doris::vectorized::Decimal64*>(value);
         break;
-    case TYPE_DECIMAL128:
-        *reinterpret_cast<doris::vectorized::Decimal128*>(dst) =
-                *reinterpret_cast<const doris::vectorized::Decimal128*>(value);
+    case TYPE_DECIMAL128I:
+        *reinterpret_cast<doris::vectorized::Decimal128I*>(dst) =
+                *reinterpret_cast<const doris::vectorized::Decimal128I*>(value);
         break;
 
     default:
@@ -654,7 +654,7 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
         return b1 > b2 ? 1 : (b1 < b2 ? -1 : 0);
     }
 
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         __int128 large_int_value1 = reinterpret_cast<const PackedInt128*>(v1)->value;
         __int128 large_int_value2 = reinterpret_cast<const PackedInt128*>(v2)->value;
         return large_int_value1 > large_int_value2 ? 1

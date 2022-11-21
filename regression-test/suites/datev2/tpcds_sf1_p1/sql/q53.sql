@@ -22,6 +22,6 @@ FROM
             AND (i_brand IN ('amalgimporto #1'         , 'edu packscholar #1'         , 'exportiimporto #1'         , 'importoamalg #1'))))
    GROUP BY i_manufact_id, d_qoy
 )  tmp1
-WHERE ((CASE WHEN (avg_quarterly_sales > 0) THEN (abs((CAST(sum_sales AS DECIMAL(27,4)) - avg_quarterly_sales)) / avg_quarterly_sales) ELSE null END) > CAST('0.1' AS DECIMAL))
+WHERE ((CASE WHEN (avg_quarterly_sales > 0) THEN (abs((CAST(sum_sales AS DECIMAL(27,4)) - avg_quarterly_sales)) / avg_quarterly_sales) ELSE null END) > CAST('0.1' AS DECIMAL(2,1)))
 ORDER BY avg_quarterly_sales ASC, sum_sales ASC, i_manufact_id ASC
 LIMIT 100

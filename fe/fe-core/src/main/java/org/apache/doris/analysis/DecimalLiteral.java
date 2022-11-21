@@ -63,6 +63,20 @@ public class DecimalLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public DecimalLiteral(String value, int scale) throws AnalysisException {
+        BigDecimal v = null;
+        try {
+            v = new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid floating-point literal: " + value, e);
+        }
+        if (scale >= 0) {
+            v = v.setScale(scale, RoundingMode.DOWN);
+        }
+        init(v);
+        analysisDone();
+    }
+
     protected DecimalLiteral(DecimalLiteral other) {
         super(other);
         value = other.value;

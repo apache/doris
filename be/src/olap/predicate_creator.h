@@ -174,8 +174,8 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
     case OLAP_FIELD_TYPE_DECIMAL64: {
         return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL64, PT, ConditionType>>();
     }
-    case OLAP_FIELD_TYPE_DECIMAL128: {
-        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL128, PT, ConditionType>>();
+    case OLAP_FIELD_TYPE_DECIMAL128I: {
+        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL128I, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_CHAR: {
         return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>();
@@ -308,7 +308,7 @@ inline ColumnPredicate* parse_to_predicate(TabletSchemaSPtr tablet_schema,
     M(TYPE_STRING)            \
     M(TYPE_DECIMAL32)         \
     M(TYPE_DECIMAL64)         \
-    M(TYPE_DECIMAL128)
+    M(TYPE_DECIMAL128I)
 
 template <PrimitiveType PT>
 inline ColumnPredicate* create_olap_column_predicate(

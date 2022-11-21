@@ -43,7 +43,7 @@ std::string cast_to_string(T value, int scale) {
         std::stringstream ss;
         vectorized::write_text<int64_t>((int64_t)value, scale, ss);
         return ss.str();
-    } else if constexpr (primitive_type == TYPE_DECIMAL128) {
+    } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
         std::stringstream ss;
         vectorized::write_text<int128_t>((int128_t)value, scale, ss);
         return ss.str();
@@ -130,6 +130,10 @@ public:
     CppType get_range_max_value() const { return _high_value; }
 
     CppType get_range_min_value() const { return _low_value; }
+
+    const CppType* get_range_max_value_ptr() const { return &_high_value; }
+
+    const CppType* get_range_min_value_ptr() const { return &_low_value; }
 
     SQLFilterOp get_range_high_op() const { return _high_op; }
 
@@ -389,7 +393,7 @@ using ColumnValueRangeType =
                      ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
                      ColumnValueRange<TYPE_DECIMALV2>, ColumnValueRange<TYPE_BOOLEAN>,
                      ColumnValueRange<TYPE_HLL>, ColumnValueRange<TYPE_DECIMAL32>,
-                     ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128>>;
+                     ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType

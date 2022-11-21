@@ -76,6 +76,8 @@ private:
 
     void _reset_with_next_probe_row(MutableColumns& dst_columns);
 
+    void _release_mem();
+
     // List of build blocks, constructed in prepare()
     Blocks _build_blocks;
     // Visited flags for each row in build side.

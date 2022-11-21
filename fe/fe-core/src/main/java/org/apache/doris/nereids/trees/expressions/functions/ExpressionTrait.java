@@ -39,6 +39,10 @@ public interface ExpressionTrait extends TreeNode<Expression> {
         return children();
     }
 
+    default Expression getArgument(int index) {
+        return child(index);
+    }
+
     default DataType getDataType() throws UnboundException {
         throw new UnboundException("dataType");
     }
