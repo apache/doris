@@ -824,6 +824,32 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             long time = in.readLong();
             idToRecycleTime.put(id, time);
         }
+        updateDbInfoForLowerVersion();
+    }
+
+    private void updateDbInfoForLowerVersion() {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_114) {
+            Iterator<Map.Entry<Long, RecycleDatabaseInfo>> dbIterator = idToDatabase.entrySet().iterator();
+            while (dbIterator.hasNext()) {
+                Map.Entry<Long, RecycleDatabaseInfo> dbEntry = dbIterator.next();
+                RecycleDatabaseInfo dbInfo = dbEntry.getValue();
+                Set<String> tableNames = Sets.newHashSet(dbInfo.getTableNames());
+                Set<Long> tableIds = Sets.newHashSet();
+                Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
+                    RecycleTableInfo tableInfo = entry.getValue();
+                    if (tableInfo.getDbId() != dbEntry.getKey()
+                            || !tableNames.contains(tableInfo.getTable().getName())) {
+                        continue;
+                    }
+
+                    tableIds.add(entry.getKey());
+                }
+                dbInfo.setTableIds(tableIds);
+                idToDatabase.put(dbEntry.getKey(), dbInfo);
+            }
+        }
     }
 
     public class RecycleDatabaseInfo implements Writable {
@@ -852,6 +878,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public Set<Long> getTableIds() {
             return tableIds;
+        }
+
+        public Set<Long> setTableIds(Set<Long> tableIds) {
+            return this.tableIds = tableIds;
         }
 
         @Override
