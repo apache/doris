@@ -60,9 +60,9 @@ Status PrimaryKeyIndexBuilder::finalize(segment_v2::PrimaryKeyIndexMetaPB* meta)
     // finish primary key index
     RETURN_IF_ERROR(_primary_key_index_builder->finish(meta->mutable_primary_key_index()));
 
-    // set min_max key
-    meta->set_min_key(_min_key.ToString());
-    meta->set_max_key(_max_key.ToString());
+    // set min_max key, the sequence column should be removed
+    meta->set_min_key(min_key().to_string());
+    meta->set_max_key(max_key().to_string());
 
     // finish bloom filter index
     RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
