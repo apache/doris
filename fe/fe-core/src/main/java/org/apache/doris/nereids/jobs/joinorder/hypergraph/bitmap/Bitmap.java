@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap;
 
 import java.util.BitSet;
 

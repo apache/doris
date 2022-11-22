@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -61,7 +61,12 @@ public class GraphSimplifier {
     private Stack<SimplificationStep> appliedSteps = new Stack<SimplificationStep>();
     private Stack<SimplificationStep> unAppliedSteps = new Stack<SimplificationStep>();
 
-    GraphSimplifier(HyperGraph graph) {
+    /**
+     * Create a graph simplifier
+     *
+     * @param graph create a graph simplifier to simplify the graph
+     */
+    public GraphSimplifier(HyperGraph graph) {
         this.graph = graph;
         edgeSize = graph.getEdges().size();
         for (int i = 0; i < edgeSize; i++) {
@@ -165,6 +170,7 @@ public class GraphSimplifier {
      * @return If there is no other steps, return false.
      */
     public boolean applySimplificationStep() {
+        boolean needProcessNeighbor = unAppliedSteps.isEmpty();
         SimplificationStep bestStep = fetchSimplificationStep();
         if (bestStep == null) {
             return false;
@@ -174,7 +180,9 @@ public class GraphSimplifier {
                 cachePlan.containsKey(bestStep.newLeft) && cachePlan.containsKey(bestStep.newRight),
                 String.format("%s - %s", bestStep.newLeft, bestStep.newRight));
         graph.modifyEdge(bestStep.afterIndex, bestStep.newLeft, bestStep.newRight);
-        processNeighbors(bestStep.afterIndex, 0, edgeSize);
+        if (needProcessNeighbor) {
+            processNeighbors(bestStep.afterIndex, 0, edgeSize);
+        }
         return true;
     }
 
@@ -183,6 +191,8 @@ public class GraphSimplifier {
         SimplificationStep bestStep = appliedSteps.pop();
         unAppliedSteps.push(bestStep);
         graph.modifyEdge(bestStep.afterIndex, bestStep.oldLeft, bestStep.oldRight);
+        // Note we don't need to delete this edge in circleDetector, because we don't need to
+        // recalculate neighbors until all steps applied
         return true;
     }
 
@@ -405,8 +415,8 @@ public class GraphSimplifier {
     }
 
     private double getSimpleCost(Plan plan) {
-        if (plan instanceof GroupPlan) {
-            return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
+        if (!(plan instanceof LogicalJoin)) {
+            return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
         }
         return plan.getGroupExpression().get().getCostByProperties(PhysicalProperties.ANY);
     }

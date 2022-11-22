@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.SubsetIterator;
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver.AbstractReceiver;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.SubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.AbstractReceiver;
 
 import java.util.BitSet;
 import java.util.List;
@@ -35,7 +35,7 @@ public class SubgraphEnumerator {
     //The enumerated hyperGraph
     HyperGraph hyperGraph;
 
-    SubgraphEnumerator(AbstractReceiver receiver, HyperGraph hyperGraph) {
+    public SubgraphEnumerator(AbstractReceiver receiver, HyperGraph hyperGraph) {
         this.receiver = receiver;
         this.hyperGraph = hyperGraph;
     }
@@ -50,7 +50,7 @@ public class SubgraphEnumerator {
         List<Node> nodes = hyperGraph.getNodes();
         // Init all nodes in Receiver
         for (Node node : nodes) {
-            receiver.addPlan(node.getBitSet(), node.getPlan());
+            receiver.addGroup(node.getBitSet(), node.getGroup());
         }
         hyperGraph.splitEdgesForNodes();
         int size = nodes.size();

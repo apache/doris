@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;

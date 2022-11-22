@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.Edge;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.memo.Group;
 
 import com.google.common.base.Preconditions;
 
@@ -31,6 +31,7 @@ import java.util.HashMap;
 public class Counter implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
     private int limit;
+    private int emitCount = 0;
     private HashMap<BitSet, Integer> counter = new HashMap<>();
 
     public Counter() {
@@ -52,6 +53,10 @@ public class Counter implements AbstractReceiver {
     public boolean emitCsgCmp(BitSet left, BitSet right, Edge edge) {
         Preconditions.checkArgument(counter.containsKey(left));
         Preconditions.checkArgument(counter.containsKey(right));
+        emitCount += 1;
+        if (emitCount > limit) {
+            return false;
+        }
         BitSet bitSet = new BitSet();
         bitSet.or(left);
         bitSet.or(right);
@@ -60,10 +65,10 @@ public class Counter implements AbstractReceiver {
         } else {
             counter.put(bitSet, counter.get(bitSet) + counter.get(left) * counter.get(right));
         }
-        return counter.get(bitSet) < this.limit;
+        return true;
     }
 
-    public void addPlan(BitSet bitSet, Plan plan) {
+    public void addGroup(BitSet bitSet, Group group) {
         counter.put(bitSet, 1);
     }
 
@@ -73,9 +78,10 @@ public class Counter implements AbstractReceiver {
 
     public void reset() {
         this.counter.clear();
+        emitCount = 0;
     }
 
-    public Plan getBestPlan(BitSet bitSet) {
+    public Group getBestPlan(BitSet bitSet) {
         throw new RuntimeException("Counter does not support getBestPlan()");
     }
 
@@ -85,5 +91,9 @@ public class Counter implements AbstractReceiver {
 
     public HashMap<BitSet, Integer> getAllCount() {
         return counter;
+    }
+
+    public int getLimit() {
+        return limit;
     }
 }
