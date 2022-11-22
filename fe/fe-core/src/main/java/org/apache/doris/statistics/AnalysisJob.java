@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -139,7 +140,7 @@ public class AnalysisJob {
 
     public void execute() throws Exception {
         Map<String, String> params = new HashMap<>();
-        params.put("internalDB", StatisticConstants.STATISTIC_DB_NAME);
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
@@ -178,6 +179,7 @@ public class AnalysisJob {
         ConnectContext connectContext = StatisticsUtil.buildConnectContext();
         this.stmtExecutor = new StmtExecutor(connectContext, sql);
         this.stmtExecutor.execute();
+        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), col.getName());
     }
 
     public int getLastExecTime() {

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.AnalysisJobInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 import org.apache.doris.statistics.AnalysisJobInfo.ScheduleType;
@@ -53,7 +54,7 @@ public class StatisticsRepository {
     private static final Logger LOG = LogManager.getLogger(StatisticsRepository.class);
 
     private static final String FULL_QUALIFIED_DB_NAME = "`" + SystemInfoService.DEFAULT_CLUSTER + ":"
-            + StatisticConstants.STATISTIC_DB_NAME + "`";
+            + FeConstants.INTERNAL_DB_NAME + "`";
 
     private static final String FULL_QUALIFIED_COLUMN_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.STATISTIC_TBL_NAME + "`";

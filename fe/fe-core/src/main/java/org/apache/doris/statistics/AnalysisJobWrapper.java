@@ -62,11 +62,13 @@ public class AnalysisJobWrapper extends FutureTask<Void> {
                 Env.getCurrentEnv().getAnalysisJobScheduler()
                         .updateJobStatus(job.getJobId(), JobState.FINISHED, "", System.currentTimeMillis());
             }
+            LOG.warn("{} finished, cost time:{}", job.toString(), System.currentTimeMillis() - startTime);
         }
     }
 
     public boolean cancel() {
         try {
+            LOG.warn("{} cancelled, cost time:{}", job.toString(), System.currentTimeMillis() - startTime);
             job.cancel();
         } catch (Exception e) {
             LOG.warn(String.format("Cancel job failed job info : %s", job.toString()));
