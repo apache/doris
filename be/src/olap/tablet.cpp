@@ -1688,6 +1688,19 @@ Status Tablet::cooldown() {
         LOG(WARNING) << "Failed to own cumu_compaction_lock. tablet=" << tablet_id();
         return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
+
+    _cooldown_use_remote_data();
+    if (_tablet_meta->cooldown_type() == CooldownTypePB::UPLOAD_DATA) {
+        // When be is restart, maybe cooldown_type is invalid, waiting until tabletReport and
+        // cooldown_type is sent from fe.
+        if (GetCurrentTimeMicros() / 1000000 - doris::ExecEnv::GetInstance()->be_start_time_sec() >
+                doris::config::cooldown_safe_time_sec) {
+            return _cooldown_upload_data();
+        }
+    }
+}
+
+Status Tablet::_cooldown_upload_data() {
     auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
@@ -1698,6 +1711,11 @@ Status Tablet::cooldown() {
         LOG(WARNING) << "Cannot pick cooldown rowset in tablet " << tablet_id();
         return Status::OK();
     }
+
+    // get remote tablet_meta, check end_version.
+    TabletMetaPB remote_tablet_meta_pb;
+    RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
+
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
 
     auto start = std::chrono::steady_clock::now();
@@ -1722,6 +1740,11 @@ Status Tablet::cooldown() {
     new_rowset_meta->set_resource_id(dest_fs->resource_id());
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
+
+    new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas())
+    // upload rowset_meta to remote fs.
+    RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, tablet_id(), remote_tablet_meta_pb));
+
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
 
@@ -1743,6 +1766,107 @@ Status Tablet::cooldown() {
                                     to_add.front()->num_segments());
         return Status::Aborted("tablet {} has shutdown", tablet_id());
     }
+    return Status::OK();
+}
+
+int64_t Tablet::_max_remote_tablet_version(const TabletMetaPB& remote_tablet_meta_pb) {
+    int64_t max_version = 0;
+    for (auto& rowset : remote_tablet_meta_pb.rs_metas()) {
+        if (rowset.end_version() > max_version) {
+            max_version = rowset.end_version();
+        }
+    }
+    return max_version;
+}
+
+Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb) {
+    std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id);
+    io::FileReaderSPtr tablet_meta_reader;
+    bool exist = false;
+    RETURN_IF_ERROR(!dest_fs->exists(remote_meta_path, &exist));
+    if (!exist) {
+        return Status::OLAPInternalError(OLAP_ERR_FILE_NOT_EXIST);
+    }
+    RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader));
+    DCHECK(tablet_meta_reader != nullptr);
+    auto file_size = tablet_meta_reader->size();
+    size_t bytes_read;
+    uint8_t* buf = new uint8_t[file_size];
+    Slice slice(buf, file_size);
+    RETURN_IF_ERROR(tablet_meta_reader->read_at(0, slice, &bytes_read));
+    if (!tablet_meta_pb->ParseFromString(slice.to_string())) {
+        LOG(WARNING) << "parse tablet meta failed";
+        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+    }
+    return Status::OK();
+}
+
+Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, int64_t tablet_id,
+                                         const TabletMetaPB& tablet_meta_pb) {
+    std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id);
+    bool exist = false;
+    RETURN_IF_ERROR(dest_fs->exists(remote_meta_path, &exist));
+    if (exist) {
+        RETURN_IF_ERROR(dest_fs->delete_file(remote_meta_path));
+    }
+    string value;
+    tablet_meta_pb.SerializeToString(&value);
+    io::FileWriterPtr tablet_meta_writer;
+    RETURN_IF_ERROR(dest_fs->create_file(remote_meta_path, &tablet_meta_writer));
+    DCHECK(tablet_meta_writer != nullptr);
+    uint8_t* buf = new uint8_t[value.size()];
+    memcpy(buf, value.c_str(), value.size());
+    Slice slice(buf, value.size());
+    RETURN_IF_ERROR(tablet_meta_writer->appendv(slice, 1));
+    RETURN_IF_ERROR(tablet_meta_writer->close());
+
+    return Status::OK();
+}
+
+Status Tablet::_cooldown_use_remote_data() {
+    TabletMetaPB remote_tablet_meta_pb;
+    RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
+    std::vector<RowsetSharedPtr> to_add;
+    std::vector<RowsetSharedPtr> to_delete;
+    int64_t max_version = 0;
+    for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
+        RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+        rowset_meta->init_from_pb(rowset_meta_pb);
+        RowsetSharedPtr new_rowset;
+        RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
+        to_add.push_back(new_rowset);
+        if (rowset_meta_pb.end_version() > max_version) {
+            max_version = rowset_meta_pb.end_version();
+        }
+    }
+
+    {
+        std::shared_lock meta_rlock(_meta_lock);
+        for (const auto& it : _rs_version_map) {
+            auto& rs = it.second;
+            if (rs->end_version() <= max_version) {
+                to_delete.push_back(rs);
+            }
+        }
+    }
+
+    bool has_shutdown = false;
+    {
+        std::unique_lock meta_wlock(_meta_lock);
+        has_shutdown = tablet_state() == TABLET_SHUTDOWN;
+        if (!has_shutdown) {
+            modify_rowsets(to_add, to_delete);
+            _self_owned_remote_rowsets.insert(to_add.front());
+            save_meta();
+        }
+    }
+
+    if (has_shutdown) {
+        record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
+                                    to_add.front()->num_segments());
+        return Status::Aborted("tablet {} has shutdown", tablet_id());
+    }
+
     return Status::OK();
 }
 

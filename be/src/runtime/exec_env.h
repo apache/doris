@@ -190,6 +190,9 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
 
+    int64_t be_start_time_sec() {
+        return _be_start_time_sec;
+    }
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -286,6 +289,7 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
     StoragePolicyMgr* _storage_policy_mgr = nullptr;
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
+    int64_t _be_start_time_sec = 0L;
 };
 
 template <>

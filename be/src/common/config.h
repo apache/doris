@@ -791,6 +791,8 @@ CONF_Int32(concurrency_per_dir, "2");
 CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h
 CONF_mInt64(max_sub_cache_file_size, "104857600"); // 100MB
 CONF_mInt64(file_cache_alive_time_sec, "604800");  // 1 week
+CONF_mInt64(cooldown_safe_time_sec, "1800");       // upload will not run after be is started,
+                                                   // until cooldown_safe_time_sec reached.
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.

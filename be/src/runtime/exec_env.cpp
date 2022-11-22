@@ -21,7 +21,9 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() : _is_init(false) {}
+ExecEnv::ExecEnv() : _is_init(false) {
+    _be_start_time_sec = GetCurrentTimeMicros() / 1000000;
+}
 
 ExecEnv::~ExecEnv() {}
 
