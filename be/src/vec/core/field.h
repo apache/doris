@@ -62,7 +62,12 @@ struct AvgNearestFieldTypeTrait<Decimal128> {
 
 template <>
 struct AvgNearestFieldTypeTrait<Decimal128I> {
-    using Type = Decimal128I;
+    using Type = Decimal128;
+};
+
+template <>
+struct AvgNearestFieldTypeTrait<Int64> {
+    using Type = double;
 };
 
 class Field;
