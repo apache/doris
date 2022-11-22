@@ -775,6 +775,84 @@ suite("test_jdbc_query_mysql", "p0") {
                         SELECT NULL, SUM(CAST(id AS BIGINT))
                         FROM $exMysqlTable
                         WHERE name = 'abd' """
+
+
+        // test for distribute queries
+        order_qt_sql38 """ SELECT count(*) FROM ${exMysqlTable} WHERE id IN (SELECT k8 FROM $jdbcMysql57Table1 WHERE k8 > 111); """
+        sql """ create view if not exists aview as select k7, k8 from $jdbcMysql57Table1; """
+        order_qt_sql39 """ SELECT * FROM aview a JOIN aview b on a.k8 = b.k8 order by a.k8 desc limit 5 """
+        order_qt_sql42 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l JOIN ${exMysqlTable} o ON l.k8 = o.id """
+        order_qt_sql43 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l LEFT JOIN ${exMysqlTable} o ON l.k8 = o.id"""
+        order_qt_sql44 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l RIGHT JOIN ${exMysqlTable} o ON l.k8 = o.id"""
+        order_qt_sql45 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l JOIN 
+                            (SELECT id, COUNT(*) FROM ${exMysqlTable} WHERE id > 111 GROUP BY id ORDER BY id) o ON l.k8 = o.id """
+        order_qt_sql46 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l JOIN ${exMysqlTable} o ON l.k8 = o.id + 1"""
+        order_qt_sql47 """ SELECT * FROM (
+                            SELECT k8 % 120 AS a, k8 % 3 AS b
+                            FROM $jdbcMysql57Table1) l JOIN 
+                            (SELECT t1.a AS a, SUM(t1.b) AS b, SUM(LENGTH(t2.name)) % 3 AS d
+                                FROM ( SELECT id AS a, id % 3 AS b FROM ${exMysqlTable}) t1
+                            JOIN ${exMysqlTable} t2 ON t1.a = t2.id GROUP BY t1.a) o
+                            ON l.b = o.d AND l.a = o.a order by l.a desc limit 3"""
+        order_qt_sql48 """ SELECT x, y, COUNT(*) as c FROM (SELECT k8, 0 AS x FROM $jdbcMysql57Table1) a
+                            JOIN (SELECT k8, 1 AS y FROM $jdbcMysql57Table1) b ON a.k8 = b.k8 group by x, y order by c desc limit 3 """
+        order_qt_sql49 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 120 > 110) l
+                            JOIN (SELECT *, COUNT(1) OVER (PARTITION BY id ORDER BY id) FROM ${exMysqlTable}) o ON l.k8 = o.id """
+        order_qt_sql50 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 as a LEFT OUTER JOIN ${exMysqlTable} as b ON a.k8 = b.id AND a.k8 > 111 WHERE a.k8 < 114 """
+        order_qt_sql51 """ SELECT count(*) > 0 FROM $jdbcMysql57Table1 JOIN ${exMysqlTable} ON (cast(1.2 AS FLOAT) = CAST(1.2 AS decimal(2,1))) """
+        order_qt_sql52 """ SELECT count(*) > 0 FROM $jdbcMysql57Table1 JOIN ${exMysqlTable} ON CAST((CASE WHEN (TRUE IS NOT NULL) THEN '1.2' ELSE '1.2' END) AS FLOAT) = CAST(1.2 AS decimal(2,1)) """
+        order_qt_sql53 """ SELECT SUM(k8) FROM $jdbcMysql57Table1 as a JOIN ${exMysqlTable} as b ON a.k8 = CASE WHEN b.id % 2 = 0 and b.name = 'abc' THEN b.id ELSE NULL END """
+        order_qt_sql54 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 a JOIN ${exMysqlTable} b on not (a.k8 <> b.id) """
+        order_qt_sql55 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 a JOIN ${exMysqlTable} b on not not not (a.k8 = b.id)  """
+        order_qt_sql56 """ SELECT x + y FROM (
+                           SELECT id, COUNT(*) x FROM ${exMysqlTable} GROUP BY id) a JOIN 
+                            (SELECT k8, COUNT(*) y FROM $jdbcMysql57Table1 GROUP BY k8) b ON a.id = b.k8 """
+        order_qt_sql57 """ SELECT COUNT(*) FROM ${exMysqlTable} as a JOIN $jdbcMysql57Table1 as b ON a.id = b.k8 AND a.name LIKE '%ab%' """
+        order_qt_sql58 """ 
+                        SELECT COUNT(*) FROM
+                        (SELECT a.k8 AS o1, b.id AS o2 FROM $jdbcMysql57Table1 as a LEFT OUTER JOIN ${exMysqlTable} as b 
+                        ON a.k8 = b.id AND b.id < 114
+                            UNION ALL
+                        SELECT a.k8 AS o1, b.id AS o2 FROM $jdbcMysql57Table1 as a RIGHT OUTER JOIN ${exMysqlTable} as b 
+                        ON a.k8 = b.id AND b.id < 114 WHERE a.k8 IS NULL) as t1
+                         WHERE o1 IS NULL OR o2 IS NULL """
+        order_qt_sql59 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 as a JOIN ${exMysqlTable} as b ON a.k8 = 112 AND b.id = 112 """
+        order_qt_sql60 """ WITH x AS (SELECT DISTINCT k8 FROM $jdbcMysql57Table1 ORDER BY k8 LIMIT 10)
+                            SELECT count(*) FROM x a JOIN x b on a.k8 = b.k8 """
+        order_qt_sql61 """ SELECT COUNT(*) FROM (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 desc LIMIT 5) a 
+                            CROSS JOIN (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 desc LIMIT 5) b """
+        order_qt_sql62 """ SELECT a.k8 FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 < 119) a
+                            CROSS JOIN (SELECT * FROM $jdbcMysql57Table1 WHERE k8 > 100) b order by a.k8 desc limit 3"""
+        order_qt_sql63 """ SELECT * FROM (SELECT 1 a) x CROSS JOIN (SELECT 2 b) y """
+        order_qt_sql65 """ SELECT t.c FROM (SELECT 1) as t1 CROSS JOIN (SELECT 0 AS c UNION ALL SELECT 1) t """
+        order_qt_sql66 """ SELECT t.c FROM (SELECT 1) as a CROSS JOIN (SELECT 0 AS c UNION ALL SELECT 1) t """
+        order_qt_sql67 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 LIMIT 5) a
+                            JOIN (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 LIMIT 5) b ON 123 = 123"""
+        sql  """ drop table if exists ${exMysqlTable1} """
+        sql  """ 
+                CREATE EXTERNAL TABLE `${exMysqlTable1}` (
+                   `products_id` int(11) NOT NULL,
+                   `orders_id` int(11) NOT NULL,
+                   `sales_add_time` datetime NOT NULL,
+                   `sales_update_time` datetime NOT NULL,
+                   `finance_admin` int(11) NOT NULL
+                ) ENGINE=JDBC
+                COMMENT "JDBC Mysql 外部表"
+                PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb4",
+                "table_type"="mysql"
+                ); 
+        """
+        order_qt_sql68 """ SELECT finance_admin, count(1) as c FROM $exMysqlTable1 GROUP BY finance_admin
+                            HAVING c IN (select k8 from $jdbcMysql57Table1 where k8 = 2) """
+
+
+        // test for order by
+        order_qt_sql70 """ WITH t AS (SELECT 1 x, 2 y) SELECT x, y FROM t ORDER BY x, y """
+        order_qt_sql71 """ WITH t AS (SELECT k8 x, k7 y FROM $jdbcMysql57Table1) SELECT x, y FROM t ORDER BY x, y LIMIT 1 """
+        order_qt_sql72 """ SELECT finance_admin X FROM ${exMysqlTable1} ORDER BY x """
+
     }
 }
 
