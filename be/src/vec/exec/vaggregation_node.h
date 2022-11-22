@@ -80,8 +80,7 @@ struct AggregationMethodSerialized {
             _arena.reset(new Arena());
             size_t keys_size = key_columns.size();
             for (size_t i = 0; i < num_rows; ++i) {
-                keys[i] = std::move(
-                        serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena));
+                keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
             }
         } else {
             _arena.reset();
