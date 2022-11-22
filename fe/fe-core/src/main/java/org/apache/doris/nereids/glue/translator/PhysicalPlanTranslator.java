@@ -38,6 +38,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -80,6 +81,7 @@ import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
+import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -135,6 +137,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
         List<Expr> outputExprs = Lists.newArrayList();
+        if (physicalPlan instanceof PhysicalProject) {
+            PhysicalProject project = (PhysicalProject) physicalPlan;
+            if (isUnnecessaryProject(project) && !projectOnAgg(project)) {
+                List<Slot> slotReferences = removeAlias(project);
+                physicalPlan = (PhysicalPlan) physicalPlan.child(0).withOutput(slotReferences);
+            }
+        }
         physicalPlan.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         rootFragment.setOutputExprs(outputExprs);
@@ -675,6 +684,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (hashJoin.getOtherJoinConjuncts().isEmpty()
                 && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
             for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                if (!leftSlotDescriptor.isMaterialized()) {
+                    continue;
+                }
                 SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                 leftIntermediateSlotDescriptor.add(sd);
@@ -682,12 +694,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (hashJoin.getOtherJoinConjuncts().isEmpty()
                 && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
             for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                if (!rightSlotDescriptor.isMaterialized()) {
+                    continue;
+                }
                 SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                 rightIntermediateSlotDescriptor.add(sd);
             }
         } else {
             for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                if (!leftSlotDescriptor.isMaterialized()) {
+                    continue;
+                }
                 SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                 if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
@@ -696,6 +714,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 leftIntermediateSlotDescriptor.add(sd);
             }
             for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                if (!rightSlotDescriptor.isMaterialized()) {
+                    continue;
+                }
                 SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
                 SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                 if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
@@ -821,6 +842,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (nestedLoopJoinNode.getConjuncts().isEmpty()
                     && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
                 for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                    if (!leftSlotDescriptor.isMaterialized()) {
+                        continue;
+                    }
                     SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     leftIntermediateSlotDescriptor.add(sd);
@@ -828,17 +852,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             } else if (nestedLoopJoinNode.getConjuncts().isEmpty()
                     && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
                 for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                    if (!rightSlotDescriptor.isMaterialized()) {
+                        continue;
+                    }
                     SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     rightIntermediateSlotDescriptor.add(sd);
                 }
             } else {
                 for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                    if (!leftSlotDescriptor.isMaterialized()) {
+                        continue;
+                    }
                     SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     leftIntermediateSlotDescriptor.add(sd);
                 }
                 for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                    if (!rightSlotDescriptor.isMaterialized()) {
+                        continue;
+                    }
                     SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     rightIntermediateSlotDescriptor.add(sd);
@@ -901,43 +934,51 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         PlanFragment inputFragment = project.child(0).accept(this, context);
-
         List<Expr> execExprList = project.getProjects()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
         // TODO: fix the project alias of an aliased relation.
-        List<Slot> slotList = project.getOutput();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
+        List<Slot> slotList = project.getOutput();
         // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
         // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
         // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
-        if (inputPlanNode instanceof HashJoinNode) {
-            HashJoinNode hashJoinNode = (HashJoinNode) inputPlanNode;
+        if (inputPlanNode instanceof JoinNodeBase) {
+            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+            JoinNodeBase hashJoinNode = (JoinNodeBase) inputPlanNode;
             hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
             hashJoinNode.setvSrcToOutputSMap(execExprList);
             return inputFragment;
         }
-        if (inputPlanNode instanceof NestedLoopJoinNode) {
-            NestedLoopJoinNode nestedLoopJoinNode = (NestedLoopJoinNode) inputPlanNode;
-            nestedLoopJoinNode.setvOutputTupleDesc(tupleDescriptor);
-            nestedLoopJoinNode.setvSrcToOutputSMap(execExprList);
-            return inputFragment;
-        }
-        inputPlanNode.setProjectList(execExprList);
-        inputPlanNode.setOutputTupleDesc(tupleDescriptor);
-
         List<Expr> predicateList = inputPlanNode.getConjuncts();
         Set<Integer> requiredSlotIdList = new HashSet<>();
         for (Expr expr : predicateList) {
             extractExecSlot(expr, requiredSlotIdList);
         }
+        boolean nonPredicate = CollectionUtils.isEmpty(requiredSlotIdList);
         for (Expr expr : execExprList) {
             extractExecSlot(expr, requiredSlotIdList);
         }
+        if (!hasExprCalc(project) && (!hasPrune(project) || nonPredicate) && !projectOnAgg(project)) {
+            List<NamedExpression> namedExpressions = project.getProjects();
+            for (int i = 0; i < namedExpressions.size(); i++) {
+                NamedExpression n = namedExpressions.get(i);
+                for (Expression e : n.children()) {
+                    SlotReference slotReference = (SlotReference) e;
+                    SlotRef slotRef = context.findSlotRef(slotReference.getExprId());
+                    context.addExprIdSlotRefPair(slotList.get(i).getExprId(), slotRef);
+                }
+            }
+        } else {
+            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+            inputPlanNode.setProjectList(execExprList);
+            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+        }
         if (inputPlanNode instanceof OlapScanNode) {
             updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
+            return inputFragment;
         }
         return inputFragment;
     }
@@ -1245,5 +1286,51 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .stream()
                 .map(slot -> slot.getId().asInt())
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    private boolean isUnnecessaryProject(PhysicalProject project) {
+        // The project list for agg is always needed,since tuple of agg contains the slots used by group by expr
+        return !hasPrune(project) && !hasExprCalc(project);
+    }
+
+    private boolean hasPrune(PhysicalProject project) {
+        PhysicalPlan child = (PhysicalPlan) project.child(0);
+
+        return project.getProjects().size() != child.getOutput().size();
+    }
+
+    private boolean projectOnAgg(PhysicalProject project) {
+        PhysicalPlan child = (PhysicalPlan) project.child(0);
+        while (child instanceof PhysicalFilter || child instanceof PhysicalDistribute) {
+            child = (PhysicalPlan) child.child(0);
+        }
+        return child instanceof PhysicalAggregate;
+    }
+
+    private boolean hasExprCalc(PhysicalProject<? extends Plan> project) {
+        for (NamedExpression p : project.getProjects()) {
+            if (p.children().size() > 1) {
+                return true;
+            }
+            for (Expression e : p.children()) {
+                if (!(e instanceof SlotReference)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<Slot> removeAlias(PhysicalProject project) {
+        List<NamedExpression> namedExpressions = project.getProjects();
+        List<Slot> slotReferences = new ArrayList<>();
+        for (NamedExpression n : namedExpressions) {
+            if (n instanceof Alias) {
+                slotReferences.add((SlotReference) n.child(0));
+            } else {
+                slotReferences.add((SlotReference) n);
+            }
+        }
+        return slotReferences;
     }
 }
