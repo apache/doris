@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * function call event
@@ -35,8 +36,6 @@ public class FunctionCallEvent extends Event {
 
     @Override
     public String toString() {
-        return "FunctionCallEvent{"
-                + "callFuncNameAndLine='" + callFuncNameAndLine + '\''
-                + '}';
+        return Utils.toSqlString("FunctionCallEvent", "callFuncNameAndLine='", callFuncNameAndLine);
     }
 }

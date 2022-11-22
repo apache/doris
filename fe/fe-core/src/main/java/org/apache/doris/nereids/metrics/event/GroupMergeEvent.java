@@ -20,6 +20,7 @@ package org.apache.doris.nereids.metrics.event;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -45,10 +46,8 @@ public class GroupMergeEvent extends Event {
 
     @Override
     public String toString() {
-        return "GroupMergeEvent{"
-                + "source=" + source
-                + ", destination=" + destination
-                + ", needReplaceGroupExpressions=" + needReplaceGroupExpressions
-                + '}';
+        return Utils.toSqlString("GroupMergeEvent", "source", source,
+                "destination", destination,
+                "needReplaceGroupExpressions", needReplaceGroupExpressions);
     }
 }

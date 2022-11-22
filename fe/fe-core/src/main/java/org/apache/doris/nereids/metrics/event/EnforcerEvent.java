@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * enforcer event
@@ -47,11 +48,9 @@ public class EnforcerEvent extends Event {
 
     @Override
     public String toString() {
-        return "EnforcerEvent{"
-                + "groupExpression=" + groupExpression
-                + ", enforce=" + enforce
-                + ", before=" + before
-                + ", after=" + after
-                + '}';
+        return Utils.toSqlString("EnforcerEvent", "groupExpression", groupExpression,
+                "enforce", enforce,
+                "before", before,
+                "after", after);
     }
 }

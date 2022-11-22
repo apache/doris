@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.CounterType;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Maps;
 
@@ -57,13 +58,9 @@ public class CounterEvent extends Event {
 
     @Override
     public String toString() {
-        return "CounterEvent{"
-                + "count=" + COUNTER_MAP.get(counterType)
-                + ", counterType=" + counterType
-                + ", group=" + group
-                + ", groupExpression=" + groupExpression
-                + ", plan=" + plan
-                + '}';
+        return Utils.toSqlString("CounterEvent", "count", COUNTER_MAP.get(counterType),
+                "count", counterType, "group", group,
+                "groupExpression", groupExpression, "plan", plan);
     }
 
     public static void updateCounter(CounterType counterType) {

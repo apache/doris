@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.metrics;
 
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -40,7 +41,7 @@ public abstract class Event implements Cloneable {
     }
 
     public final String toJson() {
-        return "[stateId=" + stateId + "]";
+        return Utils.toSqlString("Event", "StateId", stateId);
     }
 
     @Override

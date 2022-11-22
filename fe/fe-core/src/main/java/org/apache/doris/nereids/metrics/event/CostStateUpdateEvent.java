@@ -19,6 +19,7 @@ package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * cost state event
@@ -41,10 +42,7 @@ public class CostStateUpdateEvent extends StateEvent {
 
     @Override
     public String toString() {
-        return "CostStateEvent{"
-                + "groupExpression=" + getGroupExpression()
-                + ", cost=" + cost
-                + ", physicalProperties=" + physicalProperties
-                + '}';
+        return Utils.toSqlString("CostStateEvent", "groupExpression", getGroupExpression(),
+                "cost", cost, "physicalProperties", physicalProperties);
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.metrics.event;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 /**
@@ -38,8 +39,6 @@ public class StatsStateEvent extends StateEvent {
 
     @Override
     public String toString() {
-        return "StatsStateEvent{"
-                + "statsDeriveResult=" + statsDeriveResult
-                + '}';
+        return Utils.toSqlString("StatsStateEvent", "statsDeriveResult", statsDeriveResult);
     }
 }

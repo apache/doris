@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
@@ -52,11 +53,7 @@ public class TransformEvent extends Event {
 
     @Override
     public String toString() {
-        return "TransformEvent{"
-                + "groupExpression=" + groupExpression
-                + ", before=" + before
-                + ", afters=" + afters
-                + ", ruleType=" + ruleType
-                + '}';
+        return Utils.toSqlString("TransformEvent", "groupExpression", groupExpression,
+                "before", before, "afters", afters, "ruleType", ruleType);
     }
 }
