@@ -1,7 +1,7 @@
 ---
 {
     "title": "hdfs",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,9 +32,9 @@ hdfs
 
 ### Description
 
-HDFS表函数（table-valued-function,tvf），可以让用户像访问关系表格式数据一样，读取并访问 HDFS 上的文件内容。目前支持`csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`文件格式。
+HDFS table-valued-function(tvf), allows users to read and access file contents on S3-compatible object storage, just like accessing relational table. Currently supports `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc` file format.
 
-**语法**
+**grammer**
 
 ```
 hdfs(
@@ -47,36 +47,39 @@ hdfs(
   );
 ```
 
-**参数说明**
+**parameter description**
 
-访问hdfs相关参数：
-- `uri`：（必填） 访问hdfs的uri。
-- `fs.defaultFS`：（必填）
-- `hadoop.username`： （必填）可以是任意字符串，但不能为空
-- `hadoop.security.authentication`：（选填）
-- `hadoop.username`：（选填）
-- `hadoop.kerberos.principal`：（选填）
-- `hadoop.kerberos.keytab`：（选填）
-- `dfs.client.read.shortcircuit`：（选填）
-- `dfs.domain.socket.path`：（选填）
+Related parameters for accessing hdfs:
 
-文件格式相关参数
-- `format`：(必填) 目前支持 `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`
-- `column_separator`：(选填) 列分割符, 默认为`,`。 
-- `line_delimiter`：(选填) 行分割符，默认为`\n`。
+- `uri`: (required) hdfs uri.
+- `fs.defaultFS`: (required)
+- `hadoop.username`: (required) Can be any string, but cannot be empty.
+- `hadoop.security.authentication`: (optional)
+- `hadoop.username`: (optional)
+- `hadoop.kerberos.principal`: (optional)
+- `hadoop.kerberos.keytab`: (optional)
+- `dfs.client.read.shortcircuit`: (optional)
+- `dfs.domain.socket.path`: (optional)
 
-    下面6个参数是用于json格式的导入，具体使用方法可以参照：[Json Load](../../../data-operate/import/import-way/load-json-format.md)
+File format parameters:
 
-- `read_json_by_line`： (选填) 默认为 `"true"`
-- `strip_outer_array`： (选填) 默认为 `"false"`
-- `json_root`： (选填) 默认为空
-- `json_paths`： (选填) 默认为空
-- `num_as_string`： (选填) 默认为 `false`
-- `fuzzy_parse`： (选填) 默认为 `false`
+- `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`
+- `column_separator`: (optional) default `,`.
+- `line_delimiter`: (optional) default `\n`.
+
+    The following 6 parameters are used for loading in json format. For specific usage methods, please refer to: [Json Load](../../../data-operate/import/import-way/load-json-format.md)
+
+- `read_json_by_line`: (optional) default `"true"`
+- `strip_outer_array`: (optional) default `"false"`
+- `json_root`: (optional) default `""`
+- `json_paths`: (optional) default `""`
+- `num_as_string`: (optional) default `false`
+- `fuzzy_parse`: (optional) default `false`
 
 ### Examples
 
-读取并访问 HDFS 存储上的csv格式文件
+Read and access csv format files on hdfs storage.
+
 ```sql
 MySQL [(none)]> select * from hdfs(
             "uri" = "hdfs://127.0.0.1:842/user/doris/csv_format_test/student.csv",
@@ -94,7 +97,7 @@ MySQL [(none)]> select * from hdfs(
 +------+---------+------+
 ```
 
-可以配合`desc function`使用
+Can be used with `desc function` :
 
 ```sql
 MySQL [(none)]> desc function hdfs(
@@ -110,4 +113,4 @@ MySQL [(none)]> desc function hdfs(
 
 ### Best Practice
 
-  关于HDFS tvf的更详细使用方法可以参照 [S3](./s3.md) tvf, 唯一不同的是访问存储系统的方式不一样。
+  For more detailed usage of HDFS tvf, please refer to [S3](./s3.md) tvf, The only difference between them is the way of accessing the storage system.
