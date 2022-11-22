@@ -329,9 +329,16 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
         }
         auto block_rows = block->rows();
         if (_filter_delete && block_rows > 0) {
-            auto target_columns = block->mutate_columns();
+            int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
+            if (ori_delete_sign_idx < 0) {
+                *eof = (res.is_end_of_file());
+                _eof = *eof;
+                return Status::OK();
+            }
+            // delete sign column must store in last column of the block
             int delete_sign_idx = block->columns() - 1;
             DCHECK(delete_sign_idx > 0);
+            auto target_columns = block->mutate_columns();
             MutableColumnPtr delete_filter_column = (*std::move(_delete_filter_column)).mutate();
             reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(block_rows);
 

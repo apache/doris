@@ -199,7 +199,7 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
     // in unique key, sequence & delete sign column should merge with key columns
     int32_t sequence_col_idx = -1;
     int32_t delete_sign_idx = -1;
-    // in key column compaction, seq_col real index is _block->columns() -2
+    // in key column compaction, seq_col real index is _num_key_columns
     // and delete_sign column is _block->columns() - 1
     if (tablet_schema->keys_type() == KeysType::UNIQUE_KEYS) {
         if (tablet_schema->has_sequence_col()) {
