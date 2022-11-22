@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.metrics;
 
+import org.apache.doris.nereids.metrics.consumer.PrintConsumer;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;

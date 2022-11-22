@@ -30,7 +30,7 @@ public class FunctionCallEvent extends Event {
     }
 
     public static FunctionCallEvent of(String callFuncNameAndLine) {
-        return checkConnectContext() ? new FunctionCallEvent(callFuncNameAndLine) : null;
+        return checkConnectContext(FunctionCallEvent.class) ? new FunctionCallEvent(callFuncNameAndLine) : null;
     }
 
     @Override

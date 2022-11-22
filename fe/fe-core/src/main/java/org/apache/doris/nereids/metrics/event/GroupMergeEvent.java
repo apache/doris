@@ -39,7 +39,8 @@ public class GroupMergeEvent extends Event {
 
     public static GroupMergeEvent of(Group source, Group destination,
             List<GroupExpression> needReplaceGroupExpressions) {
-        return checkConnectContext() ? new GroupMergeEvent(source, destination, needReplaceGroupExpressions) : null;
+        return checkConnectContext(GroupMergeEvent.class)
+                ? new GroupMergeEvent(source, destination, needReplaceGroupExpressions) : null;
     }
 
     @Override

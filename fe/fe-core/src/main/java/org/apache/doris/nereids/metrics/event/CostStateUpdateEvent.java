@@ -35,7 +35,8 @@ public class CostStateUpdateEvent extends StateEvent {
 
     public static CostStateUpdateEvent of(GroupExpression groupExpression, double cost,
             PhysicalProperties physicalProperties) {
-        return checkConnectContext() ? new CostStateUpdateEvent(groupExpression, cost, physicalProperties) : null;
+        return checkConnectContext(CostStateUpdateEvent.class)
+                ? new CostStateUpdateEvent(groupExpression, cost, physicalProperties) : null;
     }
 
     @Override

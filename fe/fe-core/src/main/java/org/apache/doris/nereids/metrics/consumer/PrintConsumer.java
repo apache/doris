@@ -15,7 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.metrics;
+package org.apache.doris.nereids.metrics.consumer;
+
+import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.metrics.EventConsumer;
 
 import java.io.PrintStream;
 

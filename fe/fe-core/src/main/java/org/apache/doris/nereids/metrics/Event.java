@@ -33,8 +33,10 @@ public abstract class Event implements Cloneable {
         this.stateId = stateId;
     }
 
-    protected static boolean checkConnectContext() {
-        return ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isEnableNereidsTrace();
+    protected static boolean checkConnectContext(Class<? extends Event> targetClass) {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+                && EventChannel.getDefaultChannel().getEventSwitch().contains(targetClass);
     }
 
     public final String toJson() {

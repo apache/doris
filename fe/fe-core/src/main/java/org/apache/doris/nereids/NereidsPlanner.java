@@ -31,6 +31,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -73,6 +74,7 @@ public class NereidsPlanner extends Planner {
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
+        EventChannel.getDefaultChannel().setConnectContext(statementContext.getConnectContext());
     }
 
     @Override

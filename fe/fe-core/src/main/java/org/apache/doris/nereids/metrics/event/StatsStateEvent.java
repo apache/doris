@@ -32,7 +32,8 @@ public class StatsStateEvent extends StateEvent {
     }
 
     public static StatsStateEvent of(GroupExpression groupExpression, StatsDeriveResult statsDeriveResult) {
-        return checkConnectContext() ? new StatsStateEvent(groupExpression, statsDeriveResult) : null;
+        return checkConnectContext(StatsStateEvent.class)
+                ? new StatsStateEvent(groupExpression, statsDeriveResult) : null;
     }
 
     @Override

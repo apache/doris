@@ -41,7 +41,8 @@ public class EnforcerEvent extends Event {
 
     public static EnforcerEvent of(GroupExpression groupExpression, PhysicalPlan enforce, PhysicalProperties before,
             PhysicalProperties after) {
-        return checkConnectContext() ? new EnforcerEvent(groupExpression, enforce, before, after) : null;
+        return checkConnectContext(EnforcerEvent.class)
+                ? new EnforcerEvent(groupExpression, enforce, before, after) : null;
     }
 
     @Override

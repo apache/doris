@@ -25,7 +25,6 @@ import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -54,25 +53,39 @@ public class EventSwitchParser {
     /**
      * parse
      */
-    public Set<Class<? extends Event>> parse(String eventTypeMode) {
-        List<String> strings = Arrays.stream(eventTypeMode.split("[ ,]"))
-                .map(String::trim)
-                .collect(Collectors.toList());
-        Preconditions.checkArgument(strings.size() > 0);
-        if ("all".equals(strings.get(0))) {
-            if (strings.size() == 1) {
+    public Set<Class<? extends Event>> parse(List<String> eventTypeMode) {
+        if ("all".equals(eventTypeMode.get(0))) {
+            if (eventTypeMode.size() == 1) {
                 return ImmutableSet.copyOf(EVENT_TYPE_SET.values());
             }
-            Preconditions.checkArgument(strings.size() > 2 && "except".equals(strings.get(1)));
             Map targetClasses = Maps.newHashMap(EVENT_TYPE_SET);
-            for (String str : strings.subList(2, strings.size())) {
+            for (String str : eventTypeMode.subList(2, eventTypeMode.size())) {
                 targetClasses.remove(str);
             }
             return ImmutableSet.copyOf(targetClasses.values());
         }
-        return strings.stream()
+        return eventTypeMode.stream()
                 .filter(EVENT_TYPE_SET::containsKey)
                 .map(str -> ((Class<? extends Event>) EVENT_TYPE_SET.get(str)))
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * check
+     */
+    public static List<String> checkEventModeStringAndSplit(String eventTypeMode) {
+        List<String> strings = Arrays.stream(eventTypeMode.toLowerCase().split("[\\s+,]"))
+                .map(String::trim)
+                .collect(Collectors.toList());
+        if (strings.size() == 0) {
+            return null;
+        } else if ("all".equals(strings.get(0))) {
+            if (strings.size() == 1) {
+                return strings;
+            } else if (strings.size() == 2 || !"except".equals(strings.get(1))) {
+                return null;
+            }
+        }
+        return strings;
     }
 }

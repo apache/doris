@@ -42,7 +42,8 @@ public class TransformEvent extends Event {
 
     public static TransformEvent of(GroupExpression groupExpression, Plan before, List<Plan> afters,
             RuleType ruleType) {
-        return checkConnectContext() ? new TransformEvent(groupExpression, before, afters, ruleType) : null;
+        return checkConnectContext(TransformEvent.class)
+                ? new TransformEvent(groupExpression, before, afters, ruleType) : null;
     }
 
     public GroupExpression getGroupExpression() {

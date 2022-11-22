@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -95,10 +96,14 @@ public class Memo {
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
         CopyInResult result = rewrite ? doRewrite(plan, target) : doCopyIn(plan, target);
-        if (result.generateNewExpression) {
+        maybeAddStateId(result);
+        return result;
+    }
+
+    private void maybeAddStateId(CopyInResult result) {
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace() && result.generateNewExpression) {
             stateId++;
         }
-        return result;
     }
 
     public List<Plan> copyOutAll() {
