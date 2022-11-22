@@ -62,4 +62,8 @@ public class StatisticsCache {
     public void updateCache(long tblId, String colName, ColumnStatistic statistic) {
         cache.synchronous().put(new StatisticsCacheKey(tblId, colName), statistic);
     }
+
+    public void refreshSync(long tblId, String colName) {
+        cache.synchronous().refresh(new StatisticsCacheKey(tblId, colName));
+    }
 }

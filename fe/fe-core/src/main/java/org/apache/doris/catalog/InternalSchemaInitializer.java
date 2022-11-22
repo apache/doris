@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -25,14 +25,13 @@ import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.SystemInfoService;
 
@@ -46,20 +45,31 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class StatisticStorageInitializer extends Thread {
+public class InternalSchemaInitializer extends Thread {
 
-    private static final Logger LOG = LogManager.getLogger(StatisticStorageInitializer.class);
+    private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
     public static boolean forTest = false;
+
+    /**
+     * If internal table creation failed, will retry after below seconds.
+     */
+    public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 1;
+
 
     public void run() {
         if (forTest) {
             return;
         }
         while (true) {
+            FrontendNodeType feType = Env.getCurrentEnv().getFeType();
+            if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
+                LOG.warn("FE is not ready");
+                continue;
+            }
             try {
                 Thread.currentThread()
-                        .join(StatisticConstants.STATISTICS_TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
+                        .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
                 createDB();
                 createTbl();
                 break;
@@ -67,6 +77,7 @@ public class StatisticStorageInitializer extends Thread {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
             }
         }
+        LOG.info("Internal schema initiated");
     }
 
     private void createTbl() throws UserException {
@@ -77,21 +88,21 @@ public class StatisticStorageInitializer extends Thread {
     @VisibleForTesting
     public static void createDB() {
         CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, StatisticConstants.STATISTIC_DB_NAME),
+                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME),
                 null);
         createDbStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
         } catch (DdlException e) {
             LOG.warn("Failed to create database: {}, will try again later",
-                    StatisticConstants.STATISTIC_DB_NAME, e);
+                    FeConstants.INTERNAL_DB_NAME, e);
         }
     }
 
     @VisibleForTesting
     public CreateTableStmt buildStatisticsTblStmt() throws UserException {
         TableName tableName = new TableName("",
-                StatisticConstants.STATISTIC_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
+                FeConstants.INTERNAL_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
         List<ColumnDef> columnDefs = new ArrayList<>();
         columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
         columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
@@ -131,7 +142,7 @@ public class StatisticStorageInitializer extends Thread {
     @VisibleForTesting
     public CreateTableStmt buildAnalysisJobTblStmt() throws UserException {
         TableName tableName = new TableName("",
-                StatisticConstants.STATISTIC_DB_NAME, StatisticConstants.ANALYSIS_JOB_TABLE);
+                FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_JOB_TABLE);
         List<ColumnDef> columnDefs = new ArrayList<>();
         columnDefs.add(new ColumnDef("job_id", TypeDef.create(PrimitiveType.BIGINT)));
         columnDefs.add(new ColumnDef("catalog_name", TypeDef.createVarchar(1024)));
