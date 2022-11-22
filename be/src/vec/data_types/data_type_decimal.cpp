@@ -247,14 +247,6 @@ Int128 max_decimal_value<Decimal128>(UInt32 precision) {
            DataTypeDecimal<Decimal128>::get_scale_multiplier(
                    (UInt64)max_decimal_precision<Decimal128>() - precision);
 }
-template <>
-Int128I max_decimal_value<Decimal128I>(UInt32 precision) {
-    return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-            static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
-           DataTypeDecimal<Decimal128I>::get_scale_multiplier(
-                   (UInt64)max_decimal_precision<Decimal128I>() - precision)
-                   .value.val;
-}
 
 template <typename T>
 typename T::NativeType min_decimal_value(UInt32 precision) {
@@ -277,15 +269,6 @@ Int128 min_decimal_value<Decimal128>(UInt32 precision) {
            DataTypeDecimal<Decimal128>::get_scale_multiplier(
                    (UInt64)max_decimal_precision<Decimal128>() - precision);
 }
-template <>
-Int128I min_decimal_value<Decimal128I>(UInt32 precision) {
-    return -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-             static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll) /
-           DataTypeDecimal<Decimal128I>::get_scale_multiplier(
-                   (UInt64)max_decimal_precision<Decimal128I>() - precision)
-                   .value.val;
-}
-
 /// Explicit template instantiations.
 template class DataTypeDecimal<Decimal32>;
 template class DataTypeDecimal<Decimal64>;
