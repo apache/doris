@@ -1185,6 +1185,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                 ch->cancel(status.get_error_msg());
             });
         }
+        LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
+                  << ", txn_id=" << _txn_id
+                  << ", canceled all node channels due to error: " << status.get_error_msg();
     }
 
     // Sender join() must put after node channels mark_close/cancel.

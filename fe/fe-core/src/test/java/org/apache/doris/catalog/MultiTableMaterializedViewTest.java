@@ -67,9 +67,9 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(() ->
                 connectContext.getEnv().createMultiTableMaterializedView(
                     (CreateMultiTableMaterializedViewStmt) parseAndAnalyzeStmt("create materialized view mv "
-                        + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+                        + "build immediate refresh complete key (pk_of_mv) distributed by hash (pk_of_mv) "
                         + "properties ('replication_num' = '1') "
-                        + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk")));
+                        + "as select test.t1.pk as pk_of_mv from test.t1, test.t2 where test.t1.pk = test.t2.pk")));
     }
 
     @Test
@@ -80,13 +80,13 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
 
         String sql = "create materialized view mv build immediate refresh complete "
-                + "key (mv_pk) distributed by hash (mv_pk) "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk";
+                + "key (pk_of_mv) distributed by hash (pk_of_mv) "
+                + "as select test.t1.pk as pk_of_mv from test.t1, test.t2 where test.t1.pk = test.t2.pk";
         testSerialization(sql);
 
         sql = "create materialized view mv1 build immediate refresh complete start with '1:00' next 1 day "
-                + "key (mv_pk) distributed by hash (mv_pk) "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk";
+                + "key (pk_of_mv) distributed by hash (pk_of_mv) "
+                + "as select test.t1.pk as pk_of_mv from test.t1, test.t2 where test.t1.pk = test.t2.pk";
         testSerialization(sql);
     }
 
@@ -158,9 +158,9 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
         StmtExecutor executor = new StmtExecutor(connectContext, "create materialized view mv "
-                + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+                + "build immediate refresh complete key (pk_of_mv) distributed by hash (pk_of_mv) "
                 + "properties ('replication_num' = '1') "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk");
+                + "as select test.t1.pk as pk_of_mv from test.t1, test.t2 where test.t1.pk = test.t2.pk");
         ExceptionChecker.expectThrowsNoException(executor::execute);
 
         ShowExecutor showExecutor = new ShowExecutor(connectContext,
@@ -169,8 +169,8 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         String result = resultSet.getResultRows().get(0).get(1);
         Assertions.assertTrue(result.contains("CREATE MATERIALIZED VIEW `mv`\n"
                 + "BUILD IMMEDIATE REFRESH COMPLETE ON DEMAND\n"
-                + "KEY(`mv_pk`)\n"
-                + "DISTRIBUTED BY HASH(`mv_pk`) BUCKETS 10"));
+                + "KEY(`pk_of_mv`)\n"
+                + "DISTRIBUTED BY HASH(`pk_of_mv`) BUCKETS 10"));
     }
 
     @Test
@@ -180,9 +180,9 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
         createTable("create table test.t2 (pk int, v2 int sum) aggregate key (pk) "
                 + "distributed by hash (pk) buckets 1 properties ('replication_num' = '1');");
         StmtExecutor executor = new StmtExecutor(connectContext, "create materialized view mv "
-                + "build immediate refresh complete key (mv_pk) distributed by hash (mv_pk) "
+                + "build immediate refresh complete key (pk_of_mv) distributed by hash (pk_of_mv) "
                 + "properties ('replication_num' = '1') "
-                + "as select test.t1.pk as mv_pk from test.t1, test.t2 where test.t1.pk = test.t2.pk");
+                + "as select test.t1.pk as pk_of_mv from test.t1, test.t2 where test.t1.pk = test.t2.pk");
         ExceptionChecker.expectThrowsNoException(executor::execute);
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "is not TABLE",
@@ -193,3 +193,4 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 (DropMaterializedViewStmt) parseAndAnalyzeStmt("drop materialized view mv")));
     }
 }
+
