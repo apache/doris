@@ -81,9 +81,10 @@ Status Status::ConstructErrorStatus(TStatusCode::type tcode, int16_t precise_cod
         // Add stacktrace as part of message, could use LOG(WARN) << "" << status will print both
         // the error message and the stacktrace
         if (msg.empty()) {
-            return Status(tcode, get_stack_trace(), precise_code);
+            return Status(tcode, std::move(get_stack_trace()), precise_code);
         } else {
-            return Status(tcode, msg + "/n" + get_stack_trace(), precise_code);
+            return Status(tcode, std::move(std::string(msg) + "/n" + get_stack_trace()),
+                          precise_code);
         }
     } else {
         if (msg.empty()) {
