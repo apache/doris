@@ -482,7 +482,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                                    check_and_get_column<const ColumnDecimal128I>(col)) {
                     auto col_ptr = not_null_column->get_data().data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        auto v = col_ptr[row_id].value.val;
+                        auto v = col_ptr[row_id].value;
                         orc::Int128 value(v >> 64, (uint64_t)v);
                         cur_batch->values[row_id] = value;
                     }

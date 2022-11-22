@@ -335,7 +335,7 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     case TYPE_DECIMAL128I: {
         std::string data = _jobject_to_string(env, jobj);
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        const Int128I decimal_slot = StringParser::string_to_decimal<Int128I>(
+        const Int128 decimal_slot = StringParser::string_to_decimal<Int128>(
                 data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
                 &result);
         reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
