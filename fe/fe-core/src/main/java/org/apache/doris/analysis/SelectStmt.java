@@ -622,7 +622,7 @@ public class SelectStmt extends QueryStmt {
     @Override
     public List<TupleId> collectTupleIds() {
         List<TupleId> result = Lists.newArrayList();
-        resultExprs.stream().forEach(expr -> expr.getIds(result, null));
+        resultExprs.forEach(expr -> expr.getIds(result, null));
         result.addAll(getTableRefIds());
         if (whereClause != null) {
             whereClause.getIds(result, null);

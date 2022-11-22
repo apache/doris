@@ -138,7 +138,7 @@ public class RegisterCTE extends OneAnalysisRuleFactory {
 
         Set<String> names = new HashSet<>();
         // column alias cannot be used more than once
-        columnAlias.stream().forEach(alias -> {
+        columnAlias.forEach(alias -> {
             if (names.contains(alias.toLowerCase())) {
                 throw new AnalysisException("Duplicated CTE column alias: [" + alias.toLowerCase()
                     + "] in CTE [" + aliasQuery.getAlias() + "]");

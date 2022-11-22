@@ -561,8 +561,74 @@ suite("test_jdbc_query_mysql", "p0") {
                 (SELECT virtuleUniqKey as  max_virtuleUniqKey FROM t1 ORDER BY proportion DESC LIMIT 1 ) tableWithMaxId  
                 ORDER BY idCode) t_aa;
         """
+
+        // test for aggregate
+        order_qt_sql1 """ SELECT COUNT(true) FROM $jdbcMysql57Table1 """
+        order_qt_sql2 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE k7 < k8 """
+        order_qt_sql3 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE NOT k7 < k8 """
+        order_qt_sql4 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE NULL """
+        order_qt_sql5 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE NULLIF(k2, 'F') IS NULL """
+        order_qt_sql6 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE NULLIF(k2, 'F') IS NOT NULL """
+        order_qt_sql7 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE NULLIF(k2, 'F') = k2 """
+        order_qt_sql8 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE COALESCE(NULLIF(k2, 'abc'), 'abc') = 'abc' """
+        order_qt_sql9 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE k7 < k8 AND k8 > 30 AND k8 < 40 """
+        order_qt_sql10 """ SELECT COUNT(*) FROM (SELECT k1 FROM $jdbcMysql57Table1) x """
+        order_qt_sql11 """ SELECT COUNT(*) FROM (SELECT k1, COUNT(*) FROM $jdbcMysql57Table1 GROUP BY k1) x """
+        order_qt_sql12 """ SELECT k1, c, count(*) FROM (SELECT k1, count(*) c FROM $jdbcMysql57Table1 GROUP BY k1) as a GROUP BY k1, c """
+        order_qt_sql13 """ SELECT k2, sum(CAST(NULL AS BIGINT)) FROM $jdbcMysql57Table1 GROUP BY k2 """
+        order_qt_sql14 """ SELECT `key`, COUNT(*) as c FROM (
+                            SELECT CASE WHEN k8 % 3 = 0 THEN NULL WHEN k8 % 5 = 0 THEN 0 ELSE k8 END AS `key`
+                            FROM $jdbcMysql57Table1) as a GROUP BY `key` order by c desc limit 10"""
+        order_qt_sql15 """ SELECT lines, COUNT(*) as c FROM (SELECT k7, COUNT(*) lines FROM $jdbcMysql57Table1 GROUP BY k7) U GROUP BY lines order by c"""
+        order_qt_sql16 """ SELECT COUNT(DISTINCT k8 + 1) FROM $jdbcMysql57Table1 """
+        order_qt_sql17 """ SELECT COUNT(*) FROM (SELECT DISTINCT k8 + 1 FROM $jdbcMysql57Table1) t """
+        order_qt_sql18 """ SELECT COUNT(DISTINCT k8), COUNT(*) from $jdbcMysql57Table1 where k8 > 40 """
+        order_qt_sql19 """ SELECT COUNT(DISTINCT k8) AS count, k7 FROM $jdbcMysql57Table1 GROUP BY k7 ORDER BY count, k7 """
+        order_qt_sql20 """ SELECT k2, k3, COUNT(DISTINCT k5), SUM(DISTINCT k8) FROM $jdbcMysql57Table1 GROUP BY k2, k3 order by k2, k3 """
+        order_qt_sql21 """ SELECT k2, COUNT(DISTINCT k7), COUNT(DISTINCT k8) FROM $jdbcMysql57Table1 GROUP BY k2 """
+        order_qt_sql22 """ SELECT SUM(DISTINCT x) FROM (SELECT k7, COUNT(DISTINCT k8) x FROM $jdbcMysql57Table1 GROUP BY k7) t """
+        order_qt_sql23 """ SELECT max(k8), COUNT(k7), sum(DISTINCT k6) FROM $jdbcMysql57Table1 """
+        order_qt_sql24 """ SELECT s, MAX(k6), SUM(a) FROM (SELECT k6, avg(k8) AS a, SUM(DISTINCT k7) AS s FROM $jdbcMysql57Table1 GROUP BY k6) as b  group by s"""
+        order_qt_sql25 """ SELECT COUNT(DISTINCT k8) FROM $jdbcMysql57Table1 WHERE LENGTH(k2) > 2 """
+        sql  """ drop table if exists ${exMysqlTable} """
+        sql  """
+              CREATE EXTERNAL TABLE ${exMysqlTable} (
+              `id` int(11) NOT NULL COMMENT "主键id",
+              `name` string NULL COMMENT "名字"
+              ) ENGINE=JDBC
+              COMMENT "JDBC Mysql 外部表"
+              PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb0",
+                "table_type"="mysql"
+              );
+        """
+        order_qt_sql26 """ 
+                        SELECT max(id), min(id), count(id) + 1, count(id)
+                        FROM (SELECT DISTINCT k8 FROM $jdbcMysql57Table1) AS r1
+                        LEFT JOIN ${exMysqlTable} as a ON r1.k8 = a.id GROUP BY r1.k8 
+                        HAVING sum(id) < 110 """
+        order_qt_sql27 """ SELECT id BETWEEN 110 AND 115 from $exMysqlTable GROUP BY id BETWEEN 110 AND 115;  """
+        order_qt_sql28 """ SELECT CAST(id BETWEEN 1 AND 120 AS BIGINT) FROM $exMysqlTable GROUP BY id """
+        order_qt_sql29 """ SELECT CAST(50 BETWEEN id AND 120 AS BIGINT) FROM $exMysqlTable GROUP BY id """
+        order_qt_sql30 """ SELECT CAST(50 BETWEEN 1 AND id AS BIGINT) FROM $exMysqlTable GROUP BY id """
+        order_qt_sql31 """ SELECT CAST(id AS VARCHAR) as a, count(*) FROM $exMysqlTable GROUP BY CAST(id AS VARCHAR) order by a """
+        order_qt_sql32 """ SELECT NULLIF(k7, k8), count(*) as c FROM $jdbcMysql57Table1 GROUP BY NULLIF(k7, k8) order by c desc"""
+        order_qt_sql33 """ SELECT id + 1, id + 2, id + 3, id + 4, id + 5, id + 6, id + 7,id + 8, id + 9, id + 10, COUNT(*) AS c
+                            FROM $exMysqlTable GROUP BY id + 1, id + 2, id + 3, id + 4, id + 5, id + 6, id + 7,id + 8, id + 9, id + 10
+                            ORDER BY c desc """
+        order_qt_sql35 """ 
+                        SELECT name,SUM(CAST(id AS BIGINT))
+                        FROM $exMysqlTable
+                        WHERE name = 'abc'
+                        GROUP BY name
+                        UNION
+                        SELECT NULL, SUM(CAST(id AS BIGINT))
+                        FROM $exMysqlTable
+                        WHERE name = 'abd' """
     }
 }
+
 
 
 
