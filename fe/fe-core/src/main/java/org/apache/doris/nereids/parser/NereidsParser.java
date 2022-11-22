@@ -22,8 +22,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.DorisSqlSeparatorLexer;
-import org.apache.doris.nereids.DorisSqlSeparatorParser;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -37,9 +35,7 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
-import org.antlr.v4.runtime.tree.ParseTree;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 
@@ -92,55 +88,6 @@ public class NereidsParser {
 
     public Expression parseExpression(String expression) {
         return parse(expression, DorisParser::expression);
-    }
-
-    /**
-     * split sql to multi singleStmts.
-     *
-     * @param sql sql string
-     * @return singleStmt list
-     */
-    public List<String> parseMultiStmts(String sql) {
-        DorisSqlSeparatorLexer lexer = new DorisSqlSeparatorLexer(CharStreams.fromString(sql));
-        CommonTokenStream tokenStream = new CommonTokenStream(lexer);
-        org.apache.doris.nereids.DorisSqlSeparatorParser parser = new DorisSqlSeparatorParser(tokenStream);
-        ParserRuleContext tree;
-
-        try {
-            // first, try parsing with potentially faster SLL mode
-            parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-            tree = parser.statements();
-        } catch (ParseCancellationException ex) {
-            // if we fail, parse with LL mode
-            tokenStream.seek(0);
-            parser.reset();
-
-            parser.getInterpreter().setPredictionMode(PredictionMode.LL);
-            tree = parser.statement();
-        }
-
-        DorisSqlSeparatorParser.StatementsContext stmt = (DorisSqlSeparatorParser.StatementsContext) tree;
-        List<String> singleStmtList = Lists.newArrayList();
-        for (DorisSqlSeparatorParser.StatementContext statementContext : stmt.statement()) {
-            if (!isEmptySql(statementContext)) {
-                singleStmtList.add(statementContext.getText());
-            }
-        }
-
-        return Collections.unmodifiableList(singleStmtList);
-    }
-
-    private boolean isEmptySql(DorisSqlSeparatorParser.StatementContext statementContext) {
-        if (statementContext.children == null) {
-            return true;
-        }
-        for (ParseTree child : statementContext.children) {
-            if (!(child instanceof DorisSqlSeparatorParser.CommentContext)
-                    && !(child instanceof DorisSqlSeparatorParser.WsContext)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private <T> T parse(String sql, Function<DorisParser, ParserRuleContext> parseFunction) {

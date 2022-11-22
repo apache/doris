@@ -41,6 +41,7 @@ import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -285,7 +286,7 @@ public class ConnectProcessor {
         // if stmts.size() > 1, split originStmt to multi singleStmts
         if (stmts.size() > 1) {
             try {
-                origSingleStmtList = new NereidsParser().parseMultiStmts(originStmt);
+                origSingleStmtList = SqlUtils.splitMultiStmts(originStmt);
             } catch (Exception ignore) {
                 LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
             }
@@ -307,7 +308,7 @@ public class ConnectProcessor {
                 Exception exception = new Exception(
                         String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
                         parsedStmt.toSql()), nereidsParseException);
-                // an exception occurs, audit it and return
+                // audit it and break
                 handleQueryException(exception, auditStmt, null, null);
                 break;
             }
