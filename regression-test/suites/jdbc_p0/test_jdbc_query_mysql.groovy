@@ -524,8 +524,7 @@ suite("test_jdbc_query_mysql", "p0") {
                ); 
         """
         order_qt_sql """ 
-            select t.* from ( select * from ${exMysqlTable1} t1 left join ${exMysqlTable2} t2 on t1.aa=t2.cc ) t
-            where dayofweek(current_date())=2 order by aa; 
+            select t.* from ( select * from ${exMysqlTable1} t1 left join ${exMysqlTable2} t2 on t1.aa=t2.cc ) t order by aa; 
         """
 
 
