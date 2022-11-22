@@ -333,11 +333,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        LogicalPlan relation = withCheckPolicy(new UnboundRelation(tableId));
-        if (null == ctx.tableAlias().strictIdentifier()) {
-            return relation;
-        }
-        return withTableAlias(relation, ctx.tableAlias());
+        LogicalPlan checkedRelation = withCheckPolicy(new UnboundRelation(tableId));
+        return withTableAlias(checkedRelation, ctx.tableAlias());
     }
 
     @Override

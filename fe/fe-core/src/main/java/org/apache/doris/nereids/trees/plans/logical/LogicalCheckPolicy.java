@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -28,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -119,11 +119,9 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
      * @param connectContext include information about user and policy
      */
     public Optional<Expression> getFilter(LogicalRelation logicalRelation, ConnectContext connectContext) {
-        String dbName = !logicalRelation.getQualifier().isEmpty() ? logicalRelation.getQualifier().get(0) : null;
-        Database db = connectContext.getEnv().getInternalCatalog().getDb(dbName)
-                .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
-        long dbId = db.getId();
-        long tableId = logicalRelation.getTable().getId();
+        if (!(logicalRelation instanceof CatalogRelation)) {
+            return Optional.empty();
+        }
 
         PolicyMgr policyMgr = connectContext.getEnv().getPolicyMgr();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
@@ -135,11 +133,14 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return Optional.empty();
         }
 
+        CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
+        long dbId = catalogRelation.getDatabase().getId();
+        long tableId = catalogRelation.getTable().getId();
         List<RowPolicy> policies = policyMgr.getMatchRowPolicy(dbId, tableId, currentUserIdentity);
         if (policies.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(mergeRowPolicy(policies));
+        return Optional.ofNullable(mergeRowPolicy(policies));
     }
 
     private Expression mergeRowPolicy(List<RowPolicy> policies) {

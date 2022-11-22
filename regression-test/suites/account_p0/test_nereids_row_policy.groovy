@@ -17,6 +17,7 @@
 suite("test_nereids_row_policy") {
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "nereids_row_policy"
+    def viewName = "view_" + tableName
     def user='row_policy_user'
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
@@ -28,10 +29,17 @@ suite("test_nereids_row_policy") {
         }
         def result2 = connect(user=user, password='123456', url=url) {
             sql "set enable_nereids_planner = true"
+            sql "set enable_fallback_to_original_planner = false"
             sql "SELECT * FROM ${tableName}"
+        }
+        def result3 = connect(user=user, password='123456', url=url) {
+            sql "set enable_nereids_planner = true"
+            sql "set enable_fallback_to_original_planner = false"
+            sql "SELECT * FROM ${viewName}"
         }
         assertEquals(size, result1.size())
         assertEquals(size, result2.size())
+        assertEquals(size, result3.size())
     }
 
     def createPolicy = { name, predicate, type ->
@@ -59,6 +67,12 @@ suite("test_nereids_row_policy") {
     sql """
         insert into ${tableName} values (1,1), (2,1), (1,3);
     """
+
+    // create view
+    sql """
+        create view ${viewName} as select * from ${tableName};
+    """
+    
     // create user
     sql "DROP USER IF EXISTS ${user}"
     sql "CREATE USER ${user} IDENTIFIED BY '123456'"
