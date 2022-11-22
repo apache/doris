@@ -64,6 +64,10 @@ public enum RuleType {
 
     RELATION_AUTHENTICATION(RuleTypeClass.VALIDATION),
 
+    ADJUST_NULLABLE_FOR_PROJECT_SLOT(RuleTypeClass.REWRITE),
+    ADJUST_NULLABLE_FOR_AGGREGATE_SLOT(RuleTypeClass.REWRITE),
+    ADJUST_NULLABLE_FOR_REPEAT_SLOT(RuleTypeClass.REWRITE),
+
     // check analysis rule
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
 

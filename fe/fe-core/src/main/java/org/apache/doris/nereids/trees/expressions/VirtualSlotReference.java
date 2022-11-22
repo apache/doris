@@ -114,4 +114,9 @@ public class VirtualSlotReference extends SlotReference {
     public int hashCode() {
         return Objects.hash(realExpressions, originExpression, getExprId());
     }
+
+    @Override
+    public boolean nullable() {
+        return false;
+    }
 }

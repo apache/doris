@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -27,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -46,17 +46,68 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-/** NormalizeRepeat */
+/** NormalizeRepeat
+ * eg: select sum(k2 + 1), grouping(k1) from t1 group by grouping sets ((k1));
+ * Original Plan:
+ *     +-- GroupingSets(
+ *         keys:[k1#1, grouping_id()#0, grouping_prefix(k1#1)#7]
+ *         outputs:sum(k2#2 + 1) as `sum(k2 + 1)`#3, group(grouping_prefix(k1#1)#7) as `grouping(k1 + 1)`#4
+ *
+ * After:
+ * Project(sum((k2 + 1)#8) AS `sum((k2 + 1))`#9, grouping(GROUPING_PREFIX_(k1#1)#7)) as `grouping(k1)`#10)
+ *   +-- Aggregate(
+ *          keys:[k1#1, grouping_id()#0, grouping_prefix(k1#1)#7]
+ *          outputs:[(K2 + 1)#8), grouping_prefix(k1#1)#7]
+ *         +-- GropingSets(
+ *             keys:[k1#1, grouping_id()#0, grouping_prefix(k1#1)#7]
+ *             outputs:k1#1, (k2 + 1)#8, grouping_id()#0, grouping_prefix(k1#1)#7
+ *             +-- Project(k1#1, (K2#2 + 1) as `(k2 + 1)`#8)
+ */
 public class NormalizeRepeat extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.NORMALIZE_REPEAT.build(
             logicalRepeat(any()).when(LogicalRepeat::canBindVirtualSlot).then(repeat -> {
+                checkRepeatLegality(repeat);
                 // add virtual slot, LogicalAggregate and LogicalProject for normalize
                 return normalizeRepeat(repeat);
             })
         );
+    }
+
+    private void checkRepeatLegality(LogicalRepeat<Plan> repeat) {
+        checkIfAggFuncSlotInGroupingSets(repeat);
+        checkGroupingSetsSize(repeat);
+    }
+
+    private void checkIfAggFuncSlotInGroupingSets(LogicalRepeat<Plan> repeat) {
+        Set<Slot> aggUsedSlot = repeat.getOutputExpressions().stream()
+                .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
+                .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
+                .collect(ImmutableSet.toImmutableSet());
+        Set<Slot> groupingSetsUsedSlot = repeat.getGroupingSets().stream()
+                .flatMap(e -> e.stream())
+                .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
+                .collect(Collectors.toSet());
+        for (Slot slot : aggUsedSlot) {
+            if (groupingSetsUsedSlot.contains(slot)) {
+                throw new AnalysisException("column: " + slot.toSql() + " cannot both in select "
+                        + "list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, "
+                        + "please use union instead.");
+            }
+        }
+    }
+
+    private void checkGroupingSetsSize(LogicalRepeat<Plan> repeat) {
+        Set<Expression> flattenGroupingSetExpr = ImmutableSet.copyOf(
+                ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
+        if (flattenGroupingSetExpr.size() > LogicalRepeat.MAX_GROUPING_SETS_NUM) {
+            throw new AnalysisException(
+                    "Too many sets in GROUP BY clause, the max grouping sets item is "
+                            + LogicalRepeat.MAX_GROUPING_SETS_NUM);
+        }
     }
 
     private LogicalAggregate<Plan> normalizeRepeat(LogicalRepeat<Plan> repeat) {
@@ -109,7 +160,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .addAll(groupingSetsUsedSlot)
                 .addAll(allVirtualSlots)
                 .build();
-        return new LogicalAggregate<>(normalizedAggGroupBy, (List) normalizedAggOutput, normalizedRepeat);
+        return new LogicalAggregate<>(normalizedAggGroupBy, (List) normalizedAggOutput,
+                Optional.of(normalizedRepeat), normalizedRepeat);
     }
 
     private Set<Expression> collectPushDownExpressions(LogicalRepeat<Plan> repeat) {
@@ -198,6 +250,12 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                     })).collect(ImmutableList.toImmutableList());
         }
 
+        /**
+         * generate bottom projections with groupByExpressions.
+         * eg:
+         * groupByExpressions: k1#0, k2#1 + 1;
+         * bottom: k1#0, (k2#1 + 1) AS (k2 + 1)#2;
+         */
         public Set<NamedExpression> pushDownToNamedExpression(Collection<? extends Expression> needToPushExpressions) {
             return needToPushExpressions.stream()
                     .map(expr -> {
@@ -232,9 +290,6 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
 
         private static Optional<PushDownTriplet> toPushDownTriplet(Expression expression) {
-            if (expression instanceof Literal) {
-                return Optional.empty();
-            }
 
             if (expression instanceof SlotReference) {
                 PushDownTriplet pushDownTriplet =

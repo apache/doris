@@ -31,8 +31,8 @@ public class GroupingSetsTest extends TestWithFeService {
         createTable("CREATE TABLE `t1` (\n"
                 + " `k1` bigint(20) NULL,\n"
                 + " `k2` bigint(20) NULL,\n"
-                + " `k3` bigint(20) NULL,\n"
-                + " `k4` bigint(20) NULL,\n"
+                + " `k3` bigint(20) not NULL,\n"
+                + " `k4` bigint(20) not NULL,\n"
                 + " `k5` bigint(20) NULL\n"
                 + ") ENGINE=OLAP\n"
                 + "DUPLICATE KEY(`k1`)\n"
@@ -131,5 +131,56 @@ public class GroupingSetsTest extends TestWithFeService {
     public void testGrouping7() {
         PlanChecker.from(connectContext)
                 .checkPlannerResult("select sum(k2) from t1 group by grouping sets((k1, k3, k4), (k3), (k4, k5));");
+    }
+
+    @Test
+    public void testGroupingNullable() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k3, k4 from t1 group by grouping sets((k1, k3, k4), (k2))");
+    }
+
+    @Test
+    public void testAliasGrouping() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select (k1 + 1) k1_, k2, sum(k3) from t1 group by grouping sets((k1_, k2)) order by k1_, k2;");
+    }
+
+    @Test
+    public void testLiteralGrouping() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k2, sum(k3) from t1 group by cube(1, k2) order by k2;");
+    }
+
+    @Test
+    public void testLiteralAliasGrouping() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select 1 as k1_, k2, sum(k3) from t1 group by cube(k1_, k2) order by k1_, k2;");
+    }
+
+    @Test
+    public void testSubqueryAliasGrouping() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k1_, k2_, sum(k3_) from (select (k1 + 1) k1_, k2 k2_, k3 k3_ from t1) as test"
+                        + " group by grouping sets((k1_, k2_), (k2_)) order by k1_, k2_;");
+    }
+
+    @Test
+    public void testIfGrouping() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select if(k1 = 1, 2, k1) k_if, k1, sum(k2) k2_sum from t1 where k3 is null or k2 = 1\n"
+                        + " group by grouping sets((k_if, k1),()) order by k_if, k1, k2_sum");
+    }
+
+    @Test
+    public void testNotNullGrouping() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select k3, sum(k2) from "
+                        + "(select k3, k2, grouping(k1), grouping(k2) from t1 group by grouping sets((k1), (k2), (k3)))a group by k3");
+    }
+
+    @Test
+    public void test() {
+        PlanChecker.from(connectContext)
+                .checkPlannerResult("select if(k1 = 1, 2, k1) k_if from t1");
     }
 }

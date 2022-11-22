@@ -30,6 +30,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -168,6 +170,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     equalTo.child(1).accept(this, context));
         } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
             return new BoolLiteral(true);
+        } else if (not.child() instanceof IsNull) {
+            return new IsNullPredicate(not.child().accept(this, context), true);
         } else {
             return new CompoundPredicate(CompoundPredicate.Operator.NOT,
                     not.child(0).accept(this, context), null);
@@ -348,6 +352,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference, PlanTranslatorContext context) {
         return context.findSlotRef(virtualSlotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
+        return new IsNullPredicate(isNull.child().accept(this, context), false);
     }
 
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(

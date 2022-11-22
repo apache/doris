@@ -42,27 +42,20 @@ public class SlotReference extends Slot {
     private final List<String> qualifier;
     private final Column column;
 
-    // NormalizeRepeat will set this field and tell to the PushdownFilterThroughAggregation rule
-    // whether if push down the predicate which contains this slot
-    private final Optional<Boolean> canPushDownPredicate;
-
     public SlotReference(String name, DataType dataType) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of(),
-                Optional.empty(), null);
+        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of(), null);
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of(),
-                Optional.empty(), null);
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of(), null);
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier,
-                Optional.empty(), null);
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier, null);
     }
 
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        this(exprId, name, dataType, nullable, qualifier, Optional.empty(), null);
+        this(exprId, name, dataType, nullable, qualifier, null);
     }
 
     /**
@@ -76,13 +69,12 @@ public class SlotReference extends Slot {
      * @param column the column which this slot come from
      */
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable,
-            List<String> qualifier, Optional<Boolean> canPushDownPredicate, @Nullable Column column) {
+            List<String> qualifier, @Nullable Column column) {
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
         this.qualifier = qualifier;
         this.nullable = nullable;
-        this.canPushDownPredicate = canPushDownPredicate;
         this.column = column;
     }
 
@@ -93,7 +85,7 @@ public class SlotReference extends Slot {
     public static SlotReference fromColumn(Column column, List<String> qualifier) {
         DataType dataType = DataType.convertFromCatalogDataType(column.getType());
         return new SlotReference(NamedExpressionUtil.newExprId(), column.getName(), dataType,
-                column.isAllowNull(), qualifier, Optional.empty(), column);
+                column.isAllowNull(), qualifier, column);
     }
 
     @Override
@@ -114,10 +106,6 @@ public class SlotReference extends Slot {
     @Override
     public DataType getDataType() {
         return dataType;
-    }
-
-    public Optional<Boolean> canPushDownPredicate() {
-        return canPushDownPredicate;
     }
 
     @Override
@@ -179,32 +167,28 @@ public class SlotReference extends Slot {
     }
 
     public SlotReference withDataType(DataType dataType) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifier, canPushDownPredicate, column);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
     }
 
     public SlotReference withNullable(boolean newNullable) {
         if (this.nullable == newNullable) {
             return this;
         }
-        return new SlotReference(exprId, name, dataType, newNullable, qualifier, canPushDownPredicate, column);
+        return new SlotReference(exprId, name, dataType, newNullable, qualifier, column);
     }
 
     @Override
     public SlotReference withQualifier(List<String> qualifiers) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifiers, canPushDownPredicate, column);
+        return new SlotReference(exprId, name, dataType, nullable, qualifiers, column);
     }
 
     /** withCommonGroupingSetExpression */
     public Slot withCommonGroupingSetExpression(boolean isCommonGroupingSetExpression) {
         if (isCommonGroupingSetExpression) {
-            boolean canPushDownPredicate = true;
-            return new SlotReference(exprId, name, dataType, nullable, qualifier,
-                    Optional.of(canPushDownPredicate), column);
+            return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
         } else {
             boolean nullable = true;
-            boolean canPushDownPredicate = false;
-            return new SlotReference(exprId, name, dataType, nullable, qualifier,
-                    Optional.of(canPushDownPredicate), column);
+            return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
         }
     }
 }
