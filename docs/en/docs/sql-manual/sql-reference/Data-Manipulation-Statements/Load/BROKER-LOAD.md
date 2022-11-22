@@ -366,25 +366,25 @@ WITH BROKER broker_name
 
 8. Import a batch of data from HDFS, specify the timeout and filter ratio. Broker with clear text my_hdfs_broker. Simple authentication. And delete the columns in the original data that match the columns with v2 greater than 100 in the imported data, and other columns are imported normally
 
-   ```sql
-   LOAD LABEL example_db.label8
-   (
-       MERGE DATA INFILE("HDFS://test:802/input/file")
-       INTO TABLE `my_table`
-       (k1, k2, k3, v2, v1)
-       DELETE ON v2 > 100
-   )
-   WITH HDFS
-   (
-       "hadoop.username"="user",
-       "password"="pass"
-   )
-   PROPERTIES
-   (
-       "timeout" = "3600",
-       "max_filter_ratio" = "0.1"
-   );
-   ````
+    ```sql
+    LOAD LABEL example_db.label8
+    (
+        MERGE DATA INFILE("HDFS://test:802/input/file")
+        INTO TABLE `my_table`
+        (k1, k2, k3, v2, v1)
+        DELETE ON v2 > 100
+    )
+    WITH HDFS
+    (
+        "hadoop.username"="user",
+        "password"="pass"
+    )
+    PROPERTIES
+    (
+        "timeout" = "3600",
+        "max_filter_ratio" = "0.1"
+    );
+    ````
 
    Import using the MERGE method. `my_table` must be a table with Unique Key. When the value of the v2 column in the imported data is greater than 100, the row is considered a delete row.
 
@@ -392,21 +392,21 @@ WITH BROKER broker_name
 
 9. Specify the source_sequence column when importing to ensure the replacement order in the UNIQUE_KEYS table:
 
-   ```sql
-   LOAD LABEL example_db.label9
-   (
-       DATA INFILE("HDFS://test:802/input/file")
-       INTO TABLE `my_table`
-       COLUMNS TERMINATED BY ","
-       (k1,k2,source_sequence,v1,v2)
-       ORDER BY source_sequence
-   )
-   WITH HDFS
-   (
-       "hadoop.username"="user",
-       "password"="pass"
-   )
-   ````
+    ```sql
+    LOAD LABEL example_db.label9
+    (
+        DATA INFILE("HDFS://test:802/input/file")
+        INTO TABLE `my_table`
+        COLUMNS TERMINATED BY ","
+        (k1,k2,source_sequence,v1,v2)
+        ORDER BY source_sequence
+    )
+    WITH HDFS
+    (
+        "hadoop.username"="user",
+        "password"="pass"
+    )
+    ````
 
    `my_table` must be an Unqiue Key model table with Sequence Col specified. The data will be ordered according to the value of the `source_sequence` column in the source data.
 
@@ -459,6 +459,24 @@ WITH BROKER broker_name
     "max_filter_ratio"="0.1"
     );
     ```
+
+11. Load data in csv format from cos(Tencent Cloud Object Storage).
+
+    ```SQL
+    LOAD LABEL example_db.label10
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
 ### Keywords
 
     BROKER, LOAD

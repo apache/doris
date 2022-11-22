@@ -187,7 +187,7 @@ illustrate:
    );
    ````
 
-5. Export the query result of the select statement to the file `cos://${bucket_name}/path/result.txt`. Specify the export format as csv.
+5. Export the query result of the select statement to the file `s3a://${bucket_name}/path/result.txt`. Specify the export format as csv.
    After the export is complete, an identity file is generated.
 
    ```sql
@@ -284,6 +284,26 @@ illustrate:
 
    If the final generated file is not larger than 100MB, it will be: `result_0.csv`.
    If larger than 100MB, it may be `result_0.csv, result_1.csv, ...`.
+
+9. Export the query result of the select statement to the file `cosn://${bucket_name}/path/result.txt` on Tencent Cloud Object Storage (COS). Specify the export format as csv.
+   After the export is complete, an identity file is generated.
+
+   ```sql
+   select k1,k2,v1 from tbl1 limit 100000
+   into outfile "cosn://my_bucket/export/my_file_"
+   FORMAT AS CSV
+   PROPERTIES
+   (
+       "broker.name" = "broker_name",
+       "broker.fs.cosn.userinfo.secretId" = "xxx",
+       "broker.fs.cosn.userinfo.secretKey" = "xxxx",
+       "broker.fs.cosn.bucket.endpoint_suffix" = "https://cos.xxxxxx.myqcloud.com/",
+       "column_separator" = ",",
+       "line_delimiter" = "\n",
+       "max_file_size" = "1024MB",
+       "success_file_name" = "SUCCESS"
+   )
+   ````
 
 ### keywords
 

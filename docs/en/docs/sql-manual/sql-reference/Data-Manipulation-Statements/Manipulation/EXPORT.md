@@ -189,6 +189,21 @@ PROPERTIES (
 )
 ```
 
+9. Export all data in the testTbl table to cos(Tencent Cloud Object Storage).
+
+```sql
+EXPORT TABLE testTbl TO "cosn://my_bucket/export/a/b/c"
+PROPERTIES (
+  "column_separator"=",",
+  "line_delimiter" = "\n"
+) WITH BROKER "broker_name"
+(
+  "fs.cosn.userinfo.secretId" = "xxx",
+  "fs.cosn.userinfo.secretKey" = "xxxx",
+  "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+)
+```
+
 ### Keywords
 
     EXPORT
