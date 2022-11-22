@@ -34,7 +34,7 @@ RUN apt-get update && \
 	cd /opt && \
 	mv apache-doris-be-x.x.x-bin-x86_64 /opt/apache-doris/be
 
-ADD ./resource/run_be.sh /opt/apache-doris/be/bin
-RUN chmod 755 /opt/apache-doris/be/bin/run_be.sh
+ADD resource/init_be.sh /opt/apache-doris/be/bin
+RUN chmod 755 /opt/apache-doris/be/bin/init_be.sh
 
-ENTRYPOINT ["/opt/apache-doris/be/bin/run_be.sh"]
+ENTRYPOINT ["/opt/apache-doris/be/bin/init_be.sh"]
