@@ -22,19 +22,16 @@
 #include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/partitioned_hash_table.h"
 
-template <typename Key, typename Cell, bool ENABLE_PARTITIONED = false,
-          typename Hash = DefaultHash<Key>, typename Grower = PartitionedHashTableGrower<>,
-          typename Allocator = HashTableAllocator,
+template <typename Key, typename Cell, typename Hash = DefaultHash<Key>,
+          typename Grower = PartitionedHashTableGrower<>, typename Allocator = HashTableAllocator,
           template <typename...> typename ImplTable = HashMapTable>
 class PartitionedHashMapTable
         : public PartitionedHashTable<Key, Cell, Hash, Grower, Allocator,
-                                      ImplTable<Key, Cell, Hash, Grower, Allocator>,
-                                      ENABLE_PARTITIONED> {
+                                      ImplTable<Key, Cell, Hash, Grower, Allocator>> {
 public:
     using Impl = ImplTable<Key, Cell, Hash, Grower, Allocator>;
-    using Base =
-            PartitionedHashTable<Key, Cell, Hash, Grower, Allocator,
-                                 ImplTable<Key, Cell, Hash, Grower, Allocator>, ENABLE_PARTITIONED>;
+    using Base = PartitionedHashTable<Key, Cell, Hash, Grower, Allocator,
+                                      ImplTable<Key, Cell, Hash, Grower, Allocator>>;
     using LookupResult = typename Impl::LookupResult;
 
     using Base::Base;
@@ -53,18 +50,15 @@ public:
     }
 };
 
-template <typename Key, typename Mapped, bool ENABLE_PARTITIONED = false,
-          typename Hash = DefaultHash<Key>, typename Grower = PartitionedHashTableGrower<>,
-          typename Allocator = HashTableAllocator,
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
+          typename Grower = PartitionedHashTableGrower<>, typename Allocator = HashTableAllocator,
           template <typename...> typename ImplTable = HashMapTable>
-using PartitionedHashMap =
-        PartitionedHashMapTable<Key, HashMapCell<Key, Mapped, Hash>, ENABLE_PARTITIONED, Hash,
-                                Grower, Allocator, ImplTable>;
+using PartitionedHashMap = PartitionedHashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash,
+                                                   Grower, Allocator, ImplTable>;
 
-template <typename Key, typename Mapped, bool ENABLE_PARTITIONED = false,
-          typename Hash = DefaultHash<Key>, typename Grower = PartitionedHashTableGrower<>,
-          typename Allocator = HashTableAllocator,
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
+          typename Grower = PartitionedHashTableGrower<>, typename Allocator = HashTableAllocator,
           template <typename...> typename ImplTable = HashMapTable>
 using PartitionedHashMapWithSavedHash =
-        PartitionedHashMapTable<Key, HashMapCellWithSavedHash<Key, Mapped, Hash>,
-                                ENABLE_PARTITIONED, Hash, Grower, Allocator, ImplTable>;
+        PartitionedHashMapTable<Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash, Grower,
+                                Allocator, ImplTable>;

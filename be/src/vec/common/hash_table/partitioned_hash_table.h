@@ -40,7 +40,7 @@ struct PartitionedHashTableGrower : public HashTableGrowerWithPrecalculation<ini
 
 template <typename Key, typename Cell, typename Hash, typename Grower, typename Allocator,
           typename ImplTable = HashTable<Key, Cell, Hash, Grower, Allocator>,
-          bool ENABLE_PARTITIONED = false, size_t BITS_FOR_SUB_TABLE = 4>
+          size_t BITS_FOR_SUB_TABLE = 4>
 class PartitionedHashTable : private boost::noncopyable,
                              protected Hash /// empty base optimization
 {
@@ -69,35 +69,23 @@ private:
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_SUB_TABLE_OCCUPANCY_FRACTION = 0.5f;
 
-    static const int PARTITIONED_BUCKET_THRESHOLD = 8388608;
-
     Impl level0_sub_table;
     Impl level1_sub_tables[NUM_LEVEL1_SUB_TABLES];
 
     bool _is_partitioned = false;
 
-    // if ENABLE_PARTITIONED, the threshold of bucket count of level0 hash table above
-    // which the hash table is converted to partioned hash table
-    int _partitioned_threshold = PARTITIONED_BUCKET_THRESHOLD;
+    int64_t _convert_timer_ns = 0;
 
 public:
-    PartitionedHashTable() {
-        if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
-        }
-    }
+    PartitionedHashTable() { level0_sub_table.set_partitioned_threshold(0); }
 
     explicit PartitionedHashTable(size_t size_hint) {
-        if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
-            if (level0_sub_table.check_if_need_partition(size_hint)) {
-                _is_partitioned = true;
+        level0_sub_table.set_partitioned_threshold(0);
+        if (level0_sub_table.check_if_need_partition(size_hint)) {
+            _is_partitioned = true;
 
-                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                    level1_sub_tables[i] = std::move(Impl(size_hint / NUM_LEVEL1_SUB_TABLES));
-                }
-            } else {
-                level0_sub_table = std::move(Impl(size_hint));
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                level1_sub_tables[i] = std::move(Impl(size_hint / NUM_LEVEL1_SUB_TABLES));
             }
         } else {
             level0_sub_table = std::move(Impl(size_hint));
@@ -108,7 +96,6 @@ public:
 
     PartitionedHashTable& operator=(PartitionedHashTable&& rhs) {
         std::swap(_is_partitioned, rhs._is_partitioned);
-        std::swap(_partitioned_threshold, rhs._partitioned_threshold);
 
         level0_sub_table = std::move(rhs.level0_sub_table);
         for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
@@ -121,13 +108,11 @@ public:
 
     float get_factor() const { return MAX_SUB_TABLE_OCCUPANCY_FRACTION; }
 
+    int64_t get_convert_timer_value() const { return _convert_timer_ns; }
+
     bool should_be_shrink(int64_t valid_row) const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                return false;
-            } else {
-                return level0_sub_table.should_be_shrink(valid_row);
-            }
+        if (_is_partitioned) {
+            return false;
         } else {
             return level0_sub_table.should_be_shrink(valid_row);
         }
@@ -135,13 +120,9 @@ public:
 
     template <typename Func>
     void ALWAYS_INLINE for_each_value(Func&& func) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                for (auto i = 0u; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                    level1_sub_tables[i].for_each_value(func);
-                }
-            } else {
-                level0_sub_table.for_each_value(func);
+        if (_is_partitioned) {
+            for (auto i = 0u; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                level1_sub_tables[i].for_each_value(func);
             }
         } else {
             level0_sub_table.for_each_value(func);
@@ -150,15 +131,11 @@ public:
 
     size_t get_size() {
         size_t count = 0;
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                for (auto i = 0u; i < this->NUM_LEVEL1_SUB_TABLES; ++i) {
-                    for (auto& v : this->level1_sub_tables[i]) {
-                        count += v.get_second().get_row_count();
-                    }
+        if (_is_partitioned) {
+            for (auto i = 0u; i < this->NUM_LEVEL1_SUB_TABLES; ++i) {
+                for (auto& v : this->level1_sub_tables[i]) {
+                    count += v.get_second().get_row_count();
                 }
-            } else {
-                count = level0_sub_table.get_size();
             }
         } else {
             count = level0_sub_table.get_size();
@@ -167,68 +144,50 @@ public:
     }
 
     void init_buf_size(size_t reserve_for_num_elements) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                for (auto& impl : level1_sub_tables) {
-                    impl.init_buf_size(reserve_for_num_elements / NUM_LEVEL1_SUB_TABLES);
-                }
-            } else {
-                if (level0_sub_table.check_if_need_partition(reserve_for_num_elements)) {
-                    level0_sub_table.clear_and_shrink();
-                    _is_partitioned = true;
-
-                    for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                        level1_sub_tables[i].init_buf_size(reserve_for_num_elements /
-                                                           NUM_LEVEL1_SUB_TABLES);
-                    }
-                } else {
-                    level0_sub_table.init_buf_size(reserve_for_num_elements);
-                }
+        if (_is_partitioned) {
+            for (auto& impl : level1_sub_tables) {
+                impl.init_buf_size(reserve_for_num_elements / NUM_LEVEL1_SUB_TABLES);
             }
         } else {
-            level0_sub_table.init_buf_size(reserve_for_num_elements);
+            if (level0_sub_table.check_if_need_partition(reserve_for_num_elements)) {
+                level0_sub_table.clear_and_shrink();
+                _is_partitioned = true;
+
+                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                    level1_sub_tables[i].init_buf_size(reserve_for_num_elements /
+                                                       NUM_LEVEL1_SUB_TABLES);
+                }
+            } else {
+                level0_sub_table.init_buf_size(reserve_for_num_elements);
+            }
         }
     }
 
     void delete_zero_key(Key key) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                const auto key_hash = hash(key);
-                size_t bucket = get_sub_table_from_hash(key_hash);
-                level1_sub_tables[bucket].delete_zero_key(key);
-            } else {
-                level0_sub_table.delete_zero_key(key);
-            }
+        if (_is_partitioned) {
+            const auto key_hash = hash(key);
+            size_t sub_table_idx = get_sub_table_from_hash(key_hash);
+            level1_sub_tables[sub_table_idx].delete_zero_key(key);
         } else {
             level0_sub_table.delete_zero_key(key);
         }
     }
 
     size_t get_buffer_size_in_bytes() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t buff_size = 0;
-                for (const auto& impl : level1_sub_tables)
-                    buff_size += impl.get_buffer_size_in_bytes();
-                return buff_size;
-            } else {
-                return level0_sub_table.get_buffer_size_in_bytes();
-            }
+        if (_is_partitioned) {
+            size_t buff_size = 0;
+            for (const auto& impl : level1_sub_tables) buff_size += impl.get_buffer_size_in_bytes();
+            return buff_size;
         } else {
             return level0_sub_table.get_buffer_size_in_bytes();
         }
     }
 
     size_t get_buffer_size_in_cells() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t buff_size = 0;
-                for (const auto& impl : level1_sub_tables)
-                    buff_size += impl.get_buffer_size_in_cells();
-                return buff_size;
-            } else {
-                return level0_sub_table.get_buffer_size_in_cells();
-            }
+        if (_is_partitioned) {
+            size_t buff_size = 0;
+            for (const auto& impl : level1_sub_tables) buff_size += impl.get_buffer_size_in_cells();
+            return buff_size;
         } else {
             return level0_sub_table.get_buffer_size_in_cells();
         }
@@ -236,13 +195,9 @@ public:
 
     std::vector<size_t> get_buffer_sizes_in_cells() const {
         std::vector<size_t> sizes;
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                    sizes.push_back(level1_sub_tables[i].get_buffer_size_in_cells());
-                }
-            } else {
-                sizes.push_back(level0_sub_table.get_buffer_size_in_cells());
+        if (_is_partitioned) {
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                sizes.push_back(level1_sub_tables[i].get_buffer_size_in_cells());
             }
         } else {
             sizes.push_back(level0_sub_table.get_buffer_size_in_cells());
@@ -251,94 +206,78 @@ public:
     }
 
     void reset_resize_timer() {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                for (auto& impl : level1_sub_tables) {
-                    impl.reset_resize_timer();
-                }
-            } else {
-                level0_sub_table.reset_resize_timer();
+        if (_is_partitioned) {
+            for (auto& impl : level1_sub_tables) {
+                impl.reset_resize_timer();
             }
         } else {
             level0_sub_table.reset_resize_timer();
         }
     }
     int64_t get_resize_timer_value() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                int64_t resize_timer_ns = 0;
-                for (const auto& impl : level1_sub_tables) {
-                    resize_timer_ns += impl.get_resize_timer_value();
-                }
-                return resize_timer_ns;
-            } else {
-                return level0_sub_table.get_resize_timer_value();
+        if (_is_partitioned) {
+            int64_t resize_timer_ns = 0;
+            for (const auto& impl : level1_sub_tables) {
+                resize_timer_ns += impl.get_resize_timer_value();
             }
+            return resize_timer_ns;
         } else {
             return level0_sub_table.get_resize_timer_value();
         }
     }
 
 protected:
-    typename Impl::iterator begin_of_next_non_empty_bucket(size_t& bucket) {
-        while (bucket != NUM_LEVEL1_SUB_TABLES && level1_sub_tables[bucket].empty()) ++bucket;
+    typename Impl::iterator begin_of_next_non_empty_sub_table_idx(size_t& sub_table_idx) {
+        while (sub_table_idx != NUM_LEVEL1_SUB_TABLES && level1_sub_tables[sub_table_idx].empty())
+            ++sub_table_idx;
 
-        if (bucket != NUM_LEVEL1_SUB_TABLES) return level1_sub_tables[bucket].begin();
+        if (sub_table_idx != NUM_LEVEL1_SUB_TABLES) return level1_sub_tables[sub_table_idx].begin();
 
-        --bucket;
+        --sub_table_idx;
         return level1_sub_tables[MAX_SUB_TABLE].end();
     }
 
-    typename Impl::const_iterator begin_of_next_non_empty_bucket(size_t& bucket) const {
-        while (bucket != NUM_LEVEL1_SUB_TABLES && level1_sub_tables[bucket].empty()) ++bucket;
+    typename Impl::const_iterator begin_of_next_non_empty_sub_table_idx(
+            size_t& sub_table_idx) const {
+        while (sub_table_idx != NUM_LEVEL1_SUB_TABLES && level1_sub_tables[sub_table_idx].empty())
+            ++sub_table_idx;
 
-        if (bucket != NUM_LEVEL1_SUB_TABLES) return level1_sub_tables[bucket].begin();
+        if (sub_table_idx != NUM_LEVEL1_SUB_TABLES) return level1_sub_tables[sub_table_idx].begin();
 
-        --bucket;
+        --sub_table_idx;
         return level1_sub_tables[MAX_SUB_TABLE].end();
     }
 
 public:
     void set_partitioned_threshold(int threshold) {
-        _partitioned_threshold = threshold;
-        if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(threshold);
-        }
-    }
-
-    bool is_partitioned() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            return _is_partitioned;
-        } else {
-            return false;
-        }
+        level0_sub_table.set_partitioned_threshold(threshold);
     }
 
     class iterator /// NOLINT
     {
         Self* container {};
-        size_t bucket {};
+        size_t sub_table_idx {};
         typename Impl::iterator current_it {};
 
         friend class PartitionedHashTable;
 
-        iterator(Self* container_, size_t bucket_, typename Impl::iterator current_it_)
-                : container(container_), bucket(bucket_), current_it(current_it_) {}
+        iterator(Self* container_, size_t sub_table_idx_, typename Impl::iterator current_it_)
+                : container(container_), sub_table_idx(sub_table_idx_), current_it(current_it_) {}
 
     public:
         iterator() = default;
 
         bool operator==(const iterator& rhs) const {
-            return bucket == rhs.bucket && current_it == rhs.current_it;
+            return sub_table_idx == rhs.sub_table_idx && current_it == rhs.current_it;
         }
         bool operator!=(const iterator& rhs) const { return !(*this == rhs); }
 
         iterator& operator++() {
             ++current_it;
-            if constexpr (ENABLE_PARTITIONED) {
-                if (current_it == container->level1_sub_tables[bucket].end()) {
-                    ++bucket;
-                    current_it = container->begin_of_next_non_empty_bucket(bucket);
+            if (container->_is_partitioned) {
+                if (current_it == container->level1_sub_tables[sub_table_idx].end()) {
+                    ++sub_table_idx;
+                    current_it = container->begin_of_next_non_empty_sub_table_idx(sub_table_idx);
                 }
             }
 
@@ -355,32 +294,33 @@ public:
     class const_iterator /// NOLINT
     {
         Self* container {};
-        size_t bucket {};
+        size_t sub_table_idx {};
         typename Impl::const_iterator current_it {};
 
         friend class PartitionedHashTable;
 
-        const_iterator(Self* container_, size_t bucket_, typename Impl::const_iterator current_it_)
-                : container(container_), bucket(bucket_), current_it(current_it_) {}
+        const_iterator(Self* container_, size_t sub_table_idx_,
+                       typename Impl::const_iterator current_it_)
+                : container(container_), sub_table_idx(sub_table_idx_), current_it(current_it_) {}
 
     public:
         const_iterator() = default;
         const_iterator(const iterator& rhs)
                 : container(rhs.container),
-                  bucket(rhs.bucket),
+                  sub_table_idx(rhs.sub_table_idx),
                   current_it(rhs.current_it) {} /// NOLINT
 
         bool operator==(const const_iterator& rhs) const {
-            return bucket == rhs.bucket && current_it == rhs.current_it;
+            return sub_table_idx == rhs.sub_table_idx && current_it == rhs.current_it;
         }
         bool operator!=(const const_iterator& rhs) const { return !(*this == rhs); }
 
         const_iterator& operator++() {
             ++current_it;
-            if constexpr (ENABLE_PARTITIONED) {
-                if (current_it == container->level1_sub_tables[bucket].end()) {
-                    ++bucket;
-                    current_it = container->begin_of_next_non_empty_bucket(bucket);
+            if (container->_is_partitioned) {
+                if (current_it == container->level1_sub_tables[sub_table_idx].end()) {
+                    ++sub_table_idx;
+                    current_it = container->begin_of_next_non_empty_sub_table_idx(sub_table_idx);
                 }
             }
 
@@ -395,51 +335,36 @@ public:
     };
 
     const_iterator begin() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t buck = 0;
-                typename Impl::const_iterator impl_it = begin_of_next_non_empty_bucket(buck);
-                return {this, buck, impl_it};
-            } else {
-                return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.begin()};
-            }
+        if (_is_partitioned) {
+            size_t sub_table_idx = 0;
+            typename Impl::const_iterator impl_it =
+                    begin_of_next_non_empty_sub_table_idx(sub_table_idx);
+            return {this, sub_table_idx, impl_it};
         } else {
             return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.begin()};
         }
     }
 
     iterator begin() {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t buck = 0;
-                typename Impl::iterator impl_it = begin_of_next_non_empty_bucket(buck);
-                return {this, buck, impl_it};
-            } else {
-                return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.begin()};
-            }
+        if (_is_partitioned) {
+            size_t sub_table_idx = 0;
+            typename Impl::iterator impl_it = begin_of_next_non_empty_sub_table_idx(sub_table_idx);
+            return {this, sub_table_idx, impl_it};
         } else {
             return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.begin()};
         }
     }
 
     const_iterator end() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                return {this, MAX_SUB_TABLE, level1_sub_tables[MAX_SUB_TABLE].end()};
-            } else {
-                return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.end()};
-            }
+        if (_is_partitioned) {
+            return {this, MAX_SUB_TABLE, level1_sub_tables[MAX_SUB_TABLE].end()};
         } else {
             return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.end()};
         }
     }
     iterator end() {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                return {this, MAX_SUB_TABLE, level1_sub_tables[MAX_SUB_TABLE].end()};
-            } else {
-                return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.end()};
-            }
+        if (_is_partitioned) {
+            return {this, MAX_SUB_TABLE, level1_sub_tables[MAX_SUB_TABLE].end()};
         } else {
             return {this, NUM_LEVEL1_SUB_TABLES, level0_sub_table.end()};
         }
@@ -458,35 +383,27 @@ public:
     }
 
     void expanse_for_add_elem(size_t num_elem) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t num_elem_per_bucket =
-                        (num_elem + NUM_LEVEL1_SUB_TABLES - 1) / NUM_LEVEL1_SUB_TABLES;
-                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                    level1_sub_tables[i].expanse_for_add_elem(num_elem_per_bucket);
-                }
-            } else {
-                level0_sub_table.expanse_for_add_elem(num_elem);
-                if (UNLIKELY(level0_sub_table.need_partition())) {
-                    convert_to_partitioned();
-                }
+        if (_is_partitioned) {
+            size_t num_elem_per_sub_table =
+                    (num_elem + NUM_LEVEL1_SUB_TABLES - 1) / NUM_LEVEL1_SUB_TABLES;
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                level1_sub_tables[i].expanse_for_add_elem(num_elem_per_sub_table);
             }
         } else {
             level0_sub_table.expanse_for_add_elem(num_elem);
+            if (UNLIKELY(level0_sub_table.need_partition())) {
+                convert_to_partitioned();
+            }
         }
     }
 
     template <typename KeyHolder>
     void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                const auto& key = key_holder_get_key(key_holder);
-                const auto key_hash = hash(key);
-                const auto bucket = get_sub_table_from_hash(key_hash);
-                level1_sub_tables[bucket].prefetch(key_holder);
-            } else {
-                level0_sub_table.prefetch(key_holder);
-            }
+        if (_is_partitioned) {
+            const auto& key = key_holder_get_key(key_holder);
+            const auto key_hash = hash(key);
+            const auto sub_table_idx = get_sub_table_from_hash(key_hash);
+            level1_sub_tables[sub_table_idx].prefetch(key_holder);
         } else {
             level0_sub_table.prefetch(key_holder);
         }
@@ -494,13 +411,9 @@ public:
 
     template <bool READ>
     void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                const auto bucket = get_sub_table_from_hash(hash_value);
-                level1_sub_tables[bucket].template prefetch_by_hash<READ>(hash_value);
-            } else {
-                level0_sub_table.template prefetch_by_hash<READ>(hash_value);
-            }
+        if (_is_partitioned) {
+            const auto sub_table_idx = get_sub_table_from_hash(hash_value);
+            level1_sub_tables[sub_table_idx].template prefetch_by_hash<READ>(hash_value);
         } else {
             level0_sub_table.template prefetch_by_hash<READ>(hash_value);
         }
@@ -508,15 +421,11 @@ public:
 
     template <bool READ, typename KeyHolder>
     void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                const auto& key = key_holder_get_key(key_holder);
-                const auto key_hash = hash(key);
-                const auto bucket = get_sub_table_from_hash(key_hash);
-                level1_sub_tables[bucket].template prefetch<READ>(key_holder);
-            } else {
-                level0_sub_table.template prefetch<READ>(key_holder);
-            }
+        if (_is_partitioned) {
+            const auto& key = key_holder_get_key(key_holder);
+            const auto key_hash = hash(key);
+            const auto sub_table_idx = get_sub_table_from_hash(key_hash);
+            level1_sub_tables[sub_table_idx].template prefetch<READ>(key_holder);
         } else {
             level0_sub_table.template prefetch<READ>(key_holder);
         }
@@ -547,22 +456,19 @@ public:
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
                                size_t hash_value) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t buck = get_sub_table_from_hash(hash_value);
-                level1_sub_tables[buck].emplace(key_holder, it, inserted, hash_value);
-            } else {
-                level0_sub_table.emplace(key_holder, it, inserted, hash_value);
-                if (UNLIKELY(level0_sub_table.need_partition())) {
-                    convert_to_partitioned();
-
-                    // The hash table was converted to partitioned, so we have to re-find the key.
-                    size_t buck = get_sub_table_from_hash(hash_value);
-                    it = level1_sub_tables[buck].find(key_holder_get_key(key_holder), hash_value);
-                }
-            }
+        if (_is_partitioned) {
+            size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+            level1_sub_tables[sub_table_idx].emplace(key_holder, it, inserted, hash_value);
         } else {
             level0_sub_table.emplace(key_holder, it, inserted, hash_value);
+            if (UNLIKELY(level0_sub_table.need_partition())) {
+                convert_to_partitioned();
+
+                // The hash table was converted to partitioned, so we have to re-find the key.
+                size_t sub_table_id = get_sub_table_from_hash(hash_value);
+                it = level1_sub_tables[sub_table_id].find(key_holder_get_key(key_holder),
+                                                          hash_value);
+            }
         }
     }
 
@@ -573,13 +479,9 @@ public:
     }
 
     LookupResult ALWAYS_INLINE find(Key x, size_t hash_value) {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t buck = get_sub_table_from_hash(hash_value);
-                return level1_sub_tables[buck].find(x, hash_value);
-            } else {
-                return level0_sub_table.find(x, hash_value);
-            }
+        if (_is_partitioned) {
+            size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+            return level1_sub_tables[sub_table_idx].find(x, hash_value);
         } else {
             return level0_sub_table.find(x, hash_value);
         }
@@ -594,15 +496,10 @@ public:
     ConstLookupResult ALWAYS_INLINE find(Key x) const { return find(x, hash(x)); }
 
     size_t size() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                size_t res = 0;
-                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i)
-                    res += level1_sub_tables[i].size();
-                return res;
-            } else {
-                return level0_sub_table.size();
-            }
+        if (_is_partitioned) {
+            size_t res = 0;
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) res += level1_sub_tables[i].size();
+            return res;
         } else {
             return level0_sub_table.size();
         }
@@ -610,13 +507,9 @@ public:
 
     std::vector<size_t> sizes() const {
         std::vector<size_t> sizes;
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                    sizes.push_back(level1_sub_tables[i].size());
-                }
-            } else {
-                sizes.push_back(level0_sub_table.size());
+        if (_is_partitioned) {
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                sizes.push_back(level1_sub_tables[i].size());
             }
         } else {
             sizes.push_back(level0_sub_table.size());
@@ -625,14 +518,10 @@ public:
     }
 
     bool empty() const {
-        if constexpr (ENABLE_PARTITIONED) {
-            if (_is_partitioned) {
-                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i)
-                    if (!level1_sub_tables[i].empty()) return false;
-                return true;
-            } else {
-                return level0_sub_table.empty();
-            }
+        if (_is_partitioned) {
+            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i)
+                if (!level1_sub_tables[i].empty()) return false;
+            return true;
         } else {
             return level0_sub_table.empty();
         }
@@ -640,6 +529,8 @@ public:
 
 private:
     void convert_to_partitioned() {
+        SCOPED_RAW_TIMER(&_convert_timer_ns);
+
         auto it = level0_sub_table.begin();
 
         /// It is assumed that the zero key (stored separately) is first in iteration order.
@@ -651,8 +542,8 @@ private:
         for (; it != level0_sub_table.end(); ++it) {
             const Cell* cell = it.get_ptr();
             size_t hash_value = cell->get_hash(level0_sub_table);
-            size_t buck = get_sub_table_from_hash(hash_value);
-            level1_sub_tables[buck].insert_unique_non_zero(cell, hash_value);
+            size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+            level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);
         }
 
         _is_partitioned = true;

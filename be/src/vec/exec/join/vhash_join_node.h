@@ -39,7 +39,7 @@ class SharedHashTableController;
 template <typename RowRefListType>
 struct SerializedHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = PartitionedHashMap<StringRef, Mapped, true>;
+    using HashTable = PartitionedHashMap<StringRef, Mapped>;
     using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
     using Iter = typename HashTable::iterator;
 
@@ -70,7 +70,7 @@ struct IsSerializedHashTableContextTraits<ColumnsHashing::HashMethodSerialized<V
 template <class T, typename RowRefListType>
 struct PrimaryTypeHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = PartitionedHashMap<T, Mapped, true, HashCRC32<T>>;
+    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
     using State =
             ColumnsHashing::HashMethodOneNumber<typename HashTable::value_type, Mapped, T, false>;
     using Iter = typename HashTable::iterator;
@@ -105,7 +105,7 @@ using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType
 template <class T, bool has_null, typename RowRefListType>
 struct FixedKeyHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = PartitionedHashMap<T, Mapped, true, HashCRC32<T>>;
+    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
     using State = ColumnsHashing::HashMethodKeysFixed<typename HashTable::value_type, T, Mapped,
                                                       has_null, false>;
     using Iter = typename HashTable::iterator;
@@ -220,6 +220,7 @@ private:
     RuntimeProfile::Counter* _build_expr_call_timer;
     RuntimeProfile::Counter* _build_table_insert_timer;
     RuntimeProfile::Counter* _build_table_expanse_timer;
+    RuntimeProfile::Counter* _build_table_convert_timer;
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;

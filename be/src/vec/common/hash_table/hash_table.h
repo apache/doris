@@ -430,7 +430,7 @@ class HashTable : private boost::noncopyable,
 protected:
     friend class Reader;
 
-    template <typename, typename, typename, typename, typename, typename, bool, size_t>
+    template <typename, typename, typename, typename, typename, typename, size_t>
     friend class PartitionedHashTable;
 
     template <typename SubMaps>
@@ -446,7 +446,8 @@ protected:
     int64_t _resize_timer_ns;
 
     // the bucket count threshold above which it's converted to partioned hash table
-    // 0: don't convert
+    // > 0: enable convert dynamically
+    // 0: convert is disabled
     int _partitioned_threshold = 0;
     // if bucket count >= _partitioned_threshold, this flag is set to true
     bool _need_partition = false;
