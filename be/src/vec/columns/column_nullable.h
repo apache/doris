@@ -235,14 +235,14 @@ public:
     /// Return the column that represents the byte map.
     const ColumnPtr& get_null_map_column_ptr() const { return null_map; }
 
-    MutableColumnPtr get_null_map_column_ptr() { 
+    MutableColumnPtr get_null_map_column_ptr() {
         _need_update_has_null = true;
-        return null_map->assume_mutable(); 
+        return null_map->assume_mutable();
     }
 
-    ColumnUInt8& get_null_map_column() { 
+    ColumnUInt8& get_null_map_column() {
         _need_update_has_null = true;
-        return assert_cast<ColumnUInt8&>(*null_map); 
+        return assert_cast<ColumnUInt8&>(*null_map);
     }
     const ColumnUInt8& get_null_map_column() const {
         return assert_cast<const ColumnUInt8&>(*null_map);
@@ -254,9 +254,7 @@ public:
         _has_null = false;
     }
 
-    NullMap& get_null_map_data() {
-        return get_null_map_column().get_data();
-    }
+    NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
 
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
