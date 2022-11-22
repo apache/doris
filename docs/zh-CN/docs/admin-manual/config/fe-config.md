@@ -2390,4 +2390,4 @@ hive partition 的最大缓存数量。
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：false
+是否为 Master FE 节点独有的配置项：true

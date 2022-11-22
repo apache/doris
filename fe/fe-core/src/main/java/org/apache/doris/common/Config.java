@@ -1921,7 +1921,7 @@ public class Config extends ConfigBase {
      * Max num of same name meta informatntion in catalog recycle bin.
      * Default is 3.
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = true)
     public static int max_same_name_catalog_trash_num = 3;
 }
 

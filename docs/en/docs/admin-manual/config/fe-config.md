@@ -2334,4 +2334,4 @@ Default: 3
 
 Is it possible to dynamically configure: true
 
-Is it a configuration item unique to the Master FE node: false
+Is it a configuration item unique to the Master FE node: true
