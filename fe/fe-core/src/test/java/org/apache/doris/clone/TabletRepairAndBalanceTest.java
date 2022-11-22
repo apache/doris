@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -95,6 +96,7 @@ public class TabletRepairAndBalanceTest {
 
     static {
         try {
+            InternalSchemaInitializer.forTest = true;
             tag1 = Tag.create(Tag.TYPE_LOCATION, "zone1");
             tag2 = Tag.create(Tag.TYPE_LOCATION, "zone2");
         } catch (AnalysisException e) {
@@ -314,12 +316,12 @@ public class TabletRepairAndBalanceTest {
         // check tablet and replica number
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Table<Long, Long, Replica> replicaMetaTable = invertedIndex.getReplicaMetaTable();
-        Assert.assertEquals(44, replicaMetaTable.rowKeySet().size());
+        Assert.assertEquals(30, replicaMetaTable.rowKeySet().size());
         Assert.assertEquals(5, replicaMetaTable.columnKeySet().size());
 
         // wait all replica reallocating to correct backend
         checkTableReplicaAllocation(tbl);
-        Assert.assertEquals(104, replicaMetaTable.cellSet().size());
+        Assert.assertEquals(90, replicaMetaTable.cellSet().size());
 
         // for now, tbl has 3 partitions:
         // p1: zone1: 1, zone2: 2
@@ -340,7 +342,7 @@ public class TabletRepairAndBalanceTest {
         Assert.assertEquals(tag2, be.getLocationTag());
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
         checkTableReplicaAllocation(tbl);
-        Assert.assertEquals(104, replicaMetaTable.cellSet().size());
+        Assert.assertEquals(90, replicaMetaTable.cellSet().size());
 
         // For now, Backends:
         // [0, 1]:      zone1
@@ -435,7 +437,7 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt1));
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt2));
         ExceptionChecker.expectThrowsNoException(() -> dropTable(dropStmt3));
-        Assert.assertEquals(14, replicaMetaTable.size());
+        Assert.assertEquals(0, replicaMetaTable.size());
 
         // set all backends' tag to default
         for (int i = 0; i < backends.size(); ++i) {

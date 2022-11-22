@@ -1,11 +1,11 @@
 ---
 {
-    "title": "ADMIN-CHECK-TABLET",
+    "title": "ADMIN-CANCEL-REBALANCE-DISK",
     "language": "zh-CN"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -13,9 +13,7 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
-
   http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -24,41 +22,40 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN-CHECK-TABLET
+## ADMIN-CANCEL-REBALANCE-DISK
+
+<version since="1.2.0">
 
 ### Name
 
-ADMIN CHECK TABLET
+ADMIN CANCEL REBALANCE DISK
 
 ### Description
 
-该语句用于对一组 tablet 执行指定的检查操作
+    该语句用于取消优先均衡BE的磁盘
 
-语法：
+    语法：
 
-```sql
-ADMIN CHECK TABLE (tablet_id1, tablet_id2, ...)
-PROPERTIES("type" = "...");
-```
+        ADMIN CANCEL REBALANCE DISK [ON ("BackendHost1:BackendHeartBeatPort1", "BackendHost2:BackendHeartBeatPort2", ...)];
 
-说明：
+    说明：
 
-1. 必须指定 tablet id 列表以及 PROPERTIES 中的 type 属性。
-2. 目前 type 仅支持：
-
-    * consistency: 对tablet的副本数据一致性进行检查。该命令为异步命令，发送后，Doris 会开始执行对应 tablet 的一致性检查作业。最终的结果，将体现在 `SHOW PROC "/cluster_health/tablet_health";` 结果中的 InconsistentTabletNum 列。
+        1. 该语句仅表示系统不再优先均衡指定BE的磁盘数据。系统仍会以默认调度方式均衡BE的磁盘数据。
 
 ### Example
 
-1. 对指定的一组 tablet 进行副本数据一致性检查
+    1. 取消集群所有BE的优先磁盘均衡
 
-    ```
-    ADMIN CHECK TABLET (10000, 10001)
-    PROPERTIES("type" = "consistency");
+        ADMIN CANCEL REBALANCE DISK;
+
+    2. 取消指定BE的优先磁盘均衡
+
+        ADMIN CANCEL REBALANCE DISK ON ("192.168.1.1:1234", "192.168.1.2:1234");
 
 ### Keywords
 
-    ADMIN, CHECK, TABLET
+    ADMIN,CANCEL,REBALANCE,DISK
 
 ### Best Practice
 
+</version>

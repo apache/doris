@@ -132,6 +132,20 @@ MasterOnly：true
 
 Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.. 
 
+<version since="1.2.0">
+
+### max_multi_partition_num
+
+Default：4096
+
+IsMutable：false
+
+MasterOnly：true
+
+Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
+
+</version>
+
 ### grpc_max_message_size_bytes
 
 Default：1G

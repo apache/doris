@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.statistics.AnalysisJobInfo.JobType;
 import org.apache.doris.statistics.AnalysisJobInfo.ScheduleType;
@@ -39,7 +40,7 @@ public class AnalysisJobExecutorTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         try {
-            StatisticStorageInitializer.createDB();
+            InternalSchemaInitializer.createDB();
             createDatabase("analysis_job_test");
             connectContext.setDatabase("default_cluster:analysis_job_test");
             createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"
@@ -47,7 +48,7 @@ public class AnalysisJobExecutorTest extends TestWithFeService {
                     + "DISTRIBUTED BY HASH(col3)\n" + "BUCKETS 1\n"
                     + "PROPERTIES(\n" + "    \"replication_num\"=\"1\"\n"
                     + ");");
-            StatisticStorageInitializer storageInitializer = new StatisticStorageInitializer();
+            InternalSchemaInitializer storageInitializer = new InternalSchemaInitializer();
             Env.getCurrentEnv().createTable(storageInitializer.buildAnalysisJobTblStmt());
         } catch (Exception e) {
             throw new RuntimeException(e);

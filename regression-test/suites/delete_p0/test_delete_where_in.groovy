@@ -15,8 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_delete_where_in", "delete_p0") {
-        def tb_name = "test_1"
-        
+
+        def tb_name = "test_delete_where_in"
+
+        sql """DROP TABLE IF EXISTS ${tb_name};"""
         // create table 
         sql  """CREATE TABLE ${tb_name}(
                 `k1`  INT(50)     COMMENT '*****',
@@ -72,23 +74,23 @@ suite("test_delete_where_in", "delete_p0") {
         
 
         //delete test
-        def test_1 = sql """ DELETE FROM test_1 where k1 in (1,3000,2500,900,13); """
+        sql """ DELETE FROM ${tb_name} where k1 in (1,3000,2500,900,13); """
         def count_1= qt_sql """select count(*) from ${tb_name}"""
         logger.info("delete_1 : ${count_1}")
 
-        sql """ DELETE FROM test_1 where k1 < 10000 and k2 in('a','c','b','f');"""
+        sql """ DELETE FROM ${tb_name} where k1 < 10000 and k2 in('a','c','b','f');"""
         def count_2= qt_sql """select count(*) from ${tb_name}"""
         logger.info("delete_2 : ${count_2}")
 
-        sql """ DELETE FROM test_1 where k5 > 100000 and k8 in ('a','b','d');"""
+        sql """ DELETE FROM ${tb_name} where k5 > 100000 and k8 in ('a','b','d');"""
         def count_3= qt_sql """select count(*) from ${tb_name}"""
         logger.info("delete_3 : ${count_3}")
 
-        sql """ DELETE FROM test_1 where k1 > 80000 and k12 in ('a','b','d','e') and k2 in ('c','f','g');"""
+        sql """ DELETE FROM ${tb_name} where k1 > 80000 and k12 in ('a','b','d','e') and k2 in ('c','f','g');"""
         def count_4= qt_sql """select count(*) from ${tb_name}"""
         logger.info("delete_4 : ${count_4}")
 
-        sql """ DELETE FROM test_1 where k5 >50000 and k1 < 80000;"""
+        sql """ DELETE FROM ${tb_name} where k5 >50000 and k1 < 80000;"""
         def count_5= qt_sql """select count(*) from ${tb_name}"""
         logger.info("delete_5 : ${count_5}")
 
