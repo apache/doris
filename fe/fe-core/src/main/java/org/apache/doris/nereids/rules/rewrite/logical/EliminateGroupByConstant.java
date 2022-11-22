@@ -21,7 +21,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -46,9 +45,9 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
             LogicalAggregate<GroupPlan> aggregate = ctx.root;
             List<Expression> groupByExprs = aggregate.getGroupByExpressions();
             Set<Expression> slotGroupByExprs = Sets.newHashSet();
-            List<Slot> outputExprs = aggregate.getOutput();
+            // List<Slot> outputExprs = aggregate.getOutput();
             for (Expression expression : groupByExprs) {
-                if (expression instanceof IntegerLikeLiteral) {
+                if (expression instanceof IntegerLikeLiteral || expression.isSlot()) {
                     slotGroupByExprs.add(expression);
                 }
             }
