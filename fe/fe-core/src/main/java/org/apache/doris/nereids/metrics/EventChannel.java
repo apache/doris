@@ -64,9 +64,7 @@ public class EventChannel {
 
     public synchronized EventChannel setConnectContext(ConnectContext context) {
         Preconditions.checkArgument(Objects.nonNull(context));
-        if (context.getSessionVariable().isEnableNereidsTrace()) {
-            eventSwitch = new EventSwitchParser().parse(context.getSessionVariable().getParsedNereidsEventMode());
-        }
+        eventSwitch = context.getSessionVariable().getParsedNereidsEventMode();
         return this;
     }
 

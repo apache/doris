@@ -50,9 +50,6 @@ public class EventProducer {
     }
 
     private void checkAndLog(Event event) {
-        if (!channel.getEventSwitch().contains(event.getClass())) {
-            return;
-        }
         for (EventFilter filter : filters) {
             event = filter.checkEvent(event);
             if (event == null) {

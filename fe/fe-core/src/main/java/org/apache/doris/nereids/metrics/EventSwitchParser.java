@@ -53,7 +53,7 @@ public class EventSwitchParser {
     /**
      * parse
      */
-    public Set<Class<? extends Event>> parse(List<String> eventTypeMode) {
+    public static Set<Class<? extends Event>> parse(List<String> eventTypeMode) {
         if ("all".equals(eventTypeMode.get(0))) {
             if (eventTypeMode.size() == 1) {
                 return ImmutableSet.copyOf(EVENT_TYPE_SET.values());

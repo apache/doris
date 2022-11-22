@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
@@ -41,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * System variable.
@@ -619,7 +621,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_EVENT_MODE)
     public String nereidsEventMode = "all";
 
-    private List<String> parsedNereidsEventMode;
+    private Set<Class<? extends Event>> parsedNereidsEventMode = null;
 
     public void setEnableNereidsTrace(boolean enableNereidsTrace) {
         this.enableNereidsTrace = enableNereidsTrace;
@@ -631,13 +633,16 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNereidsEventMode(String nereidsEventMode) throws UnsupportedOperationException {
         this.nereidsEventMode = nereidsEventMode;
-        parsedNereidsEventMode = EventSwitchParser.checkEventModeStringAndSplit(nereidsEventMode);
+        List<String> strings = EventSwitchParser.checkEventModeStringAndSplit(nereidsEventMode);
+        if (strings != null) {
+            parsedNereidsEventMode = EventSwitchParser.parse(strings);
+        }
         if (parsedNereidsEventMode == null) {
             throw new UnsupportedOperationException("nereids_event_mode syntax error, please check");
         }
     }
 
-    public List<String> getParsedNereidsEventMode() {
+    public Set<Class<? extends Event>> getParsedNereidsEventMode() {
         return parsedNereidsEventMode;
     }
 
