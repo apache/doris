@@ -215,6 +215,7 @@ PROPERTIES (
 |  VARCHAR  | VARCHAR  |
 |   DATE    |   DATE   |
 |   REAL    |  FLOAT   |
+|   FLOAT   |  DOUBLE  |
 |  TINYINT  | TINYINT  |
 | SMALLINT  | SMALLINT |
 |    INT    |   INT    |

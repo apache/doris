@@ -22,6 +22,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_nullable.h"
@@ -34,6 +35,7 @@ const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
 const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
+const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;)J";
 const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
@@ -172,6 +174,98 @@ Status JdbcConnector::query() {
     if (colunm_count != materialize_num) {
         return Status::InternalError("input and output column num not equal of jdbc query.");
     }
+    RETURN_IF_ERROR(_check_column_type());
+    return Status::OK();
+}
+
+Status JdbcConnector::_check_column_type() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    jobject type_lists =
+            env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz, _executor_get_types_id);
+    auto column_size = _tuple_desc->slots().size();
+    for (int column_index = 0, materialized_column_index = 0; column_index < column_size;
+         ++column_index) {
+        auto slot_desc = _tuple_desc->slots()[column_index];
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        jobject column_type =
+                env->CallObjectMethod(type_lists, _executor_get_list_id, materialized_column_index);
+
+        const std::string& type_str = _jobject_to_string(env, column_type);
+        RETURN_IF_ERROR(_check_type(slot_desc, type_str));
+        env->DeleteLocalRef(column_type);
+        materialized_column_index++;
+    }
+    env->DeleteLocalRef(type_lists);
+    return JniUtil::GetJniExceptionMsg(env);
+}
+
+Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& type_str) {
+    const std::string error_msg = fmt::format(
+            "Fail to convert jdbc type of {} to doris type {} on column: {}. You need to "
+            "check this column type between external table and doris table.",
+            type_str, slot_desc->type().debug_string(), slot_desc->col_name());
+    switch (slot_desc->type().type) {
+    case TYPE_BOOLEAN: {
+        if (type_str != "java.lang.Boolean") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_LARGEINT: {
+        if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
+            type_str != "java.math.BigInteger" && type_str != "java.lang.Long") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_FLOAT: {
+        if (type_str != "java.lang.Float") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_DOUBLE: {
+        if (type_str != "java.lang.Double") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        break;
+    }
+    case TYPE_DATE:
+    case TYPE_DATEV2:
+    case TYPE_TIMEV2:
+    case TYPE_DATETIME:
+    case TYPE_DATETIMEV2: {
+        if (type_str != "java.sql.Timestamp" && type_str != "java.time.LocalDateTime" &&
+            type_str != "java.sql.Date") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I: {
+        if (type_str != "java.math.BigDecimal") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    default: {
+        return Status::InternalError(error_msg);
+    }
+    }
     return Status::OK();
 }
 
@@ -262,6 +356,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 _executor_finish_trans_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "rollbackTrans",
                                 JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "getResultColumnTypeNames",
+                                JDBC_EXECUTOR_GET_TYPES_SIGNATURE, _executor_get_types_id));
     return Status::OK();
 }
 
