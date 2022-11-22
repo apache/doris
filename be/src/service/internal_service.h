@@ -32,7 +32,7 @@ class ExecEnv;
 
 class PInternalServiceImpl : public PBackendService {
 public:
-    PInternalServiceImpl(ExecEnv* exec_env);
+    PInternalServiceImpl(ExecEnv* exec_env, bool need_metric);
     virtual ~PInternalServiceImpl();
 
     void transmit_data(::google::protobuf::RpcController* controller,
@@ -196,6 +196,7 @@ private:
     ExecEnv* _exec_env;
     PriorityThreadPool _tablet_worker_pool;
     PriorityThreadPool _slave_replica_worker_pool;
+    bool _need_metric;
 };
 
 } // namespace doris

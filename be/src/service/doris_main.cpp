@@ -431,7 +431,7 @@ int main(int argc, char** argv) {
 
     // 2. bprc service
     doris::BRpcService brpc_service(exec_env);
-    status = brpc_service.start(doris::config::brpc_port, doris::config::brpc_num_threads);
+    status = brpc_service.start(doris::config::brpc_port, doris::config::brpc_num_threads, true);
     if (!status.ok()) {
         LOG(ERROR) << "BRPC service did not start correctly, exiting";
         doris::shutdown_logging();
@@ -442,7 +442,7 @@ int main(int argc, char** argv) {
     if (doris::config::enable_single_replica_load) {
         status = single_replica_load_brpc_service.start(
                 doris::config::single_replica_load_brpc_port,
-                doris::config::single_replica_load_brpc_num_threads);
+                doris::config::single_replica_load_brpc_num_threads, false);
         if (!status.ok()) {
             LOG(ERROR) << "single replica load BRPC service did not start correctly, exiting";
             doris::shutdown_logging();

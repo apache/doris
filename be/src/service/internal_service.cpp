@@ -92,18 +92,23 @@ private:
     google::protobuf::Closure* _done = nullptr;
 };
 
-PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
+PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env, bool need_metric)
         : _exec_env(exec_env),
           _tablet_worker_pool(config::number_tablet_writer_threads, 10240, "tablet_writer"),
           _slave_replica_worker_pool(config::number_slave_replica_download_threads, 10240,
-                                     "replica_download") {
-    REGISTER_HOOK_METRIC(add_batch_task_queue_size,
-                         [this]() { return _tablet_worker_pool.get_queue_size(); });
+                                     "replica_download"),
+          _need_metric(need_metric) {
+    if (_need_metric) {
+        REGISTER_HOOK_METRIC(add_batch_task_queue_size,
+                             [this]() { return _tablet_worker_pool.get_queue_size(); });
+    }
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
 }
 
 PInternalServiceImpl::~PInternalServiceImpl() {
-    DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
+    if (_need_metric) {
+        DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
+    }
     CHECK_EQ(0, bthread_key_delete(btls_key));
 }
 

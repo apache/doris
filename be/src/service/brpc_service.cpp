@@ -40,9 +40,10 @@ BRpcService::BRpcService(ExecEnv* exec_env) : _exec_env(exec_env), _server(new b
 
 BRpcService::~BRpcService() {}
 
-Status BRpcService::start(int port, int num_threads) {
+Status BRpcService::start(int port, int num_threads, bool need_metric) {
     // Add service
-    _server->AddService(new PInternalServiceImpl(_exec_env), brpc::SERVER_OWNS_SERVICE);
+    _server->AddService(new PInternalServiceImpl(_exec_env, need_metric),
+                        brpc::SERVER_OWNS_SERVICE);
     // start service
     brpc::ServerOptions options;
     if (num_threads != -1) {
