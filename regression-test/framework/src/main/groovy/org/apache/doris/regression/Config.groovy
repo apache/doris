@@ -433,6 +433,7 @@ class Config {
         }
 
         dir = dir.replace('-', '_')
+        dir = dir.replace('.', '_')
 
         return defaultDb + '_' + dir.replace(File.separator, '_')
     }

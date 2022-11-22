@@ -41,11 +41,7 @@ struct AggregateFunctionCollectSetData {
 
     void add(const IColumn& column, size_t row_num) {
         const auto& vec = assert_cast<const ColVecType&>(column).get_data();
-        if constexpr (IsDecimal128I<T>) {
-            set.insert(vec[row_num].value);
-        } else {
-            set.insert(vec[row_num]);
-        }
+        set.insert(vec[row_num]);
     }
     void merge(const AggregateFunctionCollectSetData& rhs) { set.merge(rhs.set); }
     void write(BufferWritable& buf) const { set.write(buf); }

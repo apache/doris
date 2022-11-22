@@ -332,13 +332,7 @@ private:
                           EqualRange& range, bool last_column) const {
         int new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
-            if constexpr (std::is_same_v<ColumnType, ColumnDecimal128I>) {
-                auto value_a = column.get_data()[a];
-                auto value_b = column.get_data()[b];
-                return value_a.value.val > value_b.value.val
-                               ? 1
-                               : (value_a.value.val < value_b.value.val ? -1 : 0);
-            } else if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+            if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
                 return value_a > value_b ? 1 : (value_a < value_b ? -1 : 0);
@@ -403,11 +397,7 @@ private:
         _create_permutation(column, permutation_for_column.data(), perms);
         auto comparator = [&](const PermutationWithInlineValue<InlineType>& a,
                               const PermutationWithInlineValue<InlineType>& b) {
-            if constexpr (std::is_same_v<ColumnType, ColumnDecimal128I>) {
-                return a.inline_value.value.val > b.inline_value.value.val
-                               ? 1
-                               : (a.inline_value.value.val < b.inline_value.value.val ? -1 : 0);
-            } else if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+            if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
                 return a.inline_value > b.inline_value ? 1
                                                        : (a.inline_value < b.inline_value ? -1 : 0);
             } else {

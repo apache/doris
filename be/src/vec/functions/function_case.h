@@ -292,15 +292,8 @@ public:
                             ->get_data()
                             .data();
 
-            if constexpr (std::is_same_v<ColumnType, ColumnDecimal128I>) {
-                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    result_raw_data[row_idx] +=
-                            (then_idx[row_idx] == i) * column_raw_data[row_idx].value.val;
-                }
-            } else {
-                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    result_raw_data[row_idx] += (then_idx[row_idx] == i) * column_raw_data[row_idx];
-                }
+            for (int row_idx = 0; row_idx < rows_count; row_idx++) {
+                result_raw_data[row_idx] += (then_idx[row_idx] == i) * column_raw_data[row_idx];
             }
         }
     }

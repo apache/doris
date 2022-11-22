@@ -40,12 +40,7 @@ int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) c
     const T& a = data[n];
     const T& b = other.data[m];
 
-    if constexpr (doris::vectorized::IsDecimal128I<T>) {
-        if (scale == other.scale)
-            return a.value.val > b.value.val ? 1 : (a.value.val < b.value.val ? -1 : 0);
-    } else {
-        if (scale == other.scale) return a > b ? 1 : (a < b ? -1 : 0);
-    }
+    if (scale == other.scale) return a > b ? 1 : (a < b ? -1 : 0);
     return decimal_less<T>(b, a, other.scale, scale)
                    ? 1
                    : (decimal_less<T>(a, b, scale, other.scale) ? -1 : 0);
@@ -379,20 +374,11 @@ void ColumnDecimal<T>::get_extremes(Field& min, Field& max) const {
     T cur_min = data[0];
     T cur_max = data[0];
 
-    if constexpr (doris::vectorized::IsDecimal128I<T>) {
-        for (const T& x : data) {
-            if (x.value.val < cur_min.value.val)
-                cur_min.value.val = x.value.val;
-            else if (x.value.val > cur_max.value.val)
-                cur_max.value.val = x.value.val;
-        }
-    } else {
-        for (const T& x : data) {
-            if (x < cur_min)
-                cur_min = x;
-            else if (x > cur_max)
-                cur_max = x;
-        }
+    for (const T& x : data) {
+        if (x < cur_min)
+            cur_min = x;
+        else if (x > cur_max)
+            cur_max = x;
     }
 
     min = NearestFieldType<T>(cur_min, scale);
@@ -421,13 +407,7 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data()[row_id];
             int res = 0;
-            if constexpr (doris::vectorized::IsDecimal128I<T>) {
-                res = value_a.value.val > cmp_base.value.val
-                              ? 1
-                              : (value_a.value.val < cmp_base.value.val ? -1 : 0);
-            } else {
-                res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
-            }
+            res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
             if (res * direction < 0) {
                 filter[row_id] = 1;
                 cmp_res[row_id] = 1;
