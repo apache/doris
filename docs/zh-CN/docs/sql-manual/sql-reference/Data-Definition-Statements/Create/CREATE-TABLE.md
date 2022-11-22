@@ -205,7 +205,7 @@ distribution_desc
 
 * `partition_desc`
 
-    分区信息，支持两种写法：
+    分区信息，支持三种写法：
     
     1. LESS THAN：仅定义分区上界。下界由上一个分区的上界决定。
     
@@ -226,7 +226,23 @@ distribution_desc
             PARTITION partition_name2 VALUES [("k1-lower1-2", "k2-lower1-2", ...), ("k1-upper1-2", MAXVALUE, ))
         )
         ```
+    
+<version since="1.2.0">
+    
+    3. MULTI RANGE：批量创建RANGE分区，定义分区的左闭右开区间，设定时间单位和步长，时间单位支持年、月、日、周和小时。
 
+        ```
+        PARTITION BY RANGE(col)
+        (
+           FROM ("2000-11-14") TO ("2021-11-14") INTERVAL 1 YEAR,
+           FROM ("2021-11-14") TO ("2022-11-14") INTERVAL 1 MONTH,
+           FROM ("2022-11-14") TO ("2023-01-03") INTERVAL 1 WEEK,
+           FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
+        )
+        ```
+    
+</version>
+    
 * `distribution_desc`
   
     定义数据分桶方式。
@@ -620,6 +636,44 @@ distribution_desc
         ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
 ```
 注：需要先创建s3 resource 和 storage policy，表才能关联迁移策略成功
+
+<version since="1.2.0">
+
+13. 批量创建分区
+```
+        CREATE TABLE create_table_multi_partion_date
+        (
+            k1 DATE,
+            k2 INT,
+            V1 VARCHAR(20)
+        ) PARTITION BY RANGE (k1) (
+            FROM ("2000-11-14") TO ("2021-11-14") INTERVAL 1 YEAR,
+            FROM ("2021-11-14") TO ("2022-11-14") INTERVAL 1 MONTH,
+            FROM ("2022-11-14") TO ("2023-01-03") INTERVAL 1 WEEK,
+            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY,
+            PARTITION p_20230114 VALUES [('2023-01-14'), ('2023-01-15'))
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES(
+            "replication_num" = "1"
+        );
+```
+```
+        CREATE TABLE create_table_multi_partion_date_hour
+        (
+            k1 DATETIME,
+            k2 INT,
+            V1 VARCHAR(20)
+        ) PARTITION BY RANGE (k1) (
+            FROM ("2023-01-03 12") TO ("2023-01-14 22") INTERVAL 1 HOUR
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES(
+            "replication_num" = "1"
+        );
+```
+
+注：批量创建分区可以和常规手动创建分区混用，使用时需要限制分区列只能有一个，批量创建分区实际创建默认最大数量为4096，这个参数可以在fe配置项 `max_multi_partition_num` 调整
+
+</version>
 
 ### Keywords
 

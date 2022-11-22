@@ -211,7 +211,6 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             
             > A new void appeared: [2017-01-01, 2017-02-01)
         
-
     In summary, the deletion of a partition does not change the scope of an existing partition. There may be holes in deleting partitions. When a partition is added by the `VALUES LESS THAN` statement, the lower bound of the partition immediately follows the upper bound of the previous partition.
 
     In addition to the single-column partitioning we have seen above, Range partition also supports **multi-column partitioning**, examples are as follows:
@@ -247,7 +246,19 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * 2017-04-01, 1000  --> Unable to import
     * 2017-05-01, 1000  --> Unable to import
     ```
+    
+<version since="1.2.0">
+    
+    Range partition also supports use partition desc: `FROM ("2022-01-03") TO ("2022-01-06") INTERVAL 1 DAY`, can multi create partitions by day：2022-01-03 to 2022-01-06（not include 2022-01-06）, the partition result is as follows:
 
+    ```text
+    p20220103:    [2022-01-03,  2022-01-04)
+    p20220104:    [2022-01-04,  2022-01-05)
+    p20220105:    [2022-01-05,  2022-01-06)
+    ```
+    
+</version>
+    
     #### List Partition
 
     * The partition column supports the `BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME, CHAR, VARCHAR` data type, and the partition value is an enumeration value. Partitions can be hit only if the data is one of the target partition enumeration values.
