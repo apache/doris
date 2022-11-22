@@ -217,8 +217,8 @@ bool VerticalMergeIteratorContext::compare(const VerticalMergeIteratorContext& r
     }
     auto col_cmp_res = 0;
     if (_seq_col_idx != -1) {
-        DCHECK(_block->columns() > 2);
-        auto real_seq_idx = _block->columns() - 2;
+        DCHECK(_block->columns() >= _num_key_columns);
+        auto real_seq_idx = _num_key_columns;
         col_cmp_res = _block->compare_column_at(_index_in_block, rhs._index_in_block, real_seq_idx,
                                                 *rhs._block, -1);
     }
