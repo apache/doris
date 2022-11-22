@@ -59,6 +59,7 @@ github:
           - Build Documents
           - BE UT (Clang)
           - ShellCheck
+          - clickbench (benchmark)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
