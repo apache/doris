@@ -19,14 +19,24 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.proc.ProcNodeInterface;
+import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.proc.TableProcDir;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -67,41 +77,74 @@ public class TableSchemaAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
-            OlapTable table;
+            CatalogIf catalog;
+            DatabaseIf db;
+            TableIf table;
             try {
-                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
-                table = (OlapTable) db.getTableOrMetaException(tblName, Table.TableType.OLAP);
-            } catch (MetaNotFoundException e) {
+                catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+                db = catalog.getDbOrAnalysisException(fullDbName);
+                table = db.getTableOrAnalysisException(tblName);
+            } catch (UserException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
             table.readLock();
             try {
-                try {
-                    List<Column> columns = table.getBaseSchema();
-                    List<Map<String, String>> propList = new ArrayList(columns.size());
-                    for (Column column : columns) {
-                        Map<String, String> baseInfo = new HashMap<>(2);
-                        Type colType = column.getOriginType();
-                        PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
-                            ScalarType scalarType = (ScalarType) colType;
-                            baseInfo.put("precision", scalarType.getPrecision() + "");
-                            baseInfo.put("scale", scalarType.getScalarScale() + "");
+                if (table.getType() == TableIf.TableType.OLAP) {
+                    try {
+                        List<Column> columns = ((OlapTable) table).getBaseSchema();
+                        List<Map<String, String>> propList = new ArrayList(columns.size());
+                        for (Column column : columns) {
+                            Map<String, String> baseInfo = new HashMap<>(2);
+                            Type colType = column.getOriginType();
+                            PrimitiveType primitiveType = colType.getPrimitiveType();
+                            if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
+                                ScalarType scalarType = (ScalarType) colType;
+                                baseInfo.put("precision", scalarType.getPrecision() + "");
+                                baseInfo.put("scale", scalarType.getScalarScale() + "");
+                            }
+                            baseInfo.put("type", primitiveType.toString());
+                            baseInfo.put("comment", column.getComment());
+                            baseInfo.put("name", column.getDisplayName());
+                            Optional aggregationType = Optional.ofNullable(column.getAggregationType());
+                            baseInfo.put("aggregation_type", aggregationType.isPresent()
+                                    ? column.getAggregationType().toSql() : "");
+                            propList.add(baseInfo);
                         }
-                        baseInfo.put("type", primitiveType.toString());
-                        baseInfo.put("comment", column.getComment());
-                        baseInfo.put("name", column.getDisplayName());
-                        Optional aggregationType = Optional.ofNullable(column.getAggregationType());
-                        baseInfo.put("aggregation_type", aggregationType.isPresent()
-                                ? column.getAggregationType().toSql() : "");
-                        propList.add(baseInfo);
+                        resultMap.put("status", 200);
+                        resultMap.put("tableType", table.getType().toEngineName());
+                        resultMap.put("keysType", ((OlapTable) table).getKeysType().name());
+                        resultMap.put("properties", propList);
+                    } catch (Exception e) {
+                        // Transform the general Exception to custom DorisHttpException
+                        return ResponseEntityBuilder.okWithCommonError(e.getMessage());
                     }
-                    resultMap.put("status", 200);
-                    resultMap.put("keysType", table.getKeysType().name());
-                    resultMap.put("properties", propList);
-                } catch (Exception e) {
-                    // Transform the general Exception to custom DorisHttpException
-                    return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+                } else {
+                    try {
+                        String procString = "/catalogs/" + catalog.getId() + "/" + db.getId() + "/" + table.getId()
+                                + "/" + TableProcDir.INDEX_SCHEMA + "/" + table.getId();
+                        ProcNodeInterface node = ProcService.getInstance().open(procString);
+                        if (node == null) {
+                            throw new AnalysisException("Get table [" + tblName + "] schema failed. No such proc path["
+                                + procString + "]");
+                        }
+                        ProcResult result = node.fetchResult();
+                        List<List<String>> columns = result.getRows();
+                        List<Map<String, String>> propList = new ArrayList(columns.size());
+                        for (List<String> column : columns) {
+                            Map<String, String> baseInfo = new HashMap<>(2);
+                            baseInfo.put("name", column.get(0));
+                            baseInfo.put("type", column.get(1));
+                            baseInfo.put("comment", "");
+                            baseInfo.put("aggregation_type", "");
+                            propList.add(baseInfo);
+                        }
+                        resultMap.put("status", 200);
+                        resultMap.put("tableType", table.getType().toEngineName());
+                        resultMap.put("keysType", "");
+                        resultMap.put("properties", propList);
+                    } catch (Exception e) {
+                        return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+                    }
                 }
             } finally {
                 table.readUnlock();
