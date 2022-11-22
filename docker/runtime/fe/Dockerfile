@@ -34,7 +34,7 @@ RUN apt-get update && \
 	cd /opt && \
 	mv apache-doris-fe-x.x.x-bin /opt/apache-doris/fe
 
-ADD ./resource/run_fe.sh /opt/apache-doris/fe/bin
-RUN chmod 755 /opt/apache-doris/fe/bin/run_fe.sh
+ADD resource/init_fe.sh /opt/apache-doris/fe/bin
+RUN chmod 755 /opt/apache-doris/fe/bin/init_fe.sh
 
-ENTRYPOINT ["/opt/apache-doris/fe/bin/run_fe.sh"]
+ENTRYPOINT ["/opt/apache-doris/fe/bin/init_fe.sh"]
