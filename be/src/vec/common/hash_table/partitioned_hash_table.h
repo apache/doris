@@ -44,6 +44,17 @@ template <typename Key, typename Cell, typename Hash, typename Grower, typename 
 class PartitionedHashTable : private boost::noncopyable,
                              protected Hash /// empty base optimization
 {
+public:
+    using Impl = ImplTable;
+
+    using key_type = typename Impl::key_type;
+    using mapped_type = typename Impl::mapped_type;
+    using value_type = typename Impl::value_type;
+    using cell_type = typename Impl::cell_type;
+
+    using LookupResult = typename Impl::LookupResult;
+    using ConstLookupResult = typename Impl::ConstLookupResult;
+
 protected:
     friend class const_iterator;
     friend class iterator;
@@ -51,16 +62,60 @@ protected:
     using HashValue = size_t;
     using Self = PartitionedHashTable;
 
-    static const int PARTITIONED_BUCKET_THRESHOLD = 8388608;
-
-public:
-    using Impl = ImplTable;
-
+private:
     static constexpr size_t NUM_LEVEL1_SUB_TABLES = 1ULL << BITS_FOR_SUB_TABLE;
     static constexpr size_t MAX_SUB_TABLE = NUM_LEVEL1_SUB_TABLES - 1;
 
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_SUB_TABLE_OCCUPANCY_FRACTION = 0.5f;
+
+    static const int PARTITIONED_BUCKET_THRESHOLD = 8388608;
+
+    Impl level0_sub_table;
+    Impl level1_sub_tables[NUM_LEVEL1_SUB_TABLES];
+
+    bool _is_partitioned = false;
+
+    // if ENABLE_PARTITIONED, the threshold of bucket count of level0 hash table above
+    // which the hash table is converted to partioned hash table
+    int _partitioned_threshold = PARTITIONED_BUCKET_THRESHOLD;
+
+public:
+    PartitionedHashTable() {
+        if constexpr (ENABLE_PARTITIONED) {
+            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
+        }
+    }
+
+    explicit PartitionedHashTable(size_t size_hint) {
+        if constexpr (ENABLE_PARTITIONED) {
+            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
+            if (level0_sub_table.check_if_need_partition(size_hint)) {
+                _is_partitioned = true;
+
+                for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                    level1_sub_tables[i] = std::move(Impl(size_hint / NUM_LEVEL1_SUB_TABLES));
+                }
+            } else {
+                level0_sub_table = std::move(Impl(size_hint));
+            }
+        } else {
+            level0_sub_table = std::move(Impl(size_hint));
+        }
+    }
+
+    PartitionedHashTable(PartitionedHashTable&& rhs) { *this = std::move(rhs); }
+
+    PartitionedHashTable& operator=(PartitionedHashTable&& rhs) {
+        std::swap(_is_partitioned, rhs._is_partitioned);
+        std::swap(_partitioned_threshold, rhs._partitioned_threshold);
+
+        level0_sub_table = std::move(rhs.level0_sub_table);
+        for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+            level1_sub_tables[i] = std::move(rhs.level1_sub_tables[i]);
+        }
+        return *this;
+    }
 
     size_t hash(const Key& x) const { return Hash::operator()(x); }
 
@@ -78,6 +133,39 @@ public:
         }
     }
 
+    template <typename Func>
+    void ALWAYS_INLINE for_each_value(Func&& func) {
+        if constexpr (ENABLE_PARTITIONED) {
+            if (_is_partitioned) {
+                for (auto i = 0u; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                    level1_sub_tables[i].for_each_value(func);
+                }
+            } else {
+                level0_sub_table.for_each_value(func);
+            }
+        } else {
+            level0_sub_table.for_each_value(func);
+        }
+    }
+
+    size_t get_size() {
+        size_t count = 0;
+        if constexpr (ENABLE_PARTITIONED) {
+            if (_is_partitioned) {
+                for (auto i = 0u; i < this->NUM_LEVEL1_SUB_TABLES; ++i) {
+                    for (auto& v : this->level1_sub_tables[i]) {
+                        count += v.get_second().get_row_count();
+                    }
+                }
+            } else {
+                count = level0_sub_table.get_size();
+            }
+        } else {
+            count = level0_sub_table.get_size();
+        }
+        return count;
+    }
+
     void init_buf_size(size_t reserve_for_num_elements) {
         if constexpr (ENABLE_PARTITIONED) {
             if (_is_partitioned) {
@@ -85,7 +173,17 @@ public:
                     impl.init_buf_size(reserve_for_num_elements / NUM_LEVEL1_SUB_TABLES);
                 }
             } else {
-                level0_sub_table.init_buf_size(reserve_for_num_elements);
+                if (level0_sub_table.check_if_need_partition(reserve_for_num_elements)) {
+                    level0_sub_table.clear_and_shrink();
+                    _is_partitioned = true;
+
+                    for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+                        level1_sub_tables[i].init_buf_size(reserve_for_num_elements /
+                                                           NUM_LEVEL1_SUB_TABLES);
+                    }
+                } else {
+                    level0_sub_table.init_buf_size(reserve_for_num_elements);
+                }
             }
         } else {
             level0_sub_table.init_buf_size(reserve_for_num_elements);
@@ -201,47 +299,8 @@ protected:
     }
 
 public:
-    using key_type = typename Impl::key_type;
-    using mapped_type = typename Impl::mapped_type;
-    using value_type = typename Impl::value_type;
-    using cell_type = typename Impl::cell_type;
-
-    using LookupResult = typename Impl::LookupResult;
-    using ConstLookupResult = typename Impl::ConstLookupResult;
-
-    Impl level0_sub_table;
-    Impl level1_sub_tables[NUM_LEVEL1_SUB_TABLES];
-
-    PartitionedHashTable() {
-        if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
-        }
-    }
-
-    explicit PartitionedHashTable(size_t size_hint) {
-        level0_sub_table.reserve(size_hint);
-        if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
-        }
-    }
-
-    PartitionedHashTable(PartitionedHashTable&& rhs) {
-        if constexpr (ENABLE_PARTITIONED) {
-            level0_sub_table.set_partitioned_threshold(PARTITIONED_BUCKET_THRESHOLD);
-        }
-        for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-            level1_sub_tables[i] = std::move(rhs.level1_sub_tables[i]);
-        }
-    }
-
-    PartitionedHashTable& operator=(PartitionedHashTable&& rhs) {
-        for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-            level1_sub_tables[i] = std::move(rhs.level1_sub_tables[i]);
-        }
-        return *this;
-    }
-
     void set_partitioned_threshold(int threshold) {
+        _partitioned_threshold = threshold;
         if constexpr (ENABLE_PARTITIONED) {
             level0_sub_table.set_partitioned_threshold(threshold);
         }
@@ -408,6 +467,9 @@ public:
                 }
             } else {
                 level0_sub_table.expanse_for_add_elem(num_elem);
+                if (UNLIKELY(level0_sub_table.need_partition())) {
+                    convert_to_partitioned();
+                }
             }
         } else {
             level0_sub_table.expanse_for_add_elem(num_elem);
@@ -594,16 +656,11 @@ private:
         }
 
         _is_partitioned = true;
+        level0_sub_table.clear_and_shrink();
     }
 
     /// NOTE Bad for hash tables with more than 2^32 cells.
     static size_t get_sub_table_from_hash(size_t hash_value) {
         return (hash_value >> (32 - BITS_FOR_SUB_TABLE)) & MAX_SUB_TABLE;
     }
-
-private:
-    bool _is_partitioned = false;
-    // if ENABLE_PARTITIONED, the threshold of bucket count of level0 hash table above
-    // which the hash table is converted to partioned hash table
-    int _partitioned_threshold = 0;
 };
