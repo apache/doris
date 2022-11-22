@@ -2379,3 +2379,15 @@ hive partition 的最大缓存数量。
 是否可以动态配置：false
 
 是否为 Master FE 节点独有的配置项：false
+
+### `max_same_name_catalog_trash_num`
+
+用于设置回收站中同名元数据的最大个数，超过最大值时，最早删除的元数据将被彻底删除，不能再恢复。
+
+注意：同名元数据的判断会局限在一定的范围内。比如同名database的判断会限定在相同cluster下，同名table的判断会限定在相同database（指相同database id）下，同名partition的判断会限定在相同database（指相同database id）并且相同table（指相同table id）下。
+
+默认值：3
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false

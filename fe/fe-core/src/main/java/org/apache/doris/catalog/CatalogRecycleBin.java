@@ -275,7 +275,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Set<Long> tableIds = Sets.newHashSet(dbInfo.getTableIds());
         long dbId = db.getId();
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-        while (iterator.hasNext()) {
+        while (iterator.hasNext() && !tableNames.isEmpty()) {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
             RecycleTableInfo tableInfo = entry.getValue();
             if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
@@ -528,7 +528,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Set<Long> tableIds = Sets.newHashSet(dbInfo.getTableIds());
         long dbId = db.getId();
         Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-        while (iterator.hasNext()) {
+        while (iterator.hasNext() && !tableNames.isEmpty()) {
             Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
             RecycleTableInfo tableInfo = entry.getValue();
             if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
