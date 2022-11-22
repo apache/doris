@@ -66,7 +66,7 @@ Status::Status(const PStatus& s) {
 // A wrapper for ErrorCode
 //      Precise code is for ErrorCode's enum value
 //      All Status Error is treated as Internal Error
-Status Status::OLAPInternalError(int16_t precise_code, std::string_view msg = "") {
+Status Status::OLAPInternalError(int16_t precise_code, std::string_view msg) {
     return ConstructErrorStatus(TStatusCode::INTERNAL_ERROR, precise_code, msg);
 }
 
