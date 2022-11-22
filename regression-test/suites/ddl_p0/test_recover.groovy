@@ -17,7 +17,7 @@
 
 suite("test_recover") {
     try {
-        for (int i = 1; i <= 10; i++) {
+        for (int i = 0; i <= 7; i++) {
                 sql """
             CREATE DATABASE IF NOT EXISTS `test_recover_db`
             """
@@ -84,6 +84,33 @@ suite("test_recover") {
                 sql """
             ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
             """
+                sql """
+            ALTER TABLE `test_recover_db`.`test_recover_tb` ADD PARTITION p2000 VALUES [('2000'), ('3000'))
+            """
+
+                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+
+                sql """
+            ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
+            """
+                sql """
+            ALTER TABLE `test_recover_db`.`test_recover_tb` ADD PARTITION p2000 VALUES [('3000'), ('4000'))
+            """
+
+                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+
+                sql """
+            ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
+            """
+                sql """
+            ALTER TABLE `test_recover_db`.`test_recover_tb` ADD PARTITION p2000 VALUES [('4000'), ('5000'))
+            """
+
+                qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
+
+                sql """
+            ALTER TABLE `test_recover_db`.`test_recover_tb` DROP PARTITION p2000
+            """
 
                 qt_select """ SHOW CREATE TABLE `test_recover_db`.`test_recover_tb` """
 
@@ -119,6 +146,78 @@ suite("test_recover") {
 
                 qt_select """SHOW TABLES FROM `test_recover_db`"""
 
+                sql """
+            CREATE TABLE `test_recover_db`.`test_recover_tb` (
+            `k1` int(11) NULL,
+            `k2` datetime NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`k1`)
+            PARTITION BY RANGE(`k1`)
+            (PARTITION p111 VALUES [('-1000'), ('111')),
+            PARTITION p222 VALUES [('111'), ('222')),
+            PARTITION p333 VALUES [('222'), ('333')),
+            PARTITION p1000 VALUES [('333'), ('1000')))
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            )
+            """
+
+                qt_select """SHOW TABLES FROM `test_recover_db`"""
+
+                sql """
+            DROP TABLE `test_recover_db`.`test_recover_tb`
+            """
+                sql """
+            CREATE TABLE `test_recover_db`.`test_recover_tb` (
+            `k1` int(11) NULL,
+            `k2` datetime NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`k1`)
+            PARTITION BY RANGE(`k1`)
+            (PARTITION p111 VALUES [('-1000'), ('111')),
+            PARTITION p222 VALUES [('111'), ('222')),
+            PARTITION p333 VALUES [('222'), ('333')),
+            PARTITION p1000 VALUES [('333'), ('1000')))
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            )
+            """
+
+                qt_select """SHOW TABLES FROM `test_recover_db`"""
+
+                sql """
+            DROP TABLE `test_recover_db`.`test_recover_tb`
+            """
+                sql """
+            CREATE TABLE `test_recover_db`.`test_recover_tb` (
+            `k1` int(11) NULL,
+            `k2` datetime NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`k1`)
+            PARTITION BY RANGE(`k1`)
+            (PARTITION p111 VALUES [('-1000'), ('111')),
+            PARTITION p222 VALUES [('111'), ('222')),
+            PARTITION p333 VALUES [('222'), ('333')),
+            PARTITION p1000 VALUES [('333'), ('1000')))
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            )
+            """
+
+                qt_select """SHOW TABLES FROM `test_recover_db`"""
+
+                sql """
+            DROP TABLE `test_recover_db`.`test_recover_tb`
+            """
                 sql """
             CREATE TABLE `test_recover_db`.`test_recover_tb` (
             `k1` int(11) NULL,
@@ -205,6 +304,53 @@ suite("test_recover") {
                 sql """
             DROP DATABASE `test_recover_db`
             """
+                sql """
+            CREATE DATABASE `test_recover_db`
+            """
+
+                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+
+                sql """
+            DROP DATABASE `test_recover_db`
+            """
+
+                sql """
+            CREATE DATABASE `test_recover_db`
+            """
+
+                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+                
+                sql """
+            CREATE TABLE `test_recover_db`.`test_recover_tb` (
+            `k1` int(11) NULL,
+            `k2` datetime NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`k1`)
+            PARTITION BY RANGE(`k1`)
+            (PARTITION p111 VALUES [('-1000'), ('111')),
+            PARTITION p222 VALUES [('111'), ('222')),
+            PARTITION p333 VALUES [('222'), ('333')),
+            PARTITION p1000 VALUES [('333'), ('1000')))
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            )
+            """
+
+                sql """
+            DROP DATABASE `test_recover_db`
+            """
+                sql """
+            CREATE DATABASE `test_recover_db`
+            """
+
+                qt_select """ SHOW CREATE DATABASE `test_recover_db` """
+
+                sql """
+            DROP DATABASE `test_recover_db`
+            """
 
                 sql """
             RECOVER DATABASE `test_recover_db` AS `test_recover_db_new`
@@ -257,18 +403,16 @@ suite("test_recover") {
                 qt_select """ SHOW CREATE DATABASE `test_recover_db` """
                 qt_select """ SHOW CREATE DATABASE `test_recover_db_new` """
                 qt_select """SHOW CREATE TABLE `test_recover_db`.`test_recover_tb`"""
-                qt_select """SHOW CREATE TABLE `test_recover_db`.`test_recover_tb_new`"""
                 qt_select """SHOW TABLES FROM `test_recover_db`"""
                 qt_select """SHOW TABLES FROM `test_recover_db_new`"""
 
             // test drop many times
                 sql """ DROP DATABASE `test_recover_db` """
                 sql """ DROP DATABASE `test_recover_db_new` """
-            sleep(30000);
         }
     } finally {
-    //    sql """ DROP DATABASE IF EXISTS `test_recover_db` FORCE """
-    //    sql """ DROP DATABASE IF EXISTS `test_recover_db_new` FORCE """
+        sql """ DROP DATABASE IF EXISTS `test_recover_db` FORCE """
+        sql """ DROP DATABASE IF EXISTS `test_recover_db_new` FORCE """
     }
 
 }
