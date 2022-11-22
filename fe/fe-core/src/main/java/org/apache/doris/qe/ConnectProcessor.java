@@ -292,8 +292,8 @@ public class ConnectProcessor {
             }
         }
 
+        boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
-            boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
             String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
 
             ctx.getState().reset();
