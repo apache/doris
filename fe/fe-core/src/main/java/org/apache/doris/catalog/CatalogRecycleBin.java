@@ -847,7 +847,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     tableIds.add(entry.getKey());
                 }
                 dbInfo.setTableIds(tableIds);
-                idToDatabase.put(dbEntry.getKey(), dbInfo);
             }
         }
     }
