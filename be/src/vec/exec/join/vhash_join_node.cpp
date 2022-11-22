@@ -358,7 +358,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_expr_call_timer = ADD_TIMER(build_phase_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(build_phase_profile, "BuildTableExpanseTime");
     _build_table_convert_timer =
-            ADD_TIMER(build_phase_profile, "BuildTableConvertToPartitioedTime");
+            ADD_TIMER(build_phase_profile, "BuildTableConvertToPartitionedTime");
     _build_rows_counter = ADD_COUNTER(build_phase_profile, "BuildRows", TUnit::UNIT);
     _build_side_compute_hash_timer = ADD_TIMER(build_phase_profile, "BuildSideHashComputingTime");
 

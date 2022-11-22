@@ -449,7 +449,9 @@ protected:
     // > 0: enable convert dynamically
     // 0: convert is disabled
     int _partitioned_threshold = 0;
-    // if bucket count >= _partitioned_threshold, this flag is set to true
+    // if need resize and bucket count after resize will be >= _partitioned_threshold,
+    // this flag is set to true, and resize does not actually happen,
+    // PartitionedHashTable will convert this hash table to partitioned hash table
     bool _need_partition = false;
 
     //factor that will trigger growing the hash table on insert.
