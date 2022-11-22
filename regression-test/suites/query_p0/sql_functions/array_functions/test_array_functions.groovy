@@ -136,8 +136,8 @@ suite("test_array_functions") {
                   "storage_format" = "V2"
                   );
         """
-    sql """ insert into ${tableName3} values (10005,'四年级三班',[10005,null,null]) """
-    sql """ insert into ${tableName3} values (10006,'六年级一班',[60002,60002,60003,null,60005]) """
+    sql """ insert into ${tableName3} values (10005,'grade four',[10005,null,null]) """
+    sql """ insert into ${tableName3} values (10006,'grade six',[60002,60002,60003,null,60005]) """
     
     qt_select_union "select class_id, student_ids, array_union(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
     qt_select_except "select class_id, student_ids, array_except(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
