@@ -782,7 +782,7 @@ suite("test_jdbc_query_mysql", "p0") {
         sql """ create view if not exists aview as select k7, k8 from $jdbcMysql57Table1; """
         order_qt_sql39 """ SELECT * FROM aview a JOIN aview b on a.k8 = b.k8 order by a.k8 desc limit 5 """
         order_qt_sql42 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l JOIN ${exMysqlTable} o ON l.k8 = o.id """
-        order_qt_sql43 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l LEFT JOIN ${exMysqlTable} o ON l.k8 = o.id"""
+        order_qt_sql43 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l LEFT JOIN ${exMysqlTable} o ON l.k8 = o.id order by k8 limit 5"""
         order_qt_sql44 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l RIGHT JOIN ${exMysqlTable} o ON l.k8 = o.id"""
         order_qt_sql45 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l JOIN 
                             (SELECT id, COUNT(*) FROM ${exMysqlTable} WHERE id > 111 GROUP BY id ORDER BY id) o ON l.k8 = o.id """
@@ -827,7 +827,8 @@ suite("test_jdbc_query_mysql", "p0") {
         order_qt_sql65 """ SELECT t.c FROM (SELECT 1) as t1 CROSS JOIN (SELECT 0 AS c UNION ALL SELECT 1) t """
         order_qt_sql66 """ SELECT t.c FROM (SELECT 1) as a CROSS JOIN (SELECT 0 AS c UNION ALL SELECT 1) t """
         order_qt_sql67 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 LIMIT 5) a
-                            JOIN (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 LIMIT 5) b ON 123 = 123"""
+                            JOIN (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 LIMIT 5) b ON 123 = 123
+                            order by a.k8 desc limit 5"""
         sql  """ drop table if exists ${exMysqlTable1} """
         sql  """ 
                 CREATE EXTERNAL TABLE `${exMysqlTable1}` (
@@ -855,6 +856,7 @@ suite("test_jdbc_query_mysql", "p0") {
 
     }
 }
+
 
 
 
