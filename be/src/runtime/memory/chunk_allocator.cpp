@@ -153,7 +153,7 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 }
 
 Status ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
-    CHECK((size > 0);
+    CHECK(size > 0);
     size = BitUtil::RoundUpToPowerOfTwo(size);
     // fast path: allocate from current core arena
     int core_id = CpuInfo::get_current_core();
