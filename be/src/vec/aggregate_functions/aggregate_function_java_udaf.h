@@ -72,17 +72,20 @@ public:
         env->DeleteGlobalRef(executor_obj);
     }
 
-    Status init_udaf(const TFunction& fn, const string& local_location) {
+    Status init_udaf(const TFunction& fn) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf init_udaf function");
         RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, UDAF_EXECUTOR_CLASS, &executor_cl));
         RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
                                        "Java-Udaf register_func_id function");
-
         // Add a scoped cleanup jni reference object. This cleans up local refs made below.
         JniLocalFrame jni_frame;
         {
             TJavaUdfExecutorCtorParams ctor_params;
+            std::string local_location;
+            auto function_cache = UserFunctionCache::instance();
+            RETURN_IF_ERROR(function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum,
+                                                        &local_location));
             ctor_params.__set_fn(fn);
             ctor_params.__set_location(local_location);
             ctor_params.__set_input_offsets_ptrs((int64_t)input_offsets_ptrs.get());
@@ -313,14 +316,14 @@ public:
     //So need to check as soon as possible, before call Data function
     Status check_udaf(const TFunction& fn) {
         auto function_cache = UserFunctionCache::instance();
-        return function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum, &_local_location);
+        return function_cache->check_jar(fn.id, fn.hdfs_location, fn.checksum);
     }
 
     void create(AggregateDataPtr __restrict place) const override {
         if (_first_created) {
             new (place) Data(argument_types.size());
             Status status = Status::OK();
-            RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn, _local_location));
+            RETURN_IF_STATUS_ERROR(status, this->data(place).init_udaf(_fn));
             _first_created = false;
             _exec_place = place;
         }
@@ -338,14 +341,14 @@ public:
 
     DataTypePtr get_return_type() const override { return _return_type; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict /*place*/, const IColumn** /*columns*/, size_t /*row_num*/,
              Arena*) const override {
         LOG(WARNING) << " shouldn't going add function, there maybe some error about function "
                      << _fn.name.function_name;
     }
 
-    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t /*place_offset*/,
+                   const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
         int64_t places_address[batch_size];
         for (size_t i = 0; i < batch_size; ++i) {
             places_address[i] = reinterpret_cast<int64_t>(places[i]);
@@ -356,14 +359,14 @@ public:
     // TODO: Here we calling method by jni, And if we get a thrown from FE,
     // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena* /*arena*/) const override {
         int64_t places_address[1];
         places_address[0] = reinterpret_cast<int64_t>(place);
         this->data(_exec_place).add(places_address, true, columns, 0, batch_size, argument_types);
     }
 
     // TODO: reset function should be implement also in struct data
-    void reset(AggregateDataPtr place) const override {
+    void reset(AggregateDataPtr /*place*/) const override {
         LOG(WARNING) << " shouldn't going reset function, there maybe some error about function "
                      << _fn.name.function_name;
     }
@@ -396,7 +399,6 @@ public:
 private:
     TFunction _fn;
     DataTypePtr _return_type;
-    std::string _local_location;
     mutable bool _first_created;
     mutable AggregateDataPtr _exec_place;
 };
