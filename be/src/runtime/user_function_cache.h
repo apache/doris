@@ -70,6 +70,7 @@ public:
     Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
                        std::string* libpath);
     Status check_jar(int64_t fid, const std::string& url, const std::string& checksum);
+
 private:
     Status _load_cached_lib();
     Status _load_entry_from_lib(const std::string& dir, const std::string& file);

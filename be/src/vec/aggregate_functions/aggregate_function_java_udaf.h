@@ -78,14 +78,15 @@ public:
         RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, UDAF_EXECUTOR_CLASS, &executor_cl));
         RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
                                        "Java-Udaf register_func_id function");
+
         // Add a scoped cleanup jni reference object. This cleans up local refs made below.
         JniLocalFrame jni_frame;
         {
-            TJavaUdfExecutorCtorParams ctor_params;
             std::string local_location;
             auto function_cache = UserFunctionCache::instance();
             RETURN_IF_ERROR(function_cache->get_jarpath(fn.id, fn.hdfs_location, fn.checksum,
                                                         &local_location));
+            TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn);
             ctor_params.__set_location(local_location);
             ctor_params.__set_input_offsets_ptrs((int64_t)input_offsets_ptrs.get());
