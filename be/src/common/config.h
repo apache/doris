@@ -58,8 +58,16 @@ CONF_String(memory_mode, "performance");
 // it will be set to physical memory size.
 CONF_String(mem_limit, "80%");
 
-// the port heartbeat service used
-CONF_Int32(heartbeat_service_port, "9050");
+CONF_mString(process_full_gc_size, "20%")
+
+        CONF_mInt32(thread_wait_gc_max_milliseconds, "5000")
+
+        // default 1.6G, avoid wasting too much memory on machines with large memory larger than 16G.
+        //
+        CONF_mInt32(sys_mem_available_low_water_mark, "1717986918")
+
+        // the port heartbeat service used
+        CONF_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
 CONF_Int32(heartbeat_service_thread_count, "1");
 // the count of thread to create table

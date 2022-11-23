@@ -34,6 +34,7 @@
 
 #include "common/config.h"
 #include "gutil/strings/split.h"
+#include "olap/page_cache.h"
 #include "util/cgroup_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -55,6 +56,8 @@ static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 int64_t MemInfo::_s_sys_mem_available = 0;
 std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = 0;
+int64_t MemInfo::_s_sys_mem_available_warning_water_mark = 0;
+int64_t MemInfo::_s_process_full_gc_size = -1;
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -80,6 +83,24 @@ void MemInfo::refresh_allocator_mem() {
     _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
                              get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
 #endif
+}
+
+void MemInfo::process_minor_gc() {
+    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    ChunkAllocator::instance()->clear();
+    // TODO, free more cache etc.
+}
+
+void MemInfo::process_full_gc() {
+    int64_t prepare_free_mem = _s_process_full_gc_size;
+    prepare_free_mem -=
+            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
+    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    if (prepare_free_mem <= 0) return;
+    prepare_free_mem -= ChunkAllocator::instance()->mem_consumption();
+    ChunkAllocator::instance()->clear();
+    if (prepare_free_mem <= 0) return;
+    MemTrackerLimiter::free_top_query(prepare_free_mem);
 }
 
 #ifndef __APPLE__
@@ -109,11 +130,6 @@ void MemInfo::refresh_proc_meminfo() {
 
     _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
     _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
-
-    LOG_EVERY_N(INFO, 10) << fmt::format(
-            "Physical Memory: {}, Sys Mem Available {}, Tc/Jemalloc Allocator Cache {}",
-            PrettyPrinter::print(_mem_info_bytes["MemTotal"], TUnit::BYTES),
-            _s_sys_mem_available_str, MemInfo::allocator_cache_mem_str());
 }
 
 void MemInfo::init() {
@@ -144,6 +160,9 @@ void MemInfo::init() {
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
 
+    _s_process_full_gc_size =
+            ParseUtil::parse_mem_spec(config::process_full_gc_size, -1, _s_mem_limit, &is_percent);
+
     std::string line;
     int64_t _s_vm_min_free_kbytes = 0;
     std::ifstream vminfo("/proc/sys/vm/min_free_kbytes", std::ios::in);
@@ -166,13 +185,15 @@ void MemInfo::init() {
     // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
     //
     // available_low_water_mark = p1 - p2
-    // p1: max 3.2G, avoid wasting too much memory on machines with large memory larger than 32G.
+    // p1: upper sys_mem_available_low_water_mark, avoid wasting too much memory.
     // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
     //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
     int64_t p1 = std::min<int64_t>(
-            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1), 3435973836L);
+            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
+            config::sys_mem_available_low_water_mark);
     int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
     _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
+    _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1 * 2;
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str

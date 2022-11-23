@@ -17,6 +17,9 @@
 
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 
+#include <chrono>
+#include <thread>
+
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "service/backend_options.h"
@@ -31,6 +34,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
     _fragment_instance_id = fragment_instance_id;
     _limiter_tracker = mem_tracker;
     _limiter_tracker_raw = mem_tracker.get();
+    _check_limit = true;
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
@@ -41,22 +45,30 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
     _limiter_tracker_raw = old_mem_tracker.get();
 }
 
-void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
-    if (_fragment_instance_id != TUniqueId()) {
-        ExecEnv::GetInstance()->fragment_mgr()->cancel(
-                _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                cancel_details);
-    }
+void ThreadMemTrackerMgr::cancel_fragment() {
+    ExecEnv::GetInstance()->fragment_mgr()->cancel(_fragment_instance_id,
+                                                   PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
+                                                   _exceed_mem_limit_msg);
+    _check_limit = false; // Make sure it will only be canceled once
 }
 
-void ThreadMemTrackerMgr::exceeded() {
+void ThreadMemTrackerMgr::exceeded(int64_t size) {
     if (_cb_func != nullptr) {
         _cb_func();
     }
+
+    _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
     if (is_attach_query()) {
-        exceeded_cancel_task(_exceed_mem_limit_msg);
+        if (_is_process_exceed) {
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::thread_wait_gc_max_milliseconds));
+            if (MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
+                cancel_fragment();
+            }
+        } else {
+            cancel_fragment();
+        }
     }
-    _check_limit = false; // Make sure it will only be canceled once
 }
 
 } // namespace doris

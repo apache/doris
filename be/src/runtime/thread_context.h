@@ -205,6 +205,7 @@ static void pthread_attach_bthread() {
         // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
         // So tracker call reset 0 like reuses btls.
         bthread_context = new ThreadContext;
+        bthread_context->thread_mem_tracker_mgr->set_check_limit(false);
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
     }
@@ -345,19 +346,19 @@ private:
     } while (0)
 // NOTE, The LOG cannot be printed in the mem hook. If the LOG statement triggers the mem hook LOG,
 // the nested LOG may cause an unknown crash.
-#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                            \
-    do {                                                                                   \
-        if (doris::thread_context_ptr.init) {                                              \
-            if (doris::enable_thread_cache_bad_alloc) {                                    \
-                if (!doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)) { \
-                    return fail_ret;                                                       \
-                }                                                                          \
-            } else {                                                                       \
-                doris::thread_context()->thread_mem_tracker_mgr->consume(size);            \
-            }                                                                              \
-        } else {                                                                           \
-            doris::ThreadMemTrackerMgr::consume_no_attach(size);                           \
-        }                                                                                  \
+#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                        \
+    do {                                                                               \
+        if (doris::thread_context_ptr.init) {                                          \
+            if (doris::enable_thread_cache_bad_alloc) {                                \
+                if (!doris::thread_context()->thread_mem_tracker_mgr->consume(size)) { \
+                    return fail_ret;                                                   \
+                }                                                                      \
+            } else {                                                                   \
+                doris::thread_context()->thread_mem_tracker_mgr->consume(size);        \
+            }                                                                          \
+        } else {                                                                       \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);                       \
+        }                                                                              \
     } while (0)
 #define RELEASE_MEM_TRACKER(size)                                            \
     do {                                                                     \

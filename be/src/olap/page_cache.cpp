@@ -76,4 +76,9 @@ void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheH
     *handle = PageCacheHandle(cache, lru_handle);
 }
 
+void StoragePageCache::prune(segment_v2::PageTypePB page_type) {
+    auto cache = _get_page_cache(page_type);
+    cache->prune();
+}
+
 } // namespace doris
