@@ -131,7 +131,7 @@ public class StoragePolicy extends Policy {
      * @param cooldownTtl cool down time cost after partition is created
      * @param cooldownTtlMs seconds for cooldownTtl
      */
-    private StoragePolicy(long policyId, final String policyName, final String storageResource,
+    public StoragePolicy(long policyId, final String policyName, final String storageResource,
             final long cooldownTimestampMs, final String cooldownTtl, long cooldownTtlMs) {
         super(policyId, PolicyTypeEnum.STORAGE, policyName);
         this.storageResource = storageResource;
