@@ -89,7 +89,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         LOG(WARNING) << "fail to get master client from cache. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
-                     << ", code=" << client_status.code();
+                     << ", code=" << client_status;
         return Status::InternalError("Fail to get master client from cache");
     }
 

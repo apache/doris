@@ -39,6 +39,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
 
+. "${DORIS_HOME}/env.sh"
+
 # Check args
 usage() {
     echo "
@@ -71,8 +73,6 @@ if ! OPTS="$(getopt -n "$0" -o vhj:f: -l benchmark,run,clean,filter: -- "$@")"; 
 fi
 
 eval set -- "${OPTS}"
-
-PARALLEL="$(($(nproc) / 5 + 1))"
 
 CLEAN=0
 RUN=0
@@ -113,6 +113,10 @@ if [[ "$#" != 1 ]]; then
     done
 fi
 
+if [[ -z "${PARALLEL}" ]]; then
+    PARALLEL="$(($(nproc) / 5 + 1))"
+fi
+
 CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
 CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
@@ -121,8 +125,6 @@ echo "Get params:
     CLEAN               -- ${CLEAN}
 "
 echo "Build Backend UT"
-
-. "${DORIS_HOME}/env.sh"
 
 CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
 if [[ "${CLEAN}" -eq 1 ]]; then

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -98,7 +99,7 @@ public class StatisticsTableCleaner extends MasterDaemon {
 
     private void deleteExpired(String colName, List<String> constants) {
         // TODO: must promise count of children of predicate is less than the FE limits.
-        String deleteTemplate = "DELETE FROM " + StatisticConstants.STATISTIC_DB_NAME
+        String deleteTemplate = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
                 + "." + StatisticConstants.STATISTIC_TBL_NAME + "WHERE ${colName} NOT IN ${predicate}";
         StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
         constants.forEach(predicateBuilder::add);
