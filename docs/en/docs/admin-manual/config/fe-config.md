@@ -2336,3 +2336,14 @@ Is it possible to dynamically configure: false
 
 Is it a configuration item unique to the Master FE node: false
 
+### `max_same_name_catalog_trash_num`
+
+It is used to set the maximum number of meta information with the same name in the catalog recycle bin. When the maximum value is exceeded, the earliest deleted meta trash will be completely deleted and cannot be recovered.
+
+Note: The judgment of metadata with the same name will be limited to a certain range. For example, the judgment of the database with the same name will be limited to the same cluster, the judgment of the table with the same name will be limited to the same database (with the same database id), the judgment of the partition with the same name will be limited to the same database (with the same database id) and the same table (with the same table) same table id).
+
+Default: 3
+
+Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: true
