@@ -19,6 +19,8 @@ name: BE UT (macOS)
 
 on:
   pull_request:
+  schedule:
+    - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
 
 concurrency:
   group: ${{ github.ref }} (BE UT macOS)
