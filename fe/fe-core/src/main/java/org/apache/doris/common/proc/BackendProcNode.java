@@ -33,7 +33,7 @@ import java.util.Map;
 public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
-            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash")
+            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash").add("StorageMedium")
             .build();
 
     private Backend backend;
@@ -84,6 +84,7 @@ public class BackendProcNode implements ProcNodeInterface {
 
             info.add(entry.getValue().getState().name());
             info.add(String.valueOf(entry.getValue().getPathHash()));
+            info.add(entry.getValue().getStorageMedium().toString());
 
             result.addRow(info);
         }
