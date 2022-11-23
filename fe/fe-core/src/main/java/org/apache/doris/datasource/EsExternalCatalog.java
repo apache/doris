@@ -151,7 +151,15 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        return esRestClient.listTable();
+        makeSureInitialized();
+        EsExternalDatabase db = (EsExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (db != null && db.isInitialized()) {
+            List<String> names = Lists.newArrayList();
+            db.getTables().stream().forEach(table -> names.add(table.getName()));
+            return names;
+        } else {
+            return esRestClient.listTable();
+        }
     }
 
     @Nullable
@@ -179,9 +187,11 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     @Override
     public List<Long> getDbIds() {
+        makeSureInitialized();
         return Lists.newArrayList(dbNameToId.values());
     }
 
+    @Override
     public ExternalDatabase getDbForReplay(long dbId) {
         return idToDb.get(dbId);
     }

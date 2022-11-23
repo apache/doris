@@ -153,6 +153,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return Lists.newArrayList(dbNameToId.values());
     }
 
+    @Override
     public ExternalDatabase getDbForReplay(long dbId) {
         return idToDb.get(dbId);
     }
