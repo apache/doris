@@ -1694,7 +1694,7 @@ Status Tablet::cooldown() {
         // When be is restart, maybe cooldown_type is invalid, waiting until tabletReport and
         // cooldown_type is sent from fe.
         if (GetCurrentTimeMicros() / 1000000 - doris::ExecEnv::GetInstance()->be_start_time_sec() >
-                doris::config::cooldown_safe_time_sec) {
+            doris::config::cooldown_safe_time_sec) {
             return _cooldown_upload_data();
         }
     }
@@ -1741,7 +1741,7 @@ Status Tablet::_cooldown_upload_data() {
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
 
-    new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas())
+    new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
     // upload rowset_meta to remote fs.
     RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, tablet_id(), remote_tablet_meta_pb));
 

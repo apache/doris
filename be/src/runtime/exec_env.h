@@ -190,9 +190,8 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
 
-    int64_t be_start_time_sec() {
-        return _be_start_time_sec;
-    }
+    int64_t be_start_time_sec() { return _be_start_time_sec; }
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();

@@ -1714,7 +1714,7 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TPushCooldownConfReq push_cooldown_conf_req;
         {
-            std::unique_lock <std::mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
                 _worker_thread_condition_variable.wait(worker_thread_lock);
             }
@@ -1727,8 +1727,8 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             _tasks.pop_front();
         }
         int64_t tablet_id = push_cooldown_conf_req.tablet_id;
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id,
-                                                                                         true, &err);
+        TabletSharedPtr tablet =
+                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
         if (tablet.get() == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet. tablet_id=" << tablet_id << ", reason=" << err;
