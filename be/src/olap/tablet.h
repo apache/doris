@@ -393,7 +393,11 @@ private:
     Status _cooldown_use_remote_data();
     int64_t _max_remote_tablet_version(const TabletMetaPB& remote_tablet_meta_pb);
     Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
+    Status _read_remote_tablet_meta(io::FileReaderSPtr tablet_meta_reader,
+                                    TabletMetaPB* tablet_meta_pb);
     Status _write_remote_tablet_meta(io::FileSystemSPtr fs, int64_t tablet_id,
+                                     const TabletMetaPB& tablet_meta_pb);
+    Status _write_remote_tablet_meta(io::FileWriterPtr tablet_meta_writer,
                                      const TabletMetaPB& tablet_meta_pb);
 
 public:

@@ -38,6 +38,7 @@ namespace doris {
 using io::FileCacheManager;
 
 static const string REMOTE_TABLET_META_NAME = "REMOTE_TABLET_META";
+static const string REMOTE_TABLET_META_BAK_NAME = "REMOTE_TABLET_META_BAK";
 
 std::string BetaRowset::segment_file_path(int segment_id) {
 #ifdef BE_TEST
@@ -67,6 +68,11 @@ std::string BetaRowset::remote_tablet_path(int64_t tablet_id) {
 std::string BetaRowset::remote_tablet_meta_path(int64_t tablet_id) {
     // data/{tablet_id}/{REMOTE_TABLET_META_NAME}
     return fmt::format("{}/{}", remote_tablet_path(tablet_id), REMOTE_TABLET_META_NAME);
+}
+
+std::string BetaRowset::remote_tablet_meta_bak_path(int64_t tablet_id) {
+    // data/{tablet_id}/{REMOTE_TABLET_META_BAK_NAME}
+    return fmt::format("{}/{}", remote_tablet_path(tablet_id), REMOTE_TABLET_META_BAK_NAME);
 }
 
 std::string BetaRowset::remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
