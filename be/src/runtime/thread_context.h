@@ -205,6 +205,7 @@ static void pthread_attach_bthread() {
         // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
         // So tracker call reset 0 like reuses btls.
         bthread_context = new ThreadContext;
+        bthread_context->thread_mem_tracker_mgr->set_check_limit(false);
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
     }

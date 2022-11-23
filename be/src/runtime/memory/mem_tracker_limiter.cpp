@@ -20,8 +20,10 @@
 #include <fmt/format.h>
 
 #include <boost/stacktrace.hpp>
+#include <queue>
 
 #include "gutil/once.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/pretty_printer.h"
@@ -240,42 +242,73 @@ Status MemTrackerLimiter::fragment_mem_limit_exceeded(RuntimeState* state, const
     return Status::MemoryLimitExceeded(failed_msg);
 }
 
-// TODO(zxy) More observable methods
-// /// Logs the usage of 'limit' number of queries based on maximum total memory
-// /// consumption.
-// std::string MemTracker::LogTopNQueries(int limit) {
-//     if (limit == 0) return "";
-//     priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
-//                    std::greater<pair<int64_t, string>>>
-//             min_pq;
-//     GetTopNQueries(min_pq, limit);
-//     std::vector<string> usage_strings(min_pq.size());
-//     while (!min_pq.empty()) {
-//         usage_strings.push_back(min_pq.top().second);
-//         min_pq.pop();
-//     }
-//     std::reverse(usage_strings.begin(), usage_strings.end());
-//     return join(usage_strings, "\n");
-// }
+// Logs the usage of 'limit' number of queries based on maximum total memory consumption.
+// Helper function for LogTopNQueries that iterates through the MemTracker hierarchy
+// and populates 'min_pq' with 'limit' number of elements (that contain state related
+// to query MemTrackers) based on maximum total memory consumption.
+void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
+    std::priority_queue<std::pair<int64_t, std::string>,
+                        std::vector<std::pair<int64_t, std::string>>,
+                        std::greater<std::pair<int64_t, std::string>>>
+            min_pq;
+    int64_t prepare_free_mem = 0;
 
-// /// Helper function for LogTopNQueries that iterates through the MemTracker hierarchy
-// /// and populates 'min_pq' with 'limit' number of elements (that contain state related
-// /// to query MemTrackers) based on maximum total memory consumption.
-// void MemTracker::GetTopNQueries(
-//         priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
-//                        greater<pair<int64_t, string>>>& min_pq,
-//         int limit) {
-//     list<weak_ptr<MemTracker>> children;
-//     {
-//         lock_guard<SpinLock> l(child_trackers_lock_);
-//         children = child_trackers_;
-//     }
-//     for (const auto& child_weak : children) {
-//         shared_ptr<MemTracker> child = child_weak.lock();
-//         if (child) {
-//             child->GetTopNQueries(min_pq, limit);
-//         }
-//     }
-// }
+    auto label_to_queryid = [&](const std::string& label) -> TUniqueId {
+        auto queryid = split(label, "#Id=")[1];
+        TUniqueId querytid;
+        parse_id(queryid, &querytid);
+        return querytid;
+    };
+
+    Defer defer {[&]() {
+        std::vector<std::string> usage_strings;
+        bool had_cancel = false;
+        while (!min_pq.empty()) {
+            TUniqueId cancelled_queryid = label_to_queryid(min_pq.top().second);
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                    cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
+                    fmt::format("Process has no memory available, cancel top memory usage query: "
+                                "query memory tracker <{}> consumption {}, backend {} "
+                                "process memory used {} exceed limit {} or sys mem available {} "
+                                "less than low water mark {}. Execute again after enough memory, "
+                                "details see be.INFO.",
+                                min_pq.top().second, print_bytes(min_pq.top().first),
+                                BackendOptions::get_localhost(), PerfCounters::get_vm_rss_str(),
+                                MemInfo::mem_limit_str(), MemInfo::sys_mem_available_str(),
+                                print_bytes(MemInfo::sys_mem_available_low_water_mark())));
+
+            usage_strings.push_back(
+                    fmt::format("{} memory usage {}B", min_pq.top().second, min_pq.top().first));
+            had_cancel = true;
+            min_pq.pop();
+        }
+        if (had_cancel) LOG(INFO) << "Free Top Memory Usage Query: " << join(usage_strings, ",");
+    }};
+
+    for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
+        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
+        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
+            if (tracker->type() == Type::QUERY) {
+                if (tracker->consumption() > min_free_mem) {
+                    std::priority_queue<std::pair<int64_t, std::string>,
+                                        std::vector<std::pair<int64_t, std::string>>,
+                                        std::greater<std::pair<int64_t, std::string>>>
+                            min_pq_null;
+                    std::swap(min_pq, min_pq_null);
+                    min_pq.push(
+                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    return;
+                } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
+                    min_pq.push(
+                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                } else if (tracker->consumption() > min_pq.top().first) {
+                    min_pq.push(
+                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    min_pq.pop();
+                }
+            }
+        }
+    }
+}
 
 } // namespace doris

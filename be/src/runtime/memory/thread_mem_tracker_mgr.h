@@ -119,7 +119,7 @@ public:
 
 private:
     void cancel_fragment();
-    void exceeded();
+    void exceeded(int64_t size);
 
     void save_exceed_mem_limit_msg() {
         _exceed_mem_limit_msg = _limiter_tracker_raw->mem_limit_exceeded(
@@ -137,6 +137,7 @@ private:
     int64_t _scope_mem = 0;
 
     std::string _failed_consume_msg = std::string();
+    bool _is_process_exceed = false;
     std::string _exceed_mem_limit_msg = std::string();
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
@@ -216,10 +217,11 @@ inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
     old_untracked_mem = _untracked_mem;
     if (_count_scope_mem) _scope_mem += _untracked_mem;
     if (CheckLimit) {
-        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, _failed_consume_msg)) {
+        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, _failed_consume_msg,
+                                               _is_process_exceed)) {
             if (Force) _limiter_tracker_raw->consume(old_untracked_mem);
             save_exceed_mem_limit_msg();
-            exceeded();
+            exceeded(old_untracked_mem);
             if (!Force) return false;
         }
     } else {

@@ -68,6 +68,10 @@ CONF_Double(soft_mem_limit_frac, "0.9");
 // Turn down max. will use as much memory as possible.
 CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 
+CONF_mString(process_full_gc_size, "20%");
+
+CONF_mInt32(thread_wait_gc_max_milliseconds, "5000")
+
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service

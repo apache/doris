@@ -99,6 +99,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
+    // The brpc server should respond as quickly as possible, turn off check memory limit.
+    STOP_CHECK_THREAD_MEM_TRACKER_LIMIT();
     _runtime_state->init_scanner_mem_trackers();
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
@@ -276,6 +278,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         SCOPED_CPU_TIMER(_fragment_cpu_timer);
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
+        RETURN_IF_CANCELLED(_runtime_state);
     }
     if (_sink == nullptr) {
         return Status::OK();
@@ -289,6 +292,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
         while (true) {
             doris::vectorized::Block* block;
+            RETURN_IF_CANCELLED(_runtime_state);
 
             {
                 SCOPED_CPU_TIMER(_fragment_cpu_timer);

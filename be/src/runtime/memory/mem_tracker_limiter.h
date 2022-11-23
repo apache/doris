@@ -145,6 +145,9 @@ public:
     Status fragment_mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                                        int64_t failed_allocation_size = 0);
 
+    //
+    static void free_top_query(int64_t min_free_mem);
+    
     static std::string process_mem_log_str() {
         return fmt::format(
                 "physical memory {}, process memory used {} limit {}, sys mem available {} low "
@@ -170,7 +173,7 @@ private:
     // Increases consumption of this tracker by 'bytes' only if will not exceeding limit.
     // Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
-    bool try_consume(int64_t bytes, std::string& failed_msg);
+    bool try_consume(int64_t bytes, std::string& failed_msg, bool& is_process_exceed);
 
     // When the accumulated untracked memory value exceeds the upper limit,
     // the current value is returned and set to 0.
@@ -233,7 +236,8 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
     consume(consume_bytes);
 }
 
-inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_msg) {
+inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_msg,
+                                           bool& is_process_exceed) {
     if (bytes <= 0) {
         release(-bytes);
         failed_msg = std::string();
@@ -246,6 +250,7 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
 
     if (sys_mem_exceed_limit_check(bytes)) {
         failed_msg = process_limit_exceeded_errmsg_str(bytes);
+        is_process_exceed = true;
         return false;
     }
 
@@ -254,6 +259,7 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
     } else {
         if (!_consumption->try_add(bytes, _limit)) {
             failed_msg = tracker_limit_exceeded_errmsg_str(bytes, this);
+            is_process_exceed = false;
             return false;
         }
     }
