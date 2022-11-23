@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -224,6 +225,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             case ES:
                 for (int i = 0; i < log.getCreateCount(); i++) {
                     EsExternalDatabase db = new EsExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
+            case JDBC:
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    JdbcExternalDatabase db = new JdbcExternalDatabase(
                             this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
                     tmpDbNameToId.put(db.getFullName(), db.getId());
                     tmpIdToDb.put(db.getId(), db);
