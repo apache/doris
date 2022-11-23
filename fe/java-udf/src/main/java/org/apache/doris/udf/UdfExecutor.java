@@ -23,7 +23,6 @@ import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 import org.apache.doris.udf.UdfUtils.JavaUdfDataType;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -449,10 +448,17 @@ public class UdfExecutor {
         ArrayList<String> signatures = Lists.newArrayList();
         try {
             LOG.debug("Loading UDF '" + udfPath + "' from " + jarPath);
-            Preconditions.checkArgument(jarPath != null);
-            ClassLoader parent = getClass().getClassLoader();
-            classLoader = UdfUtils.getClassLoader(jarPath, parent);
-            Class<?> c = Class.forName(udfPath, true, classLoader);
+            ClassLoader loader;
+            if (jarPath != null) {
+                // Save for cleanup.
+                ClassLoader parent = getClass().getClassLoader();
+                classLoader = UdfUtils.getClassLoader(jarPath, parent);
+                loader = classLoader;
+            } else {
+                // for test
+                loader = ClassLoader.getSystemClassLoader();
+            }
+            Class<?> c = Class.forName(udfPath, true, loader);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getMethods();
