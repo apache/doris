@@ -582,7 +582,9 @@
                                 "sql-manual/sql-functions/math-functions/positive",
                                 "sql-manual/sql-functions/math-functions/negative",
                                 "sql-manual/sql-functions/math-functions/greatest",
-                                "sql-manual/sql-functions/math-functions/least"
+                                "sql-manual/sql-functions/math-functions/least",
+                                "sql-manual/sql-functions/math-functions/random",
+                                "sql-manual/sql-functions/math-functions/mod"
                             ]
                         },
                         {
