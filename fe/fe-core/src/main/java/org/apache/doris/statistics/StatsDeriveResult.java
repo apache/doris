@@ -31,6 +31,7 @@ import java.util.Set;
  */
 public class StatsDeriveResult {
     private final double rowCount;
+    private double computeSize = -1D;
 
     private int width = 1;
     private double penalty = 0.0;
@@ -40,13 +41,33 @@ public class StatsDeriveResult {
     //TODO: isReduced to be removed after remove StatsCalculatorV1
     public boolean isReduced = false;
 
-    public StatsDeriveResult(double rowCount, Map<Id, ColumnStatistic> slotIdToColumnStats) {
+    public StatsDeriveResult(double rowCount, int width, double penalty,
+            Map<Id, ColumnStatistic> slotIdToColumnStats) {
         this.rowCount = rowCount;
+        this.width = width;
+        this.penalty = penalty;
         this.slotIdToColumnStats = slotIdToColumnStats;
+    }
+
+    public StatsDeriveResult(double rowCount,
+            Map<Id, ColumnStatistic> slotIdToColumnStats) {
+        this.rowCount = rowCount;
+        this.width = 1;
+        this.penalty = 0;
+        this.slotIdToColumnStats = slotIdToColumnStats;
+    }
+
+    public StatsDeriveResult(double rowCount, int width, double penalty) {
+        this.rowCount = rowCount;
+        this.width = width;
+        this.penalty = penalty;
+        slotIdToColumnStats = new HashMap<>();
     }
 
     public StatsDeriveResult(double rowCount) {
         this.rowCount = rowCount;
+        this.width = 1;
+        this.penalty = 0;
         slotIdToColumnStats = new HashMap<>();
     }
 
@@ -59,8 +80,12 @@ public class StatsDeriveResult {
     }
 
     public double computeSize() {
-        return Math.max(1, slotIdToColumnStats.values().stream().map(s -> s.dataSize).reduce(0D, Double::sum))
-                * rowCount;
+        if (computeSize < 0) {
+            computeSize = Math.max(1, slotIdToColumnStats.values().stream()
+                    .map(s -> s.dataSize).reduce(0D, Double::sum)
+            ) * rowCount;
+        }
+        return computeSize;
     }
 
     /**
@@ -94,7 +119,7 @@ public class StatsDeriveResult {
     }
 
     public StatsDeriveResult updateBySelectivity(double selectivity, Set<Id> exclude) {
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(rowCount * selectivity);
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(rowCount * selectivity, width, penalty);
         for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
             statsDeriveResult.addColumnStats(entry.getKey(),
                         entry.getValue().updateBySelectivity(selectivity, rowCount));
@@ -107,7 +132,7 @@ public class StatsDeriveResult {
     }
 
     public StatsDeriveResult updateRowCountByLimit(long limit) {
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(limit);
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(limit, width, penalty);
         if (limit > 0 && rowCount > 0 && rowCount > limit) {
             double selectivity = ((double) limit) / rowCount;
             for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
@@ -147,7 +172,7 @@ public class StatsDeriveResult {
     }
 
     public StatsDeriveResult updateRowCountOnCopy(double selectivity) {
-        StatsDeriveResult copy = new StatsDeriveResult(rowCount * selectivity);
+        StatsDeriveResult copy = new StatsDeriveResult(rowCount * selectivity, width, penalty);
         for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
             copy.addColumnStats(entry.getKey(), entry.getValue().multiply(selectivity));
         }
@@ -155,7 +180,7 @@ public class StatsDeriveResult {
     }
 
     public StatsDeriveResult updateRowCount(double rowCount) {
-        return new StatsDeriveResult(rowCount, slotIdToColumnStats);
+        return new StatsDeriveResult(rowCount, width, penalty, slotIdToColumnStats);
     }
 
     public StatsDeriveResult addColumnStats(Id id, ColumnStatistic stats) {

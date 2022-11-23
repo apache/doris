@@ -43,10 +43,6 @@ public class GraphSimplifierTest {
         graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
-        for (Node node : hyperGraph.getNodes()) {
-            System.out.println(
-                    String.format("node %d has simple neighborhood %s", node.getIndex(), node.getSimpleNeighborhood()));
-        }
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
@@ -144,17 +140,38 @@ public class GraphSimplifierTest {
     }
 
     @Test
-    void testRandomQuery() {
-        HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(10, 30);
-        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
-        while (graphSimplifier.applySimplificationStep()) {
+    void testTime() {
+        int tableNum = 20;
+        int edgeNum = 40;
+        double totalTime = 0;
+        int times = 1;
+        for (int i = 0; i < times; i++) {
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
+            double now = System.currentTimeMillis();
+            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+            graphSimplifier.initFirstStep();
+            while (graphSimplifier.applySimplificationStep()) {
+            }
+            totalTime += System.currentTimeMillis() - now;
         }
-        Counter counter = new Counter();
-        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
-        subgraphEnumerator.enumerate();
-        for (int count : counter.getAllCount().values()) {
-            Assertions.assertEquals(count, 1);
+        System.out.println(String.format("Simplify graph with %d nodes %d edges cost %f ms", tableNum, edgeNum,
+                totalTime / times));
+    }
+
+    @Test
+    void testRandomQuery() {
+        for (int i = 0; i < 10; i++) {
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(10, 40);
+            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+            graphSimplifier.initFirstStep();
+            while (graphSimplifier.applySimplificationStep()) {
+            }
+            Counter counter = new Counter();
+            SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+            subgraphEnumerator.enumerate();
+            for (int count : counter.getAllCount().values()) {
+                Assertions.assertEquals(count, 1);
+            }
         }
     }
 }

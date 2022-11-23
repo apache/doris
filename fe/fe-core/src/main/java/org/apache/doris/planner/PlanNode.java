@@ -235,6 +235,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return fragment.getFragmentId();
     }
 
+    public int getFragmentSeqenceNum() {
+        return fragment.getFragmentSequenceNum();
+    }
+
     public void setFragmentId(PlanFragmentId id) {
         fragmentId = id;
     }
@@ -887,7 +891,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     public String getPlanTreeExplainStr() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
-        sb.append("\n[Fragment: ").append(getFragmentId().asInt()).append("]");
+        sb.append("\n[Fragment: ").append(getFragmentSeqenceNum()).append("]");
         sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
         return sb.toString();
     }

@@ -38,8 +38,9 @@ jobs:
       - name: Ccache ${{ github.ref }}
         uses: ./.github/actions/ccache-action
         with:
-          key: BE UT Clang
+          key: BE-UT-Clang
           max-size: "2G"
+          restore-keys: BE-UT-Clang-
 
       - name: Paths filter
         uses: ./.github/actions/paths-filter
