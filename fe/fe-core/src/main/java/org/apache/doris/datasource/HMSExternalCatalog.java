@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.cluster.ClusterNamespace;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -30,7 +29,6 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Map;
@@ -127,24 +125,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return client.tableExists(getRealTableName(dbName), tblName);
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(String dbName) {
-        makeSureInitialized();
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
-        }
-        return idToDb.get(dbNameToId.get(realDbName));
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
-        return idToDb.get(dbId);
     }
 
     @Override

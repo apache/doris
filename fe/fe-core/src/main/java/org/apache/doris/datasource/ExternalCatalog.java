@@ -60,7 +60,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected String type;
     // save properties of this catalog, such as hive meta store url.
     @SerializedName(value = "catalogProperty")
-    protected CatalogProperty catalogProperty = new CatalogProperty();
+    protected CatalogProperty catalogProperty;
     @SerializedName(value = "initialized")
     private boolean initialized = false;
     @SerializedName(value = "idToDb")
@@ -162,13 +162,19 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
-        throw new NotImplementedException();
+        makeSureInitialized();
+        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
+        if (!dbNameToId.containsKey(realDbName)) {
+            return null;
+        }
+        return idToDb.get(dbNameToId.get(realDbName));
     }
 
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
-        throw new NotImplementedException();
+        makeSureInitialized();
+        return idToDb.get(dbId);
     }
 
     @Override

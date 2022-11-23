@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsUtil;
@@ -33,7 +32,6 @@ import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -160,24 +158,6 @@ public class EsExternalCatalog extends ExternalCatalog {
         } else {
             return esRestClient.listTable();
         }
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(String dbName) {
-        makeSureInitialized();
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
-        }
-        return idToDb.get(dbNameToId.get(realDbName));
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
-        return idToDb.get(dbId);
     }
 
     @Override
