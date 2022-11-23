@@ -176,6 +176,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (vJoinConjunct != null) {
             msg.nested_loop_join_node.setVjoinConjunct(vJoinConjunct.treeToThrift());
         }
+        msg.nested_loop_join_node.setIsMark(innerRef != null && innerRef.isMark());
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 // TODO: Enable it after we support new optimizers

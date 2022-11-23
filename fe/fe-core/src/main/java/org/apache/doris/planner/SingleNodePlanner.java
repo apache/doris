@@ -931,8 +931,7 @@ public class SingleNodePlanner {
      * subplan ref are materialized by a join node added during plan generation.
      */
     // (ML): change the function name
-    private PlanNode createJoinPlan(Analyzer analyzer,
-                                    TableRef leftmostRef, List<Pair<TableRef, PlanNode>> refPlans)
+    private PlanNode createJoinPlan(Analyzer analyzer, TableRef leftmostRef, List<Pair<TableRef, PlanNode>> refPlans)
             throws UserException {
         LOG.debug("Try to create a query plan starting with " + leftmostRef.getUniqueAlias());
 
@@ -2066,18 +2065,21 @@ public class SingleNodePlanner {
             ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
-        if (eqJoinConjuncts.isEmpty()) {
+        if (eqJoinConjuncts.isEmpty() || innerRef.isMark()) {
             NestedLoopJoinNode result =
                     new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
-            result.setJoinConjuncts(ojConjuncts);
+            List<Expr> joinConjuncts = Lists.newArrayList(eqJoinConjuncts);
+            joinConjuncts.addAll(ojConjuncts);
+            result.setJoinConjuncts(joinConjuncts);
+            result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
             result.init(analyzer);
             return result;
         }
 
-        HashJoinNode result =
-                new HashJoinNode(ctx.getNextNodeId(), outer, inner, innerRef, eqJoinConjuncts,
-                        ojConjuncts);
+        HashJoinNode result = new HashJoinNode(ctx.getNextNodeId(), outer, inner,
+                innerRef, eqJoinConjuncts, ojConjuncts);
         result.init(analyzer);
+        result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
         return result;
     }
 
