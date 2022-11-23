@@ -38,8 +38,9 @@ jobs:
       - name: Ccache ${{ github.ref }}
         uses: ./.github/actions/ccache-action
         with:
-          key: BE UT macOS
+          key: BE-UT-macOS
           max-size: "2G"
+          restore-keys: BE-UT-macOS-
 
       - name: Paths filter
         uses: ./.github/actions/paths-filter
