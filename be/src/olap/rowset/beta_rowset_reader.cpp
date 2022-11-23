@@ -154,12 +154,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             }
         }
     }
-    read_options.use_page_cache = read_context->use_page_cache;
-    read_options.tablet_schema = read_context->tablet_schema;
-    read_options.record_rowids = read_context->record_rowids;
-    read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
-    read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
-    read_options.io_ctx.reader_type = read_context->reader_type;
+    _read_options.use_page_cache = read_context->use_page_cache;
+    _read_options.tablet_schema = read_context->tablet_schema;
+    _read_options.record_rowids = read_context->record_rowids;
+    _read_options.read_orderby_key_reverse = read_context->read_orderby_key_reverse;
+    _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
+    _read_options.io_ctx.reader_type = read_context->reader_type;
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(

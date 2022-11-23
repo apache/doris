@@ -81,19 +81,12 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::max_cumu_compaction_threads)
             .set_max_threads(config::max_cumu_compaction_threads)
             .build(&_cumu_compaction_thread_pool);
-<<<<<<< HEAD
-    ThreadPoolBuilder("SmallCompactionTaskThreadPool")
-            .set_min_threads(config::quick_compaction_max_threads)
-            .set_max_threads(config::quick_compaction_max_threads)
-            .build(&_quick_compaction_thread_pool);
     if (config::enable_segcompaction && config::enable_storage_vectorization) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
                 .set_min_threads(config::seg_compaction_max_threads)
                 .set_max_threads(config::seg_compaction_max_threads)
                 .build(&_seg_compaction_thread_pool);
     }
-=======
->>>>>>> 480acd41a... [enhancement](compaction) opt compaction task producer and quick compaction (#13495)
 
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
