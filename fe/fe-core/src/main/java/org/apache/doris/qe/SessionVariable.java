@@ -605,7 +605,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
-    public int partitionedHashJoinRowsThreshold = 8388608;
+    public int partitionedHashJoinRowsThreshold = 1;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
