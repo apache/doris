@@ -536,6 +536,34 @@ suite("test_jdbc_query_pg", "p0") {
         order_qt_sql71 """ WITH t AS (SELECT k8 x, k7 y FROM $jdbcPg14Table1) SELECT x, y FROM t ORDER BY x, y LIMIT 1 """
         order_qt_sql72 """ SELECT id X FROM ${dorisExTable1} ORDER BY x """
 
+
+	// test for queries
+        order_qt_sql73 """ SELECT k7, k8 FROM $jdbcPg14Table1 LIMIT 0 """
+        order_qt_sql74 """ SELECT COUNT(k8) FROM $jdbcPg14Table1 """
+        order_qt_sql75 """ SELECT COUNT(CAST(NULL AS BIGINT)) FROM $jdbcPg14Table1 """
+        order_qt_sql76 """ SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 120 INTERSECT SELECT id as k8 FROM ${dorisExTable1}  """
+        order_qt_sql77 """ SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 120 INTERSECT DISTINCT SELECT id as k8 FROM ${dorisExTable1}  """
+        order_qt_sql78 """ WITH wnation AS (SELECT k7, k8 FROM $jdbcPg14Table1) 
+                            SELECT k8 FROM wnation WHERE k8 < 100
+                            INTERSECT SELECT k8 FROM wnation WHERE k8 > 98 """
+        order_qt_sql79 """ SELECT num FROM (SELECT 1 AS num FROM $jdbcPg14Table1 WHERE k8=10 
+                            INTERSECT SELECT 1 FROM $jdbcPg14Table1 WHERE k8=20) T """
+        order_qt_sql80 """ SELECT k8 FROM (SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 100
+                            INTERSECT SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 95) as t1
+                            UNION SELECT 4 """
+        order_qt_sql81 """ SELECT k8, k8 / 2 FROM (SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 10
+                            INTERSECT SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 4) T WHERE k8 % 2 = 0 order by k8 limit 3 """
+        order_qt_sql82 """ SELECT k8 FROM (SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 7
+                            UNION SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 21) as t1
+                            INTERSECT SELECT 1 """
+        order_qt_sql83 """ SELECT k8 FROM (SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 100
+                            INTERSECT SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 95) as t1
+                            UNION ALL SELECT 4 """
+        order_qt_sql84 """ SELECT NULL, NULL INTERSECT SELECT NULL, NULL FROM $jdbcPg14Table1 """
+        order_qt_sql85 """ SELECT COUNT(*) FROM $jdbcPg14Table1 INTERSECT SELECT COUNT(k8) FROM $jdbcPg14Table1 HAVING SUM(k7) IS NOT NULL """
+        order_qt_sql86 """ SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 7 EXCEPT SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 21 """
+
+
     }
 }
 
