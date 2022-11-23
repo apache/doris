@@ -128,7 +128,7 @@ bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr&
     if (min_key < pre_max_key) {
         return false;
     }
-    DCHECK(rhs->max_key(&pre_max_key));
+    CHECK(rhs->max_key(&pre_max_key));
 
     return true;
 }
