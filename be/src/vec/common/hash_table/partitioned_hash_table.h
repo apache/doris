@@ -77,20 +77,7 @@ private:
     int64_t _convert_timer_ns = 0;
 
 public:
-    PartitionedHashTable() { level0_sub_table.set_partitioned_threshold(0); }
-
-    explicit PartitionedHashTable(size_t size_hint) {
-        level0_sub_table.set_partitioned_threshold(0);
-        if (level0_sub_table.check_if_need_partition(size_hint)) {
-            _is_partitioned = true;
-
-            for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
-                level1_sub_tables[i] = std::move(Impl(size_hint / NUM_LEVEL1_SUB_TABLES));
-            }
-        } else {
-            level0_sub_table = std::move(Impl(size_hint));
-        }
-    }
+    PartitionedHashTable() = default;
 
     PartitionedHashTable(PartitionedHashTable&& rhs) { *this = std::move(rhs); }
 
@@ -101,6 +88,8 @@ public:
         for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
             level1_sub_tables[i] = std::move(rhs.level1_sub_tables[i]);
         }
+
+        Hash::operator=(std::move(rhs));
         return *this;
     }
 
@@ -530,6 +519,11 @@ public:
 private:
     void convert_to_partitioned() {
         SCOPED_RAW_TIMER(&_convert_timer_ns);
+
+        auto bucket_count = level0_sub_table.get_buffer_size_in_cells();
+        for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
+            level1_sub_tables[i] = std::move(Impl(bucket_count / NUM_LEVEL1_SUB_TABLES));
+        }
 
         auto it = level0_sub_table.begin();
 
