@@ -1151,14 +1151,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     rEntry.setPolicyName(iter.getPolicyName());
                     //java 8 not support ifPresentOrElse
                     final long[] ttlCoolDown = {-1};
-                    Optional.ofNullable(iter.getCooldownTtl())
-                        .ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
+                    Optional.ofNullable(iter.getCooldownTtl()).ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
                     rEntry.setCooldownTtl(ttlCoolDown[0]);
 
-                    final long[] secondTimestamp = {-1};
-                    Optional.ofNullable(iter.getCooldownDatetime())
-                        .ifPresent(date -> secondTimestamp[0] = date.getTime() / 1000);
-                    rEntry.setCooldownDatetime(secondTimestamp[0]);
+                    rEntry.setCooldownDatetime(
+                            iter.getCooldownTimestampMs() == -1 ? -1 : iter.getCooldownTimestampMs() / 100);
 
                     Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
 
