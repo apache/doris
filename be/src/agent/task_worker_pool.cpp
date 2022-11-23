@@ -1728,12 +1728,12 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
         }
         int64_t tablet_id = push_cooldown_conf_req.tablet_id;
         TabletSharedPtr tablet =
-                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
+                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
         if (tablet.get() == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet. tablet_id=" << tablet_id << ", reason=" << err;
             LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
+            return;
         }
         if (push_cooldown_conf_req.cooldownType == TCooldownType::UPLOAD_DATA) {
             tablet->tablet_meta()->set_cooldown_type(CooldownTypePB::UPLOAD_DATA);
