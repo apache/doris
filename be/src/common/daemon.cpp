@@ -76,24 +76,40 @@ void Daemon::tcmalloc_gc_thread() {
     // performance: release_rate = 1.0 and max_cache_percent = 1000;
     // compact: release_rate = 20.0 and max_cache_percent = 20;
     // moderate: release_rate = 5.0 and max_cache_percent =40;
-    int64_t max_cache_percent = 40;
-    double release_rate = 5.0;
-    double pressure_limit = 0.85;
-    if (config::memory_mode == std::string("performance")) {
-        release_rate = 1.0;
-        max_cache_percent = 1000;
-        pressure_limit = 0.9;
-    } else if (config::memory_mode == std::string("compact")) {
-        release_rate = 20.0;
-        max_cache_percent = 20;
-        pressure_limit = 0.8;
-    }
-    MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
-
+    // mem_pressure [0, 0.4], release_rate=1.0 
+    // mem_pressure [0.4, 0.5], release_rate=5.0 
+    // mem_pressure [0.5, 0.6], release_rate=10.0 
+    // mem_pressure [0.6, 0.7], release_rate=30.0 
+    // mem_pressure [0.7, 0.8], release_rate=30.0 
+    int64_t max_cache_percent = 60;
+    double release_rates[10] = { 1.0, 1.0, 1.0, 5.0, 5.0, 20.0, 50.0, 100.0, 500.0, 2000.0 };
+    int64_t pressure_limit = 90;
+    bool is_performance_mode = false;
     size_t physical_limit_bytes = std::min(MemInfo::hard_mem_limit(), MemInfo::mem_limit());
-    int last_seconds = 0;
 
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1))) {
+    if (config::memory_mode == std::string("performance")) {
+        max_cache_percent = 100;
+        pressure_limit = 90;
+        is_performance_mode = true;
+        physical_limit_bytes = std::min(MemInfo::mem_limit(), MemInfo::physical_mem());
+    } else if (config::memory_mode == std::string("compact")) {
+        max_cache_percent = 20;
+        pressure_limit = 80;
+    }
+
+    int last_ms = 0;
+    const int kMaxLastMs = 30000;
+    const int kIntervalMs = 10;
+    size_t init_aggressive_decommit = 0;
+    size_t current_aggressive_decommit = 0;
+    size_t expected_aggressive_decommit = 0;
+    int64_t last_memory_pressure = 0; 
+
+    MallocExtension::instance()->GetNumericProperty("tcmalloc.aggressive_memory_decommit",
+                                                    &init_aggressive_decommit);
+    current_aggressive_decommit = init_aggressive_decommit;
+
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(kIntervalMs))) {
         size_t tc_used_bytes = 0;
         size_t tc_alloc_bytes = 0;
         size_t rss = PerfCounters::get_vm_rss();
@@ -105,46 +121,65 @@ void Daemon::tcmalloc_gc_thread() {
         int64_t tc_cached_bytes = tc_alloc_bytes - tc_used_bytes;
         int64_t to_free_bytes = (int64_t)tc_cached_bytes - (tc_used_bytes * max_cache_percent / 100);
 
-        double memory_pressure = 0;
+        int64_t  memory_pressure = 0;
         int64_t alloc_bytes = std::max(rss, tc_alloc_bytes);
-        memory_pressure = (double)alloc_bytes / physical_limit_bytes;
+        memory_pressure = alloc_bytes  *  100 / physical_limit_bytes;
 
-        LOG(INFO) << "generic.current_allocated_bytes " << tc_used_bytes
-                  << ", generic.total_physical_bytes " << tc_alloc_bytes << ", rss " << rss 
-                  << ", max_cache_percent " << max_cache_percent << ", release_rate " << release_rate
-                  << ", memory_pressure " << memory_pressure << ", physical_limit_bytes "
-                  << physical_limit_bytes;
-
+        expected_aggressive_decommit = init_aggressive_decommit;
         if (memory_pressure > pressure_limit) {
             // We are reaching oom, so release cache aggressively.
             // Ideally, we should reuse cache and not allocate from system any more,
             // however, it is hard to set limit on cache of tcmalloc and doris
             // use mmap in vectorized mode.
-            int64_t min_free_bytes = alloc_bytes - physical_limit_bytes + (int64_t)2 * 1024 * 1024 * 1024;
-            to_free_bytes = std::max(to_free_bytes, min_free_bytes);
-            LOG(INFO) << "release bytes " << to_free_bytes;
-            MallocExtension::instance()->SetMemoryReleaseRate(100.0);
-            last_seconds = 5;
-        } else if (memory_pressure >= (pressure_limit - 0.05)) {
-            to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 5 / 100);
-            MallocExtension::instance()->SetMemoryReleaseRate(50.0);
-            last_seconds = 5;
-        } else if (memory_pressure >= 0.7 && release_rate < 10.0) {
-            MallocExtension::instance()->SetMemoryReleaseRate(10.0);
-        } else if (memory_pressure >= 0.6 && release_rate < 5.0) {
-            MallocExtension::instance()->SetMemoryReleaseRate(5.0);
-        } else {
-            MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
+            if (last_memory_pressure <= pressure_limit) { 
+                int64_t min_free_bytes = alloc_bytes - physical_limit_bytes * 9 / 10;
+                to_free_bytes = std::max(to_free_bytes, min_free_bytes);
+                to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 30 / 100);
+                to_free_bytes = std::min(to_free_bytes, tc_cached_bytes);
+                expected_aggressive_decommit = 1;
+            } else {
+                // release rate is enough.
+                to_free_bytes = 0;
+            }
+            last_ms = kMaxLastMs;
+        } else if (memory_pressure > (pressure_limit - 10)) {
+            if (last_memory_pressure <= (pressure_limit - 10)) {
+                to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 10 / 100);
+            } else {
+                to_free_bytes = 0;
+            }
         }
+
+        int release_rate_index = memory_pressure / 10;
+        double release_rate = 1.0;
+        if (release_rate_index >= sizeof(release_rates)) {
+             release_rate = 2000.0;
+        } else {
+             release_rate = release_rates[release_rate_index];
+        }
+        MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
+
+        if ((current_aggressive_decommit != expected_aggressive_decommit) && !is_performance_mode) {
+            MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit",
+                                                            expected_aggressive_decommit);
+            current_aggressive_decommit = expected_aggressive_decommit;
+        }
+
+        last_memory_pressure = memory_pressure;
         if (to_free_bytes > 0) {
-            last_seconds += 1;
-            if (last_seconds >= 30) {
-                LOG(INFO) << "try to release cache of tcmalloc, bytes " << to_free_bytes;
+            last_ms += kIntervalMs;
+            if (last_ms >= kMaxLastMs) {
+                 LOG(INFO) << "generic.current_allocated_bytes " << tc_used_bytes
+                     << ", generic.total_physical_bytes " << tc_alloc_bytes << ", rss " << rss 
+                     << ", max_cache_percent " << max_cache_percent << ", release_rate " << release_rate
+                     << ", memory_pressure " << memory_pressure << ", physical_limit_bytes "
+                     << physical_limit_bytes << ", to_free_bytes " << to_free_bytes
+                     << ", current_aggressive_decommit " << current_aggressive_decommit;
                 MallocExtension::instance()->ReleaseToSystem(to_free_bytes);
-                last_seconds = 0;
+                last_ms = 0;
             }
         } else {
-            last_seconds = 0;
+            last_ms = 0;
         }
     }
 #endif
