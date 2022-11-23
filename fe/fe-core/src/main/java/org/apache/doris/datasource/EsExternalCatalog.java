@@ -166,17 +166,6 @@ public class EsExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<Long> getDbIds() {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.values());
-    }
-
-    @Override
-    public ExternalDatabase getDbForReplay(long dbId) {
-        return idToDb.get(dbId);
-    }
-
-    @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
         setProperties(this.catalogProperty.getProperties());

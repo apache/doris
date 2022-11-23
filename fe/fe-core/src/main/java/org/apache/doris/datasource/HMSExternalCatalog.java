@@ -127,17 +127,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return client.tableExists(getRealTableName(dbName), tblName);
     }
 
-    @Override
-    public List<Long> getDbIds() {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.values());
-    }
-
-    @Override
-    public ExternalDatabase getDbForReplay(long dbId) {
-        return idToDb.get(dbId);
-    }
-
     public PooledHiveMetaStoreClient getClient() {
         makeSureInitialized();
         return client;

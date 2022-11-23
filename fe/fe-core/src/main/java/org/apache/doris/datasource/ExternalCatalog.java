@@ -30,10 +30,10 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -134,7 +134,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     }
 
     public ExternalDatabase getDbForReplay(long dbId) {
-        throw new NotImplementedException();
+        return idToDb.get(dbId);
     }
 
     public abstract List<Column> getSchema(String dbName, String tblName);
@@ -175,6 +175,12 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public ExternalDatabase getDbNullable(long dbId) {
         makeSureInitialized();
         return idToDb.get(dbId);
+    }
+
+    @Override
+    public List<Long> getDbIds() {
+        makeSureInitialized();
+        return Lists.newArrayList(dbNameToId.values());
     }
 
     @Override
