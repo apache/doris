@@ -37,7 +37,7 @@ suite("test_concat_extreme_input") {
       cast(ref_1.`cp_start_date_sk` as int),
       cast(ref_1.`cp_description` as varchar)) as varchar)) as c1
 from
-  regression_test_tpcds_sf1_p1.catalog_page as ref_1 '''
+  regression_test_tpcds_sf0_1_p1.catalog_page as ref_1 '''
         exception "concat output is too large to allocate"
     }
 }
