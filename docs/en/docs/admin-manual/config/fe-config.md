@@ -427,6 +427,18 @@ MasterOnly：true
    3. After the decommission operation is completed, the BE will not be dropped. At this time, cancel the decommission status of the BE. Then the data will start to balance from other BE nodes back to this node. At this time, the data will be evenly distributed to all disks of the BE.
    4. Perform steps 2 and 3 for all BE nodes in sequence, and finally achieve the purpose of disk balancing for all nodes
 
+### decommission_tablet_check_threshold
+
+Default：5000
+
+IsMutable：true
+
+MasterOnly：true
+
+This configuration is used to control whether the Master FE need to check the status of tablets on decommissioned BE. If the size of tablets on decommissioned BE is lower than this threshold, FE will start a periodic check, if all tablets on decommissioned BE have been recycled, FE will drop this BE immediately.
+
+For performance consideration, please don't set a very high value for this configuration.
+
 ### period_of_auto_resume_min
 
 Default：5 （s）
