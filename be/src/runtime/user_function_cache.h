@@ -80,8 +80,6 @@ private:
     Status _download_lib(const std::string& url, UserFunctionCacheEntry* entry);
     Status _load_cache_entry_internal(UserFunctionCacheEntry* entry);
 
-    Status _add_to_classpath(UserFunctionCacheEntry* entry);
-
     std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type);
     void _destroy_cache_entry(UserFunctionCacheEntry* entry);
 
