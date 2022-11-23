@@ -18,6 +18,7 @@
 #include "runtime/exec_env.h"
 
 #include "gen_cpp/HeartbeatService_types.h"
+#include "util/time.h"
 
 namespace doris {
 

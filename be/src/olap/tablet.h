@@ -391,6 +391,10 @@ private:
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
     Status _cooldown_upload_data();
     Status _cooldown_use_remote_data();
+    int64_t _max_remote_tablet_version(const TabletMetaPB& remote_tablet_meta_pb);
+    Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
+    Status _write_remote_tablet_meta(io::FileSystemSPtr fs, int64_t tablet_id,
+                                     const TabletMetaPB& tablet_meta_pb);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

@@ -71,6 +71,7 @@ using std::nothrow;
 using std::sort;
 using std::string;
 using std::vector;
+using io::FileSystemSPtr;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
@@ -1689,7 +1690,7 @@ Status Tablet::cooldown() {
         return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
 
-    _cooldown_use_remote_data();
+    RETURN_IF_ERROR(_cooldown_use_remote_data());
     if (_tablet_meta->cooldown_type() == CooldownTypePB::UPLOAD_DATA) {
         // When be is restart, maybe cooldown_type is invalid, waiting until tabletReport and
         // cooldown_type is sent from fe.
@@ -1698,6 +1699,7 @@ Status Tablet::cooldown() {
             return _cooldown_upload_data();
         }
     }
+    return Status::OK();
 }
 
 Status Tablet::_cooldown_upload_data() {
@@ -1780,10 +1782,10 @@ int64_t Tablet::_max_remote_tablet_version(const TabletMetaPB& remote_tablet_met
 }
 
 Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb) {
-    std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id);
+    std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id());
     io::FileReaderSPtr tablet_meta_reader;
     bool exist = false;
-    RETURN_IF_ERROR(!dest_fs->exists(remote_meta_path, &exist));
+    RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (!exist) {
         return Status::OLAPInternalError(OLAP_ERR_FILE_NOT_EXIST);
     }
@@ -1805,25 +1807,30 @@ Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, int64_t tablet_id,
                                          const TabletMetaPB& tablet_meta_pb) {
     std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(tablet_id);
     bool exist = false;
-    RETURN_IF_ERROR(dest_fs->exists(remote_meta_path, &exist));
+    RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (exist) {
-        RETURN_IF_ERROR(dest_fs->delete_file(remote_meta_path));
+        RETURN_IF_ERROR(fs->delete_file(remote_meta_path));
     }
     string value;
     tablet_meta_pb.SerializeToString(&value);
     io::FileWriterPtr tablet_meta_writer;
-    RETURN_IF_ERROR(dest_fs->create_file(remote_meta_path, &tablet_meta_writer));
+    RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
     DCHECK(tablet_meta_writer != nullptr);
     uint8_t* buf = new uint8_t[value.size()];
     memcpy(buf, value.c_str(), value.size());
     Slice slice(buf, value.size());
-    RETURN_IF_ERROR(tablet_meta_writer->appendv(slice, 1));
+    RETURN_IF_ERROR(tablet_meta_writer->appendv(&slice, 1));
     RETURN_IF_ERROR(tablet_meta_writer->close());
 
     return Status::OK();
 }
 
 Status Tablet::_cooldown_use_remote_data() {
+    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
+    if (!dest_fs) {
+        return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
+    }
+    DCHECK(dest_fs->type() == io::FileSystemType::S3);
     TabletMetaPB remote_tablet_meta_pb;
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     std::vector<RowsetSharedPtr> to_add;
@@ -1833,7 +1840,7 @@ Status Tablet::_cooldown_use_remote_data() {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         rowset_meta->init_from_pb(rowset_meta_pb);
         RowsetSharedPtr new_rowset;
-        RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
+        RowsetFactory::create_rowset(_schema, _tablet_path, rowset_meta, &new_rowset);
         to_add.push_back(new_rowset);
         if (rowset_meta_pb.end_version() > max_version) {
             max_version = rowset_meta_pb.end_version();
@@ -1859,12 +1866,6 @@ Status Tablet::_cooldown_use_remote_data() {
             _self_owned_remote_rowsets.insert(to_add.front());
             save_meta();
         }
-    }
-
-    if (has_shutdown) {
-        record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
-                                    to_add.front()->num_segments());
-        return Status::Aborted("tablet {} has shutdown", tablet_id());
     }
 
     return Status::OK();
