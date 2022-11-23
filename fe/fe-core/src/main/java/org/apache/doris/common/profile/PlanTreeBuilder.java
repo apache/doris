@@ -62,7 +62,7 @@ public class PlanTreeBuilder {
                 } else {
                     sb.append("[").append(sink.getClass().getSimpleName()).append("]");
                 }
-                sb.append("\n[Fragment: ").append(fragment.getId().asInt()).append("]");
+                sb.append("\n[Fragment: ").append(fragment.getFragmentSequenceNum()).append("]");
                 sb.append("\n").append(sink.getExplainString("", TExplainLevel.BRIEF));
                 sinkNode = new PlanTreeNode(sink.getExchNodeId(), sb.toString());
                 if (i == 0) {
