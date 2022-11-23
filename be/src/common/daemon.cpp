@@ -73,14 +73,7 @@ void Daemon::tcmalloc_gc_thread() {
         !defined(USE_JEMALLOC)
 
     // Limit size of tcmalloc cache via release_rate and max_cache_percent.
-    // performance: release_rate = 1.0 and max_cache_percent = 1000;
-    // compact: release_rate = 20.0 and max_cache_percent = 20;
-    // moderate: release_rate = 5.0 and max_cache_percent =40;
-    // mem_pressure [0, 0.4], release_rate=1.0 
-    // mem_pressure [0.4, 0.5], release_rate=5.0 
-    // mem_pressure [0.5, 0.6], release_rate=10.0 
-    // mem_pressure [0.6, 0.7], release_rate=30.0 
-    // mem_pressure [0.7, 0.8], release_rate=30.0 
+    // We adjust release_rate according to memory_pressure, which is usage percent of memory.
     int64_t max_cache_percent = 60;
     double release_rates[10] = { 1.0, 1.0, 1.0, 5.0, 5.0, 20.0, 50.0, 100.0, 500.0, 2000.0 };
     int64_t pressure_limit = 90;
