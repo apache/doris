@@ -462,7 +462,9 @@
                                 "sql-manual/sql-functions/aggregate-functions/variance",
                                 "sql-manual/sql-functions/aggregate-functions/retention",
                                 "sql-manual/sql-functions/aggregate-functions/sequence_match",
-                                "sql-manual/sql-functions/aggregate-functions/sequence_count"
+                                "sql-manual/sql-functions/aggregate-functions/sequence_count",
+                                "sql-manual/sql-functions/aggregate-functions/grouping",
+                                "sql-manual/sql-functions/aggregate-functions/grouping_id"
                             ]
                         },
                         {
