@@ -93,7 +93,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -214,7 +213,6 @@ public class StmtExecutor implements ProfileWriter {
             this.statementContext.setConnectContext(ctx);
             this.statementContext.setOriginStatement(originStmt);
             this.statementContext.setParsedStatement(parsedStmt);
-            this.statementContext.setCteContext(new CTEContext());
         } else {
             this.statementContext = new StatementContext(ctx, originStmt);
             this.statementContext.setParsedStatement(parsedStmt);

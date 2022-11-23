@@ -49,9 +49,12 @@ singleStatement
     ;
 
 statement
-    : cte? query                                                        #statementDefault
-    | (EXPLAIN planType? | DESC | DESCRIBE)
-      level=(VERBOSE | GRAPH | PLAN)? query                             #explain
+    : explain? cte? query                           #statementDefault
+    ;
+
+explain
+    : (EXPLAIN planType? | DESC | DESCRIBE)
+          level=(VERBOSE | GRAPH | PLAN)?
     ;
 
 planType

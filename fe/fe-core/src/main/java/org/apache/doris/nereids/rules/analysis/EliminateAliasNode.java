@@ -19,10 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
@@ -30,37 +27,11 @@ import java.util.List;
  * <p>
  * TODO: refactor group merge strategy to support the feature above
  */
-public class EliminateAliasNode implements AnalysisRuleFactory {
+public class EliminateAliasNode extends OneAnalysisRuleFactory {
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                RuleType.PROJECT_ELIMINATE_ALIAS_NODE.build(
-                        logicalProject(logicalSubQueryAlias())
-                                .then(project -> project.withChildren(ImmutableList.of(project.child().child())))
-                ),
-                RuleType.FILTER_ELIMINATE_ALIAS_NODE.build(
-                        logicalFilter(logicalSubQueryAlias())
-                                .then(filter -> filter.withChildren(ImmutableList.of(filter.child().child())))
-                ),
-                RuleType.AGGREGATE_ELIMINATE_ALIAS_NODE.build(
-                        aggregate(logicalSubQueryAlias())
-                                .then(agg -> agg.withChildren(ImmutableList.of(agg.child().child())))
-                ),
-                RuleType.JOIN_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin(logicalSubQueryAlias(), logicalSubQueryAlias())
-                                .then(join -> join.withChildren(
-                                        ImmutableList.of(join.left().child(), join.right().child())))
-                ),
-                RuleType.JOIN_LEFT_CHILD_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin(logicalSubQueryAlias(), group())
-                                .then(join -> join.withChildren(
-                                        ImmutableList.of(join.left().child(), join.right())))
-                ),
-                RuleType.JOIN_RIGHT_CHILD_ELIMINATE_ALIAS_NODE.build(
-                        logicalJoin(group(), logicalSubQueryAlias())
-                                .then(join -> join.withChildren(
-                                        ImmutableList.of(join.left(), join.right().child())))
-                )
+    public Rule build() {
+        return RuleType.ELIMINATE_ALIAS_NODE.build(
+                logicalSubQueryAlias().then(UnaryPlan::child)
         );
     }
 }
