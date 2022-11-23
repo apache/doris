@@ -101,7 +101,8 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
           _insert_keys_to_column_timer(nullptr),
           _streaming_agg_timer(nullptr),
           _hash_table_size_counter(nullptr),
-          _hash_table_input_counter(nullptr) {
+          _hash_table_input_counter(nullptr),
+          _max_row_size_counter(nullptr) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -308,7 +309,8 @@ Status AggregationNode::prepare(RuntimeState* state) {
     _streaming_agg_timer = ADD_TIMER(runtime_profile(), "StreamingAggTime");
     _hash_table_size_counter = ADD_COUNTER(runtime_profile(), "HashTableSize", TUnit::UNIT);
     _hash_table_input_counter = ADD_COUNTER(runtime_profile(), "HashTableInputCount", TUnit::UNIT);
-
+    _max_row_size_counter = ADD_COUNTER(runtime_profile(), "MaxRowSizeInBytes", TUnit::UNIT);
+    COUNTER_SET(_max_row_size_counter, (int64_t)0);
     _data_mem_tracker = std::make_unique<MemTracker>("AggregationNode:Data");
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
@@ -804,22 +806,14 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
-                bool is_pre_serialized =
-                        _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           AggState>::value) {
-                        if (is_pre_serialized) {
-                            for (size_t i = 0; i < num_rows; ++i) {
-                                _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                            }
-                        } else {
-                            for (size_t i = 0; i < num_rows; ++i) {
-                                _hash_values[i] = agg_method.data.hash(
-                                        state.get_key_holder(i, *_agg_arena_pool).key);
-                            }
+                        for (size_t i = 0; i < num_rows; ++i) {
+                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
                         }
                     } else {
                         for (size_t i = 0; i < num_rows; ++i) {
@@ -902,22 +896,14 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
-                bool is_pre_serialized =
-                        _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                     if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           AggState>::value) {
-                        if (is_pre_serialized) {
-                            for (size_t i = 0; i < num_rows; ++i) {
-                                _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                            }
-                        } else {
-                            for (size_t i = 0; i < num_rows; ++i) {
-                                _hash_values[i] = agg_method.data.hash(
-                                        state.get_key_holder(i, *_agg_arena_pool).key);
-                            }
+                        for (size_t i = 0; i < num_rows; ++i) {
+                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
                         }
                     } else {
                         for (size_t i = 0; i < num_rows; ++i) {
