@@ -132,11 +132,11 @@ public class RequestPropertyDeriverTest {
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
-        expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
         expected.add(Lists.newArrayList(
                 new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.JOIN)),
                 new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.JOIN))
         ));
+        expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
         Assertions.assertEquals(expected, actual);
     }
 

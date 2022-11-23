@@ -85,17 +85,17 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, PlanContext context) {
         // 1. first phase agg just return any
         if (agg.getAggPhase().isLocal() && !agg.isFinalPhase()) {
-            addToRequestPropertyToChildren(PhysicalProperties.ANY);
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
             return null;
         }
         if (agg.getAggPhase() == AggPhase.GLOBAL && !agg.isFinalPhase()) {
-            addToRequestPropertyToChildren(requestPropertyFromParent);
+            addRequestPropertyToChildren(requestPropertyFromParent);
             return null;
         }
         // 2. second phase agg, need to return shuffle with partition key
         List<Expression> partitionExpressions = agg.getPartitionExpressions();
         if (partitionExpressions.isEmpty()) {
-            addToRequestPropertyToChildren(PhysicalProperties.GATHER);
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
             return null;
         }
         // TODO: when parent is a join node,
@@ -105,7 +105,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                     .map(SlotReference.class::cast)
                     .map(SlotReference::getExprId)
                     .collect(Collectors.toList());
-            addToRequestPropertyToChildren(
+            addRequestPropertyToChildren(
                     PhysicalProperties.createHash(new DistributionSpecHash(partitionedSlots, ShuffleType.AGGREGATE)));
             return null;
         }
@@ -118,33 +118,32 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, PlanContext context) {
-        addToRequestPropertyToChildren(PhysicalProperties.ANY);
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 
     @Override
     public Void visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
         // TODO: rethink here, should we throw exception directly?
-        addToRequestPropertyToChildren(PhysicalProperties.ANY);
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
-        // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
-            addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
-        }
-
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(hashJoin);
             // shuffle join
-            addToRequestPropertyToChildren(
+            addRequestPropertyToChildren(
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.first, ShuffleType.JOIN)),
                     PhysicalProperties.createHash(
                             new DistributionSpecHash(onClauseUsedSlots.second, ShuffleType.JOIN)));
+        }
+        // for broadcast join
+        if (JoinUtils.couldBroadcast(hashJoin)) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
         }
 
         return null;
@@ -154,13 +153,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, PlanContext context) {
         // TODO: currently doris only use NLJ to do cross join, update this if we use NLJ to do other joins.
-        addToRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
         return null;
     }
 
     @Override
     public Void visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, PlanContext context) {
-        addToRequestPropertyToChildren(PhysicalProperties.GATHER);
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 
@@ -168,7 +167,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      * helper function to assemble request children physical properties
      * @param physicalProperties one set request properties for children
      */
-    private void addToRequestPropertyToChildren(PhysicalProperties... physicalProperties) {
+    private void addRequestPropertyToChildren(PhysicalProperties... physicalProperties) {
         requestPropertyToChildren.add(Lists.newArrayList(physicalProperties));
     }
 }
