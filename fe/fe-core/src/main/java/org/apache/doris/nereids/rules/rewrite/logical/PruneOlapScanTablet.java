@@ -72,7 +72,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
         HashDistributionInfo hashInfo = (HashDistributionInfo) info;
         Map<String, PartitionColumnFilter> filterMap = Maps.newHashMap();
         expressions.stream().map(ExpressionUtils::checkAndMaybeCommute).filter(Optional::isPresent)
-                        .forEach(expr -> ExpressionColumnFilterConverter.convert(expr.get(), filterMap));
+                        .forEach(expr -> new ExpressionColumnFilterConverter(filterMap).convert(expr.get()));
         return new HashDistributionPruner(index.getTabletIdsInOrder(),
                 hashInfo.getDistributionColumns(),
                 filterMap,

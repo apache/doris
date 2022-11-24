@@ -43,67 +43,90 @@ import java.util.stream.Collectors;
  * expression column filter converter
  */
 public class ExpressionColumnFilterConverter
-        extends DefaultExpressionVisitor<Expression, Map<String, PartitionColumnFilter>> {
-    public static ExpressionColumnFilterConverter INSTANCE = new ExpressionColumnFilterConverter();
+        extends DefaultExpressionVisitor<Expression, Void> {
+    private final Map<String, PartitionColumnFilter> columnFilterMap;
 
-    public static void convert(Expression expr, Map<String, PartitionColumnFilter> context) {
-        expr.accept(INSTANCE, context);
+    private static class FilterParam {
+        public static LiteralExpr lowerBound;
+        public static boolean lowerBoundInclusive;
+        public static LiteralExpr upperBound;
+        public static boolean upperBoundInclusive;
+        public static org.apache.doris.analysis.InPredicate inPredicate;
+
+        public static void setValues(LiteralExpr lowerBound, boolean lowerInclusive,
+                LiteralExpr upperBound, boolean upperInclusive) {
+            FilterParam.lowerBound = lowerBound;
+            FilterParam.lowerBoundInclusive = lowerInclusive;
+            FilterParam.upperBound = upperBound;
+            FilterParam.upperBoundInclusive = upperInclusive;
+        }
+
+        public static void setInPredicate(org.apache.doris.analysis.InPredicate inPredicate) {
+            FilterParam.inPredicate = inPredicate;
+        }
+    }
+
+    public ExpressionColumnFilterConverter(Map<String, PartitionColumnFilter> filterMap) {
+        this.columnFilterMap = filterMap;
+    }
+
+    public void convert(Expression expr) {
+        expr.accept(this, null);
     }
 
     @Override
-    public Expression visitComparisonPredicate(ComparisonPredicate predicate,
-            Map<String, PartitionColumnFilter> columnFilterMap) {
+    public Expression visitComparisonPredicate(ComparisonPredicate predicate, Void unused) {
         if (predicate instanceof NullSafeEqual) {
             return null;
         }
-        String colName = ((Slot) predicate.left()).getName();
-        PartitionColumnFilter filter = columnFilterMap.getOrDefault(colName, new PartitionColumnFilter());
         LiteralExpr literal = ((Literal) predicate.right()).toLegacyLiteral();
         if (predicate instanceof EqualTo) {
-            setFilter(filter, literal, true, literal, true);
+            FilterParam.setValues(literal, true, literal, true);
         } else if (predicate instanceof GreaterThan) {
-            setFilter(filter, literal, false, null, false);
+            FilterParam.setValues(literal, false, null, false);
         } else if (predicate instanceof GreaterThanEqual) {
-            setFilter(filter, literal, true, null, false);
+            FilterParam.setValues(literal, true, null, false);
         } else if (predicate instanceof LessThan) {
-            setFilter(filter, null, false, literal, false);
+            FilterParam.setValues(null, false, literal, false);
         } else if (predicate instanceof LessThanEqual) {
-            setFilter(filter, null, false, literal, true);
+            FilterParam.setValues(null, false, literal, true);
         }
-        columnFilterMap.put(((Slot) predicate.left()).getName(), filter);
+        setOrUpdateFilter(((Slot) predicate.left()).getName());
         return null;
     }
 
     @Override
-    public Expression visitInPredicate(InPredicate predicate, Map<String, PartitionColumnFilter> columnFilterMap) {
-        PartitionColumnFilter filter = columnFilterMap.computeIfAbsent(((Slot) predicate.getCompareExpr()).getName(),
-                k -> new PartitionColumnFilter());
+    public Expression visitInPredicate(InPredicate predicate, Void unused) {
         List<Expr> literals = predicate.getOptions().stream()
                 .map(expr -> ((Expr) ((Literal) expr).toLegacyLiteral()))
                 .collect(Collectors.toList());
-        if (filter.getInPredicate() == null) {
-            filter.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, ""), literals, false));
-        } else {
-            filter.getInPredicate().getChildren().addAll(literals);
-        }
+        FilterParam.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, ""), literals, false));
+        setOrUpdateFilter(((Slot) predicate.getCompareExpr()).getName());
         return null;
     }
 
     @Override
-    public Expression visitIsNull(IsNull predicate, Map<String, PartitionColumnFilter> columnFilterMap) {
-        PartitionColumnFilter filter = new PartitionColumnFilter();
-        setFilter(filter, new NullLiteral(), true, new NullLiteral(), true);
-        columnFilterMap.put(((Slot) predicate.child()).getName(), filter);
+    public Expression visitIsNull(IsNull predicate, Void unused) {
+        FilterParam.setValues(new NullLiteral(), true, new NullLiteral(), true);
+        setOrUpdateFilter(((Slot) predicate.child()).getName());
         return null;
     }
 
-    private void setFilter(PartitionColumnFilter filter, LiteralExpr lowerBound, boolean lowerInclusive,
-            LiteralExpr upperBound, boolean upperInclusive) {
-        if (lowerBound != null) {
-            filter.setLowerBound(lowerBound, lowerInclusive);
+    private void setOrUpdateFilter(String columnName) {
+        PartitionColumnFilter filter = columnFilterMap.computeIfAbsent(columnName,
+                k -> new PartitionColumnFilter());
+        if (FilterParam.lowerBound != null) {
+            filter.setLowerBound(FilterParam.lowerBound, FilterParam.lowerBoundInclusive);
         }
-        if (upperBound != null) {
-            filter.setUpperBound(upperBound, upperInclusive);
+        if (FilterParam.upperBound != null) {
+            filter.setUpperBound(FilterParam.upperBound, FilterParam.upperBoundInclusive);
+        }
+        if (FilterParam.inPredicate != null) {
+            if (filter.getInPredicate() == null) {
+                filter.setInPredicate(FilterParam.inPredicate);
+            } else {
+                filter.getInPredicate().getChildren().addAll(FilterParam.inPredicate.getListChildren());
+            }
         }
     }
 }

@@ -116,12 +116,13 @@ public class LogicalOlapScan extends LogicalRelation {
             return false;
         }
         return Objects.equals(selectedPartitionIds, ((LogicalOlapScan) o).selectedPartitionIds)
-                && Objects.equals(candidateIndexIds, ((LogicalOlapScan) o).candidateIndexIds);
+                && Objects.equals(candidateIndexIds, ((LogicalOlapScan) o).candidateIndexIds)
+                && Objects.equals(selectedTabletId, ((LogicalOlapScan) o).selectedTabletId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, selectedPartitionIds, candidateIndexIds);
+        return Objects.hash(id, selectedPartitionIds, candidateIndexIds, selectedTabletId);
     }
 
     @Override

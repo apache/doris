@@ -158,6 +158,6 @@ public class PruneOlapScanTabletTest {
 
         LogicalFilter<LogicalOlapScan> filter1 = ((LogicalFilter<LogicalOlapScan>) context.getMemo().copyOut());
         LogicalOlapScan olapScan = filter1.child();
-        Assertions.assertEquals(0, olapScan.getSelectedTabletId().size());
+        Assertions.assertEquals(20, olapScan.getSelectedTabletId().size());
     }
 }
