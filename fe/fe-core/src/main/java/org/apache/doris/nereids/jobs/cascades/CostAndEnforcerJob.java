@@ -144,6 +144,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     if (prevChildIndex >= curChildIndex) {
                         // if run here, means that the child group will not generate the lowest cost plan map currently.
                         // and lowest cost children's size will not be equals to arity().
+                        curTotalCost = Double.POSITIVE_INFINITY;
                         break;
                     }
 
@@ -167,6 +168,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 curTotalCost += lowestCostExpr.getLowestCostTable().get(requestChildProperty).first;
                 if (curTotalCost > context.getCostUpperBound()) {
                     curTotalCost = Double.POSITIVE_INFINITY;
+                    break;
                 }
                 // the request child properties will be covered by the output properties
                 // that corresponding to the request properties. so if we run a costAndEnforceJob of the same
@@ -198,6 +200,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 lowestCostChildren, requestChildrenProperties, requestChildrenProperties, context);
         double enforceCost = regulator.adjustChildrenProperties();
         if (enforceCost < 0) {
+            curTotalCost = Double.POSITIVE_INFINITY;
             // invalid enforce, return.
             return false;
         }
@@ -213,6 +216,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         // update current group statistics and re-compute costs.
         if (groupExpression.children().stream().anyMatch(group -> group.getStatistics() == null)) {
             // if we come here, mean that we have some error in stats calculator and should fix it.
+            curTotalCost = Double.POSITIVE_INFINITY;
             return false;
         }
         StatsCalculator.estimate(groupExpression);
