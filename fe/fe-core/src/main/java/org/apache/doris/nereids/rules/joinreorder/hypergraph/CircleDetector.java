@@ -39,18 +39,16 @@ public class CircleDetector {
     List<Integer> nodes = new ArrayList<>();
     // stored the dependency of each node
     List<BitSet> directedEdges = new ArrayList<>();
-    List<BitSet> forbiddenEdges = new ArrayList<>();
+    List<BitSet> subNodes = new ArrayList<>();
     // whether the node has been visited in dfs
-    BitSet visited;
 
     CircleDetector(int size) {
         for (int i = 0; i < size; i++) {
             orders.add(i);
             nodes.add(i);
             directedEdges.add(Bitmap.newBitmap());
-            forbiddenEdges.add(Bitmap.newBitmap());
+            subNodes.add(Bitmap.newBitmap(i));
         }
-        visited = Bitmap.newBitmap();
     }
 
     /**
@@ -62,19 +60,41 @@ public class CircleDetector {
      */
     public boolean tryAddDirectedEdge(int node1, int node2) {
         // Add dependency node1 -> node2
-        if (!checkCircleWithEdge(node1, node2)) {
-            Bitmap.set(directedEdges.get(node1), node2);
-            Bitmap.set(forbiddenEdges.get(node2), node1);
-            return true;
+        if (checkCircleWithEdge(node1, node2)) {
+            return false;
         }
-        return false;
+        Bitmap.set(directedEdges.get(node1), node2);
+        int order1 = orders.get(node1);
+        int order2 = orders.get(node2);
+        if (order1 >= order2) {
+            shift(order2, order1 + 1, subNodes.get(order2));
+        }
+        for (BitSet nodes : subNodes) {
+            if (Bitmap.get(nodes, node1)) {
+                Bitmap.or(nodes, subNodes.get(node2));
+            }
+        }
+        Bitmap.or(subNodes.get(node1), subNodes.get(node2));
+        return true;
     }
 
+    /**
+     * Delete an edge node1->node2
+     *
+     * @param node1 the start node of the edge
+     * @param node2 the end node of the edge
+     */
     public void deleteDirectedEdge(int node1, int node2) {
         Preconditions.checkArgument(Bitmap.get(directedEdges.get(node1), node2),
                 String.format("The edge %d -> %d is not existed", node1, node2));
-        Bitmap.unset(directedEdges.get(node1), node2);
-        forbiddenEdges.forEach(bitSet -> Bitmap.clear(bitSet));
+        for (BitSet nodes : subNodes) {
+            Bitmap.clear(nodes);
+        }
+
+        int size = orders.size();
+        for (int i = 0; i < size; i++) {
+            getSubNodes(i);
+        }
     }
 
     public List<Integer> getTopologicalOrder() {
@@ -90,46 +110,23 @@ public class CircleDetector {
      */
     public boolean checkCircleWithEdge(int node1, int node2) {
         // return true when there is a circle
-        if (Bitmap.get(forbiddenEdges.get(node1), node2)) {
-            return true;
-        }
-        int order1 = orders.get(node1);
-        int order2 = orders.get(node2);
-        if (order1 >= order2) {
-            Bitmap.clear(visited);
-            // It means node2 -> node1, and we try to dfs from node2 to node1
-            if (!tryDFS(node2, node1)) {
-                Bitmap.set(forbiddenEdges.get(node1), node2);
-                return true;
-            }
-            shift(order2, order1 + 1);
-        }
-        return false;
+        return Bitmap.get(subNodes.get(node2), node1);
     }
 
-    private boolean tryDFS(int node, int endNode) {
-        if (node == endNode) {
-            // When there is an order: node2->node1, we can't add node1 -> node2
-            return false;
+    private BitSet getSubNodes(int node) {
+        if (Bitmap.getCardinality(subNodes.get(node)) != 0) {
+            return subNodes.get(node);
         }
 
-        if (Bitmap.get(visited, endNode) || orders.get(node) > orders.get(endNode)) {
-            // If the node has been visited, return true
-            // If the node comes after than end node, we don't care it and terminated.
-            return true;
-        }
-        Bitmap.set(visited, node);
         for (int nextNode : Bitmap.getIterator(directedEdges.get(node))) {
             Preconditions.checkArgument(orders.get(nextNode) > orders.get(node),
                     String.format("node %d must come after node %d", nextNode, node));
-            if (!tryDFS(nextNode, endNode)) {
-                return false;
-            }
+            Bitmap.or(subNodes.get(node), getSubNodes(nextNode));
         }
-        return true;
+        return subNodes.get(node);
     }
 
-    private void shift(int startOrder, int endOrder) {
+    private void shift(int startOrder, int endOrder, BitSet visited) {
         // Reorder the nodes between order1 and order2. We always keep the nodes visited comes
         // before the other nodes and their relative order is not changed. Because those two parts
         // is not connected, we can do it safely.

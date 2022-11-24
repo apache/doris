@@ -119,4 +119,27 @@ suite("test_array_functions") {
 
     qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
     
+    def tableName3 = "tbl_test_array_set"
+    sql """DROP TABLE IF EXISTS ${tableName3}"""
+    sql """
+            create table IF NOT EXISTS ${tableName3}(
+                  class_id int ,
+                  class_name varchar(20),
+                  student_ids array<int>
+                  ) ENGINE=OLAP
+                  DUPLICATE KEY(`class_id`,class_name)
+                  COMMENT "OLAP"
+                  DISTRIBUTED BY HASH(`class_name`) BUCKETS 2
+                  PROPERTIES (
+                  "replication_allocation" = "tag.location.default: 1",
+                  "in_memory" = "false",
+                  "storage_format" = "V2"
+                  );
+        """
+    sql """ insert into ${tableName3} values (10005,'aaaaa',[10005,null,null]) """
+    sql """ insert into ${tableName3} values (10006,'bbbbb',[60002,60002,60003,null,60005]) """
+    
+    qt_select_union "select class_id, student_ids, array_union(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
+    qt_select_except "select class_id, student_ids, array_except(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
+    qt_select_intersect "select class_id, student_ids, array_intersect(student_ids,[1,2,3,null]) from ${tableName3} order by class_id;"
 }

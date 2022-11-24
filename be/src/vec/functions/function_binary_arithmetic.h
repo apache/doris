@@ -666,10 +666,10 @@ inline constexpr bool IsIntegral<DataTypeInt128> = true;
 template <typename A, typename B>
 constexpr bool UseLeftDecimal = false;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal32>> =
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128I>, DataTypeDecimal<Decimal32>> =
         true;
 template <>
-inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal64>> =
+inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128I>, DataTypeDecimal<Decimal64>> =
         true;
 template <>
 inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal64>, DataTypeDecimal<Decimal32>> = true;
@@ -689,6 +689,11 @@ struct BinaryOperationTraits {
             /// Decimal cases
             Case<!OpTraits::allow_decimal &&
                          (IsDataTypeDecimal<LeftDataType> || IsDataTypeDecimal<RightDataType>),
+                 InvalidType>,
+            Case<(IsDataTypeDecimalV2<LeftDataType> && IsDataTypeDecimal<RightDataType> &&
+                  !IsDataTypeDecimalV2<RightDataType>) ||
+                         (IsDataTypeDecimalV2<RightDataType> && IsDataTypeDecimal<LeftDataType> &&
+                          !IsDataTypeDecimalV2<LeftDataType>),
                  InvalidType>,
             Case<IsDataTypeDecimal<LeftDataType> && IsDataTypeDecimal<RightDataType> &&
                          UseLeftDecimal<LeftDataType, RightDataType>,
@@ -850,7 +855,8 @@ class FunctionBinaryArithmetic : public IFunction {
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
                                    DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128>>(type, std::forward<F>(f));
+                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>>(
+                type, std::forward<F>(f));
     }
 
     template <typename F>

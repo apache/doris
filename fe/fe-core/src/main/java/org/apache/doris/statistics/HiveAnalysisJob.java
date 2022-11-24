@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -69,7 +70,7 @@ public class HiveAnalysisJob extends HMSAnalysisJob {
         List<String> columns = new ArrayList<>();
         columns.add(col.getName());
         Map<String, String> params = new HashMap<>();
-        params.put("internalDB", StatisticConstants.STATISTIC_DB_NAME);
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));

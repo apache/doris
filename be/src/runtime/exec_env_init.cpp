@@ -274,12 +274,6 @@ Status ExecEnv::_init_mem_env() {
     int64_t chunk_reserved_bytes_limit =
             ParseUtil::parse_mem_spec(config::chunk_reserved_bytes_limit, MemInfo::mem_limit(),
                                       MemInfo::physical_mem(), &is_percent);
-    if (chunk_reserved_bytes_limit <= 0) {
-        ss << "Invalid config chunk_reserved_bytes_limit value, must be a percentage or "
-              "positive bytes value or percentage: "
-           << config::chunk_reserved_bytes_limit;
-        return Status::InternalError(ss.str());
-    }
     chunk_reserved_bytes_limit =
             BitUtil::RoundDown(chunk_reserved_bytes_limit, config::min_chunk_reserved_bytes);
     ChunkAllocator::init_instance(chunk_reserved_bytes_limit);

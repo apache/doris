@@ -58,4 +58,6 @@ suite("test_grouping_sets") {
             """
         exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
     }
+
+   qt_select7 """ select k1,k2,sum(k3) from test_query_db.test where 1 = 2 group by grouping sets((k1), (k1,k2)) """ 
 }

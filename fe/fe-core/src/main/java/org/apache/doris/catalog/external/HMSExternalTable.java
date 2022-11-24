@@ -113,8 +113,8 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private void initPartitionColumns() {
-        Set<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
-                .collect(Collectors.toSet());
+        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+                .collect(Collectors.toList());
         partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop

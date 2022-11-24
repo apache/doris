@@ -264,61 +264,7 @@ using DateTime = Int64;
 using DateV2 = UInt32;
 using DateTimeV2 = UInt64;
 
-struct Int128I {
-    Int128I() = default;
-    Int128I(Int128I&&) = default;
-    Int128I(const Int128I&) = default;
-
-#define DECLARE_NUMERIC_CTOR(TYPE)                         \
-    constexpr Int128I(const TYPE& value_) : val(value_) {} \
-    constexpr Int128I(const TYPE&& value_) : val(value_) {}
-
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-    DECLARE_NUMERIC_CTOR(Float32)
-    DECLARE_NUMERIC_CTOR(Float64)
-#undef DECLARE_NUMERIC_CTOR
-    constexpr Int128I& operator=(Int128I&&) = default;
-    constexpr Int128I& operator=(const Int128I&) = default;
-
-    constexpr Int128I& operator=(Int128&& v) {
-        val = v;
-        return *this;
-    };
-
-    constexpr Int128I& operator=(const Int128& v) {
-        val = v;
-        return *this;
-    };
-
-    operator Int128() const { return val; }
-
-    const Int128I& operator+=(const Int128& x) {
-        val += x;
-        return *this;
-    }
-    const Int128I& operator-=(const Int128& x) {
-        val -= x;
-        return *this;
-    }
-    const Int128I& operator*=(const Int128& x) {
-        val *= x;
-        return *this;
-    }
-    const Int128I& operator/=(const Int128& x) {
-        val /= x;
-        return *this;
-    }
-    const Int128I& operator%=(const Int128& x) {
-        val %= x;
-        return *this;
-    }
-
-    Int128 val;
-};
+struct Int128I {};
 
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
@@ -350,11 +296,7 @@ struct Decimal {
 
     template <typename U>
     Decimal(const Decimal<U>& x) {
-        if constexpr (std::is_same_v<Int128I, U>) {
-            value = x.value.val;
-        } else {
-            value = x;
-        }
+        value = x;
     }
 
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
@@ -384,6 +326,28 @@ struct Decimal {
     }
 
     T value;
+};
+
+template <>
+struct Decimal<Int128I> : public Decimal<Int128> {
+    Decimal() = default;
+
+#define DECLARE_NUMERIC_CTOR(TYPE) \
+    Decimal(const TYPE& value_) : Decimal<Int128>(value_) {}
+
+    DECLARE_NUMERIC_CTOR(Int128)
+    DECLARE_NUMERIC_CTOR(Int32)
+    DECLARE_NUMERIC_CTOR(Int64)
+    DECLARE_NUMERIC_CTOR(UInt32)
+    DECLARE_NUMERIC_CTOR(UInt64)
+    DECLARE_NUMERIC_CTOR(Float32)
+    DECLARE_NUMERIC_CTOR(Float64)
+#undef DECLARE_NUMERIC_CTOR
+
+    template <typename U>
+    Decimal(const Decimal<U>& x) {
+        value = x;
+    }
 };
 
 using Decimal32 = Decimal<Int32>;
@@ -437,14 +401,17 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal128I> = true;
 
 template <typename T>
-constexpr bool IsDecimalV2 = false;
+constexpr bool IsDecimal128 = false;
 template <>
-inline constexpr bool IsDecimalV2<Decimal128> = true;
+inline constexpr bool IsDecimal128<Decimal128> = true;
 
 template <typename T>
 constexpr bool IsDecimal128I = false;
 template <>
 inline constexpr bool IsDecimal128I<Decimal128I> = true;
+
+template <typename T>
+constexpr bool IsDecimalV2 = IsDecimal128<T> && !IsDecimal128I<T>;
 
 template <typename T>
 constexpr bool IsFloatNumber = false;
@@ -471,7 +438,7 @@ struct NativeType<Decimal128> {
 };
 template <>
 struct NativeType<Decimal128I> {
-    using Type = Int128I;
+    using Type = Int128;
 };
 
 inline const char* getTypeName(TypeIndex idx) {
@@ -574,15 +541,6 @@ struct hash<doris::vectorized::Decimal128> {
         return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
                std::hash<doris::vectorized::Int64>()(
                        x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
-    }
-};
-
-template <>
-struct hash<doris::vectorized::Decimal128I> {
-    size_t operator()(const doris::vectorized::Decimal128I& x) const {
-        return std::hash<doris::vectorized::Int64>()(x.value.val >> 64) ^
-               std::hash<doris::vectorized::Int64>()(
-                       x.value.val & std::numeric_limits<doris::vectorized::UInt64>::max());
     }
 };
 

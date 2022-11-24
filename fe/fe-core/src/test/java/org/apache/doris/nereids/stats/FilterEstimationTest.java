@@ -103,7 +103,7 @@ class FilterEstimationTest {
         slotToColumnStat.put(a.getExprId(), aBuilder.build());
         slotToColumnStat.put(b.getExprId(), aBuilder.build());
         slotToColumnStat.put(c.getExprId(), aBuilder.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(or);
         Assertions.assertTrue(
@@ -128,7 +128,7 @@ class FilterEstimationTest {
                 .setMinValue(0)
                 .setMaxValue(500);
         slotToColumnStat.put(a.getExprId(), builder.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(ge);
         Assertions.assertEquals(1000 * 1.0 / 500, expected.getRowCount());
@@ -149,7 +149,7 @@ class FilterEstimationTest {
                 .setMinValue(500)
                 .setMaxValue(1000);
         slotToColumnStat.put(a.getExprId(), builder1.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(le);
         Assertions.assertEquals(1000 * 1.0 / 500, expected.getRowCount());
@@ -170,7 +170,7 @@ class FilterEstimationTest {
                 .setMinValue(500)
                 .setMaxValue(1000);
         slotToColumnStat.put(a.getExprId(), builder.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(less);
         Assertions.assertEquals(0, expected.getRowCount());
@@ -191,7 +191,7 @@ class FilterEstimationTest {
                 .setMinValue(500)
                 .setMaxValue(1000);
         slotToColumnStat.put(a.getExprId(), builder.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(ge);
         Assertions.assertEquals(0, expected.getRowCount());
@@ -220,7 +220,7 @@ class FilterEstimationTest {
                 .setMaxValue(1000);
         slotToColumnStat.put(a.getExprId(), builder1.build());
         slotToColumnStat.put(b.getExprId(), builder2.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult expected = filterEstimation.estimate(ge);
         Assertions.assertEquals(0, expected.getRowCount());
@@ -249,7 +249,7 @@ class FilterEstimationTest {
                 .setMaxValue(1000);
         slotToColumnStat.put(a.getExprId(), builder1.build());
         slotToColumnStat.put(b.getExprId(), builder2.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult esimated = filterEstimation.estimate(less);
         Assertions.assertEquals(1000, esimated.getRowCount());
@@ -278,7 +278,7 @@ class FilterEstimationTest {
                 .setMaxValue(500);
         slotToColumnStat.put(a.getExprId(), builder1.build());
         slotToColumnStat.put(b.getExprId(), builder2.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult estimated = filterEstimation.estimate(ge);
         Assertions.assertEquals(1000, estimated.getRowCount());
@@ -301,7 +301,7 @@ class FilterEstimationTest {
                 .setMinValue(1)
                 .setMaxValue(10);
         slotToColumnStat.put(a.getExprId(), builder.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult estimated = filterEstimation.estimate(inPredicate);
         Assertions.assertEquals(1000 * 3.0 / 10.0, estimated.getRowCount());
@@ -325,7 +325,7 @@ class FilterEstimationTest {
                 .setMinValue(1)
                 .setMaxValue(10);
         slotToColumnStat.put(a.getExprId(), builder.build());
-        StatsDeriveResult stat = new StatsDeriveResult(1000, slotToColumnStat);
+        StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
         StatsDeriveResult estimated = filterEstimation.estimate(not);
         Assertions.assertEquals(1000 * 7.0 / 10.0, estimated.getRowCount());

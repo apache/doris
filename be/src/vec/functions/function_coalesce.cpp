@@ -205,13 +205,8 @@ public:
         // true: null_map_data[row]==0 && filled_idx[row]==0
         // if true, could filled current row data into result column
         for (size_t row = 0; row < input_rows_count; ++row) {
-            if constexpr (std::is_same_v<ColumnType, ColumnDecimal128I>) {
-                result_raw_data[row] +=
-                        (!(null_map_data[row] | filled_flag[row])) * column_raw_data[row].value.val;
-            } else {
-                result_raw_data[row] +=
-                        (!(null_map_data[row] | filled_flag[row])) * column_raw_data[row];
-            }
+            result_raw_data[row] +=
+                    (!(null_map_data[row] | filled_flag[row])) * column_raw_data[row];
             filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
         }
         return Status::OK();
