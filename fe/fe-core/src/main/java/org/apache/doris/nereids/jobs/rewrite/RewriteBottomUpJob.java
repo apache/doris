@@ -88,7 +88,8 @@ public class RewriteBottomUpJob extends Job {
                 Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group,
                         REWRITE_BOTTOM_UP_JOB_TRACER);
                 if (copyInResult.isPresent() && copyInResult.get().generateNewExpression) {
-                    pushJob(new RewriteBottomUpJob(group, rules, context, false));
+                    pushJob(new RewriteBottomUpJob(copyInResult.get().correspondingExpression.getOwnerGroup(),
+                            rules, context, false));
                     return;
                 }
             }
