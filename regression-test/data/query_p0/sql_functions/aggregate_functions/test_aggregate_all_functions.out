@@ -92,6 +92,27 @@ beijing chengdu shanghai
 -- !select19 --
 8
 
+-- !select --
+\N
+1
+2
+3
+4
+
+-- !select --
+\N	5
+\N	\N
+1	1
+2	2
+3	3
+4	\N
+
+-- !select --
+1
+
+-- !select --
+1
+
 -- !select20 --
 1	10.0
 2	224.5
