@@ -334,10 +334,10 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
-                            logicalProject( // as s1
-                                logicalProject( // as s
-                                    logicalProject( // select * from supplier
-                                            logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                            logicalProject(// as s1
+                                logicalProject(// as s
+                                    logicalProject(// select * from supplier
+                                        logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
                                     )
                                 )
                             ),

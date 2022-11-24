@@ -391,9 +391,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                         )))
                                     ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
                                         new Alias(new ExprId(8),
-                                            new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
-                                                    true,
-                                                    ImmutableList.of("t2"))), "max(aa)")
+                                                new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                        true,
+                                                        ImmutableList.of("t2"))), "max(aa)")
                                     )))
                                     .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
                                 )

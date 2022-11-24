@@ -54,8 +54,8 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
     public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
-                // AdjustApplyFromCorrelatToUnCorrelatJob and ConvertApplyToJoinJob
-                // and SelectMaterializedIndexWithAggregate dependent this rule
+                // AdjustApplyFromCorrelateToUnCorrelateJob and ConvertApplyToJoinJob
+                // and SelectMaterializedIndexWithAggregate depends on this rule
                 .add(topDownBatch(ImmutableList.of(new MergeProjects())))
                 /*
                  * Subquery unnesting.
@@ -64,7 +64,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                  * 2. Convert logicalApply to a logicalJoin.
                  *  TODO: group these rules to make sure the result plan is what we expected.
                  */
-                .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
+                .addAll(new AdjustApplyFromCorrelateToUnCorrelateJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
                 .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
