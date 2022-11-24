@@ -61,7 +61,7 @@ FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
 }
 
 FileResultWriter::~FileResultWriter() {
-    _close_file_writer(true);
+    _close_file_writer(true, true);
 }
 
 Status FileResultWriter::init(RuntimeState* state) {
