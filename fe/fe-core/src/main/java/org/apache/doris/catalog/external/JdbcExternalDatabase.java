@@ -90,6 +90,31 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
 
+    public void setTableExtCatalog(ExternalCatalog extCatalog) {
+        for (JdbcExternalTable table : idToTbl.values()) {
+            table.setCatalog(extCatalog);
+        }
+    }
+
+    public void replayInitDb(InitDatabaseLog log, ExternalCatalog catalog) {
+        Map<String, Long> tmpTableNameToId = Maps.newConcurrentMap();
+        Map<Long, JdbcExternalTable> tmpIdToTbl = Maps.newConcurrentMap();
+        for (int i = 0; i < log.getRefreshCount(); i++) {
+            JdbcExternalTable table = getTableForReplay(log.getRefreshTableIds().get(i));
+            tmpTableNameToId.put(table.getName(), table.getId());
+            tmpIdToTbl.put(table.getId(), table);
+        }
+        for (int i = 0; i < log.getCreateCount(); i++) {
+            JdbcExternalTable table = new JdbcExternalTable(log.getCreateTableIds().get(i),
+                    log.getCreateTableNames().get(i), name, (JdbcExternalCatalog) catalog);
+            tmpTableNameToId.put(table.getName(), table.getId());
+            tmpIdToTbl.put(table.getId(), table);
+        }
+        tableNameToId = tmpTableNameToId;
+        idToTbl = tmpIdToTbl;
+        initialized = true;
+    }
+
     // TODO(ftw): brew
     @Override
     public Set<String> getTableNamesWithLock() {
@@ -111,6 +136,12 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
             return null;
         }
         return idToTbl.get(tableNameToId.get(tableName));
+    }
+
+    @Override
+    public JdbcExternalTable getTableNullable(long tableId) {
+        makeSureInitialized();
+        return idToTbl.get(tableId);
     }
 
     public JdbcExternalTable getTableForReplay(long tableId) {
