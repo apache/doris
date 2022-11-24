@@ -17,34 +17,128 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 
-import com.google.common.collect.Lists;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
+public class MergeLimitsTest implements PatternMatchSupported {
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
-public class MergeLimitsTest {
     @Test
-    public void testMergeConsecutiveLimits() {
-        LogicalLimit limit3 = new LogicalLimit<>(3, 5, new UnboundRelation(Lists.newArrayList("db", "t")));
-        LogicalLimit limit2 = new LogicalLimit<>(2, 0, limit3);
-        LogicalLimit limit1 = new LogicalLimit<>(10, 0, limit2);
+    public void parentIncludeChild() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .limit(10, 0)
+                .limit(1, 0)
+                .build();
 
-        CascadesContext context = MemoTestUtils.createCascadesContext(limit1);
-        List<Rule> rules = Lists.newArrayList(new MergeLimits().build());
-        context.topDownRewrite(rules);
-        LogicalLimit limit = (LogicalLimit) context.getMemo().copyOut();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
+                .applyTopDown(new MergeLimits())
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalLimit(logicalOlapScan())
+                                .when(limit -> limit.getLimit() == 1)
+                );
+    }
 
-        Assertions.assertEquals(2, limit.getLimit());
-        Assertions.assertEquals(5, limit.getOffset());
-        Assertions.assertEquals(1, limit.children().size());
-        Assertions.assertTrue(limit.child(0) instanceof UnboundRelation);
+    @Test
+    public void parentIntersectChild() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .limit(10, 0)
+                .limit(10, 5)
+                .build();
 
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
+                .applyTopDown(new MergeLimits())
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalLimit(logicalOlapScan())
+                                .when(limit -> limit.getLimit() == 5 && limit.getOffset() == 5)
+                );
+    }
+
+    @Test
+    public void childOverParent() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .limit(10, 0)
+                .limit(10, 10)
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new MergeLimits())
+                .matchesFromRoot(
+                        logicalLimit(logicalOlapScan())
+                                .when(limit -> limit.getLimit() == 0 && limit.getOffset() == 10)
+                );
+
+        LogicalPlan plan1 = new LogicalPlanBuilder(scan1)
+                .limit(10, 0)
+                .limit(3, 11)
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan1)
+                .printlnTree()
+                .applyTopDown(new MergeLimits())
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalLimit(logicalOlapScan())
+                                .when(limit -> limit.getLimit() == 0 && limit.getOffset() == 11)
+                );
+    }
+
+    @Test
+    public void testChildNotLimit() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .limit(-1, 0)
+                .limit(10, 10)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
+                .applyTopDown(new MergeLimits())
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalLimit(logicalOlapScan())
+                                .when(limit -> limit.getLimit() == 10 && limit.getOffset() == 10)
+                );
+    }
+
+    @Test
+    public void testParentNotLimit() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .limit(10, 0)
+                .limit(-1, 5)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
+                .applyTopDown(new MergeLimits())
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalLimit(logicalOlapScan())
+                                .when(limit -> limit.getLimit() == 5 && limit.getOffset() == 5)
+                );
+    }
+
+    @Test
+    public void testBothNotLimit() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .limit(-1, 3)
+                .limit(-1, 5)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
+                .applyTopDown(new MergeLimits())
+                .printlnTree()
+                .matchesFromRoot(
+                        logicalLimit(logicalOlapScan())
+                                .when(limit -> limit.getLimit() == -1 && limit.getOffset() == 8)
+                );
     }
 }

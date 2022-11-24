@@ -20,8 +20,6 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
 /**
@@ -43,13 +41,39 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 public class MergeLimits extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalLimit(logicalLimit()).whenNot(Limit::hasValidOffset).then(upperLimit -> {
-            LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
+        return logicalLimit(logicalLimit()).then(limit -> {
+            long bottomLimit = limit.child().getLimit();
+            long bottomOffset = limit.child().getOffset();
+            long upLimit = limit.getLimit();
+            long upOffset = limit.getOffset();
+            // Child range [bottomOffset, bottomOffset + bottomLimit)
+            // Parent range [bottomOffset + upOffset, bottomOffset + upOffset + upLimit)
+            // Merge -> [bottomOffset + upOffset, min(bottomOffset + upOffset + upLimit, bottomOffset + bottomLimit) )
+            // Merge LimitPlan -> [bottomOffset + upOffset, min(upLimit, bottomLimit - upOffset) )
+            long newLimit;
+            if (bottomLimit >= 0 && upLimit >= 0) {
+                newLimit = Math.min(upLimit, minus(bottomLimit, upOffset));
+            } else if (upLimit < 0 & bottomLimit < 0) {
+                newLimit = -1;
+            } else if (bottomLimit < 0) {
+                newLimit = upLimit;
+            } else {
+                newLimit = minus(bottomLimit, upOffset);
+            }
+
             return new LogicalLimit<>(
-                    Math.min(upperLimit.getLimit(), bottomLimit.getLimit()),
-                    bottomLimit.getOffset(),
-                    bottomLimit.child()
+                    newLimit,
+                    bottomOffset + upOffset,
+                    limit.child().child()
             );
         }).toRule(RuleType.MERGE_LIMITS);
+    }
+
+    private long minus(long limit, long offset) {
+        if (limit > offset) {
+            return limit - offset;
+        } else {
+            return 0;
+        }
     }
 }
