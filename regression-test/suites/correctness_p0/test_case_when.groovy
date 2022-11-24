@@ -76,4 +76,30 @@ suite("test_case_when") {
     ORDER BY
       hour_time;
     """
+
+    try_sql """
+    select
+        CAST(
+            CASE
+            WHEN source is null THEN null
+            ELSE null
+            END AS bitmap
+        ) as c0
+    FROM
+        dws_scan_qrcode_user_ts;
+    """
+
+    sql """ set enable_vectorized_engine = true """
+
+    try_sql """
+    select
+        CAST(
+            CASE
+            WHEN source is null THEN null
+            ELSE null
+            END AS bitmap
+        ) as c0
+    FROM
+        dws_scan_qrcode_user_ts;
+    """
 }
