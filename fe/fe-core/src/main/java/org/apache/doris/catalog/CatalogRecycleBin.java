@@ -262,7 +262,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             eraseAllTables(dbInfo);
             idToDatabase.remove(dbId);
             idToRecycleTime.remove(dbId);
-            Env.getCurrentEnv().eraseDatabase(dbId, false);
+            Env.getCurrentEnv().eraseDatabase(dbId, true);
             LOG.info("erase database[{}] name: {}", dbId, dbName);
         }
     }
