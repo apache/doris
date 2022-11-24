@@ -76,7 +76,6 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         if (it == _tablets_channels.end()) {
             if (_finished_channel_ids.find(index_id) != _finished_channel_ids.end()) {
                 // this channel is already finished, just return OK
-                VLOG_PROGRESS << "load channel " << _load_id << " add batch is already successful";
                 return Status::OK();
             }
             std::stringstream ss;
