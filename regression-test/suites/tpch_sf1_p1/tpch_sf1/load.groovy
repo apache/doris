@@ -33,8 +33,8 @@ suite("load") {
 //    }
 
     for (String table in tables) {
+        sql "drop table if exists ${table}"
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
-        sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     }
 
     for (String tableName in tables) {
@@ -109,7 +109,7 @@ suite("load") {
     }
 
     def table = "revenue1"
-    sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
+    sql "drop view if exists ${table}"
     sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     // We need wait to make sure BE could pass the stats info to FE so that
     // avoid unnessary inconsistent generated plan which would cause the regression test fail
