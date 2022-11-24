@@ -292,7 +292,7 @@ Status TabletMeta::reset_tablet_uid(const string& header_file) {
         return res;
     }
     TabletMetaPB tmp_tablet_meta_pb;
-    tmp_tablet_meta.to_meta_pb(&tmp_tablet_meta_pb);
+    tmp_tablet_meta.to_meta_pb(false, &tmp_tablet_meta_pb);
     *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
     res = save(header_file, tmp_tablet_meta_pb);
     if (!res.ok()) {
@@ -326,7 +326,7 @@ Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
 
 Status TabletMeta::save(const string& file_path) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(&tablet_meta_pb);
+    to_meta_pb(false, &tablet_meta_pb);
     return TabletMeta::save(file_path, tablet_meta_pb);
 }
 
@@ -380,7 +380,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
 
 Status TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(&tablet_meta_pb);
+    to_meta_pb(false, &tablet_meta_pb);
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << full_name();
@@ -498,7 +498,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 }
 
-void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
+void TabletMeta::to_meta_pb(bool only_remote, TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_partition_id(partition_id());
     tablet_meta_pb->set_tablet_id(tablet_id());
@@ -528,7 +528,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     }
 
     for (auto& rs : _rs_metas) {
-        rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+        if (!only_remote || !rs->is_local()) {
+            rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+        }
     }
     for (auto rs : _stale_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
@@ -575,7 +577,7 @@ uint32_t TabletMeta::mem_size() const {
 
 void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
     TabletMetaPB tablet_meta_pb;
-    to_meta_pb(&tablet_meta_pb);
+    to_meta_pb(false, &tablet_meta_pb);
     json2pb::ProtoMessageToJson(tablet_meta_pb, json_string, options);
 }
 

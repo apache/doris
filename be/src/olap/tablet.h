@@ -391,13 +391,11 @@ private:
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
     Status _cooldown_upload_data();
     Status _cooldown_use_remote_data();
-    int64_t _max_remote_tablet_version(const TabletMetaPB& remote_tablet_meta_pb);
     Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
-    Status _read_remote_tablet_meta(io::FileReaderSPtr tablet_meta_reader,
-                                    TabletMetaPB* tablet_meta_pb);
+    Status _read_remote_tablet_meta(const std::string& meta_path, TabletMetaPB* tablet_meta_pb);
     Status _write_remote_tablet_meta(io::FileSystemSPtr fs, int64_t tablet_id,
                                      const TabletMetaPB& tablet_meta_pb);
-    Status _write_remote_tablet_meta(io::FileWriterPtr tablet_meta_writer,
+    Status _write_remote_tablet_meta(const std::string& meta_path,
                                      const TabletMetaPB& tablet_meta_pb);
 
 public:
@@ -473,6 +471,8 @@ private:
 
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
+
+    bool _is_remote_meta_downloaded = false;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

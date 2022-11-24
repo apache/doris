@@ -135,7 +135,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         return res;
     }
     TabletMetaPB cloned_tablet_meta_pb;
-    cloned_tablet_meta.to_meta_pb(&cloned_tablet_meta_pb);
+    cloned_tablet_meta.to_meta_pb(false, &cloned_tablet_meta_pb);
 
     TabletMetaPB new_tablet_meta_pb;
     new_tablet_meta_pb = cloned_tablet_meta_pb;

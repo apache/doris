@@ -1430,7 +1430,7 @@ void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) cons
 // such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
 void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const {
     TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    _tablet_meta->to_meta_pb(false, &tablet_meta_pb);
     new_tablet_meta->init_from_pb(tablet_meta_pb);
 }
 
@@ -1711,16 +1711,19 @@ Status Tablet::_cooldown_upload_data() {
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
     DCHECK(dest_fs->type() == io::FileSystemType::S3);
+
+    // get remote tablet_meta, check end_version.
+    if (config::cooldown_single_remote_file) {
+        if (!_is_remote_meta_downloaded) {
+            _cooldown_use_remote_data();
+            _is_remote_meta_downloaded = true;
+        }
+    }
+
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
         LOG(WARNING) << "Cannot pick cooldown rowset in tablet " << tablet_id();
         return Status::OK();
-    }
-
-    // get remote tablet_meta, check end_version.
-    TabletMetaPB remote_tablet_meta_pb;
-    if (config::cooldown_single_remote_file) {
-        RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     }
 
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
@@ -1749,6 +1752,8 @@ Status Tablet::_cooldown_upload_data() {
     new_rowset_meta->set_creation_time(time(nullptr));
 
     if (config::cooldown_single_remote_file) {
+        TabletMetaPB remote_tablet_meta_pb;
+        _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
         new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
         // upload rowset_meta to remote fs.
         RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, tablet_id(), remote_tablet_meta_pb));
@@ -1766,26 +1771,18 @@ Status Tablet::_cooldown_upload_data() {
         has_shutdown = tablet_state() == TABLET_SHUTDOWN;
         if (!has_shutdown) {
             modify_rowsets(to_add, to_delete);
-            _self_owned_remote_rowsets.insert(to_add.front());
+            if (!config::cooldown_single_remote_file) {
+                _self_owned_remote_rowsets.insert(to_add.front());
+            }
             save_meta();
         }
     }
-    if (has_shutdown) {
+    if (has_shutdown && !config::cooldown_single_remote_file) {
         record_unused_remote_rowset(new_rowset_id, dest_fs->resource_id(),
                                     to_add.front()->num_segments());
         return Status::Aborted("tablet {} has shutdown", tablet_id());
     }
     return Status::OK();
-}
-
-int64_t Tablet::_max_remote_tablet_version(const TabletMetaPB& remote_tablet_meta_pb) {
-    int64_t max_version = 0;
-    for (auto& rowset : remote_tablet_meta_pb.rs_metas()) {
-        if (rowset.end_version() > max_version) {
-            max_version = rowset.end_version();
-        }
-    }
-    return max_version;
 }
 
 // if 2 files exist, get tablet_meta from remote_meta_path
@@ -1795,32 +1792,30 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
     bool exist = false;
     RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     if (exist) {
-        RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader));
-        DCHECK(tablet_meta_reader != nullptr);
-        Status st = _read_remote_tablet_meta(tablet_meta_reader, tablet_meta_pb);
-        tablet_meta_reader->close();
-        return st;
+        RETURN_IF_ERROR(_read_remote_tablet_meta(remote_meta_path, tablet_meta_pb));
     }
     std::string remote_meta_bak_path = BetaRowset::remote_tablet_meta_bak_path(tablet_id);
     exist = false;
     RETURN_IF_ERROR(fs->exists(remote_meta_bak_path, &exist));
     if (exist) {
-        RETURN_IF_ERROR(fs->open_file(remote_meta_bak_path, &tablet_meta_reader));
-        DCHECK(tablet_meta_reader != nullptr);
-        Status st = _read_remote_tablet_meta(tablet_meta_reader, tablet_meta_pb);
-        tablet_meta_reader->close();
-        return st;
+        RETURN_IF_ERROR(_read_remote_tablet_meta(remote_meta_bak_path, tablet_meta_pb));
     }
     return Status::OLAPInternalError(OLAP_ERR_FILE_NOT_EXIST);
 }
 
-Status Tablet::_read_remote_tablet_meta(io::FileReaderSPtr tablet_meta_reader,
+Status Tablet::_read_remote_tablet_meta(const std::string& meta_path,
                                         TabletMetaPB* tablet_meta_pb) {
+    RETURN_IF_ERROR(fs->open_file(meta_path, &tablet_meta_reader));
+    DCHECK(tablet_meta_reader != nullptr);
     auto file_size = tablet_meta_reader->size();
     size_t bytes_read;
     uint8_t* buf = new uint8_t[file_size];
     Slice slice(buf, file_size);
-    RETURN_IF_ERROR(tablet_meta_reader->read_at(0, slice, &bytes_read));
+    Status st = tablet_meta_reader->read_at(0, slice, &bytes_read);
+    if (!st.ok()) {
+        tablet_meta_reader->close();
+        return st;
+    }
     tablet_meta_reader->close();
     if (!tablet_meta_pb->ParseFromString(slice.to_string())) {
         LOG(WARNING) << "parse tablet meta failed";
@@ -1839,42 +1834,40 @@ Status Tablet::_write_remote_tablet_meta(FileSystemSPtr fs, int64_t tablet_id,
     bool bak_exist = false;
     RETURN_IF_ERROR(fs->exists(remote_meta_path, &exist));
     RETURN_IF_ERROR(fs->exists(remote_meta_bak_path, &bak_exist));
+    bool bak_file_need_upload = !bak_exist;
     if (exist && bak_exist) {
+        // It means bak file is not deleted, and meta file exist, bak file is not needed.
         RETURN_IF_ERROR(fs->delete_file(remote_meta_bak_path));
+        bak_file_need_upload = true;
     }
-    {
-        io::FileWriterPtr tablet_meta_writer;
-        RETURN_IF_ERROR(fs->create_file(remote_meta_bak_path, &tablet_meta_writer));
-        DCHECK(tablet_meta_writer != nullptr);
-        Status st = _write_remote_tablet_meta(tablet_meta_writer, tablet_meta_pb);
-        tablet_meta_writer->close();
-        RETURN_IF_ERROR(st);
+    if (bak_file_need_upload) {
+        RETURN_IF_ERROR(_write_remote_tablet_meta(remote_meta_bak_path, tablet_meta_pb));
     }
     if (exist) {
         RETURN_IF_ERROR(fs->delete_file(remote_meta_path));
     }
-    {
-        io::FileWriterPtr tablet_meta_writer;
-        RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
-        DCHECK(tablet_meta_writer != nullptr);
-        Status st = _write_remote_tablet_meta(tablet_meta_writer, tablet_meta_pb);
-        tablet_meta_writer->close();
-        RETURN_IF_ERROR(st);
-    }
+    RETURN_IF_ERROR(_write_remote_tablet_meta(remote_meta_path, tablet_meta_pb));
     RETURN_IF_ERROR(fs->delete_file(remote_meta_bak_path));
     return Status::OK();
 }
 
-Status Tablet::_write_remote_tablet_meta(io::FileWriterPtr tablet_meta_writer,
+Status Tablet::_write_remote_tablet_meta(const std::string& meta_path,
                                          const TabletMetaPB& tablet_meta_pb) {
+    io::FileWriterPtr tablet_meta_writer;
+    RETURN_IF_ERROR(fs->create_file(meta_path, &tablet_meta_writer));
+    DCHECK(tablet_meta_writer != nullptr);
     string value;
     tablet_meta_pb.SerializeToString(&value);
     DCHECK(tablet_meta_writer != nullptr);
     uint8_t* buf = new uint8_t[value.size()];
     memcpy(buf, value.c_str(), value.size());
     Slice slice(buf, value.size());
-    RETURN_IF_ERROR(tablet_meta_writer->appendv(&slice, 1));
-
+    Status st = tablet_meta_writer->appendv(&slice, 1);
+    if (!st.ok()) {
+        tablet_meta_writer->close();
+        return st;
+    }
+    tablet_meta_writer->close();
     return Status::OK();
 }
 
