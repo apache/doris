@@ -83,6 +83,10 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                 dst_rowset_writer->add_row(row_cursor),
                 "failed to write row when merging rowsets of tablet " + tablet->full_name());
         output_rows++;
+        LOG_IF(INFO, config::row_step_for_compaction_merge_log != 0 &&
+                             output_rows % config::row_step_for_compaction_merge_log == 0)
+                << "Merge rowsets stay alive. "
+                << "tablet=" << tablet->full_name() << ", merged rows=" << output_rows;
         // the memory allocate by mem pool has been copied,
         // so we should release memory immediately
         mem_pool->clear();

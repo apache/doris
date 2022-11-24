@@ -124,7 +124,8 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 }
 
 Status VerticalBlockReader::init(const ReaderParams& read_params) {
-    _batch_size = 4096;
+    StorageReadOptions opts;
+    _batch_size = opts.block_row_max;
     RETURN_NOT_OK(TabletReader::init(read_params));
 
     std::vector<RowsetReaderSharedPtr> rs_readers;

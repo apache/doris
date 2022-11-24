@@ -190,8 +190,7 @@ private:
     bool _valid = false;
     mutable bool _is_same = false;
     size_t _index_in_block = -1;
-    // 4096 minus 16 + 16 bytes padding that in padding pod array
-    int _block_row_max = 4064;
+    size_t _block_row_max = 0;
     int _num_key_columns;
     size_t _cur_batch_num = 0;
 

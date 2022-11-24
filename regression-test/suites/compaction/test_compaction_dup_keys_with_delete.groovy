@@ -17,43 +17,8 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_vertical_compaction_uniq_keys") {
-    def tableName = "vertical_compaction_uniq_keys_regression_test"
-
-    def set_be_config = { ->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            StringBuilder setConfigCommand = new StringBuilder();
-            setConfigCommand.append("curl -X POST http://")
-            setConfigCommand.append(backend[2])
-            setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
-            setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_vertical_compaction=true"
-            logger.info(command1)
-            def process1 = command1.execute()
-            int code = process1.waitFor()
-            assertEquals(code, 0)
-        }
-    }
-    def reset_be_config = { ->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            StringBuilder setConfigCommand = new StringBuilder();
-            setConfigCommand.append("curl -X POST http://")
-            setConfigCommand.append(backend[2])
-            setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
-            setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_vertical_compaction=false"
-            logger.info(command1)
-            def process1 = command1.execute()
-            int code = process1.waitFor()
-            assertEquals(code, 0)
-        }
-    }
+suite("test_compaction_dup_keys_with_delete") {
+    def tableName = "test_compaction_dup_keys_with_delete_regression_test"
 
     try {
         //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
@@ -91,11 +56,10 @@ suite("test_vertical_compaction_uniq_keys") {
                 disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
             }
         }
-        set_be_config.call()
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
                 `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                 `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
@@ -112,7 +76,7 @@ suite("test_vertical_compaction_uniq_keys") {
                 `cost` BIGINT DEFAULT "0" COMMENT "用户总消费",
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
-            UNIQUE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
+            DUPLICATE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES ( "replication_num" = "1" );
         """
 
@@ -125,10 +89,8 @@ suite("test_vertical_compaction_uniq_keys") {
             """
 
         sql """
-            DELETE from ${tableName} where user_id <= 0
+            DELETE FROM ${tableName} where user_id <= 5
             """
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
-
 
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', 1, 31, 21)
@@ -139,9 +101,8 @@ suite("test_vertical_compaction_uniq_keys") {
             """
 
         sql """
-            DELETE from ${tableName} where user_id <= 1
+            DELETE FROM ${tableName} where user_id <= 5
             """
-        qt_select_default1 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         sql """ INSERT INTO ${tableName} VALUES
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22)
@@ -155,11 +116,15 @@ suite("test_vertical_compaction_uniq_keys") {
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
 
+        sql """
+            DELETE FROM ${tableName} where user_id <= 5
+            """
+            
         sql """ INSERT INTO ${tableName} VALUES
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20)
             """
 
-        qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
@@ -244,10 +209,9 @@ suite("test_vertical_compaction_uniq_keys") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount < 8)
-        qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        assert (rowCount <= 8)
+        qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        reset_be_config.call()
     }
 }

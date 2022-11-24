@@ -125,6 +125,12 @@ suite("test_vertical_compaction_agg_keys") {
         sql """ INSERT INTO ${tableName} VALUES
              (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.160000', '2017-10-01 11:11:11.100111', '2020-01-02', 1, 31, 19, hll_hash(2), to_bitmap(2))
             """
+        
+        sql """
+            DELETE from ${tableName} where user_id < 0
+            """
+
+        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', 1, 31, 21, hll_hash(2), to_bitmap(2))
@@ -133,6 +139,12 @@ suite("test_vertical_compaction_agg_keys") {
         sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.140000', '2017-10-01 11:11:11.120111', '2020-01-03', 1, 32, 20, hll_hash(3), to_bitmap(3))
             """
+
+        sql """
+            DELETE from ${tableName} where user_id <= 1
+            """
+
+        qt_select_default1 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         sql """ INSERT INTO ${tableName} VALUES
              (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', 1, 32, 22, hll_hash(3), to_bitmap(3))
@@ -150,7 +162,7 @@ suite("test_vertical_compaction_agg_keys") {
              (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, NULL, NULL, NULL, NULL, '2020-01-05', 1, 34, 20, hll_hash(5), to_bitmap(5))
             """
 
-        qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
@@ -236,7 +248,7 @@ suite("test_vertical_compaction_agg_keys") {
             }
         }
         assert (rowCount < 8)
-        qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+        qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
         reset_be_config.call()

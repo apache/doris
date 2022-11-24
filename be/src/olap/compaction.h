@@ -48,10 +48,15 @@ public:
 
     // This is only for http CompactionAction
     Status compact();
+    Status quick_rowsets_compact();
 
     virtual Status prepare_compact() = 0;
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
+#ifdef BE_TEST
+    void set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets);
+    RowsetSharedPtr output_rowset();
+#endif
 
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
