@@ -295,7 +295,11 @@ OLAPStatus DeltaWriter::close_wait() {
     }
 
     // return error if previous flush failed
-    RETURN_NOT_OK(_flush_token->wait());
+    auto st = _flush_token->wait();
+    if (OLAP_UNLIKELY(st != OLAP_SUCCESS)) {
+        LOG(WARNING) << "previous flush failed tablet " << _tablet->tablet_id();
+        return st;
+    }
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();

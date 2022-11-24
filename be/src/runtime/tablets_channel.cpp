@@ -35,7 +35,10 @@ std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
                                const std::shared_ptr<MemTracker>& mem_tracker,
                                bool is_high_priority)
-        : _key(key), _state(kInitialized), _closed_senders(64), _is_high_priority(is_high_priority) {
+        : _key(key),
+          _state(kInitialized),
+          _closed_senders(64),
+          _is_high_priority(is_high_priority) {
     _mem_tracker = MemTracker::CreateTracker(-1, "TabletsChannel", mem_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
@@ -78,26 +81,26 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 }
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
-        PTabletWriterAddBatchResult* response) {
+                                 PTabletWriterAddBatchResult* response) {
     DCHECK(request.tablet_ids_size() == request.row_batch().num_rows());
     int64_t cur_seq;
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_state != kOpened) {
             return _state == kFinished
-                ? _close_status
-                : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
-                            _key.to_string(), _state));
+                           ? _close_status
+                           : Status::InternalError(strings::Substitute(
+                                     "TabletsChannel $0 state: $1", _key.to_string(), _state));
         }
         cur_seq = _next_seqs[request.sender_id()];
         // check packet
         if (request.packet_seq() < cur_seq) {
             LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
-                << ", recept_seq=" << request.packet_seq();
+                      << ", recept_seq=" << request.packet_seq();
             return Status::OK();
         } else if (request.packet_seq() > cur_seq) {
             LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
-                << ", recept_seq=" << request.packet_seq();
+                         << ", recept_seq=" << request.packet_seq();
             return Status::InternalError("lost data packet");
         }
     }
@@ -108,22 +111,24 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         int64_t tablet_id = request.tablet_ids(i);
         if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
             // skip broken tablets
+            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
             continue;
         }
         auto it = tablet_to_rowidxs.find(tablet_id);
         if (it == tablet_to_rowidxs.end()) {
-            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int>{ i });
+            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int> {i});
         } else {
             it->second.emplace_back(i);
         }
     }
 
-    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors = response->mutable_tablet_errors(); 
+    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
+            response->mutable_tablet_errors();
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
         auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
         if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError(
-                    strings::Substitute("unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
+            return Status::InternalError(strings::Substitute(
+                    "unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
         }
 
         OLAPStatus st = tablet_writer_it->second->write(&row_batch, tablet_to_rowidxs_it.second);
@@ -192,6 +197,8 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
+                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << it.first
+                              << ", transaction_id=" << _txn_id;
             }
         }
 
@@ -221,6 +228,8 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
         tablet_error->set_msg("close wait failed: " + boost::lexical_cast<string>(st));
+        VLOG_PROGRESS << "close wait failed tablet " << writer->tablet_id() << " transaction_id "
+                      << _txn_id << "err msg " << st;
     }
 }
 
@@ -255,7 +264,7 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
 
     int64_t mem_to_flushed = mem_limit / 3;
     int counter = 0;
-    int64_t  sum = 0;
+    int64_t sum = 0;
     for (auto writer : writers) {
         if (writer->memtable_consumption() <= 0) {
             break;
@@ -278,7 +287,8 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
         }
         OLAPStatus st = writers[i]->wait_flush();
         if (st != OLAP_SUCCESS) {
-            return Status::InternalError(fmt::format("failed to reduce mem consumption by flushing memtable. err: {}", st));
+            return Status::InternalError(fmt::format(
+                    "failed to reduce mem consumption by flushing memtable. err: {}", st));
         }
     }
     return Status::OK();

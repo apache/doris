@@ -200,6 +200,7 @@ Status NodeChannel::open_wait() {
         } else if (is_last_rpc) {
             // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
             // will be blocked.
+            VLOG_PROGRESS << "node channel " << channel_info() << " add_batches_finished";
             _add_batches_finished = true;
         }
         _add_batch_counter.add_batch_rpc_time_us += _add_batch_closure->watch.elapsed_time() / 1000;
@@ -232,6 +233,9 @@ Status NodeChannel::open_wait() {
                     commit_info.backendId = _node_id;
                     _tablet_commit_infos.emplace_back(std::move(commit_info));
                 }
+                VLOG_PROGRESS << "node channel " << channel_info()
+                              << " add_batches_finished and handled "
+                              << result.tablet_errors().size() << " tablets errors";
                 _add_batches_finished = true;
             }
         } else {
@@ -348,8 +352,7 @@ void NodeChannel::_sleep_if_memory_exceed() {
                       << ", max_pending_batches_bytes = " << _max_pending_batches_bytes
                       << ", is_packet_in_flight = " << _add_batch_closure->is_packet_in_flight()
                       << ", next_packet_seq = " << _next_packet_seq
-                      << ", cur_batch_rows = " << _cur_batch->num_rows()
-                      << ", " << channel_info();
+                      << ", cur_batch_rows = " << _cur_batch->num_rows() << ", " << channel_info();
         }
     }
 }
@@ -370,7 +373,8 @@ void NodeChannel::mark_close() {
         DCHECK(_pending_batches.back().second.eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
-                  << " mark closed, left pending batch size: " << _pending_batches.size();
+                  << " mark closed, left pending batch size: " << _pending_batches.size()
+                  << " left pending batch size: " << _pending_batches_bytes;
     }
 
     _eos_is_produced = true;
@@ -672,6 +676,8 @@ void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
+    VLOG_PROGRESS << "mark node_id:" << node_id << " tablet_id: " << tablet_id
+                  << " as failed, err: " << err;
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -883,6 +889,9 @@ Status OlapTableSink::prepare(RuntimeState* state) {
             }
         }
         auto channel = std::make_shared<IndexChannel>(this, index->index_id);
+        if (UNLIKELY(tablets.empty())) {
+            LOG(WARNING) << "load job:" << state->load_job_id() << " index: " << index->index_id << " would open 0 tablet";
+        }
         RETURN_IF_ERROR(channel->init(state, tablets));
         _channels.emplace_back(channel);
     }
@@ -1109,8 +1118,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
                << ")(" << (pair.second.add_batch_wait_execution_time_us / 1000) << ")("
-               << (pair.second.add_batch_rpc_time_us / 1000) << ")(" << pair.second.close_wait_time_ms
-               << ")(" << pair.second.add_batch_num << ")} ";
+               << (pair.second.add_batch_rpc_time_us / 1000) << ")("
+               << pair.second.close_wait_time_ms << ")(" << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
     } else {
