@@ -297,7 +297,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                                                 join -> Objects.equals(join.getHashJoinConjuncts().toString(),
                                                         "[(id#0 = id#8)]")
                                                         && Objects.equals(join.getOtherJoinConjuncts().toString(),
-                                                        "[(name#1 > name#9), ( not (substring(name#1, CAST('1' AS INT), CAST('3' AS INT)) = 'abc'))]"))),
+                                                        "[(name#1 > name#9), ( not (substring(name#1, cast('1' as INT), cast('3' as INT)) = 'abc'))]"))),
                                 group()
                         ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(),
                                 "[(t2.id#6 = (t1.id#4 + id#8)), (t1.id#4 = t2.id#6)]")

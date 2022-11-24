@@ -112,6 +112,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 aggregate.isNormalized(),
                 false,
                 AggPhase.GLOBAL,
+                aggregate.getSourceRepeat(),
                 localDistinct
         );
         return new LogicalAggregate<>(
@@ -121,6 +122,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 aggregate.isNormalized(),
                 true,
                 AggPhase.DISTINCT_LOCAL,
+                aggregate.getSourceRepeat(),
                 globalDistinct
         );
     }
@@ -228,6 +230,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 aggregate.isNormalized(),
                 false,
                 AggPhase.LOCAL,
+                aggregate.getSourceRepeat(),
                 aggregate.child()
         );
         return Pair.of(new LogicalAggregate<>(
@@ -237,6 +240,7 @@ public class AggregateDisassemble extends OneRewriteRuleFactory {
                 aggregate.isNormalized(),
                 true,
                 AggPhase.GLOBAL,
+                aggregate.getSourceRepeat(),
                 localAggregate
         ), hasDistinct);
     }

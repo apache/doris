@@ -118,11 +118,18 @@ joinRelation
     ;
 
 aggClause
-    : GROUP BY groupByItem?
+    : GROUP BY groupingElement?
     ;
 
-groupByItem
-    : expression (',' expression)*
+groupingElement
+    : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+    | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+    | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
+    | expression (COMMA expression)*
+    ;
+
+groupingSet
+    : LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     ;
 
 havingClause
@@ -144,7 +151,7 @@ queryOrganization
     ;
 
 sortClause
-    : (ORDER BY sortItem (',' sortItem)*)
+    : (ORDER BY sortItem (COMMA sortItem)*)
     ;
 
 sortItem

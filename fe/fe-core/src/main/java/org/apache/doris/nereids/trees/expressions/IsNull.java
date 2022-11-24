@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
 
@@ -75,4 +77,8 @@ public class IsNull extends Expression implements UnaryExpression {
         return child().hashCode();
     }
 
+    @Override
+    public DataType getDataType() throws UnboundException {
+        return BooleanType.INSTANCE;
+    }
 }
