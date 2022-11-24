@@ -343,7 +343,6 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             << "delta writer is supposed be to initialized before close_wait() being called";
 
     if (_is_cancelled) {
-        LOG(WARNING) << "already canceled, tablet " << tablet_id();
         return _cancel_status;
     }
     // return error if previous flush failed
