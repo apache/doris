@@ -73,6 +73,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         jdbcClient = new JdbcClient(jdbcUser, jdbcPasswd, jdbcUrl, driverUrl, driverClass);
         databaseTypeName = jdbcClient.getDbType();
+        checkSum = jdbcClient.getCheckSum();
     }
 
     @Override

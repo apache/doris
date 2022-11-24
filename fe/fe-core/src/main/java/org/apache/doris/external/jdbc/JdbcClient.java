@@ -21,15 +21,22 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Lists;
 import lombok.Data;
 import lombok.Getter;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Driver;
@@ -49,6 +56,7 @@ public class JdbcClient {
     private static final String H2 = "H2";
     private static final String POSTGRESQL = "POSTGRESQL";
     private static final String ZENITH = "ZENITH";
+    private static final int HTTP_TIMEOUT_MS = 10000;
 
     private String dbType;
     private String jdbcUser;
@@ -56,8 +64,11 @@ public class JdbcClient {
     private String jdbcUrl;
     private String driverUrl;
     private String driverClass;
+    private String checkSum;
+
 
     private URLClassLoader classLoader;
+
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
         this.jdbcUser = user;
@@ -66,6 +77,7 @@ public class JdbcClient {
         this.driverUrl = driverUrl;
         this.driverClass = driverClass;
         this.dbType = parseDbType(jdbcUrl);
+        this.checkSum = computeObjectChecksum();
 
         try {
             URL[] urls = {new URL(driverUrl)};
@@ -378,5 +390,33 @@ public class JdbcClient {
                     true, null, -1));
         }
         return dorisTableSchema;
+    }
+
+    private String computeObjectChecksum() {
+        if (FeConstants.runningUnitTest) {
+            // skip checking checksum when running ut
+            return "";
+        }
+
+        InputStream inputStream = null;
+        try {
+            inputStream = Util.getInputStreamFromUrl(driverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] buf = new byte[4096];
+            int bytesRead = 0;
+            do {
+                bytesRead = inputStream.read(buf);
+                if (bytesRead < 0) {
+                    break;
+                }
+                digest.update(buf, 0, bytesRead);
+            } while (true);
+            return Hex.encodeHexString(digest.digest());
+        } catch (IOException e) {
+            throw new JdbcClientException("compute driver checksum from url: " + driverUrl + " meet an IOException.");
+        } catch (NoSuchAlgorithmException e) {
+            throw new JdbcClientException(
+                    "compute driver checksum from url: " + driverUrl + " could not find algorithm.");
+        }
     }
 }
