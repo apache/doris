@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -23,15 +23,16 @@ import java.util.BitSet;
 import java.util.Iterator;
 
 /**
- * This is an Iterator for iterating bitmap
+ * This is an Iterator for iterating bitmap descending
  */
-public class BitSetIterator implements Iterable<Integer> {
-    int lastIndex = -1;
+public class ReverseBitSetIterator implements Iterable<Integer> {
+    int lastIndex = 0;
     int readNum = 0;
     BitSet bitSet;
 
-    BitSetIterator(BitSet bitSet) {
+    ReverseBitSetIterator(BitSet bitSet) {
         this.bitSet = bitSet;
+        lastIndex = bitSet.size();
     }
 
     @NotNull
@@ -45,7 +46,7 @@ public class BitSetIterator implements Iterable<Integer> {
 
             @Override
             public Integer next() {
-                lastIndex = bitSet.nextSetBit(lastIndex + 1);
+                lastIndex = bitSet.previousSetBit(lastIndex - 1);
                 readNum += 1;
                 return lastIndex;
             }

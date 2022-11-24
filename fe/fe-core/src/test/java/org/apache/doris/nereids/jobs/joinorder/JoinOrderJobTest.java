@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder;
+package org.apache.doris.nereids.jobs.joinorder;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -26,17 +26,18 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
-class HyperGraphJoinReorderGroupLeftTest {
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
-    private final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
-    private final LogicalOlapScan scan5 = PlanConstructor.newLogicalOlapScan(4, "t5", 0);
+public class JoinOrderJobTest {
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(1, "t1", 0);
+    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(2, "t2", 0);
+    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(3, "t3", 0);
+    private final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(4, "t4", 0);
+    private final LogicalOlapScan scan5 = PlanConstructor.newLogicalOlapScan(5, "t5", 0);
 
     @Test
-    void test() {
+    void testJoinOrderJob() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .hashJoinUsing(
                         new LogicalPlanBuilder(scan2)
@@ -46,11 +47,12 @@ class HyperGraphJoinReorderGroupLeftTest {
                                 .build(),
                         JoinType.INNER_JOIN, Pair.of(0, 1)
                 )
+                .project(Lists.newArrayList(1))
                 .build();
-
+        System.out.println(plan.treeString());
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .deriveStats()
-                .applyTopDown(new HyperGraphJoinReorderGroupLeft())
+                .orderJoin()
                 .printlnTree();
     }
 }

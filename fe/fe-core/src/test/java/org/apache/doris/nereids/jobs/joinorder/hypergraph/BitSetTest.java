@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.SubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.SubsetIterator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

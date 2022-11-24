@@ -15,16 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -41,13 +40,6 @@ import java.util.Set;
 public class HyperGraph {
     private List<Edge> edges = new ArrayList<>();
     private List<Node> nodes = new ArrayList<>();
-    private Plan bestPlan;
-
-    public static HyperGraph fromPlan(Plan plan) {
-        HyperGraph graph = new HyperGraph();
-        graph.buildGraph(plan);
-        return graph;
-    }
 
     public List<Edge> getEdges() {
         return edges;
@@ -55,6 +47,10 @@ public class HyperGraph {
 
     public List<Node> getNodes() {
         return nodes;
+    }
+
+    public BitSet getNodesMap() {
+        return Bitmap.newBitmapBetween(0, nodes.size());
     }
 
     public Edge getEdge(int index) {
@@ -65,86 +61,26 @@ public class HyperGraph {
         return nodes.get(index);
     }
 
-    /**
-     * Extract the best plan of HyperGraph
-     *
-     * @return return the best plan
-     */
-    public Plan toPlan() {
-        return bestPlan;
-    }
-
-    public boolean simplify() {
-        GraphSimplifier graphSimplifier = new GraphSimplifier(this);
-        graphSimplifier.initFirstStep();
-        return graphSimplifier.simplifyGraph(1);
-    }
-
-    /**
-     * Try to enumerate all csg-cmp pairs and get the best plan
-     *
-     * @return whether enumerate successfully
-     */
-    public boolean emitPlan() {
-        return false;
-    }
-
-    public boolean optimize() {
-        return simplify() && emitPlan();
-    }
-
     public void splitEdgesForNodes() {
         for (Node node : nodes) {
             node.splitEdges();
         }
     }
 
-    private void buildGraph(Plan plan) {
-        if ((plan instanceof LogicalProject && plan.child(0) instanceof GroupPlan)
-                || plan instanceof GroupPlan) {
-            nodes.add(new Node(nodes.size(), plan));
-            return;
-        }
-
-        LogicalJoin<? extends Plan, ? extends Plan> join;
-        if (plan instanceof LogicalProject) {
-            LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) plan;
-            join = (LogicalJoin<? extends Plan, ? extends Plan>) project.child();
-
-            // Handle project
-            // Ignore the projection expression just using for selection column.
-            // TODO: how to handle Alias and complex project expression
-        } else {
-            join = (LogicalJoin<? extends Plan, ? extends Plan>) plan;
-        }
-
-        // Now we only support inner join with Inside-Project
-        // TODO: Other joins can be added according CD-C algorithm
-        if (join.getJoinType() != JoinType.INNER_JOIN) {
-            Node node = new Node(nodes.size(), plan);
-            nodes.add(node);
-            return;
-        }
-
-        buildGraph(join.left());
-        buildGraph(join.right());
-        addEdge(join);
+    public void addNode(Group group) {
+        Preconditions.checkArgument(!group.isJoinGroup());
+        // TODO: replace plan with group expression or others
+        nodes.add(new Node(nodes.size(), group));
     }
 
-    private BitSet findNodes(Set<Slot> slots) {
-        BitSet bitSet = Bitmap.newBitmap();
-        for (Node node : nodes) {
-            for (Slot slot : node.getPlan().getOutput()) {
-                if (slots.contains(slot)) {
-                    Bitmap.set(bitSet, node.getIndex());
-                    break;
-                }
-            }
-        }
-        return bitSet;
-    }
-
-    private void addEdge(LogicalJoin<? extends Plan, ? extends Plan> join) {
+    /**
+     * try to add edge for join group
+     *
+     * @param group The join group
+     */
+    public void addEdge(Group group) {
+        Preconditions.checkArgument(group.isJoinGroup());
+        LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
         for (Expression expression : join.getExpressions()) {
             LogicalJoin singleJoin = new LogicalJoin(join.getJoinType(), ImmutableList.of(expression), join.left(),
                     join.right());
@@ -163,6 +99,19 @@ public class HyperGraph {
         }
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
         // We don't implement this trick now.
+    }
+
+    private BitSet findNodes(Set<Slot> slots) {
+        BitSet bitSet = Bitmap.newBitmap();
+        for (Node node : nodes) {
+            for (Slot slot : node.getPlan().getOutput()) {
+                if (slots.contains(slot)) {
+                    Bitmap.set(bitSet, node.getIndex());
+                    break;
+                }
+            }
+        }
+        return bitSet;
     }
 
     /**
