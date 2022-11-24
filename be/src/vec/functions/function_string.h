@@ -17,6 +17,12 @@
 
 #pragma once
 
+#include <iconv.h>
+#include <stddef.h>
+
+#include <memory>
+
+#include "vec/columns/column.h"
 #ifndef USE_LIBCPP
 #include <memory_resource>
 #define PMR std::pmr
@@ -1950,4 +1956,71 @@ struct SubReplaceFourImpl {
     }
 };
 
+class FunctionConvertTo : public IFunction {
+public:
+    static constexpr auto name = "convert_to";
+
+    static FunctionPtr create() { return std::make_shared<FunctionConvertTo>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnPtr argument_columns[2];
+        argument_columns[0] =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        argument_columns[1] = block.get_by_position(arguments[1]).column;
+        const ColumnString* str_col = static_cast<const ColumnString*>(argument_columns[0].get());
+        const auto& character_data =
+                reinterpret_cast<const ColumnConst&>(*argument_columns[1]).get_data_at(0);
+        const auto& str_offset = str_col->get_offsets();
+        const auto& str_chars = str_col->get_chars();
+        auto col_res = ColumnString::create();
+        auto& res_offset = col_res->get_offsets();
+        auto& res_chars = col_res->get_chars();
+        res_offset.resize(input_rows_count);
+
+        if (character_data.to_string_view().compare("gbk") == 0) {
+            iconv_t cd = iconv_open("gb2312", "utf-8");
+            if (cd == nullptr) {
+                return Status::RuntimeError("function {} is convert to gbk failed in iconv_open",
+                                            get_name());
+            }
+            size_t in_len = 0, out_len = 0;
+            std::string res;
+            for (int i = 0; i < input_rows_count; ++i) {
+                in_len = str_offset[i] - str_offset[i - 1];
+                const char* value_data =
+                        reinterpret_cast<const char*>(&str_chars[str_offset[i - 1]]);
+                res.resize(in_len, '\0');
+                char* out = res.data();
+                char* in = const_cast<char*>(value_data);
+                out_len = in_len;
+                if (iconv(cd, &in, &in_len, &out, &out_len) == -1) {
+                    iconv_close(cd);
+                    return Status::RuntimeError("function {} is convert to gbk failed in iconv",
+                                                get_name());
+                } else {
+                    StringOP::push_value_string(res, i, res_chars, res_offset);
+                }
+            }
+            iconv_close(cd);
+        } else {
+            return Status::RuntimeError(
+                    "Illegal column {} of argument of function {}. now only support convert to "
+                    "character set of gbk",
+                    block.get_by_position(arguments[1]).column->get_name(), get_name());
+        }
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+};
 } // namespace doris::vectorized

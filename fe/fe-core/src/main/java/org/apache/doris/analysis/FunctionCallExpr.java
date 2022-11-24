@@ -576,7 +576,6 @@ public class FunctionCallExpr extends Expr {
             }
             return;
         }
-
         if (fnName.getFunction().equalsIgnoreCase("group_concat")) {
             if (children.size() - orderByElements.size() > 2 || children.isEmpty()) {
                 throw new AnalysisException(
@@ -1199,7 +1198,13 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
-
+        if (fnName.getFunction().equalsIgnoreCase("convert_to")) {
+            if (children.size() < 2 || !getChild(1).isConstant()) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a constant: " + this
+                                .toSql());
+            }
+        }
         if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
         }
