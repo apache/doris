@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -62,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -143,6 +146,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void context) {
+        return computeRepeat(repeat);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
         return computeFilter(filter);
     }
@@ -193,6 +201,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, Void context) {
         return computeAggregate(agg);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, Void context) {
+        return computeRepeat(repeat);
     }
 
     @Override
@@ -358,6 +371,30 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         statsDeriveResult.isReduced = true;
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
+    }
+
+    private StatsDeriveResult computeRepeat(Repeat repeat) {
+        StatsDeriveResult childStats = groupExpression.childStatistics(0);
+        Map<Id, ColumnStatistic> slotIdToColumnStats = childStats.getSlotIdToColumnStats();
+        int groupingSetNum = repeat.getGroupingSets().size();
+        double rowCount = childStats.getRowCount();
+        Map<Id, ColumnStatistic> columnStatisticMap = slotIdToColumnStats.entrySet()
+                .stream().map(kv -> {
+                    ColumnStatistic stats = kv.getValue();
+                    return Pair.of(kv.getKey(), new ColumnStatistic(
+                            stats.count < 0 ? stats.count : stats.count * groupingSetNum,
+                            stats.ndv,
+                            stats.avgSizeByte,
+                            stats.numNulls < 0 ? stats.numNulls : stats.numNulls * groupingSetNum,
+                            stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum,
+                            stats.minValue,
+                            stats.maxValue,
+                            stats.selectivity,
+                            stats.minExpr,
+                            stats.maxExpr
+                    ));
+                }).collect(Collectors.toMap(Pair::key, Pair::value));
+        return new StatsDeriveResult(rowCount < 0 ? rowCount : rowCount * groupingSetNum, columnStatisticMap);
     }
 
     // TODO: do real project on column stats

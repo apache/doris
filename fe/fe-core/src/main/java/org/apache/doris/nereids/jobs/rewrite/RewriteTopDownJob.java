@@ -92,7 +92,8 @@ public class RewriteTopDownJob extends Job {
                     // new group-expr replaced the origin group-expr in `group`,
                     // run this rule against this `group` again.
                     context.setRewritten(true);
-                    pushJob(new RewriteTopDownJob(group, rules, context));
+                    pushJob(new RewriteTopDownJob(result.correspondingExpression.getOwnerGroup(),
+                            rules, context));
                     return;
                 }
             }

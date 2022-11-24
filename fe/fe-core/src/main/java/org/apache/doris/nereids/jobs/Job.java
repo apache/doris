@@ -105,7 +105,7 @@ public abstract class Job {
 
         CopyInResult result = context.getCascadesContext()
                 .getMemo()
-                .copyIn(after, targetGroup, true);
+                .copyIn(after, targetGroup, rule.isRewrite());
 
         if (result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup) {
             transformTracer.log(TransformEvent.of(targetGroup.getLogicalExpression(), before, afters,

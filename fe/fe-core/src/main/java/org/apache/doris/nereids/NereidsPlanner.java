@@ -28,14 +28,12 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
-import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -121,7 +119,7 @@ public class NereidsPlanner extends Planner {
         try {
             plan(queryStmt, statementContext.getConnectContext().getSessionVariable().toThrift());
         } catch (Exception e) {
-            throw new NereidsException(e);
+            throw new NereidsException(e.getMessage(), e);
         }
     }
 
@@ -215,11 +213,6 @@ public class NereidsPlanner extends Planner {
     }
 
     private void joinReorder() {
-        new RewriteTopDownJob(
-            getRoot(),
-            (new HyperGraphJoinReorder()).buildRules(),
-            cascadesContext.getCurrentJobContext()
-        ).execute();
     }
 
     /**

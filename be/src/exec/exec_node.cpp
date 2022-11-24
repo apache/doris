@@ -196,7 +196,9 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
                                                                    _vconjunct_ctx_ptr.get()));
     }
-    RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
+    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode)) {
+        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
+    }
 
     // create the projections expr
     if (tnode.__isset.projections) {

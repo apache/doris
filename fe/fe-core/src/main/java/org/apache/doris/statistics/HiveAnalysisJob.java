@@ -19,7 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -93,9 +93,10 @@ public class HiveAnalysisJob extends HMSAnalysisJob {
         }
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_TABLE_SQL_TEMPLATE);
-        ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-        this.stmtExecutor = new StmtExecutor(connectContext, sql);
-        this.stmtExecutor.execute();
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            this.stmtExecutor.execute();
+        }
 
         // Get partition level information.
         List<String> partitions = ((HMSExternalCatalog)
@@ -128,9 +129,10 @@ public class HiveAnalysisJob extends HMSAnalysisJob {
         }
         // Update partition level stats for this column.
         for (String partitionSql : partitionAnalysisSQLs) {
-            connectContext = StatisticsUtil.buildConnectContext();
-            this.stmtExecutor = new StmtExecutor(connectContext, partitionSql);
-            this.stmtExecutor.execute();
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+                this.stmtExecutor = new StmtExecutor(r.connectContext, partitionSql);
+                this.stmtExecutor.execute();
+            }
         }
     }
 
