@@ -94,7 +94,8 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public String toString() {
         return Utils.toSqlString("PhysicalRepeat",
                 "groupingSets", groupingSets,
-                "outputExpressions", outputExpressions
+                "outputExpressions", outputExpressions,
+                "stats", statsDeriveResult
         );
     }
 

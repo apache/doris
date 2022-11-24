@@ -111,7 +111,8 @@ public class If extends ScalarFunction
                 .add(widerType)
                 .add(widerType)
                 .build();
-        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgumentsTypes);
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgumentsTypes)
+                .withReturnType(widerType);
         return super.computeSignature(signature, arguments);
     }
 
