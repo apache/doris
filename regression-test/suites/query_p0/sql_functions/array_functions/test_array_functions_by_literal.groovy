@@ -90,11 +90,13 @@ suite("test_array_functions_by_literal") {
     // array_distinct function
     qt_sql "select array_distinct([1,1,2,2,3,3])"
     qt_sql "select array_distinct([1,1,2,2,3,3,null])"
+    qt_sql "select array_distinct([1,1,3,3,null, null, null])"
     qt_sql "select array_distinct(['a','a','a'])"
-    qt_sql "select array_distinct(['a','a','a',null])"
-    qt_sql "select array_distinct([true, false, null, false])"
+    qt_sql "select array_distinct([null, 'a','a','a', null])"
+    qt_sql "select array_distinct([true, false, false, null])"
     qt_sql "select array_distinct([])"
     qt_sql "select array_distinct([null,null])"
+    qt_sql "select array_distinct([1, 0, 0, null])"
 
 
     // array_remove function
