@@ -2067,6 +2067,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected Type[] getActualArgTypes(Type[] originType) {
         return Arrays.stream(originType).map(
                 (Type type) -> {
+                    if (type == null) {
+                        return null;
+                    }
                     if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
                         return Type.DECIMAL32;
                     } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
