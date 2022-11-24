@@ -44,6 +44,7 @@ OLAPStatus FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
     int64_t submit_task_time = MonotonicNanos();
     auto st = _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
     if (UNLIKELY(!st.ok())) {
+        VLOG_CRITICAL << "submit func err: " << st.get_error_msg();
         return OLAP_ERR_OTHER_ERROR;
     }
     return OLAP_SUCCESS;

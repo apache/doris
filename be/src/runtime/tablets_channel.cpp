@@ -163,8 +163,6 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         return _close_status;
     }
     if (_closed_senders.Get(sender_id)) {
-        LOG(INFO) << "double close tablets channel: " << _key << ", sender id: " << sender_id
-                  << ", backend id: " << backend_id;
         // Double close from one sender, just return OK
         *finished = (_num_remaining_senders == 0);
         return _close_status;
@@ -200,8 +198,8 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
-                LOG(INFO) << "cancel tablet writer successfully, tablet_id=" << it.first
-                          << ", transaction_id=" << _txn_id;
+                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << it.first
+                              << ", transaction_id=" << _txn_id;
             }
         }
 
@@ -214,8 +212,8 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
             ss << writer->tablet_id() << ",";
             _close_wait(writer, tablet_vec, tablet_errors);
         }
-        LOG(INFO) << "close wait tablet writer successfully, tablet_ids=" << ss.str() << "]"
-                          << ", transaction_id=" << _txn_id << " add this one to close wait";
+        VLOG_PROGRESS << "close wait tablet writer successfully, tablet_ids=" << ss.str() << "]"
+                      << ", transaction_id=" << _txn_id << " add this one to close wait";
         // TODO(gaodayue) clear and destruct all delta writers to make sure all memory are freed
         // DCHECK_EQ(_mem_tracker->consumption(), 0);
     }
@@ -232,14 +230,14 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
             tablet_info->set_tablet_id(writer->tablet_id());
             tablet_info->set_schema_hash(writer->schema_hash());
         }
-        LOG(WARNING) << "couldn't find broken tablet " << writer->tablet_id() << " transaction_id "
-                     << _txn_id;
+        VLOG_PROGRESS << "couldn't find broken tablet " << writer->tablet_id() << " transaction_id "
+                      << _txn_id;
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
         tablet_error->set_msg("close wait failed: " + boost::lexical_cast<string>(st));
-        LOG(WARNING) << "close wait failed tablet " << writer->tablet_id() << " transaction_id "
-                     << _txn_id << "err msg " << st;
+        VLOG_PROGRESS << "close wait failed tablet " << writer->tablet_id() << " transaction_id "
+                      << _txn_id << "err msg " << st;
     }
 }
 

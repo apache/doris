@@ -291,7 +291,6 @@ OLAPStatus DeltaWriter::close_wait() {
             << "delta writer is supposed be to initialized before close_wait() being called";
 
     if (_is_cancelled) {
-        LOG(WARNING) << "already canceled, tablet " << tablet_id();
         return OLAP_ERR_ALREADY_CANCELLED;
     }
 
