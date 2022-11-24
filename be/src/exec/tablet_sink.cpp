@@ -889,6 +889,9 @@ Status OlapTableSink::prepare(RuntimeState* state) {
             }
         }
         auto channel = std::make_shared<IndexChannel>(this, index->index_id);
+        if (UNLIKELY(tablets.empty())) {
+            LOG(WARNING) << "load job:" << state->load_job_id() << " index: " << index->index_id << " would open 0 tablet";
+        }
         RETURN_IF_ERROR(channel->init(state, tablets));
         _channels.emplace_back(channel);
     }
