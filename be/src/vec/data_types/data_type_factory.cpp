@@ -20,9 +20,6 @@
 
 #include "vec/data_types/data_type_factory.hpp"
 
-#include "vec/data_types/data_type_hll.h"
-#include "vec/data_types/data_type_jsonb.h"
-
 namespace doris::vectorized {
 
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
