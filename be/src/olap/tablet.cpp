@@ -1799,7 +1799,8 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
     if (exist) {
         RETURN_IF_ERROR(_read_remote_tablet_meta(fs, remote_meta_bak_path, tablet_meta_pb));
     }
-    return Status::OLAPInternalError(OLAP_ERR_FILE_NOT_EXIST);
+    LOG(INFO) << "No tablet meta file founded, init needed. tablet_id: " << tablet_id();
+    return Status::OK();
 }
 
 Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, const std::string& meta_path,
@@ -1881,7 +1882,7 @@ Status Tablet::_cooldown_use_remote_data() {
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     std::vector<RowsetSharedPtr> to_add;
     std::vector<RowsetSharedPtr> to_delete;
-    int64_t max_version = 0;
+    int64_t max_version = -1;
     for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         rowset_meta->init_from_pb(rowset_meta_pb);
