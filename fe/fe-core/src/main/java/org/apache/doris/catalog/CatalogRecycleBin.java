@@ -213,6 +213,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         }
         // 2. erase exceed number
+        if (keepNum < 0) {
+            return;
+        }
         Set<String> dbNames = idToDatabase.values().stream().map(d -> d.getDb().getFullName())
                 .collect(Collectors.toSet());
         for (String dbName : dbNames) {
@@ -236,14 +239,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         }
         List<Long> dbIdToErase = Lists.newArrayList();
-        if (dbRecycleTimeLists.size() < maxSameNameTrashNum) {
+        if (dbRecycleTimeLists.size() <= maxSameNameTrashNum) {
             return dbIdToErase;
         }
         // order by recycle time desc
         dbRecycleTimeLists.sort((x, y) ->
                 (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
 
-        for (int i = maxSameNameTrashNum - 1; i < dbRecycleTimeLists.size(); i++) {
+        for (int i = maxSameNameTrashNum; i < dbRecycleTimeLists.size(); i++) {
             dbIdToErase.add(dbRecycleTimeLists.get(i).get(0));
         }
         return dbIdToErase;
@@ -318,6 +321,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         } // end for tables
 
         // 2. erase exceed num
+        if (keepNum < 0) {
+            return;
+        }
         Map<Long, Set<String>> dbId2TableNames = Maps.newHashMap();
         for (RecycleTableInfo tableInfo : idToTable.values()) {
             Set<String> tblNames = dbId2TableNames.get(tableInfo.dbId);
@@ -355,15 +361,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         }
         List<Long> tableIdToErase = Lists.newArrayList();
-        if (tableRecycleTimeLists.size() < maxSameNameTrashNum) {
+        if (tableRecycleTimeLists.size() <= maxSameNameTrashNum) {
             return tableIdToErase;
         }
         // order by recycle time desc
-        tableRecycleTimeLists.sort((x, y) -> {
-            return (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1);
-        });
+        tableRecycleTimeLists.sort((x, y) ->
+                (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
 
-        for (int i = maxSameNameTrashNum - 1; i < tableRecycleTimeLists.size(); i++) {
+        for (int i = maxSameNameTrashNum; i < tableRecycleTimeLists.size(); i++) {
             tableIdToErase.add(tableRecycleTimeLists.get(i).get(0));
         }
         return tableIdToErase;
@@ -416,6 +421,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         } // end for partitions
 
         // 2. erase exceed number
+        if (keepNum < 0) {
+            return;
+        }
         com.google.common.collect.Table<Long, Long, Set<String>> dbTblId2PartitionNames = HashBasedTable.create();
         for (RecyclePartitionInfo partitionInfo : idToPartition.values()) {
             Set<String> partitionNames = dbTblId2PartitionNames.get(partitionInfo.dbId, partitionInfo.tableId);
@@ -453,15 +461,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
         }
         List<Long> partitionIdToErase = Lists.newArrayList();
-        if (partitionRecycleTimeLists.size() < maxSameNameTrashNum) {
+        if (partitionRecycleTimeLists.size() <= maxSameNameTrashNum) {
             return partitionIdToErase;
         }
         // order by recycle time desc
-        partitionRecycleTimeLists.sort((x, y) -> {
-            return (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1);
-        });
+        partitionRecycleTimeLists.sort((x, y) ->
+                (x.get(1).longValue() < y.get(1).longValue()) ? 1 : ((x.get(1).equals(y.get(1))) ? 0 : -1));
 
-        for (int i = maxSameNameTrashNum - 1; i < partitionRecycleTimeLists.size(); i++) {
+        for (int i = maxSameNameTrashNum; i < partitionRecycleTimeLists.size(); i++) {
             partitionIdToErase.add(partitionRecycleTimeLists.get(i).get(0));
         }
         return partitionIdToErase;
