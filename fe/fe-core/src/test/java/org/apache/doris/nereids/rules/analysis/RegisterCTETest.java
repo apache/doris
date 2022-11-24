@@ -199,9 +199,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         Alias countAlias = new Alias(new ExprId(14), new Count(), "count()");
 
         PlanChecker.from(connectContext)
-                .analyze("WITH cte1 AS (SELECT * FROM supplier), "
-                        + "cte2 AS (SELECT * FROM supplier WHERE s_region in (\"ASIA\", \"AFRICA\"))"
-                        + "SELECT s_region, count(*) FROM cte1 GROUP BY s_region HAVING s_region in (SELECT s_region FROM cte2)")
+                .analyze(sql3)
                 .applyBottomUp(new PushApplyUnderProject())
                 .applyBottomUp(new PushApplyUnderFilter())
                 .applyBottomUp(new InApplyToJoin())
@@ -226,9 +224,8 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 false, ImmutableList.of("cte1"));
         SlotReference skInCTE2 = new SlotReference(new ExprId(7), "sk", IntegerType.INSTANCE,
                 false, ImmutableList.of("cte2"));
-        Alias skAlias = new Alias(new ExprId(15),
-                new SlotReference(new ExprId(8), "s_suppkey", IntegerType.INSTANCE,
-                        false, ImmutableList.of("default_cluster:test", "supplier")), "sk");
+        SlotReference skAlias = new SlotReference(new ExprId(15), "sk", IntegerType.INSTANCE,
+                false, ImmutableList.of("cte1"));
 
         PlanChecker.from(connectContext)
                 .analyze(sql4)
@@ -337,11 +334,21 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
-                            logicalProject(
-                                logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                            logicalProject( // as s1
+                                logicalProject( // as s
+                                    logicalProject( // select * from supplier
+                                            logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                                    )
+                                )
                             ),
                             logicalProject(
-                                logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
+                                logicalProject(
+                                     logicalProject(
+                                         logicalProject(
+                                             logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
+                                         )
+                                     )
+                                )
                             )
                         )
                     )

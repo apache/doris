@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.mv;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -182,6 +183,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements P
                 + " where c3>0 group by c2";
         PlanChecker.from(connectContext)
                 .analyze(sql)
+                .applyTopDown(new MergeProjects())
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
                 .matches(logicalOlapScan().when(scan -> {

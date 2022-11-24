@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressi
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
@@ -53,6 +54,9 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
     public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                // AdjustApplyFromCorrelatToUnCorrelatJob and ConvertApplyToJoinJob
+                // and SelectMaterializedIndexWithAggregate dependent this rule
+                .add(topDownBatch(ImmutableList.of(new MergeProjects())))
                 /*
                  * Subquery unnesting.
                  * 1. Adjust the plan in correlated logicalApply

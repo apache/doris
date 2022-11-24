@@ -106,21 +106,25 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                         "SELECT * FROM (SELECT * FROM T1) X JOIN (SELECT * FROM T2) Y ON X.ID + 1 = Y.ID + 2 AND X.ID + 1 > 2")
                 .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new PushdownExpressionsInHashCondition())
-                .matches(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalProject(
-                                                logicalProject(
-                                                        logicalOlapScan()
-                                                )
-                                        ),
-                                        logicalProject(
-                                                logicalProject(
-                                                        logicalOlapScan()
-                                                )
-                                        )
+                .matchesFromRoot(
+                    logicalProject(
+                        logicalJoin(
+                            logicalProject(
+                                logicalProject(
+                                    logicalProject(
+                                        logicalOlapScan()
+                                    )
                                 )
+                            ),
+                            logicalProject(
+                                logicalProject(
+                                    logicalProject(
+                                        logicalOlapScan()
+                                    )
+                                )
+                            )
                         )
+                    )
                 );
     }
 
@@ -131,19 +135,21 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                         "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE = T1.SCORE + 10")
                 .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new PushdownExpressionsInHashCondition())
-                .matches(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalProject(
-                                                logicalOlapScan()
-                                        ),
-                                        logicalProject(
-                                                logicalAggregate(
-                                                        logicalOlapScan()
-                                                )
-                                        )
+                .matchesFromRoot(
+                    logicalProject(
+                        logicalJoin(
+                            logicalProject(
+                                logicalOlapScan()
+                            ),
+                            logicalProject(
+                                logicalProject(
+                                    logicalAggregate(
+                                        logicalOlapScan()
+                                    )
                                 )
+                            )
                         )
+                    )
                 );
     }
 
@@ -154,21 +160,23 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                         "SELECT * FROM T1 JOIN (SELECT ID, SUM(SCORE) SCORE FROM T2 GROUP BY ID ORDER BY ID) T ON T1.ID + 1 = T.ID AND T.SCORE = T1.SCORE + 10")
                 .applyTopDown(new FindHashConditionForJoin())
                 .applyTopDown(new PushdownExpressionsInHashCondition())
-                .matches(
-                        logicalProject(
-                                logicalJoin(
-                                        logicalProject(
+                .matchesFromRoot(
+                    logicalProject(
+                        logicalJoin(
+                            logicalProject(
+                                logicalOlapScan()
+                            ),
+                            logicalProject(
+                                logicalProject(
+                                    logicalSort(
+                                        logicalAggregate(
                                                 logicalOlapScan()
-                                        ),
-                                        logicalProject(
-                                                logicalSort(
-                                                        logicalAggregate(
-                                                                logicalOlapScan()
-                                                        )
-                                                )
                                         )
+                                    )
                                 )
+                            )
                         )
+                    )
                 );
     }
 }

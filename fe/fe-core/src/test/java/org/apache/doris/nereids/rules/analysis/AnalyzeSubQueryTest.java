@@ -109,7 +109,11 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                 .matchesFromRoot(
                     logicalProject(
                         logicalProject(
-                            logicalOlapScan().when(o -> true)
+                            logicalProject(
+                                logicalProject(
+                                    logicalOlapScan().when(o -> true)
+                                )
+                            )
                         ).when(FieldChecker.check("projects", ImmutableList.of(
                             new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("T")),
                             new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("T"))))
@@ -129,9 +133,15 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                 .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
-                            logicalOlapScan(),
                             logicalProject(
                                 logicalOlapScan()
+                            ),
+                            logicalProject(
+                                logicalProject(
+                                    logicalProject(
+                                        logicalOlapScan()
+                                    )
+                                )
                             ).when(FieldChecker.check("projects", ImmutableList.of(
                                 new SlotReference(new ExprId(0), "id", BigIntType.INSTANCE, true, ImmutableList.of("TT2")),
                                 new SlotReference(new ExprId(1), "score", BigIntType.INSTANCE, true, ImmutableList.of("TT2"))))
@@ -161,7 +171,9 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan(),
-                            logicalOlapScan()
+                            logicalProject(
+                                logicalOlapScan()
+                            )
                         )
                         .when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
                         .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(new EqualTo(

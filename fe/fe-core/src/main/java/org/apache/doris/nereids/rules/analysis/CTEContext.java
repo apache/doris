@@ -61,8 +61,8 @@ public class CTEContext {
                         .build();
     }
 
-    public void setAnalyzedPlanCacheOnce(LogicalPlan initialPlan) {
-        this.analyzedPlanCacheOnce = initialPlan;
+    public void setAnalyzedPlanCacheOnce(LogicalPlan analyzedPlan) {
+        this.analyzedPlanCacheOnce = analyzedPlan;
     }
 
     public void setAnalyzePlanBuilder(Function<Plan, LogicalPlan> analyzePlanBuilder) {
