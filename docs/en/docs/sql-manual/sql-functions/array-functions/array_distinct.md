@@ -56,7 +56,7 @@ mysql> select k1, k2, array_distinct(k2) from array_test;
 | 4    | NULL                        | NULL                      |
 | 5    | [1, 2, 3, 4, 5, 4, 3, 2, 1] | [1, 2, 3, 4, 5]           |
 | 6    | [1, 2, 3, NULL]             | [1, 2, 3, NULL]           |
-| 7    | [1, 2, 3, NULL, NULL]       | [1, 2, 3, NULL, NULL]     |
+| 7    | [1, 2, 3, NULL, NULL]       | [1, 2, 3, NULL]     |
 +------+-----------------------------+---------------------------+
 
 mysql> select k1, k2, array_distinct(k2) from array_test01;
@@ -70,7 +70,7 @@ mysql> select k1, k2, array_distinct(k2) from array_test01;
 | 5    | ['a', 'b', 'c', 'd', 'e', 'a', 'b', 'c'] | ['a', 'b', 'c', 'd', 'e'] |
 | 6    | NULL                                     | NULL                      |
 | 7    | ['a', 'b', NULL]                         | ['a', 'b', NULL]          |
-| 8    | ['a', 'b', NULL, NULL]                   | ['a', 'b', NULL, NULL]    |
+| 8    | ['a', 'b', NULL, NULL]                   | ['a', 'b', NULL]    |
 +------+------------------------------------------+---------------------------+
 ```
 

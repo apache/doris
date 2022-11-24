@@ -183,10 +183,13 @@ false
 [1, 2, 3, NULL]
 
 -- !sql --
+[1, 3, NULL]
+
+-- !sql --
 ['a']
 
 -- !sql --
-['a', NULL]
+[NULL, 'a']
 
 -- !sql --
 [1, 0, NULL]
@@ -195,7 +198,10 @@ false
 []
 
 -- !sql --
-[NULL, NULL]
+[NULL]
+
+-- !sql --
+[1, 0, NULL]
 
 -- !sql --
 [2, 3]
