@@ -560,6 +560,15 @@
                         },
                         {
                             "type": "category",
+                            "label": "HLL Functions",
+                            "items": [
+                                "sql-manual/sql-functions/hll-functions/hll_cardinality",
+                                "sql-manual/sql-functions/hll-functions/hll_empty",
+                                "sql-manual/sql-functions/hll-functions/hll_hash"
+                            ]
+                        },
+                        {
+                            "type": "category",
                             "label": "Math Functions",
                             "items": [
                                 "sql-manual/sql-functions/math-functions/conv",
