@@ -233,7 +233,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     _arena = std::make_unique<Arena>();
     _hash_table_variants = std::make_unique<HashTableVariants>();
     _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
-    _init_join_op();
 
     // avoid vector expand change block address.
     // one block can store 4g data, _build_blocks can store 128*4g data.
@@ -278,7 +277,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         _probe_ignore_null |= !probe_not_ignore_null[i];
     }
-    _short_circuit_for_null_in_build_side = _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
 
     _probe_column_disguise_null.reserve(eq_join_conjuncts.size());
 
@@ -872,7 +870,7 @@ void HashJoinNode::_hash_table_init() {
                     case TYPE_DECIMALV2:
                     case TYPE_DECIMAL32:
                     case TYPE_DECIMAL64:
-                    case TYPE_DECIMAL128: {
+                    case TYPE_DECIMAL128I: {
                         DataTypePtr& type_ptr = _build_expr_ctxs[0]->root()->data_type();
                         TypeIndex idx = _build_expr_ctxs[0]->root()->is_nullable()
                                                 ? assert_cast<const DataTypeNullable&>(*type_ptr)

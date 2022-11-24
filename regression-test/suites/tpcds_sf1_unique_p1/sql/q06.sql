@@ -19,7 +19,7 @@ WHERE (a.ca_address_sk = c.c_current_addr_sk)
       WHERE (d_year = 2001)
          AND (d_moy = 1)
    ))
-   AND (i.i_current_price > (CAST('1.2' AS DECIMAL) * (
+   AND (i.i_current_price > (CAST('1.2' AS DECIMAL(2,1)) * (
          SELECT avg(j.i_current_price)
          FROM
            item j

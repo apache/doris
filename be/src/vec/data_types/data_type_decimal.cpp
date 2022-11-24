@@ -56,21 +56,20 @@ template <typename T>
 void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& ostr) const {
     // TODO: Reduce the copy in std::string mem to ostr, like DataTypeNumber
-    if (config::enable_decimalv3) {
+    if constexpr (!IsDecimalV2<T>) {
         T value = assert_cast<const ColumnType&>(*column.convert_to_full_column_if_const().get())
                           .get_data()[row_num];
         std::ostringstream buf;
         write_text(value, scale, buf);
         std::string str = buf.str();
         ostr.write(str.data(), str.size());
-        return;
+    } else {
+        DecimalV2Value value = (DecimalV2Value)assert_cast<const ColumnType&>(
+                                       *column.convert_to_full_column_if_const().get())
+                                       .get_data()[row_num];
+        auto str = value.to_string();
+        ostr.write(str.data(), str.size());
     }
-
-    DecimalV2Value value = (DecimalV2Value)assert_cast<const ColumnType&>(
-                                   *column.convert_to_full_column_if_const().get())
-                                   .get_data()[row_num];
-    auto str = value.to_string();
-    ostr.write(str.data(), str.size());
 }
 
 template <typename T>
@@ -134,18 +133,19 @@ Field DataTypeDecimal<T>::get_default() const {
 
 template <typename T>
 DataTypePtr DataTypeDecimal<T>::promote_numeric_type() const {
-    using PromotedType = DataTypeDecimal<Decimal128>;
+    using PromotedType = std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
+                                            DataTypeDecimal<Decimal128I>>;
     return std::make_shared<PromotedType>(PromotedType::max_precision(), scale);
 }
 
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
-    if (config::enable_decimalv3) {
-        return ColumnType::create(0, scale);
-    } else {
+    if constexpr (IsDecimalV2<T>) {
         auto col = ColumnDecimal128::create(0, scale);
         col->set_decimalv2_type();
         return col;
+    } else {
+        return ColumnType::create(0, scale);
     }
 }
 
@@ -160,7 +160,7 @@ T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
     return value;
 }
 
-DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {
+DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
     if (precision_value < min_decimal_precision() ||
         precision_value > max_decimal_precision<Decimal128>()) {
         LOG(FATAL) << "Wrong precision";
@@ -170,12 +170,16 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {
         LOG(FATAL) << "Negative scales and scales larger than precision are not supported";
     }
 
+    if (use_v2) {
+        return std::make_shared<DataTypeDecimal<Decimal128>>(precision_value, scale_value);
+    }
+
     if (precision_value <= max_decimal_precision<Decimal32>()) {
         return std::make_shared<DataTypeDecimal<Decimal32>>(precision_value, scale_value);
     } else if (precision_value <= max_decimal_precision<Decimal64>()) {
         return std::make_shared<DataTypeDecimal<Decimal64>>(precision_value, scale_value);
     }
-    return std::make_shared<DataTypeDecimal<Decimal128>>(precision_value, scale_value);
+    return std::make_shared<DataTypeDecimal<Decimal128I>>(precision_value, scale_value);
 }
 
 template <>
@@ -190,6 +194,11 @@ Decimal64 DataTypeDecimal<Decimal64>::get_scale_multiplier(UInt32 scale) {
 
 template <>
 Decimal128 DataTypeDecimal<Decimal128>::get_scale_multiplier(UInt32 scale) {
+    return common::exp10_i128(scale);
+}
+
+template <>
+Decimal128I DataTypeDecimal<Decimal128I>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
@@ -260,10 +269,10 @@ Int128 min_decimal_value<Decimal128>(UInt32 precision) {
            DataTypeDecimal<Decimal128>::get_scale_multiplier(
                    (UInt64)max_decimal_precision<Decimal128>() - precision);
 }
-
 /// Explicit template instantiations.
 template class DataTypeDecimal<Decimal32>;
 template class DataTypeDecimal<Decimal64>;
 template class DataTypeDecimal<Decimal128>;
+template class DataTypeDecimal<Decimal128I>;
 
 } // namespace doris::vectorized

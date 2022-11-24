@@ -74,11 +74,13 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
         ostr << '-';
     }
 
-    T whole_part = value;
+    using Type = std::conditional_t<std::is_same_v<T, Int128I>, int128_t, T>;
+    Type whole_part = value;
+
     if (scale) {
-        whole_part = value / decimal_scale_multiplier<T>(scale);
+        whole_part = value / decimal_scale_multiplier<Type>(scale);
     }
-    if constexpr (std::is_same<T, __int128_t>::value) {
+    if constexpr (std::is_same_v<T, __int128_t> || std::is_same_v<T, Int128I>) {
         ostr << int128_to_string(whole_part);
     } else {
         ostr << whole_part;
@@ -86,8 +88,9 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
     if (scale) {
         ostr << '.';
         String str_fractional(scale, '0');
-        for (Int32 pos = scale - 1; pos >= 0; --pos, value /= Decimal<T>(10))
-            str_fractional[pos] += value % Decimal<T>(10);
+        for (Int32 pos = scale - 1; pos >= 0; --pos, value /= 10) {
+            str_fractional[pos] += value % 10;
+        }
         ostr.write(str_fractional.data(), scale);
     }
 }
@@ -318,7 +321,7 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
 template <typename T>
 bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
-    if (config::enable_decimalv3) {
+    if constexpr (!std::is_same_v<Decimal128, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
         x.value = StringParser::string_to_decimal<typename T::NativeType>(
@@ -326,15 +329,16 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
         return result != StringParser::PARSE_FAILURE;
+    } else {
+        auto dv = binary_cast<Int128, DecimalV2Value>(x.value);
+        auto ans = dv.parse_from_str((const char*)buf.position(), buf.count()) == 0;
+
+        // only to match the is_all_read() check to prevent return null
+        buf.position() = buf.end();
+
+        x.value = dv.value();
+        return ans;
     }
-    auto dv = binary_cast<Int128, DecimalV2Value>(x.value);
-    auto ans = dv.parse_from_str((const char*)buf.position(), buf.count()) == 0;
-
-    // only to match the is_all_read() check to prevent return null
-    buf.position() = buf.end();
-
-    x.value = dv.value();
-    return ans;
 }
 
 template <typename T>

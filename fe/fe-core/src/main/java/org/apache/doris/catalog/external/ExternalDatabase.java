@@ -95,6 +95,7 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
 
     public void setUnInitialized() {
         this.initialized = false;
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(extCatalog.getId(), name);
     }
 
     public boolean isInitialized() {

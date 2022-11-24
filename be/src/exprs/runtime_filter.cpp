@@ -73,7 +73,7 @@ TExprNodeType::type get_expr_node_type(PrimitiveType type) {
 
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128:
+    case TYPE_DECIMAL128I:
     case TYPE_DECIMALV2:
         return TExprNodeType::DECIMAL_LITERAL;
 
@@ -129,8 +129,8 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_DECIMAL32;
     case TYPE_DECIMAL64:
         return PColumnType::COLUMN_TYPE_DECIMAL64;
-    case TYPE_DECIMAL128:
-        return PColumnType::COLUMN_TYPE_DECIMAL128;
+    case TYPE_DECIMAL128I:
+        return PColumnType::COLUMN_TYPE_DECIMAL128I;
     case TYPE_CHAR:
         return PColumnType::COLUMN_TYPE_CHAR;
     case TYPE_VARCHAR:
@@ -178,8 +178,8 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_DECIMAL32;
     case PColumnType::COLUMN_TYPE_DECIMAL64:
         return TYPE_DECIMAL64;
-    case PColumnType::COLUMN_TYPE_DECIMAL128:
-        return TYPE_DECIMAL128;
+    case PColumnType::COLUMN_TYPE_DECIMAL128I:
+        return TYPE_DECIMAL128I;
     case PColumnType::COLUMN_TYPE_VARCHAR:
         return TYPE_VARCHAR;
     case PColumnType::COLUMN_TYPE_CHAR:
@@ -289,8 +289,8 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
         create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, type.precision, type.scale);
         break;
     }
-    case TYPE_DECIMAL128: {
-        create_texpr_literal_node<TYPE_DECIMAL128>(data, &node, type.precision, type.scale);
+    case TYPE_DECIMAL128I: {
+        create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, type.precision, type.scale);
         break;
     }
     case TYPE_CHAR: {
@@ -841,7 +841,7 @@ public:
             });
             break;
         }
-        case TYPE_DECIMAL128: {
+        case TYPE_DECIMAL128I: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
                                        ObjectPool* pool) {
                 auto string_val = column.stringval();
@@ -974,7 +974,7 @@ public:
             int64_t max_val = minmax_filter->max_val().longval();
             return _minmax_func->assign(&min_val, &max_val);
         }
-        case TYPE_DECIMAL128: {
+        case TYPE_DECIMAL128I: {
             auto min_string_val = minmax_filter->min_val().stringval();
             auto max_string_val = minmax_filter->max_val().stringval();
             StringParser::ParseResult result;
@@ -1068,7 +1068,7 @@ private:
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
-    std::unique_ptr<MinMaxFuncBase> _minmax_func;
+    std::shared_ptr<MinMaxFuncBase> _minmax_func;
     std::shared_ptr<HybridSetBase> _hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> _bloomfilter_func;
     bool _is_bloomfilter = false;
@@ -1091,31 +1091,9 @@ Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRunt
 }
 
 Status IRuntimeFilter::apply_from_other(IRuntimeFilter* other) {
-    auto copy_hybrid_set = [](HybridSetBase* src, HybridSetBase* dst) {
-        auto it = src->begin();
-        while (it->has_next()) {
-            dst->insert(it->get_value());
-            it->next();
-        }
-    };
-    switch (other->_wrapper->_filter_type) {
-    case RuntimeFilterType::IN_FILTER:
-        copy_hybrid_set(other->_wrapper->_hybrid_set.get(), _wrapper->_hybrid_set.get());
-        break;
-    case RuntimeFilterType::BLOOM_FILTER:
-        _wrapper->_bloomfilter_func->light_copy(other->_wrapper->get_bloomfilter());
-        break;
-    case RuntimeFilterType::MINMAX_FILTER:
-        *(_wrapper->_minmax_func) = *(other->_wrapper->_minmax_func);
-        break;
-    case RuntimeFilterType::IN_OR_BLOOM_FILTER:
-        copy_hybrid_set(other->_wrapper->_hybrid_set.get(), _wrapper->_hybrid_set.get());
-        _wrapper->_bloomfilter_func->light_copy(other->_wrapper->get_bloomfilter());
-        break;
-    default:
-        return Status::InvalidArgument("unknown filter type");
-        break;
-    }
+    _wrapper->_hybrid_set = other->_wrapper->_hybrid_set;
+    _wrapper->_bloomfilter_func = other->_wrapper->_bloomfilter_func;
+    _wrapper->_minmax_func = other->_wrapper->_minmax_func;
     _wrapper->_filter_type = other->_wrapper->_filter_type;
     _runtime_filter_type = other->_runtime_filter_type;
     return Status::OK();
@@ -1575,7 +1553,7 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
         });
         return;
     }
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         batch_copy<int128_t>(filter, it, [](PColumnValue* column, const int128_t* value) {
             column->set_stringval(LargeIntValue::to_string(*value));
         });
@@ -1683,7 +1661,7 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
         filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
         return;
     }
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         filter->mutable_min_val()->set_stringval(
                 LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(min_data)));
         filter->mutable_max_val()->set_stringval(

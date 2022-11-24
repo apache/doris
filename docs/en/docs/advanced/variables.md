@@ -176,6 +176,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `default_order_by_limit`
+
+  Used to control the default number of items returned after OrderBy. The default value is -1, and the maximum number of records after the query is returned by default, and the upper limit is the MAX_VALUE of the long data type.
+
 * `delete_without_partition`
 
     When set to true. When using the delete command to delete partition table data, no partition is required. The delete operation will be automatically applied to all partitions.

@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -92,9 +93,27 @@ public class ExternalSchemaCache {
         }
     }
 
-    public void invalidateCache(String dbName, String tblName) {
+    public void invalidateTableCache(String dbName, String tblName) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
         schemaCache.invalidate(key);
+        LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalog.getName());
+    }
+
+    public void invalidateDbCache(String dbName) {
+        long start = System.currentTimeMillis();
+        Set<SchemaCacheKey> keys = schemaCache.asMap().keySet();
+        for (SchemaCacheKey key : keys) {
+            if (key.dbName.equals(dbName)) {
+                schemaCache.invalidate(key);
+            }
+        }
+        LOG.debug("invalid schema cache for db {} in catalog {} cost: {} ms", dbName, catalog.getName(),
+                (System.currentTimeMillis() - start));
+    }
+
+    public void invalidateAll() {
+        schemaCache.invalidateAll();
+        LOG.debug("invalid all schema cache in catalog {}", catalog.getName());
     }
 
     @Data

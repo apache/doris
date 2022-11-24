@@ -17,21 +17,25 @@
 
 package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.BitSet;
 
-class Edge {
+/**
+ * Edge in HyperGraph
+ */
+public class Edge {
     final int index;
     final LogicalJoin join;
     final double selectivity;
 
-    // The endpoints (hypernodes) of this hyperedge.
+    // The endpoints (hyperNodes) of this hyperEdge.
     // left and right may not overlap, and both must have at least one bit set.
-    private BitSet left = new BitSet(32);
-    private BitSet right = new BitSet(32);
+    private BitSet left = Bitmap.newBitmap();
+    private BitSet right = Bitmap.newBitmap();
 
     /**
      * Create simple edge.
@@ -47,26 +51,26 @@ class Edge {
     }
 
     public boolean isSimple() {
-        return left.cardinality() == 1 && right.cardinality() == 1;
+        return Bitmap.getCardinality(left) == 1 && Bitmap.getCardinality(right) == 1;
     }
 
     public void addLeftNode(BitSet left) {
-        this.left.or(left);
+        Bitmap.or(this.left, left);
     }
 
     public void addLeftNodes(BitSet... bitSets) {
         for (BitSet bitSet : bitSets) {
-            this.left.or(bitSet);
+            Bitmap.or(this.left, bitSet);
         }
     }
 
     public void addRightNode(BitSet right) {
-        this.right.or(right);
+        Bitmap.or(this.right, right);
     }
 
     public void addRightNodes(BitSet... bitSets) {
         for (BitSet bitSet : bitSets) {
-            this.right.or(bitSet);
+            Bitmap.or(this.right, bitSet);
         }
     }
 
@@ -90,15 +94,11 @@ class Edge {
         // When this join reference nodes is a subset of other join, then this join must appear before that join
         BitSet bitSet = getReferenceNodes();
         BitSet otherBitset = edge.getReferenceNodes();
-        return isSubset(bitSet, otherBitset);
+        return Bitmap.isSubset(bitSet, otherBitset);
     }
 
     public BitSet getReferenceNodes() {
-        // TODO: do we need consider constraints
-        BitSet bitSet = new BitSet();
-        bitSet.or(left);
-        bitSet.or(right);
-        return bitSet;
+        return Bitmap.newBitmapUnion(this.left, this.right);
     }
 
     public Edge reverse(int index) {
@@ -126,13 +126,6 @@ class Edge {
     @Override
     public String toString() {
         return String.format("<%s - %s>", left, right);
-    }
-
-    private boolean isSubset(BitSet bitSet1, BitSet bitSet2) {
-        BitSet bitSet = new BitSet();
-        bitSet.or(bitSet1);
-        bitSet.or(bitSet2);
-        return bitSet.equals(bitSet2);
     }
 }
 

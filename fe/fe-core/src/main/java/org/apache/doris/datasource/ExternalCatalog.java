@@ -130,6 +130,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     public void setUninitialized() {
         this.initialized = false;
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
     }
 
     public ExternalDatabase getDbForReplay(long dbId) {

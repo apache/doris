@@ -414,7 +414,7 @@ CONF_Bool(disable_mem_pools, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "10%");
+CONF_mString(chunk_reserved_bytes_limit, "0");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
@@ -783,8 +783,6 @@ CONF_mInt32(orc_natural_read_size_mb, "8");
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
-
-CONF_Bool(enable_decimalv3, "false");
 
 //whether turn on quick compaction feature
 CONF_Bool(enable_quick_compaction, "false");

@@ -162,6 +162,7 @@ set(VEC_FILES
   functions/array/function_array_range.cpp
   functions/array/function_array_compact.cpp
   functions/array/function_array_popback.cpp
+  functions/array/function_array_constructor.cpp
   functions/array/function_array_with_constant.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
@@ -276,7 +277,8 @@ set(VEC_FILES
   exec/format/csv/csv_reader.cpp
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
-  )
+  exec/format/table/table_format_reader.cpp
+  exec/format/table/iceberg_reader.cpp)
 
 add_library(Vec STATIC
         ${VEC_FILES}

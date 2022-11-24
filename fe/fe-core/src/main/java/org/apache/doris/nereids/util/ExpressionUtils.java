@@ -297,6 +297,10 @@ public class ExpressionUtils {
         return children.stream().allMatch(c -> c instanceof Literal);
     }
 
+    public static boolean matchNumericType(List<Expression> children) {
+        return children.stream().allMatch(c -> c.getDataType().isNumericType());
+    }
+
     public static boolean hasNullLiteral(List<Expression> children) {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
     }

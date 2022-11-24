@@ -18,7 +18,11 @@
 #include "http/default_path_handlers.h"
 
 #include <gperftools/heap-profiler.h>
+#ifdef USE_JEMALLOC
+#include "jemalloc/jemalloc.h"
+#else
 #include <gperftools/malloc_extension.h>
+#endif
 
 #include <boost/algorithm/string.hpp>
 #include <sstream>
@@ -91,9 +95,17 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
               << "</pre>";
 
     (*output) << "<pre>";
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
-        defined(USE_JEMALLOC)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (*output) << "Memory tracking is not available with address sanitizer builds.";
+#elif defined(USE_JEMALLOC)
+    std::string tmp;
+    auto write_cb = [](void* opaque, const char* buf) {
+        auto* _opaque = static_cast<std::string*>(opaque);
+        _opaque->append(buf);
+    };
+    je_malloc_stats_print(write_cb, &tmp, "a");
+    boost::replace_all(tmp, "\n", "<br>");
+    (*output) << tmp << "</pre>";
 #else
     char buf[2048];
     MallocExtension::instance()->GetStats(buf, 2048);

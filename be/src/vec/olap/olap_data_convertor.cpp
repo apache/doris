@@ -75,8 +75,8 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal64>>();
     }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128: {
-        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128>>();
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128I>>();
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
         return std::make_unique<OlapColumnDataConvertorJsonb>();

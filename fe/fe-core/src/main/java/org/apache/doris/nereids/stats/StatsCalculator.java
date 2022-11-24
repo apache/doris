@@ -295,7 +295,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             }
             ColumnStatistic statistic =
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
-            if (statistic == ColumnStatistic.UNKNOWN) {
+            if (statistic == ColumnStatistic.DEFAULT) {
                 if (card == -1) {
                     card = roughlyEstimatedCard(scan);
                 }
@@ -353,7 +353,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         for (NamedExpression outputExpression : outputExpressions) {
             slotToColumnStats.put(outputExpression.toSlot().getExprId(), ColumnStatistic.DEFAULT);
         }
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, childStats.getWidth(),
+                childStats.getPenalty(), slotToColumnStats);
         statsDeriveResult.isReduced = true;
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
         return statsDeriveResult;
@@ -362,8 +363,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     // TODO: do real project on column stats
     private StatsDeriveResult computeProject(Project project) {
         List<NamedExpression> projections = project.getProjects();
-        StatsDeriveResult statsDeriveResult = groupExpression.childStatistics(0);
-        Map<Id, ColumnStatistic> childColumnStats = statsDeriveResult.getSlotIdToColumnStats();
+        StatsDeriveResult childStats = groupExpression.childStatistics(0);
+        Map<Id, ColumnStatistic> childColumnStats = childStats.getSlotIdToColumnStats();
         Map<Id, ColumnStatistic> columnsStats = projections.stream().map(projection -> {
             ColumnStatistic value = null;
             Set<Slot> slots = projection.getInputSlots();
@@ -383,7 +384,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             }
             return new SimpleEntry<>(projection.toSlot().getExprId(), value);
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
-        return new StatsDeriveResult(statsDeriveResult.getRowCount(), columnsStats);
+        return new StatsDeriveResult(childStats.getRowCount(), childStats.getWidth(),
+                childStats.getPenalty(), columnsStats);
     }
 
     private StatsDeriveResult computeOneRowRelation(OneRowRelation oneRowRelation) {

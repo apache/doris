@@ -10110,3 +10110,26 @@ beijing	3	cn
 -- !q17 --
 4010
 
+-- !q18 --
+2669
+
+-- !q19 --
+1
+4
+8
+14
+16
+19
+23
+25
+29
+40
+
+-- !q20 --
+cn	beijing	857
+cn	shanghai	2007
+jp	tokyo	995
+rus	moscow	996
+us	chicago	1995
+us	washington	1999
+

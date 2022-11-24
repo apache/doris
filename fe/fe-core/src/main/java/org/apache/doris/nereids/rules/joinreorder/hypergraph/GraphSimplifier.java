@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.joinreorder.hypergraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -105,11 +106,17 @@ public class GraphSimplifier {
         BestSimplification bestSimplification = priorityQueue.poll();
         bestSimplification.isInQueue = false;
         SimplificationStep bestStep = bestSimplification.getStep();
-        if (circleDetector.checkCircleWithEdge(bestStep.beforeIndex, bestStep.afterIndex)) {
-            bestStep.reverse();
+        while (!circleDetector.tryAddDirectedEdge(bestStep.beforeIndex, bestStep.afterIndex)) {
+            if (priorityQueue.isEmpty()) {
+                return false;
+            }
+            bestSimplification = priorityQueue.poll();
+            bestSimplification.isInQueue = false;
+            bestStep = bestSimplification.getStep();
         }
-        bestStep.concretize(graph);
-        circleDetector.tryAddDirectedEdge(bestStep.beforeIndex, bestStep.afterIndex);
+        Preconditions.checkArgument(
+                cachePlan.containsKey(bestStep.newLeft) && cachePlan.containsKey(bestStep.newRight),
+                String.format("%s - %s", bestStep.newLeft, bestStep.newRight));
         graph.modifyEdge(bestStep.afterIndex, bestStep.newLeft, bestStep.newRight);
         processNeighbors(bestStep.afterIndex, 0, edgeSize);
         return true;
@@ -182,7 +189,8 @@ public class GraphSimplifier {
     private Optional<SimplificationStep> makeSimplificationStep(int edgeIndex1, int edgeIndex2) {
         Edge edge1 = graph.getEdge(edgeIndex1);
         Edge edge2 = graph.getEdge(edgeIndex2);
-        if (edge1.isSub(edge2) || edge2.isSub(edge1)) {
+        if (edge1.isSub(edge2) || edge2.isSub(edge1) || circleDetector.checkCircleWithEdge(edgeIndex1, edgeIndex2)
+                || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)) {
             return Optional.empty();
         }
         BitSet left1 = edge1.getLeft();
@@ -192,8 +200,6 @@ public class GraphSimplifier {
         Edge edge1Before2;
         Edge edge2Before1;
         List<BitSet> superBitset = new ArrayList<>();
-        boolean isLeftJoin1 = true;
-        boolean isLeftJoin2 = true;
         if (tryGetSuperset(left1, left2, superBitset)) {
             // (common Join1 right1) Join2 right2
             edge1Before2 = threeLeftJoin(superBitset.get(0), edge1, right1, edge2, right2);
@@ -202,7 +208,6 @@ public class GraphSimplifier {
         } else if (tryGetSuperset(left1, right2, superBitset)) {
             // left2 Join2 (common Join1 right1)
             edge1Before2 = threeRightJoin(left2, edge2, superBitset.get(0), edge1, right1);
-            isLeftJoin1 = false;
             // (left2 Join2 common) join1 right1
             edge2Before1 = threeLeftJoin(left2, edge2, superBitset.get(0), edge1, right1);
         } else if (tryGetSuperset(right1, left2, superBitset)) {
@@ -210,34 +215,32 @@ public class GraphSimplifier {
             edge1Before2 = threeLeftJoin(left1, edge1, superBitset.get(0), edge2, right2);
             // left1 Join1 (common Join2 right2)
             edge2Before1 = threeRightJoin(left1, edge1, superBitset.get(0), edge2, right2);
-            isLeftJoin2 = false;
         } else if (tryGetSuperset(right1, right2, superBitset)) {
             // left2 Join2 (left1 Join1 common)
             edge1Before2 = threeRightJoin(left2, edge2, left1, edge1, superBitset.get(0));
-            isLeftJoin1 = false;
             // left1 Join1 (left2 Join2 common)
             edge2Before1 = threeRightJoin(left1, edge1, left2, edge2, superBitset.get(0));
-            isLeftJoin2 = false;
         } else {
             return Optional.empty();
         }
         // edge1 is not the neighborhood of edge2
-        return Optional.of(orderJoin(edge1Before2, isLeftJoin1, edge2Before1, isLeftJoin2, edgeIndex1, edgeIndex2));
+        SimplificationStep simplificationStep = orderJoin(edge1Before2, edge2Before1, edgeIndex1, edgeIndex2);
+        return Optional.of(simplificationStep);
     }
 
     Edge threeLeftJoin(BitSet bitSet1, Edge edge1, BitSet bitSet2, Edge edge2, BitSet bitSet3) {
         // (plan1 edge1 plan2) edge2 plan3
         // The join may have redundant table, e.g., t1,t2 join t3 join t2,t4
         // Therefore, the cost is not accurate
+        Preconditions.checkArgument(
+                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3));
         LogicalJoin leftPlan = simulateJoin(cachePlan.get(bitSet1), edge1.getJoin(), cachePlan.get(bitSet2));
         LogicalJoin join = simulateJoin(leftPlan, edge2.getJoin(), cachePlan.get(bitSet3));
         Edge edge = new Edge(join, -1);
-        BitSet newLeft = new BitSet();
-        newLeft.or(bitSet1);
-        newLeft.or(bitSet2);
+        BitSet newLeft = Bitmap.newBitmapUnion(bitSet1, bitSet2);
         // To avoid overlapping the left and the right, the newLeft is calculated, Note the
         // newLeft is not totally include the bitset1 and bitset2, we use circle detector to trace the dependency
-        newLeft.andNot(bitSet3);
+        Bitmap.andNot(newLeft, bitSet3);
         edge.addLeftNodes(newLeft);
         edge.addRightNode(edge2.getRight());
         cachePlan.put(newLeft, leftPlan);
@@ -245,15 +248,15 @@ public class GraphSimplifier {
     }
 
     Edge threeRightJoin(BitSet bitSet1, Edge edge1, BitSet bitSet2, Edge edge2, BitSet bitSet3) {
+        Preconditions.checkArgument(
+                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3));
         // plan1 edge1 (plan2 edge2 plan3)
         LogicalJoin rightPlan = simulateJoin(cachePlan.get(bitSet2), edge2.getJoin(), cachePlan.get(bitSet3));
         LogicalJoin join = simulateJoin(cachePlan.get(bitSet1), edge1.getJoin(), rightPlan);
         Edge edge = new Edge(join, -1);
 
-        BitSet newRight = new BitSet();
-        newRight.or(bitSet2);
-        newRight.or(bitSet3);
-        newRight.andNot(bitSet1);
+        BitSet newRight = Bitmap.newBitmapUnion(bitSet2, bitSet3);
+        Bitmap.andNot(newRight, bitSet1);
         edge.addLeftNode(edge1.getLeft());
         edge.addRightNode(newRight);
         cachePlan.put(newRight, rightPlan);
@@ -269,8 +272,7 @@ public class GraphSimplifier {
         return plan.getGroupExpression().get().getOwnerGroup();
     }
 
-    private SimplificationStep orderJoin(Edge edge1Before2, boolean isLeftJoin1, Edge edge2Before1, boolean isLeftJoin2,
-            int edgeIndex1, int edgeIndex2) {
+    private SimplificationStep orderJoin(Edge edge1Before2, Edge edge2Before1, int edgeIndex1, int edgeIndex2) {
         double cost1Before2 = getSimpleCost(edge1Before2.getJoin());
         double cost2Before1 = getSimpleCost(edge2Before1.getJoin());
         double benefit = Double.MAX_VALUE;
@@ -281,22 +283,24 @@ public class GraphSimplifier {
                 benefit = cost2Before1 / cost1Before2;
             }
             // choose edge1Before2
-            step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2, isLeftJoin1);
+            step = new SimplificationStep(benefit, edgeIndex1, edgeIndex2, edge1Before2.getLeft(),
+                    edge1Before2.getRight());
         } else {
             if (cost2Before1 != 0) {
                 benefit = cost1Before2 / cost2Before1;
             }
             // choose edge2Before1
-            step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, isLeftJoin2);
+            step = new SimplificationStep(benefit, edgeIndex2, edgeIndex1, edge2Before1.getLeft(),
+                    edge2Before1.getRight());
         }
         return step;
     }
 
     private boolean tryGetSuperset(BitSet bitSet1, BitSet bitSet2, List<BitSet> superset) {
-        if (isSubset(bitSet1, bitSet2)) {
+        if (Bitmap.isSubset(bitSet1, bitSet2)) {
             superset.add(bitSet2);
             return true;
-        } else if (isSubset(bitSet2, bitSet1)) {
+        } else if (Bitmap.isSubset(bitSet2, bitSet1)) {
             superset.add(bitSet1);
             return true;
         }
@@ -350,48 +354,19 @@ public class GraphSimplifier {
         }
     }
 
-    private boolean isSubset(BitSet bitSet1, BitSet bitSet2) {
-        BitSet bitSet = new BitSet();
-        bitSet.or(bitSet1);
-        bitSet.or(bitSet2);
-        return bitSet.equals(bitSet2);
-    }
-
     class SimplificationStep {
         double benefit;
         int beforeIndex;
         int afterIndex;
-        // if true: (t1 join t2) join t3
-        // if false: t1 join (t2 join t3)
-        boolean isLeftJoin;
         BitSet newLeft;
         BitSet newRight;
 
-        SimplificationStep(double benefit, int beforeIndex, int afterIndex, boolean isLeftJoin) {
+        SimplificationStep(double benefit, int beforeIndex, int afterIndex, BitSet newLeft, BitSet newRight) {
             this.afterIndex = afterIndex;
             this.beforeIndex = beforeIndex;
             this.benefit = benefit;
-            this.newLeft = new BitSet();
-            this.newRight = new BitSet();
-            this.isLeftJoin = isLeftJoin;
-        }
-
-        public void concretize(HyperGraph graph) {
-            Edge beforeEdge = graph.getEdge(beforeIndex);
-            Edge afterEdge = graph.getEdge(afterIndex);
-            newLeft.or(afterEdge.getLeft());
-            newRight.or(afterEdge.getRight());
-            if (isLeftJoin) {
-                // three left join
-                newLeft.or(beforeEdge.getLeft());
-                newLeft.or(beforeEdge.getRight());
-                newLeft.andNot(afterEdge.getRight());
-            } else {
-                // three right join
-                newRight.or(beforeEdge.getLeft());
-                newRight.or(beforeEdge.getRight());
-                newRight.andNot(afterEdge.getLeft());
-            }
+            this.newLeft = newLeft;
+            this.newRight = newRight;
         }
 
         public void reverse() {
@@ -406,7 +381,7 @@ public class GraphSimplifier {
 
         @Override
         public String toString() {
-            return String.format("%d -> %d %.2f", beforeIndex, afterIndex, benefit);
+            return String.format("%d -> %d %.2f : %s-%s", beforeIndex, afterIndex, benefit, newLeft, newRight);
         }
     }
 

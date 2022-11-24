@@ -263,7 +263,11 @@
                                 "sql-manual/sql-functions/array-functions/array_difference",
                                 "sql-manual/sql-functions/array-functions/array_union",
                                 "sql-manual/sql-functions/array-functions/array_sum",
-                                "sql-manual/sql-functions/array-functions/array_join"
+                                "sql-manual/sql-functions/array-functions/array_join",
+                                "sql-manual/sql-functions/array-functions/array_with_constant",
+                                "sql-manual/sql-functions/array-functions/array_enumerate",
+                                "sql-manual/sql-functions/array-functions/array_popback",
+                                "sql-manual/sql-functions/array-functions/array_compact"
                             ]
                         },
                         {
@@ -355,6 +359,8 @@
                             "type": "category",
                             "label": "String Functions",
                             "items": [
+                                "sql-manual/sql-functions/string-functions/to_base64",
+                                "sql-manual/sql-functions/string-functions/from_base64",
                                 "sql-manual/sql-functions/string-functions/ascii",
                                 "sql-manual/sql-functions/string-functions/length",
                                 "sql-manual/sql-functions/string-functions/bit_length",
@@ -397,9 +403,14 @@
                                 "sql-manual/sql-functions/string-functions/parse_url",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
+                                "sql-manual/sql-functions/string-functions/space",
+                                "sql-manual/sql-functions/string-functions/sleep",
+                                "sql-manual/sql-functions/string-functions/esquery",
                                 "sql-manual/sql-functions/string-functions/mask/mask",
                                 "sql-manual/sql-functions/string-functions/mask/mask_first_n",
                                 "sql-manual/sql-functions/string-functions/mask/mask_last_n",
+                                "sql-manual/sql-functions/string-functions/search/multi_search_all_positions",
+                                "sql-manual/sql-functions/string-functions/search/multi_match_any",
                                 {
                                     "type": "category",
                                     "label": "Fuzzy Match",
@@ -454,7 +465,9 @@
                                 "sql-manual/sql-functions/aggregate-functions/variance",
                                 "sql-manual/sql-functions/aggregate-functions/retention",
                                 "sql-manual/sql-functions/aggregate-functions/sequence_match",
-                                "sql-manual/sql-functions/aggregate-functions/sequence_count"
+                                "sql-manual/sql-functions/aggregate-functions/sequence_count",
+                                "sql-manual/sql-functions/aggregate-functions/grouping",
+                                "sql-manual/sql-functions/aggregate-functions/grouping_id"
                             ]
                         },
                         {
@@ -491,7 +504,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/intersect_count",
                                 "sql-manual/sql-functions/bitmap-functions/bitmap_intersect",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect",
-                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count"
+                                "sql-manual/sql-functions/bitmap-functions/orthogonal_bitmap_intersect_count",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap_hash64"
                             ]
                         },
                         {
@@ -535,7 +549,8 @@
                             "type": "category",
                             "label": "Hash Functions",
                             "items": [
-                                "sql-manual/sql-functions/hash-functions/murmur_hash3_32"
+                                "sql-manual/sql-functions/hash-functions/murmur_hash3_32",
+                                "sql-manual/sql-functions/hash-functions/murmur_hash3_64"
                             ]
                         },
                         {
@@ -572,7 +587,9 @@
                                 "sql-manual/sql-functions/math-functions/positive",
                                 "sql-manual/sql-functions/math-functions/negative",
                                 "sql-manual/sql-functions/math-functions/greatest",
-                                "sql-manual/sql-functions/math-functions/least"
+                                "sql-manual/sql-functions/math-functions/least",
+                                "sql-manual/sql-functions/math-functions/random",
+                                "sql-manual/sql-functions/math-functions/mod"
                             ]
                         },
                         {
@@ -597,7 +614,9 @@
                                 "sql-manual/sql-functions/table-functions/explode-bitmap",
                                 "sql-manual/sql-functions/table-functions/outer-combinator",
                                 "sql-manual/sql-functions/table-functions/numbers",
-                                "sql-manual/sql-functions/table-functions/explode-numbers"
+                                "sql-manual/sql-functions/table-functions/explode-numbers",
+                                "sql-manual/sql-functions/table-functions/s3",
+                                "sql-manual/sql-functions/table-functions/hdfs"
                             ]
                         },
                         {
@@ -799,7 +818,9 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SET-CONFIG",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-TABLET-STORAGE-FORMAT",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-REPLICA-STATUS",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-COPY-TABLET",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
                             ]
                         },
                         {
@@ -913,7 +934,7 @@
                                 "sql-manual/sql-reference/Utility-Statements/USE",
                                 "sql-manual/sql-reference/Utility-Statements/DESCRIBE",
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
-                                "sql-manual/sql-reference/Utility-Statements/REFRESH-CATALOG"
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH"
                             ]
                         }
                     ]
@@ -957,21 +978,22 @@
                                 "admin-manual/maint-monitor/monitor-metrics/metrics"
                             ]
                         },
-                       "admin-manual/maint-monitor/disk-capacity",
-                       "admin-manual/maint-monitor/tablet-repair-and-balance",
-                       "admin-manual/maint-monitor/be-olap-error-code",
-                       "admin-manual/maint-monitor/doris-error-code",
-                       "admin-manual/maint-monitor/tablet-meta-tool",
-                       "admin-manual/maint-monitor/monitor-alert",
-                       "admin-manual/maint-monitor/tablet-local-debug",
-                       "admin-manual/maint-monitor/tablet-restore-tool",
-                       "admin-manual/maint-monitor/metadata-operation"
+                        "admin-manual/maint-monitor/disk-capacity",
+                        "admin-manual/maint-monitor/tablet-repair-and-balance",
+                        "admin-manual/maint-monitor/be-olap-error-code",
+                        "admin-manual/maint-monitor/doris-error-code",
+                        "admin-manual/maint-monitor/tablet-meta-tool",
+                        "admin-manual/maint-monitor/monitor-alert",
+                        "admin-manual/maint-monitor/tablet-local-debug",
+                        "admin-manual/maint-monitor/tablet-restore-tool",
+                        "admin-manual/maint-monitor/metadata-operation"
                     ]
                 },
                 {
                     "type": "category",
                     "label": "Config",
                     "items": [
+                        "admin-manual/config/config-dir",
                         "admin-manual/config/fe-config",
                         "admin-manual/config/be-config",
                         "admin-manual/config/user-property"
@@ -1067,6 +1089,14 @@
                 "faq/install-faq",
                 "faq/data-faq",
                 "faq/sql-faq"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Benchmark",
+            "items": [
+                "benchmark/ssb",
+                "benchmark/tpch"
             ]
         }
     ]

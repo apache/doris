@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -40,17 +42,17 @@ public class AnalysisJob {
 
     private final AnalysisJobScheduler analysisJobScheduler;
 
-    private final AnalysisJobInfo info;
+    protected final AnalysisJobInfo info;
 
-    private CatalogIf<DatabaseIf> catalog;
+    protected CatalogIf catalog;
 
-    private DatabaseIf<TableIf> db;
+    protected DatabaseIf db;
 
-    private TableIf tbl;
+    protected TableIf tbl;
 
-    private Column col;
+    protected Column col;
 
-    private StmtExecutor stmtExecutor;
+    protected StmtExecutor stmtExecutor;
 
     public AnalysisJob(AnalysisJobScheduler analysisJobScheduler, AnalysisJobInfo info) {
         this.analysisJobScheduler = analysisJobScheduler;
@@ -65,13 +67,13 @@ public class AnalysisJob {
                     String.format("Catalog with name: %s not exists", info.dbName), System.currentTimeMillis());
             return;
         }
-        db = catalog.getDb(info.dbName).orElse(null);
+        db = (DatabaseIf) catalog.getDb(info.dbName).orElse(null);
         if (db == null) {
             analysisJobScheduler.updateJobStatus(info.jobId, JobState.FAILED,
                     String.format("DB with name %s not exists", info.dbName), System.currentTimeMillis());
             return;
         }
-        tbl = db.getTable(info.tblName).orElse(null);
+        tbl = (TableIf) db.getTable(info.tblName).orElse(null);
         if (tbl == null) {
             analysisJobScheduler.updateJobStatus(
                     info.jobId, JobState.FAILED,
@@ -124,7 +126,8 @@ public class AnalysisJob {
             + "     FROM ${internalDB}.${columnStatTbl}"
             + "     WHERE ${internalDB}.${columnStatTbl}.db_id = '${dbId}' AND "
             + "     ${internalDB}.${columnStatTbl}.tbl_id='${tblId}' AND "
-            + "      ${internalDB}.${columnStatTbl}.col_id='${colId}'"
+            + "     ${internalDB}.${columnStatTbl}.col_id='${colId}' AND "
+            + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n"
             + "     (SELECT NDV(${colName}) AS ndv FROM `${dbName}`.`${tblName}`) t2\n";
 
@@ -137,7 +140,7 @@ public class AnalysisJob {
 
     public void execute() throws Exception {
         Map<String, String> params = new HashMap<>();
-        params.put("internalDB", StatisticConstants.STATISTIC_DB_NAME);
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
@@ -150,13 +153,13 @@ public class AnalysisJob {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = tbl.getPartitionNames();
+            Set<String> partNames = ((Table) tbl).getPartitionNames();
             for (String partName : partNames) {
-                Partition part = tbl.getPartition(partName);
+                Partition part = ((Table) tbl).getPartition(partName);
                 if (part == null) {
                     continue;
                 }
-                params.put("partId", String.valueOf(tbl.getPartition(partName).getId()));
+                params.put("partId", String.valueOf(((Table) tbl).getPartition(partName).getId()));
                 params.put("partName", String.valueOf(partName));
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                 partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
@@ -176,6 +179,7 @@ public class AnalysisJob {
         ConnectContext connectContext = StatisticsUtil.buildConnectContext();
         this.stmtExecutor = new StmtExecutor(connectContext, sql);
         this.stmtExecutor.execute();
+        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), col.getName());
     }
 
     public int getLastExecTime() {

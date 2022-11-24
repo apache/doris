@@ -44,7 +44,7 @@ CREATE TABLE doris_test.ex_tb2 (
   count_value varchar(20)
 );
 
-CREATE TABLE `doris_test.ex_tb3` (
+CREATE TABLE doris_test.ex_tb3 (
   `game_code` varchar(20) NOT NULL,
   `plat_code` varchar(20) NOT NULL,
   `account` varchar(100) NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE `doris_test.ex_tb3` (
   PRIMARY KEY (`game_code`,`plat_code`,`account`,`login_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE `doris_test.ex_tb4` (
+CREATE TABLE doris_test.ex_tb4 (
   `products_id` int(11) NOT NULL AUTO_INCREMENT,
   `orders_id` int(11) NOT NULL,
   `sales_add_time` datetime NOT NULL COMMENT '领款时间',
@@ -66,7 +66,7 @@ CREATE TABLE `doris_test.ex_tb4` (
   UNIQUE KEY `idx_orders_id` (`orders_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1985724 DEFAULT CHARSET=utf8;
 
-CREATE TABLE `doris_test.ex_tb5` (
+CREATE TABLE doris_test.ex_tb5 (
   `id` int(10) unsigned not null AUTO_INCREMENT comment "主建",
   `apply_id` varchar(32) Default null,
   `begin_value` mediumtext,
@@ -79,4 +79,109 @@ CREATE TABLE `doris_test.ex_tb5` (
   PRIMARY KEY (`id`),
   KEY `idx_apply_id` (`apply_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3732465 DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE doris_test.ex_tb6 (
+  `id` bigint(20) PRIMARY KEY,
+  `t_id` bigint(20) NULL,
+  `name` text NULL
+);
+
+CREATE TABLE doris_test.ex_tb7 (
+  `id` varchar(32) NULL DEFAULT "",
+  `user_name` varchar(32) NULL DEFAULT "",
+  `member_list` DECIMAL(10,3)
+);
+
+CREATE TABLE doris_test.ex_tb8 (
+   `date` date NOT NULL COMMENT "",
+   `uid` varchar(64) NOT NULL,
+   `stat_type` int(11) NOT NULL COMMENT "",
+   `price` varchar(255) NULL COMMENT "price"
+);
+
+CREATE TABLE doris_test.ex_tb9 (
+   c_date date null
+);
+
+CREATE TABLE doris_test.ex_tb10 (
+    `aa` varchar(200) NULL,
+    `bb` int NULL,
+    `cc` bigint NULL
+);
+
+CREATE TABLE doris_test.ex_tb11 (
+ `aa` varchar(200) PRIMARY KEY,
+ `bb` int NULL
+);
+
+CREATE TABLE doris_test.ex_tb12 (
+ `cc` varchar(200) PRIMARY KEY,
+ `dd` int NULL
+);
+
+CREATE TABLE doris_test.ex_tb13 (
+     name varchar(128),
+     age INT,
+     idCode  varchar(128),
+     cardNo varchar(128),
+     number varchar(128),
+     birthday DATETIME,
+     country varchar(128),
+     gender varchar(128),
+     covid BOOLEAN
+);
+
+CREATE TABLE doris_test.ex_tb14 (
+     tid varchar(128),
+     log_time date,
+     dt  date,
+     cmd varchar(128),
+     dp_from varchar(128)
+);
+
+CREATE TABLE doris_test.ex_tb15 (
+    col1 varchar(10) NULL ,
+    col2 varchar(10) NULL ,
+    col3 varchar(10) NULL ,
+    col4 int(11) NULL ,
+    col5 double NULL ,
+    col6 double NULL ,
+    col7 int(11) NULL ,
+    col8 int(11) NULL ,
+    col9 int(11) NULL ,
+    col10 varchar(10) NULL ,
+    col11 varchar(10) NULL ,
+    col12 datetime NULL
+);
+
+CREATE TABLE doris_test.ex_tb16 (
+   `id` bigint(20) NOT NULL COMMENT '',
+   `name` varchar(192) NOT NULL COMMENT '',
+   `is_delete` tinyint(4) NULL,
+   `create_uid` bigint(20) NULL,
+   `modify_uid` bigint(20) NULL,
+   `ctime` bigint(20) NULL,
+   `mtime` bigint(20) NULL
+);
+
+CREATE TABLE doris_test.ex_tb17 (
+  `id` bigint(20) NULL,
+  `media_order_id` int(11) NULL,
+  `supplier_id` int(11) NULL,
+  `agent_policy_type` tinyint(4) NULL,
+  `agent_policy` decimal(6, 2) NULL,
+  `capital_type` bigint(20) NULL,
+  `petty_cash_type` tinyint(4) NULL,
+  `recharge_amount` decimal(10, 2) NULL,
+  `need_actual_amount` decimal(10, 2) NULL,
+  `voucher_url` varchar(765) NULL,
+  `ctime` bigint(20) NULL,
+  `mtime` bigint(20) NULL,
+  `is_delete` tinyint(4) NULL,
+  `media_remark` text NULL,
+  `account_number` varchar(765) NULL,
+  `currency_type` tinyint(4) NULL,
+  `order_source` tinyint(4) NULL
+);
+
 

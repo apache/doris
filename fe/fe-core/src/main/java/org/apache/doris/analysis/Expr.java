@@ -1489,6 +1489,24 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return sourceExpr.get(0).getSrcSlotRef();
     }
 
+    // same as getSrcSlotRef, but choose first expr if has multiple src exprs
+    // only used in RewriteInPredicateRule
+    public SlotRef tryGetSrcSlotRef() {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null) {
+            return null;
+        }
+        List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
+        if (sourceExpr == null || sourceExpr.isEmpty()) {
+            return unwrapSloRef;
+        }
+        return sourceExpr.get(0).tryGetSrcSlotRef();
+    }
+
     public boolean comeFrom(Expr srcExpr) {
         SlotRef unwrapSloRef = this.unwrapSlotRef();
         if (unwrapSloRef == null) {

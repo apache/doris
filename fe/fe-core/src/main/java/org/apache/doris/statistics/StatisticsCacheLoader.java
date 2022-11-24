@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -38,7 +39,7 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
 
-    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + StatisticConstants.STATISTIC_DB_NAME
+    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
             + "id = CONCAT('${tblId}', '-', '${colId}')";
 

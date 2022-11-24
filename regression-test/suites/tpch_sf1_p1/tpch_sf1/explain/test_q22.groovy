@@ -74,9 +74,9 @@ suite("test_explain_tpch_sf_1_q22") {
 		explainStr.contains("vec output tuple id: 11") &&
 		explainStr.contains("output slot ids: 40 41 \n" +
 				"  |  hash output slot ids: 36 37 ") &&
-		explainStr.contains("VCROSS JOIN\n" +
+		explainStr.contains("VNESTED LOOP JOIN\n" +
 		        "  |  join op: CROSS JOIN()\n" +
-				"  |  other predicates: <slot 45> > <slot 46>") &&
+				"  |  predicates: <slot 45> > <slot 46>") &&
 		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.customer(customer), PREAGGREGATION: ON\n" +
 				"     PREDICATES: substr(`c_phone`, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17')") &&
 		explainStr.contains("TABLE: default_cluster:regression_test_tpch_sf1_p1_tpch_sf1.orders(orders), PREAGGREGATION: ON") &&

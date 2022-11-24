@@ -308,8 +308,38 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
         std::string data = _jobject_to_string(env, jobj);
         DecimalV2Value decimal_slot;
         decimal_slot.parse_from_str(data.c_str(), data.length());
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
-                decimal_slot.value());
+        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+                const_cast<const char*>(reinterpret_cast<char*>(&decimal_slot)), 0);
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        std::string data = _jobject_to_string(env, jobj);
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        const Int32 decimal_slot = StringParser::string_to_decimal<Int32>(
+                data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
+                &result);
+        reinterpret_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&decimal_slot), 0);
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        std::string data = _jobject_to_string(env, jobj);
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        const Int64 decimal_slot = StringParser::string_to_decimal<Int64>(
+                data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
+                &result);
+        reinterpret_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&decimal_slot), 0);
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        std::string data = _jobject_to_string(env, jobj);
+        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+        const Int128 decimal_slot = StringParser::string_to_decimal<Int128>(
+                data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
+                &result);
+        reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
+                reinterpret_cast<const char*>(&decimal_slot), 0);
         break;
     }
     default: {

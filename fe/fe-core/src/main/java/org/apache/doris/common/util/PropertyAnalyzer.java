@@ -105,6 +105,7 @@ public class PropertyAnalyzer {
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
@@ -215,15 +216,15 @@ public class PropertyAnalyzer {
 
             StoragePolicy storagePolicy = (StoragePolicy) policy;
             // check remote storage cool down timestamp
-            if (storagePolicy.getCooldownDatetime() != null) {
-                if (storagePolicy.getCooldownDatetime().getTime() <= currentTimeMs) {
+            if (storagePolicy.getCooldownTimestampMs() != -1) {
+                if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {
                     throw new AnalysisException("Remote storage cool down time should later than now");
                 }
-                if (hasCooldown && storagePolicy.getCooldownDatetime().getTime() <= cooldownTimeStamp) {
-                    throw new AnalysisException("`remote_storage_cooldown_time`"
-                            + " should later than `storage_cooldown_time`.");
+                if (hasCooldown && storagePolicy.getCooldownTimestampMs() <= cooldownTimeStamp) {
+                    throw new AnalysisException(
+                            "`remote_storage_cooldown_time`" + " should later than `storage_cooldown_time`.");
                 }
-                remoteCooldownTimeMs = storagePolicy.getCooldownDatetime().getTime();
+                remoteCooldownTimeMs = storagePolicy.getCooldownTimestampMs();
             } else if (storagePolicy.getCooldownTtl() != null && dataBaseTimeMs > 0) {
                 remoteCooldownTimeMs = dataBaseTimeMs + storagePolicy.getCooldownTtlMs();
             }
@@ -618,6 +619,20 @@ public class PropertyAnalyzer {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
         return ScalarType.createType(type);
+    }
+
+    public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        String sequenceCol = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_COL;
+        if (properties != null && properties.containsKey(propertyName)) {
+            sequenceCol = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (sequenceCol != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+        return sequenceCol;
     }
 
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,

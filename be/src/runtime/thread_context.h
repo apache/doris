@@ -383,7 +383,7 @@ private:
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
 #define CONSUME_MEM_TRACKER(size) (void)0
-#define TRY_CONSUME_MEM_TRACKER(size) (void)0
+#define TRY_CONSUME_MEM_TRACKER(size, fail_ret) (void)0
 #define RELEASE_MEM_TRACKER(size) (void)0
 #define TRY_RELEASE_MEM_TRACKER(size) (void)0
 #define RETURN_IF_CATCH_BAD_ALLOC(stmt) (stmt)

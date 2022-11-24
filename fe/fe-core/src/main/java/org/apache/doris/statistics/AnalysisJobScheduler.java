@@ -17,10 +17,16 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 import org.apache.doris.statistics.AnalysisJobInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.log4j.LogManager;
@@ -41,7 +47,7 @@ public class AnalysisJobScheduler {
     private static final Logger LOG = LogManager.getLogger(AnalysisJobScheduler.class);
 
     private static final String UPDATE_JOB_STATE_SQL_TEMPLATE = "UPDATE "
-            + StatisticConstants.STATISTIC_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE + " "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE + " "
             + "SET state = '${jobState}' ${message} ${updateExecTime} WHERE job_id = ${jobId}";
 
     private final PriorityQueue<AnalysisJob> systemJobQueue =
@@ -80,7 +86,13 @@ public class AnalysisJobScheduler {
     }
 
     public synchronized void schedule(AnalysisJobInfo analysisJobInfo) {
-        AnalysisJob analysisJob = new AnalysisJob(this, analysisJobInfo);
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(analysisJobInfo.catalogName);
+        Preconditions.checkArgument(catalog != null);
+        DatabaseIf db = catalog.getDbNullable(analysisJobInfo.dbName);
+        Preconditions.checkArgument(db != null);
+        TableIf table = db.getTableNullable(analysisJobInfo.tblName);
+        Preconditions.checkArgument(table != null);
+        AnalysisJob analysisJob = table.createAnalysisJob(this, analysisJobInfo);
         addToManualJobQueue(analysisJob);
         if (analysisJobInfo.jobType.equals(JobType.MANUAL)) {
             return;

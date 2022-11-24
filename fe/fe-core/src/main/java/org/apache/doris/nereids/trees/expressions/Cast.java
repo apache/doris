@@ -36,7 +36,7 @@ public class Cast extends Expression implements UnaryExpression {
 
     public Cast(Expression child, DataType targetType) {
         super(child);
-        this.targetType = targetType;
+        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
     }
 
     @Override
@@ -67,7 +67,7 @@ public class Cast extends Expression implements UnaryExpression {
 
     @Override
     public String toString() {
-        return toSql();
+        return "CAST(" + child() + " AS " + targetType + ")";
     }
 
     @Override

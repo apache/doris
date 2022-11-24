@@ -109,7 +109,7 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);
         _value.set_string_val(node.decimal_literal.value);
@@ -183,7 +183,7 @@ Decimal64Val Literal::get_decimal64_val(ExprContext* context, TupleRow* row) {
 }
 
 Decimal128Val Literal::get_decimal128_val(ExprContext* context, TupleRow* row) {
-    DCHECK(_type.type == TYPE_DECIMAL128) << _type;
+    DCHECK(_type.type == TYPE_DECIMAL128I) << _type;
     StringParser::ParseResult result;
     auto decimal_value = StringParser::string_to_decimal<int128_t>(
             _value.string_val.ptr, _value.string_val.len, _type.precision, _type.scale, &result);
