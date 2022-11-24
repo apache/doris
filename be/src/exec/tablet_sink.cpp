@@ -266,9 +266,9 @@ Status NodeChannel::open_wait() {
                             }
                         }
                     }
+                    _add_batches_finished = true;
                     LOG(INFO) << "node channel " << channel_info()
-                              << "sended rpc successfully and reached intolerable failure set "
-                                 "add_batches_finished and handled "
+                              << "add_batches_finished and handled "
                               << result.tablet_errors().size() << " tablets errors";
                 }
             } else {
