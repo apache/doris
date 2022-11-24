@@ -605,7 +605,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
-    public int partitionedHashJoinRowsThreshold = 1;
+    public int partitionedHashJoinRowsThreshold = 0;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -615,7 +615,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
-        this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
+        // this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
     }
 
     public String getBlockEncryptionMode() {
