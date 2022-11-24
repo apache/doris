@@ -216,15 +216,15 @@ public class PropertyAnalyzer {
 
             StoragePolicy storagePolicy = (StoragePolicy) policy;
             // check remote storage cool down timestamp
-            if (storagePolicy.getCooldownDatetime() != null) {
-                if (storagePolicy.getCooldownDatetime().getTime() <= currentTimeMs) {
+            if (storagePolicy.getCooldownTimestampMs() != -1) {
+                if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {
                     throw new AnalysisException("Remote storage cool down time should later than now");
                 }
-                if (hasCooldown && storagePolicy.getCooldownDatetime().getTime() <= cooldownTimeStamp) {
-                    throw new AnalysisException("`remote_storage_cooldown_time`"
-                            + " should later than `storage_cooldown_time`.");
+                if (hasCooldown && storagePolicy.getCooldownTimestampMs() <= cooldownTimeStamp) {
+                    throw new AnalysisException(
+                            "`remote_storage_cooldown_time`" + " should later than `storage_cooldown_time`.");
                 }
-                remoteCooldownTimeMs = storagePolicy.getCooldownDatetime().getTime();
+                remoteCooldownTimeMs = storagePolicy.getCooldownTimestampMs();
             } else if (storagePolicy.getCooldownTtl() != null && dataBaseTimeMs > 0) {
                 remoteCooldownTimeMs = dataBaseTimeMs + storagePolicy.getCooldownTtlMs();
             }
