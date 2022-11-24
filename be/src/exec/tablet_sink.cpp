@@ -232,7 +232,8 @@ Status NodeChannel::open_wait() {
             if (status.ok()) {
                 // if has error tablet, handle them first
                 for (auto& error : result.tablet_errors()) {
-                    _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
+                    _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                                   "tablet error: " + error.msg(),
                                                    error.tablet_id());
                 }
 
