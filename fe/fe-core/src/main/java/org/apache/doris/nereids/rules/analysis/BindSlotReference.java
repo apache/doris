@@ -613,6 +613,12 @@ public class BindSlotReference implements AnalysisRuleFactory {
         }
     }
 
+    /**
+     * When there is a repeat operator in the query,
+     * it will change the nullable information of the output column, which will be changed uniformly here.
+     *
+     * adjust the project with the children output
+     */
     private List<NamedExpression> adjustNullableForProjects(
             LogicalProject<GroupPlan> project, List<NamedExpression> projects) {
         Set<Slot> childrenOutput = project.children().stream()
@@ -626,6 +632,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    /**
+     * same as project, adjust the agg with the children output.
+     */
     private List<NamedExpression> adjustNullableForAgg(
             LogicalAggregate<GroupPlan> aggregate, List<NamedExpression> output) {
         Set<Slot> childrenOutput = aggregate.children().stream()
@@ -639,6 +648,9 @@ public class BindSlotReference implements AnalysisRuleFactory {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    /**
+     * For the columns whose output exists in grouping sets, they need to be assigned as nullable.
+     */
     private List<NamedExpression> adjustNullableForRepeat(
             List<List<Expression>> groupingSets,
             List<NamedExpression> output) {

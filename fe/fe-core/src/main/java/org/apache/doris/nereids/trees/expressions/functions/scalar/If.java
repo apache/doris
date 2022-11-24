@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
@@ -25,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -38,6 +41,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -91,8 +95,23 @@ public class If extends ScalarFunction
         super("if", arg0, arg1, arg2);
     }
 
+    private DataType getWiderType(List<AbstractDataType> argumentsTypes) {
+        Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(
+                argumentsTypes.get(1).toCatalogDataType(),
+                argumentsTypes.get(2).toCatalogDataType(),
+                true);
+        return DataType.fromCatalogType(assignmentCompatibleType);
+    }
+
     @Override
     protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
+        DataType widerType = getWiderType(signature.argumentsTypes);
+        List<AbstractDataType> newArgumentsTypes = new ImmutableList.Builder<AbstractDataType>()
+                .add(signature.argumentsTypes.get(0))
+                .add(widerType)
+                .add(widerType)
+                .build();
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgumentsTypes);
         return super.computeSignature(signature, arguments);
     }
 

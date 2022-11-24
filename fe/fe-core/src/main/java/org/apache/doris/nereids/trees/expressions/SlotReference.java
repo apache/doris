@@ -184,11 +184,9 @@ public class SlotReference extends Slot {
 
     /** withCommonGroupingSetExpression */
     public Slot withCommonGroupingSetExpression(boolean isCommonGroupingSetExpression) {
-        if (isCommonGroupingSetExpression) {
-            return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
-        } else {
-            boolean nullable = true;
-            return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
+        if (!isCommonGroupingSetExpression) {
+            return withNullable(true);
         }
+        return this;
     }
 }
