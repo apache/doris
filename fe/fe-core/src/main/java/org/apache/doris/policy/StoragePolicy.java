@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.system.SystemInfoService;
@@ -46,7 +47,6 @@ import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,8 +106,8 @@ public class StoragePolicy extends Policy {
     @SerializedName(value = "storageResource")
     private String storageResource = null;
 
-    @SerializedName(value = "cooldownDatetime")
-    private Date cooldownDatetime = null;
+    @SerializedName(value = "cooldownTimestampMs")
+    private long cooldownTimestampMs = -1;
 
     @SerializedName(value = "cooldownTtl")
     private String cooldownTtl = null;
@@ -127,15 +127,15 @@ public class StoragePolicy extends Policy {
      * @param policyId policy id
      * @param policyName policy name
      * @param storageResource resource name for storage
-     * @param cooldownDatetime cool down time
+     * @param cooldownTimestampMs cool down time
      * @param cooldownTtl cool down time cost after partition is created
      * @param cooldownTtlMs seconds for cooldownTtl
      */
     public StoragePolicy(long policyId, final String policyName, final String storageResource,
-            final Date cooldownDatetime, final String cooldownTtl, long cooldownTtlMs) {
+            final long cooldownTimestampMs, final String cooldownTtl, long cooldownTtlMs) {
         super(policyId, PolicyTypeEnum.STORAGE, policyName);
         this.storageResource = storageResource;
-        this.cooldownDatetime = cooldownDatetime;
+        this.cooldownTimestampMs = cooldownTimestampMs;
         this.cooldownTtl = cooldownTtl;
         this.cooldownTtlMs = cooldownTtlMs;
     }
@@ -173,7 +173,7 @@ public class StoragePolicy extends Policy {
             hasCooldownDatetime = true;
             SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             try {
-                this.cooldownDatetime = df.parse(props.get(COOLDOWN_DATETIME));
+                this.cooldownTimestampMs = df.parse(props.get(COOLDOWN_DATETIME)).getTime();
             } catch (ParseException e) {
                 throw new AnalysisException(String.format("cooldown_datetime format error: %s",
                                             props.get(COOLDOWN_DATETIME)), e);
@@ -232,13 +232,12 @@ public class StoragePolicy extends Policy {
                 props[0] = GsonUtils.GSON.toJson(copyMap);
             });
         }
-        SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        if (cooldownDatetime == null) {
-            return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
-                "-1", this.cooldownTtl, props[0]);
+        if (cooldownTimestampMs == -1) {
+            return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource, "-1", this.cooldownTtl,
+                    props[0]);
         }
         return Lists.newArrayList(this.policyName, this.type.name(), this.storageResource,
-            df.format(this.cooldownDatetime), this.cooldownTtl, props[0]);
+                TimeUtils.longToTimeString(this.cooldownTimestampMs), this.cooldownTtl, props[0]);
     }
 
     @Override
@@ -246,7 +245,7 @@ public class StoragePolicy extends Policy {
 
     @Override
     public StoragePolicy clone() {
-        return new StoragePolicy(this.policyId, this.policyName, this.storageResource, this.cooldownDatetime,
+        return new StoragePolicy(this.policyId, this.policyName, this.storageResource, this.cooldownTimestampMs,
                 this.cooldownTtl, this.cooldownTtlMs);
     }
 
@@ -324,10 +323,7 @@ public class StoragePolicy extends Policy {
         Map<String, String> copiedStoragePolicyProperties = Env.getCurrentEnv().getResourceMgr()
                 .getResource(this.storageResource).getCopiedProperties();
 
-        final String[] dateTimeToSecondTimestamp = {"-1"};
-        Optional.ofNullable(this.cooldownDatetime).ifPresent(
-                date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000));
-        copiedStoragePolicyProperties.put(COOLDOWN_DATETIME, dateTimeToSecondTimestamp[0]);
+        copiedStoragePolicyProperties.put(COOLDOWN_DATETIME, String.valueOf(this.cooldownTimestampMs));
         copiedStoragePolicyProperties.put(COOLDOWN_TTL, this.cooldownTtl);
 
         LOG.info("calcPropertiesMd5 map {}", copiedStoragePolicyProperties);
@@ -355,7 +351,7 @@ public class StoragePolicy extends Policy {
         Optional.ofNullable(properties.get(COOLDOWN_DATETIME)).ifPresent(date -> {
             SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
             try {
-                this.setCooldownDatetime(df.parse(properties.get(COOLDOWN_DATETIME)));
+                this.cooldownTimestampMs = df.parse(properties.get(COOLDOWN_DATETIME)).getTime();
             } catch (ParseException e) {
                 throw new RuntimeException(e);
             }
@@ -384,22 +380,17 @@ public class StoragePolicy extends Policy {
 
             Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
 
-            final String[] dateTimeToSecondTimestamp = {"-1"};
-            Optional.ofNullable(this.cooldownDatetime).ifPresent(
-                    date -> dateTimeToSecondTimestamp[0] = String.valueOf(this.cooldownDatetime.getTime() / 1000)
-            );
-            tmpMap.put(COOLDOWN_DATETIME, dateTimeToSecondTimestamp[0]);
+            tmpMap.put(COOLDOWN_DATETIME, String.valueOf(this.cooldownTimestampMs));
 
             Optional.ofNullable(this.getCooldownTtl()).ifPresent(date -> {
                 tmpMap.put(COOLDOWN_TTL, this.getCooldownTtl());
             });
             tmpMap.put(MD5_CHECKSUM, this.getMd5Checksum());
-            NotifyUpdateStoragePolicyTask notifyUpdateStoragePolicyTask
-                    = new NotifyUpdateStoragePolicyTask(beId, getPolicyName(), tmpMap);
+            NotifyUpdateStoragePolicyTask notifyUpdateStoragePolicyTask = new NotifyUpdateStoragePolicyTask(beId,
+                    getPolicyName(), tmpMap);
             batchTask.addTask(notifyUpdateStoragePolicyTask);
             LOG.info("update policy info to be: {}, policy name: {}, "
-                        + "properties: {} to modify S3 resource batch task.",
-                    beId, getPolicyName(), tmpMap);
+                    + "properties: {} to modify S3 resource batch task.", beId, getPolicyName(), tmpMap);
         }
 
         AgentTaskExecutor.submit(batchTask);

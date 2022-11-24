@@ -403,6 +403,9 @@
                                 "sql-manual/sql-functions/string-functions/parse_url",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
+                                "sql-manual/sql-functions/string-functions/space",
+                                "sql-manual/sql-functions/string-functions/sleep",
+                                "sql-manual/sql-functions/string-functions/esquery",
                                 "sql-manual/sql-functions/string-functions/mask/mask",
                                 "sql-manual/sql-functions/string-functions/mask/mask_first_n",
                                 "sql-manual/sql-functions/string-functions/mask/mask_last_n",
@@ -462,7 +465,9 @@
                                 "sql-manual/sql-functions/aggregate-functions/variance",
                                 "sql-manual/sql-functions/aggregate-functions/retention",
                                 "sql-manual/sql-functions/aggregate-functions/sequence_match",
-                                "sql-manual/sql-functions/aggregate-functions/sequence_count"
+                                "sql-manual/sql-functions/aggregate-functions/sequence_count",
+                                "sql-manual/sql-functions/aggregate-functions/grouping",
+                                "sql-manual/sql-functions/aggregate-functions/grouping_id"
                             ]
                         },
                         {
@@ -582,7 +587,9 @@
                                 "sql-manual/sql-functions/math-functions/positive",
                                 "sql-manual/sql-functions/math-functions/negative",
                                 "sql-manual/sql-functions/math-functions/greatest",
-                                "sql-manual/sql-functions/math-functions/least"
+                                "sql-manual/sql-functions/math-functions/least",
+                                "sql-manual/sql-functions/math-functions/random",
+                                "sql-manual/sql-functions/math-functions/mod"
                             ]
                         },
                         {

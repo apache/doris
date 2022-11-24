@@ -455,6 +455,7 @@ public class UdfExecutor {
                 classLoader = UdfUtils.getClassLoader(jarPath, parent);
                 loader = classLoader;
             } else {
+                // for test
                 loader = ClassLoader.getSystemClassLoader();
             }
             Class<?> c = Class.forName(udfPath, true, loader);
