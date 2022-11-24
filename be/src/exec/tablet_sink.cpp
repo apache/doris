@@ -200,9 +200,7 @@ Status NodeChannel::open_wait() {
         } else if (is_last_rpc) {
             // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
             // will be blocked.
-            VLOG_PROGRESS
-                    << "node channel " << channel_info()
-                    << "sended rpc failed but reached intolerable failure set add_batches_finished";
+            VLOG_PROGRESS << "node channel " << channel_info() << " add_batches_finished";
             _add_batches_finished = true;
         }
         _add_batch_counter.add_batch_rpc_time_us += _add_batch_closure->watch.elapsed_time() / 1000;
@@ -236,8 +234,7 @@ Status NodeChannel::open_wait() {
                     _tablet_commit_infos.emplace_back(std::move(commit_info));
                 }
                 VLOG_PROGRESS << "node channel " << channel_info()
-                              << "sended rpc successfully and reached intolerable failure set "
-                                 "add_batches_finished and handled "
+                              << " add_batches_finished and handled "
                               << result.tablet_errors().size() << " tablets errors";
                 _add_batches_finished = true;
             }

@@ -260,9 +260,6 @@ void PInternalServiceImpl<T>::_tablet_writer_add_batch(google::protobuf::RpcCont
                              << ", sender_id=" << request->sender_id()
                              << ", backend id=" << request->backend_id();
             }
-            VLOG_PROGRESS << "id=" << request->id()
-                          << " try to add batch num rows=" << request->row_batch().num_rows()
-                          << " succeed=" << (st.ok());
             st.to_protobuf(response->mutable_status());
         }
         response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
