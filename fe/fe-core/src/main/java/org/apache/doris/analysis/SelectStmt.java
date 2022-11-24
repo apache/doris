@@ -969,7 +969,14 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
-            havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+            try {
+                // use col name from tableRefs first
+                havingClauseAfterAnaylzed = havingClause.clone();
+                havingClauseAfterAnaylzed.analyze(analyzer);
+            } catch (AnalysisException ex) {
+                // then consider alias name
+                havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+            }
             havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
             havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
             if (groupingInfo != null) {

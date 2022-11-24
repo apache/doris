@@ -419,23 +419,20 @@ public abstract class QueryStmt extends StatementBase {
             // alias substitution is not performed in the same way.
             Expr substituteExpr = trySubstituteOrdinal(expr, errorPrefix, analyzer);
             if (substituteExpr == null) {
-                substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
                 if (aliasFirst) {
                     substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
-                    i.set(substituteExpr);
                 } else {
                     try {
                         // use col name from tableRefs first
-                        expr.analyze(analyzer);
+                        substituteExpr = expr.clone();
+                        substituteExpr.analyze(analyzer);
                     } catch (AnalysisException ex) {
                         // then consider alias name
                         substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
-                        i.set(substituteExpr);
                     }
                 }
-            } else {
-                i.set(substituteExpr);
             }
+            i.set(substituteExpr);
         }
     }
 
