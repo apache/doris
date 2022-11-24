@@ -131,6 +131,7 @@ struct FunctionFieldImpl {
         }
         argument_columns[0] = argument_columns[0]->convert_to_full_column_if_const();
         WhichDataType which(data_type);
+        //TODO: maybe could use hashmap to save column data, not use for loop ervey time to test equals.
         if (which.is_string_or_fixed_string()) {
             const auto& column_string = reinterpret_cast<const ColumnString&>(*argument_columns[0]);
             for (int row = 0; row < input_rows_count; ++row) {
@@ -175,14 +176,16 @@ private:
                 reinterpret_cast<const ColumnType&>(column_raw_data).get_data().data()[0];
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                res_data[i] |= ((EqualsOp<DecimalV2Value, DecimalV2Value>::apply(first_raw_data[i],
+                res_data[i] |= (!res_data[i] *
+                                (EqualsOp<DecimalV2Value, DecimalV2Value>::apply(first_raw_data[i],
                                                                                  arg_data)) *
                                 col);
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 using type = std::decay_t<decltype(first_raw_data[0])>;
-                res_data[i] |= ((EqualsOp<type, type>::apply(first_raw_data[i], arg_data)) * col);
+                res_data[i] |= (!res_data[i] *
+                                (EqualsOp<type, type>::apply(first_raw_data[i], arg_data)) * col);
             }
         }
     }

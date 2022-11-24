@@ -96,5 +96,6 @@ suite("test_string_function_regexp") {
         """
     qt_sql_field1 "select name from ${tbName2} order by field(name,'Suzi','Ben','Henry');"
     qt_sql_field2 "select name from ${tbName2} order by field(name,'Ben','Henry');"
+    qt_sql_field3 "select name from ${tbName2} order by field(name,'Henry') desc,id;"
 }
 
