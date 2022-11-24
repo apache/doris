@@ -243,10 +243,9 @@ Status NodeChannel::open_wait() {
                         commit_info.tabletId = tablet.tablet_id();
                         commit_info.backendId = _node_id;
                         _tablet_commit_infos.emplace_back(std::move(commit_info));
-                        VLOG_PROGRESS
-                                << "node channel " << channel_info()
-                                << "add_batches_finished and handled "
-                                << result.tablet_errors().size() << " tablets errors";
+                        VLOG_PROGRESS << "node channel " << channel_info()
+                                      << "add_batches_finished and handled "
+                                      << result.tablet_errors().size() << " tablets errors";
                     }
 
                     if (_parent->_write_single_replica) {
@@ -947,7 +946,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
             }
         }
         if (UNLIKELY(tablets.empty())) {
-            LOG(WARNING) << "load job:" << state->load_job_id() << " index: " << index->index_id << " would open 0 tablet";
+            LOG(WARNING) << "load job:" << state->load_job_id() << " index: " << index->index_id
+                         << " would open 0 tablet";
         }
         _channels.emplace_back(new IndexChannel(this, index->index_id, use_vec));
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
