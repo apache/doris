@@ -138,8 +138,6 @@ Status TabletsChannel::close(
         _write_single_replica = write_single_replica;
 
         // 2. wait delta writers and build the tablet vector
-        std::stringstream ss;
-        ss << "[";
         for (auto writer : need_wait_writers) {
             PSlaveTabletNodes slave_nodes;
             if (write_single_replica) {
@@ -149,8 +147,6 @@ Status TabletsChannel::close(
             // tablet_vec will only contains success tablet, and then let FE judge it.
             _close_wait(writer, tablet_vec, tablet_errors, slave_nodes, write_single_replica);
         }
-        VLOG_PROGRESS << "close wait tablet writer successfully, tablet_ids=" << ss.str() << "]"
-                      << ", transaction_id=" << _txn_id << " add this one to close wait";
 
         if (write_single_replica) {
             // The operation waiting for all slave replicas to complete must end before the timeout,
@@ -190,15 +186,13 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
             PTabletInfo* tablet_info = tablet_vec->Add();
             tablet_info->set_tablet_id(writer->tablet_id());
             tablet_info->set_schema_hash(writer->schema_hash());
-            VLOG_PROGRESS << "couldn't find broken tablet " << writer->tablet_id()
-                          << " transaction_id " << _txn_id;
         }
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
         tablet_error->set_msg(st.get_error_msg());
         VLOG_PROGRESS << "close wait failed tablet " << writer->tablet_id() << " transaction_id "
-                      << _txn_id << "err msg " << st;
+                      << _txn_id << "err msg " << st.get_error_msg();
     }
 }
 

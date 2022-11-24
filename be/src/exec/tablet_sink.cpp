@@ -213,9 +213,7 @@ Status NodeChannel::open_wait() {
                 // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
                 // will be blocked.
                 _add_batches_finished = true;
-                VLOG_PROGRESS << "node channel " << channel_info()
-                              << "sended rpc failed but reached intolerable failure set "
-                                 "add_batches_finished";
+                VLOG_PROGRESS << "node channel " << channel_info() << "add_batches_finished";
             }
         });
 
@@ -247,8 +245,7 @@ Status NodeChannel::open_wait() {
                         _tablet_commit_infos.emplace_back(std::move(commit_info));
                         VLOG_PROGRESS
                                 << "node channel " << channel_info()
-                                << "sended rpc successfully and reached intolerable failure set "
-                                   "add_batches_finished and handled "
+                                << "add_batches_finished and handled "
                                 << result.tablet_errors().size() << " tablets errors";
                     }
 
@@ -948,6 +945,9 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                 tablet_with_partition.tablet_id = tablet;
                 tablets.emplace_back(std::move(tablet_with_partition));
             }
+        }
+        if (UNLIKELY(tablets.empty())) {
+            LOG(WARNING) << "load job:" << state->load_job_id() << " index: " << index->index_id << " would open 0 tablet";
         }
         _channels.emplace_back(new IndexChannel(this, index->index_id, use_vec));
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
