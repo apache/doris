@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
@@ -168,18 +169,23 @@ public class AnalysisJob {
             tbl.readUnlock();
         }
         for (String sql : partitionAnalysisSQLs) {
-            ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-            this.stmtExecutor = new StmtExecutor(connectContext, sql);
-            this.stmtExecutor.execute();
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+                this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+                this.stmtExecutor.execute();
+            }
         }
         params.remove("partId");
         params.put("type", col.getType().toString());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
-        ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-        this.stmtExecutor = new StmtExecutor(connectContext, sql);
-        this.stmtExecutor.execute();
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), col.getName());
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            this.stmtExecutor.execute();
+            Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), col.getName());
+        } finally {
+            ConnectContext.remove();
+        }
+
     }
 
     public int getLastExecTime() {

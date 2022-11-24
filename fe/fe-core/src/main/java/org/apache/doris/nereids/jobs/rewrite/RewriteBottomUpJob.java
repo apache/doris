@@ -77,8 +77,14 @@ public class RewriteBottomUpJob extends Job {
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
                 Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
-                if (copyInResult.isPresent() && copyInResult.get().generateNewExpression) {
-                    pushJob(new RewriteBottomUpJob(group, rules, context, false));
+                if (!copyInResult.isPresent()) {
+                    continue;
+                }
+                CopyInResult result = copyInResult.get();
+                boolean groupChanged = result.correspondingExpression.getOwnerGroup() != group;
+                if (result.generateNewExpression || groupChanged) {
+                    pushJob(new RewriteBottomUpJob(result.correspondingExpression.getOwnerGroup(),
+                            rules, context, !groupChanged));
                     return;
                 }
             }

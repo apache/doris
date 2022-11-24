@@ -24,7 +24,7 @@
 #include "join_op.h"
 #include "process_hash_table_probe.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vjoin_node_base.h"
 
 namespace doris {
@@ -39,7 +39,7 @@ class SharedHashTableController;
 template <typename RowRefListType>
 struct SerializedHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = HashMap<StringRef, Mapped>;
+    using HashTable = PartitionedHashMap<StringRef, Mapped>;
     using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
     using Iter = typename HashTable::iterator;
 
@@ -70,7 +70,7 @@ struct IsSerializedHashTableContextTraits<ColumnsHashing::HashMethodSerialized<V
 template <class T, typename RowRefListType>
 struct PrimaryTypeHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
+    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
     using State =
             ColumnsHashing::HashMethodOneNumber<typename HashTable::value_type, Mapped, T, false>;
     using Iter = typename HashTable::iterator;
@@ -105,7 +105,7 @@ using I256HashTableContext = PrimaryTypeHashTableContext<UInt256, RowRefListType
 template <class T, bool has_null, typename RowRefListType>
 struct FixedKeyHashTableContext {
     using Mapped = RowRefListType;
-    using HashTable = HashMap<T, Mapped, HashCRC32<T>>;
+    using HashTable = PartitionedHashMap<T, Mapped, HashCRC32<T>>;
     using State = ColumnsHashing::HashMethodKeysFixed<typename HashTable::value_type, T, Mapped,
                                                       has_null, false>;
     using Iter = typename HashTable::iterator;
@@ -192,6 +192,8 @@ public:
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
+    void add_hash_buckets_info(const std::string& info);
+    void add_hash_buckets_filled_info(const std::string& info);
 
 private:
     using VExprContexts = std::vector<VExprContext*>;
@@ -218,9 +220,11 @@ private:
     RuntimeProfile::Counter* _build_expr_call_timer;
     RuntimeProfile::Counter* _build_table_insert_timer;
     RuntimeProfile::Counter* _build_table_expanse_timer;
+    RuntimeProfile::Counter* _build_table_convert_timer;
     RuntimeProfile::Counter* _probe_expr_call_timer;
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;
+    RuntimeProfile::Counter* _build_buckets_fill_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _search_hashtable_timer;
@@ -281,7 +285,7 @@ private:
 
     void _set_build_ignore_flag(Block& block, const std::vector<int>& res_col_ids);
 
-    void _hash_table_init();
+    void _hash_table_init(RuntimeState* state);
     void _process_hashtable_ctx_variants_init(RuntimeState* state);
 
     static constexpr auto _MAX_BUILD_BLOCK_COUNT = 128;

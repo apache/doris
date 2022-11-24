@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS orders  (
 DUPLICATE KEY(O_ORDERKEY, O_CUSTKEY)
 DISTRIBUTED BY HASH(O_ORDERKEY) BUCKETS 3
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "colocate_with" = "lineitem_orders"
 )
 

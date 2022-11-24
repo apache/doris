@@ -43,7 +43,7 @@ public class EliminateAliasNode implements AnalysisRuleFactory {
                                 .then(filter -> filter.withChildren(ImmutableList.of(filter.child().child())))
                 ),
                 RuleType.AGGREGATE_ELIMINATE_ALIAS_NODE.build(
-                        logicalAggregate(logicalSubQueryAlias())
+                        aggregate(logicalSubQueryAlias())
                                 .then(agg -> agg.withChildren(ImmutableList.of(agg.child().child())))
                 ),
                 RuleType.JOIN_ELIMINATE_ALIAS_NODE.build(

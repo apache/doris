@@ -30,6 +30,6 @@ public enum JobType {
     DERIVE_STATS,
     TOP_DOWN_REWRITE,
     VISITOR_REWRITE,
-    BOTTOM_UP_REWRITE
-    ;
+    BOTTOM_UP_REWRITE,
+    JOIN_ORDER;
 }
