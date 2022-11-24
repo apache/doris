@@ -219,7 +219,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Set<String> dbNames = idToDatabase.values().stream().map(d -> d.getDb().getFullName())
                 .collect(Collectors.toSet());
         for (String dbName : dbNames) {
-            eraseDatabaseWithSameName(dbName, keepNum);
+            eraseDatabaseWithSameName(dbName, currentTimeMs, keepNum);
         }
     }
 
@@ -252,16 +252,23 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return dbIdToErase;
     }
 
-    private synchronized void eraseDatabaseWithSameName(String dbName, int maxSameNameTrashNum) {
+    private synchronized void eraseDatabaseWithSameName(String dbName, long currentTimeMs, int maxSameNameTrashNum) {
         List<Long> dbIdToErase = getSameNameDbIdListToErase(dbName, maxSameNameTrashNum);
         for (Long dbId : dbIdToErase) {
             RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
+            if (!isExpireMinLatency(dbId, currentTimeMs)) {
+                continue;
+            }
             eraseAllTables(dbInfo);
             idToDatabase.remove(dbId);
             idToRecycleTime.remove(dbId);
             Env.getCurrentEnv().eraseDatabase(dbId, false);
             LOG.info("erase database[{}] name: {}", dbId, dbName);
         }
+    }
+
+    private synchronized boolean isExpireMinLatency(long id, long currentTimeMs) {
+        return (currentTimeMs - idToRecycleTime.get(id)) > minEraseLatency;
     }
 
     private void eraseAllTables(RecycleDatabaseInfo dbInfo) {
@@ -335,7 +342,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
         for (Map.Entry<Long, Set<String>> entry : dbId2TableNames.entrySet()) {
             for (String tblName : entry.getValue()) {
-                eraseTableWithSameName(entry.getKey(), tblName, keepNum);
+                eraseTableWithSameName(entry.getKey(), tblName, currentTimeMs, keepNum);
             }
         }
     }
@@ -374,10 +381,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return tableIdToErase;
     }
 
-    private synchronized void eraseTableWithSameName(long dbId, String tableName, int maxSameNameTrashNum) {
+    private synchronized void eraseTableWithSameName(long dbId, String tableName, long currentTimeMs,
+            int maxSameNameTrashNum) {
         List<Long> tableIdToErase = getSameNameTableIdListToErase(dbId, tableName, maxSameNameTrashNum);
         for (Long tableId : tableIdToErase) {
             RecycleTableInfo tableInfo = idToTable.get(tableId);
+            if (!isExpireMinLatency(tableId, currentTimeMs)) {
+                continue;
+            }
             Table table = tableInfo.getTable();
             if (table.getType() == TableType.OLAP) {
                 Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
@@ -435,7 +446,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
         for (Cell<Long, Long, Set<String>> cell : dbTblId2PartitionNames.cellSet()) {
             for (String partitionName : cell.getValue()) {
-                erasePartitionWithSameName(cell.getRowKey(), cell.getColumnKey(), partitionName, keepNum);
+                erasePartitionWithSameName(cell.getRowKey(), cell.getColumnKey(), partitionName, currentTimeMs,
+                        keepNum);
             }
         }
     }
@@ -475,11 +487,14 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized void erasePartitionWithSameName(long dbId, long tableId, String partitionName,
-                                                         int maxSameNameTrashNum) {
+            long currentTimeMs, int maxSameNameTrashNum) {
         List<Long> partitionIdToErase = getSameNamePartitionIdListToErase(dbId, tableId, partitionName,
-                                        maxSameNameTrashNum);
+                maxSameNameTrashNum);
         for (Long partitionId : partitionIdToErase) {
             RecyclePartitionInfo partitionInfo = idToPartition.get(partitionId);
+            if (!isExpireMinLatency(partitionId, currentTimeMs)) {
+                continue;
+            }
             Partition partition = partitionInfo.getPartition();
 
             Env.getCurrentEnv().onErasePartition(partition);
