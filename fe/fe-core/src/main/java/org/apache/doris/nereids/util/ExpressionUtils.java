@@ -376,7 +376,6 @@ public class ExpressionUtils {
         }
         return Optional.empty();
     }
-}
 
     public static List<List<Expression>> cubeToGroupingSets(List<Expression> cubeExpressions) {
         List<List<Expression>> groupingSets = Lists.newArrayList();
