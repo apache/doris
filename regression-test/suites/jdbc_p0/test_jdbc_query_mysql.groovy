@@ -25,6 +25,7 @@ suite("test_jdbc_query_mysql", "p0") {
         String exMysqlTable = "doris_ex_tb";
         String exMysqlTable1 = "doris_ex_tb1";
         String exMysqlTable2 = "doris_ex_tb2";
+        String exMysqlTypeTable = "doris_ex_type_tb";
         String inDorisTable = "doris_in_tb";
         String inDorisTable1 = "doris_in_tb1";
         String inDorisTable2 = "doris_in_tb2";
@@ -880,13 +881,46 @@ suite("test_jdbc_query_mysql", "p0") {
         order_qt_sql84 """ SELECT NULL, NULL INTERSECT SELECT NULL, NULL FROM $jdbcMysql57Table1 """
         order_qt_sql85 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 INTERSECT SELECT COUNT(k8) FROM $jdbcMysql57Table1 HAVING SUM(k7) IS NOT NULL """
         order_qt_sql86 """ SELECT k8 FROM $jdbcMysql57Table1 WHERE k8 < 7 EXCEPT SELECT k8 FROM $jdbcMysql57Table1 WHERE k8 > 21 """
+        order_qt_sql87 """ SELECT row_number() OVER (PARTITION BY k7) rn, k8 FROM $jdbcMysql57Table1 LIMIT 3 """
+        order_qt_sql88 """ SELECT row_number() OVER (PARTITION BY k7 ORDER BY k8) rn FROM $jdbcMysql57Table1 LIMIT 3 """
+        order_qt_sql89 """ SELECT row_number() OVER (ORDER BY k8) rn FROM $jdbcMysql57Table1 LIMIT 3 """
+        order_qt_sql90 """ SELECT row_number() OVER () FROM $jdbcMysql57Table1 as a JOIN ${exMysqlTable} as b ON a.k8 = b.id WHERE a.k8 > 111 LIMIT 2 """
+        order_qt_sql91 """ SELECT k7, k8, SUM(rn) OVER (PARTITION BY k8) c
+                            FROM ( SELECT k7, k8, row_number() OVER (PARTITION BY k8) rn
+                             FROM (SELECT * FROM $jdbcMysql57Table1 ORDER BY k8 desc LIMIT 10) as t1) as t2 limit 3 """
+
+
+        // test for create external table use different type with original type
+        sql  """ drop table if exists ${exMysqlTypeTable} """
+        sql  """
+               CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
+               `id` bigint NOT NULL,
+               `count_value` varchar(100) NULL
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb2",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ select * from ${exMysqlTypeTable} order by id """
+
+
+        order_qt_sql92 """ WITH a AS (SELECT k8 from $jdbcMysql57Table1), b AS (WITH a AS (SELECT k8 from $jdbcMysql57Table1) SELECT * FROM a) 
+                            SELECT * FROM b order by k8 desc limit 5 """
+        order_qt_sql93 """ SELECT CASE k8 WHEN 1 THEN CAST(1 AS decimal(4,1)) WHEN 2 THEN CAST(1 AS decimal(4,2)) 
+                            ELSE CAST(1 AS decimal(4,3)) END FROM $jdbcMysql57Table1 limit 3"""
+        order_qt_sql95 """ SELECT * from (SELECT k8 FROM $jdbcMysql57Table1 UNION (SELECT id as k8 FROM ${exMysqlTable}  UNION SELECT k7 as k8 FROM $jdbcMysql57Table1) 
+                            UNION ALL SELECT products_id as k8 FROM $exMysqlTable1 ORDER BY k8 limit 3) as a  limit 3"""
+        order_qt_sql100 """ SELECT COUNT(*) FROM $jdbcMysql57Table1 WHERE EXISTS(SELECT max(id) FROM ${exMysqlTable}) """
+        order_qt_sql103 """ SELECT count(*) FROM $jdbcMysql57Table1 n WHERE (SELECT count(*) FROM ${exMysqlTable} r WHERE n.k8 = r.id) > 1 """
+        order_qt_sql105 """ SELECT count(*) AS numwait FROM $jdbcMysql57Table1 l1 WHERE
+                            EXISTS(SELECT * FROM $jdbcMysql57Table1 l2 WHERE l2.k8 = l1.k8 )
+                            AND NOT EXISTS(SELECT * FROM $jdbcMysql57Table1 l3 WHERE l3.k8= l1.k8) """
+        order_qt_sql106 """ SELECT AVG(x) FROM (SELECT 1 AS x, k7 FROM $jdbcMysql57Table1) as a GROUP BY x, k7 """
 
     }
 }
-
-
-
-
-
 
 
