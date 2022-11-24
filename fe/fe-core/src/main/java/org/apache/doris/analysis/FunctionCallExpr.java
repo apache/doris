@@ -1266,7 +1266,8 @@ public class FunctionCallExpr extends Expr {
                                 ((ScalarType) argTypes[i]).getScalarScale()), i);
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())
-                            && !fn.getReturnType().isDecimalV3()) {
+                            && (!fn.getReturnType().isDecimalV3()
+                            || (argTypes[i].isValid() && args[ix].isDecimalV3()))) {
                         uncheckedCastChild(args[ix], i);
                     }
                 }

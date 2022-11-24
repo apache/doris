@@ -1270,17 +1270,21 @@ public class FunctionSet<T> {
 
             return false;
         }
+        final ScalarType descArgType = (ScalarType) descArgTypes[0];
+        final ScalarType candicateArgType = (ScalarType) candicateArgTypes[0];
         if (functionName.equalsIgnoreCase("hex")
                 || functionName.equalsIgnoreCase("greast")
                 || functionName.equalsIgnoreCase("least")
                 || functionName.equalsIgnoreCase("lead")
                 || functionName.equalsIgnoreCase("lag")) {
-            final ScalarType descArgType = (ScalarType) descArgTypes[0];
-            final ScalarType candicateArgType = (ScalarType) candicateArgTypes[0];
             if (!descArgType.isStringType() && candicateArgType.isStringType()) {
                 // The implementations of hex for string and int are different.
                 return false;
             }
+        }
+        if ((descArgType.isDecimalV3() && candicateArgType.isDecimalV2())
+                || (descArgType.isDecimalV2() && candicateArgType.isDecimalV3())) {
+            return false;
         }
         return true;
     }
