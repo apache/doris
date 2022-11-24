@@ -163,13 +163,13 @@ void Daemon::tcmalloc_gc_thread() {
         if (to_free_bytes > 0) {
             last_ms += kIntervalMs;
             if (last_ms >= kMaxLastMs) {
-                 LOG(INFO) << "generic.current_allocated_bytes " << tc_used_bytes
-                           << ", generic.total_physical_bytes " << tc_alloc_bytes << ", rss " << rss 
-                           << ", max_cache_percent " << max_cache_percent << ", release_rate "
-                           << release_rate << ", memory_pressure " << memory_pressure
-                           << ", physical_limit_bytes " << physical_limit_bytes << ", to_free_bytes "
-                           << to_free_bytes << ", current_aggressive_decommit "
-                           << current_aggressive_decommit;
+                LOG(INFO) << "generic.current_allocated_bytes " << tc_used_bytes
+                          << ", generic.total_physical_bytes " << tc_alloc_bytes << ", rss " << rss 
+                          << ", max_cache_percent " << max_cache_percent << ", release_rate "
+                          << release_rate << ", memory_pressure " << memory_pressure
+                          << ", physical_limit_bytes " << physical_limit_bytes << ", to_free_bytes "
+                          << to_free_bytes << ", current_aggressive_decommit "
+                          << current_aggressive_decommit;
                 MallocExtension::instance()->ReleaseToSystem(to_free_bytes);
                 last_ms = 0;
             }
