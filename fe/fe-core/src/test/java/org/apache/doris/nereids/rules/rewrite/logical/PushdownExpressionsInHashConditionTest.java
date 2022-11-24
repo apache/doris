@@ -110,14 +110,14 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                     logicalProject(
                         logicalJoin(
                             logicalProject(
-                                logicalProject(
+                                logicalSubQueryAlias(
                                     logicalProject(
                                         logicalOlapScan()
                                     )
                                 )
                             ),
                             logicalProject(
-                                logicalProject(
+                                    logicalSubQueryAlias(
                                     logicalProject(
                                         logicalOlapScan()
                                     )
@@ -142,7 +142,7 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                                 logicalOlapScan()
                             ),
                             logicalProject(
-                                logicalProject(
+                                logicalSubQueryAlias(
                                     logicalAggregate(
                                         logicalOlapScan()
                                     )
@@ -167,7 +167,7 @@ public class PushdownExpressionsInHashConditionTest extends TestWithFeService im
                                 logicalOlapScan()
                             ),
                             logicalProject(
-                                logicalProject(
+                                logicalSubQueryAlias(
                                     logicalSort(
                                         logicalAggregate(
                                                 logicalOlapScan()

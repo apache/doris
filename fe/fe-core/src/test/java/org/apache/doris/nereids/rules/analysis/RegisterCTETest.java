@@ -166,8 +166,8 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         LogicalPlan cte1AnalyzedPlan = cteContext.getAnalyzedCTE("cte1").get();
 
         PlanChecker.from(connectContext, cte1AnalyzedPlan)
-                .matches(
-                    logicalProject(
+                .matchesFromRoot(
+                    logicalSubQueryAlias(
                         logicalProject()
                         .when(p -> p.getProjects().size() == 2
                                 && p.getProjects().get(0).getName().equals("s_suppkey")
@@ -177,13 +177,15 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                                 && p.getProjects().get(1).getExprId().asInt() == 18
                                 && p.getProjects().get(1).getQualifier().equals(ImmutableList.of("default_cluster:test", "supplier"))
                         )
-                    ).when(p -> p.getProjects().size() == 2
-                            && p.getProjects().get(0).getName().equals("skey")
-                            && p.getProjects().get(0).getExprId().asInt() == 14
-                            && p.getProjects().get(0).getQualifier().equals(ImmutableList.of("cte1"))
-                            && p.getProjects().get(1).getName().equals("s_nation")
-                            && p.getProjects().get(1).getExprId().asInt() == 18
-                            && p.getProjects().get(1).getQualifier().equals(ImmutableList.of("cte1"))
+                    )
+                    .when(a -> a.getAlias().equals("cte1"))
+                    .when(a -> a.getOutput().size() == 2
+                            && a.getOutput().get(0).getName().equals("skey")
+                            && a.getOutput().get(0).getExprId().asInt() == 14
+                            && a.getOutput().get(0).getQualifier().equals(ImmutableList.of("cte1"))
+                            && a.getOutput().get(1).getName().equals("s_nation")
+                            && a.getOutput().get(1).getExprId().asInt() == 18
+                            && a.getOutput().get(1).getQualifier().equals(ImmutableList.of("cte1"))
                     )
                 );
     }
@@ -224,16 +226,21 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 false, ImmutableList.of("cte1"));
         SlotReference skInCTE2 = new SlotReference(new ExprId(7), "sk", IntegerType.INSTANCE,
                 false, ImmutableList.of("cte2"));
-        SlotReference skAlias = new SlotReference(new ExprId(15), "sk", IntegerType.INSTANCE,
-                false, ImmutableList.of("cte1"));
+        Alias skAlias = new Alias(new ExprId(15),
+                new SlotReference(new ExprId(8), "sk", IntegerType.INSTANCE,
+                false, ImmutableList.of("default_cluster:test", "supplier")), "sk");
 
         PlanChecker.from(connectContext)
                 .analyze(sql4)
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
-                            logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skAlias))),
-                            logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skInCTE2)))
+                            logicalSubQueryAlias(
+                                logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skAlias)))
+                            ).when(a -> a.getAlias().equals("cte1")),
+                            logicalSubQueryAlias(
+                                logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skInCTE2)))
+                            ).when(a -> a.getAlias().equals("cte2"))
                         ).when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
                             .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
                     ).when(p -> p.getProjects().equals(ImmutableList.of(skInCTE1, skInCTE2)))
@@ -250,14 +257,17 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 false, ImmutableList.of("default_cluster:test", "supplier"));
         PlanChecker.from(connectContext)
                 .analyze(sql5)
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
-                        logicalProject(
-                            logicalProject()
-                                .when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInSupplier)))
-                                .when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInV1)))
-                        ).when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInV2)))
-                    )
+                        logicalSubQueryAlias(
+                            logicalProject(
+                                logicalSubQueryAlias(
+                                    logicalProject()
+                                        .when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInSupplier)))
+                                ).when(a -> a.getAlias().equals("V1"))
+                            ).when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInV1)))
+                        ).when(a -> a.getAlias().equals("V2"))
+                    ).when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInV2)))
                 );
 
     }
@@ -334,22 +344,20 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
-                            logicalProject(// as s1
-                                logicalProject(// as s
+                            logicalSubQueryAlias(// as s1
+                                logicalSubQueryAlias(// as s
                                     logicalProject(// select * from supplier
                                         logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
                                     )
-                                )
-                            ),
-                            logicalProject(
-                                logicalProject(
+                                ).when(a -> a.getAlias().equals("s"))
+                            ).when(a -> a.getAlias().equals("s1")),
+                            logicalSubQueryAlias(
+                                logicalSubQueryAlias(
                                      logicalProject(
-                                         logicalProject(
-                                             logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
-                                         )
+                                         logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
                                      )
-                                )
-                            )
+                                 ).when(a -> a.getAlias().equals("s"))
+                            ).when(a -> a.getAlias().equals("s2"))
                         )
                     )
                 );

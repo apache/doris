@@ -370,14 +370,14 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
         // select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )
         PlanChecker.from(connectContext)
                 .analyze(sql10)
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
                         logicalFilter(
                             logicalProject(
                                 logicalApply(
                                     any(),
                                     logicalAggregate(
-                                        logicalProject(
+                                        logicalSubQueryAlias(
                                             logicalProject(
                                                 logicalFilter()
                                             ).when(p -> p.getProjects().equals(ImmutableList.of(
@@ -385,7 +385,9 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
                                                         true,
                                                         ImmutableList.of("default_cluster:test", "t7")), "aa")
                                             )))
-                                        ).when(p -> p.getProjects().equals(ImmutableList.of(
+                                        )
+                                        .when(a -> a.getAlias().equals("t2"))
+                                        .when(a -> a.getOutput().equals(ImmutableList.of(
                                                 new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
                                                         true, ImmutableList.of("t2"))
                                         )))
@@ -410,6 +412,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     public void testSql10AfterChangeProjectFilter() {
         PlanChecker.from(connectContext)
                 .analyze(sql10)
+                .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
                 .applyBottomUp(new ApplyPullFilterOnProjectUnderAgg())
                 .matches(
@@ -441,6 +444,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     public void testSql10AfterChangeAggFilter() {
         PlanChecker.from(connectContext)
                 .analyze(sql10)
+                .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
                 .applyBottomUp(new ApplyPullFilterOnProjectUnderAgg())
                 .applyBottomUp(new ApplyPullFilterOnAgg())
@@ -466,6 +470,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
     public void testSql10AfterScalarToJoin() {
         PlanChecker.from(connectContext)
                 .analyze(sql10)
+                .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
                 .applyBottomUp(new ApplyPullFilterOnProjectUnderAgg())
                 .applyBottomUp(new ApplyPullFilterOnAgg())

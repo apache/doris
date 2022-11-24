@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
@@ -54,6 +55,8 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
     public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                // MergeProjects depends on this rule
+                .add(bottomUpBatch(ImmutableList.of(new LogicalSubQueryAliasToLogicalProject())))
                 // AdjustApplyFromCorrelateToUnCorrelateJob and ConvertApplyToJoinJob
                 // and SelectMaterializedIndexWithAggregate depends on this rule
                 .add(topDownBatch(ImmutableList.of(new MergeProjects())))
