@@ -220,12 +220,7 @@ public class S3Resource extends Resource {
                         // add policy's coolDown ttl、coolDown data、policy name to map
                         Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
                         StoragePolicy used = (StoragePolicy) findPolicy.get();
-                        final String[] dateTimeToSecondTimestamp = {"-1"};
-                        Optional.ofNullable(used.getCooldownDatetime()).ifPresent(date -> {
-                            long secondTimestamp = date.getTime() / 1000;
-                            dateTimeToSecondTimestamp[0] = String.valueOf(secondTimestamp);
-                        });
-                        tmpMap.put(StoragePolicy.COOLDOWN_DATETIME, dateTimeToSecondTimestamp[0]);
+                        tmpMap.put(StoragePolicy.COOLDOWN_DATETIME, String.valueOf(used.getCooldownTimestampMs()));
 
                         final String[] cooldownTtl = {"-1"};
                         Optional.ofNullable(used.getCooldownTtl())

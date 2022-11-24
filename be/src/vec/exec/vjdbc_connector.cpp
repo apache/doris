@@ -308,8 +308,8 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
         std::string data = _jobject_to_string(env, jobj);
         DecimalV2Value decimal_slot;
         decimal_slot.parse_from_str(data.c_str(), data.length());
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
-                decimal_slot.value());
+        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+                const_cast<const char*>(reinterpret_cast<char*>(&decimal_slot)), 0);
         break;
     }
     case TYPE_DECIMAL32: {
