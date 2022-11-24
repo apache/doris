@@ -289,10 +289,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             if (table.getType() == TableType.OLAP) {
                 Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
             }
-            LOG.info("erase db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
             iterator.remove();
             idToRecycleTime.remove(table.getId());
             tableNames.remove(table.getName());
+            Env.getCurrentEnv().getEditLog().logEraseTable(table.getId());
+            LOG.info("erase db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
         }
     }
 
