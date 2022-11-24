@@ -58,6 +58,14 @@ mysql> SELECT id,c_array,array_contains(c_array, 5) FROM `array_test`;
 |    3 | []              |                            0 |
 |    4 | NULL            |                         NULL |
 +------+-----------------+------------------------------+
+
+mysql> select array_contains([null, 1], null);
++--------------------------------------+
+| array_contains(ARRAY(NULL, 1), NULL) |
++--------------------------------------+
+|                                    1 |
++--------------------------------------+
+1 row in set (0.00 sec)
 ```
 
 ### keywords
