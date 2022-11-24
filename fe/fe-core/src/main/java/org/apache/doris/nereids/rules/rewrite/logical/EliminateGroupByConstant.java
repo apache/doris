@@ -21,10 +21,10 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -35,23 +35,34 @@ import java.util.Set;
  * select 1, 'str', count(*) from t group by t.id, 1, 'str', 3, 2;
  * transform to:
  * select 1, 'str', count(*) from t group by t.id.
- * firstly, we change the number to slot
- * secondly, we eliminate all constants.
+ * we are ensured before:
+ * 1. aggregation node output contains all the expressions of group by expressions.
+ * 2. others are aggregation functions.
+ * so we can do the rule by:
+ * 1. eliminate all the literal expression that are not integerLiteral of group by expressions.
+ * 2. check whether the left literal expressions are in range and replace them to slots.
  */
 public class EliminateGroupByConstant extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate().thenApply(ctx -> {
-            LogicalAggregate<GroupPlan> aggregate = ctx.root;
+        return logicalAggregate().then(aggregate -> {
             List<Expression> groupByExprs = aggregate.getGroupByExpressions();
+            List<NamedExpression> outputExprs = aggregate.getOutputExpressions();
             Set<Expression> slotGroupByExprs = Sets.newHashSet();
-            // List<Slot> outputExprs = aggregate.getOutput();
             for (Expression expression : groupByExprs) {
-                if (expression instanceof IntegerLikeLiteral || expression.isSlot()) {
+                if (expression instanceof IntegerLikeLiteral) {
+                    int idx = ((IntegerLikeLiteral) expression).getIntValue();
+                    if (idx < 1 || idx > outputExprs.size()) {
+                        throw new RuntimeException(String.format("group by index %d out of range of output list", idx));
+                    }
+                    if (!(outputExprs.get(idx - 1).isConstant())) {
+                        slotGroupByExprs.add(outputExprs.get(idx - 1));
+                    }
+                } else if (!expression.isConstant()) {
                     slotGroupByExprs.add(expression);
                 }
             }
-            return null;
+            return aggregate.withGroupByAndOutput(ImmutableList.copyOf(slotGroupByExprs), outputExprs);
         }).toRule(RuleType.ELIMINATE_GROUP_BY_CONSTANT);
     }
 }
