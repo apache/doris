@@ -111,7 +111,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         int64_t tablet_id = request.tablet_ids(i);
         if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
             // skip broken tablets
-            LOG(INFO) << "skip broken tablet tablet=" << tablet_id;
+            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
             continue;
         }
         auto it = tablet_to_rowidxs.find(tablet_id);
@@ -229,9 +229,9 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
             PTabletInfo* tablet_info = tablet_vec->Add();
             tablet_info->set_tablet_id(writer->tablet_id());
             tablet_info->set_schema_hash(writer->schema_hash());
+            VLOG_PROGRESS << "couldn't find broken tablet " << writer->tablet_id()
+                          << " transaction_id " << _txn_id;
         }
-        VLOG_PROGRESS << "couldn't find broken tablet " << writer->tablet_id() << " transaction_id "
-                      << _txn_id;
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
