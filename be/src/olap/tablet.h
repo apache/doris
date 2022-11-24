@@ -392,10 +392,11 @@ private:
     Status _cooldown_upload_data();
     Status _cooldown_use_remote_data();
     Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
-    Status _read_remote_tablet_meta(const std::string& meta_path, TabletMetaPB* tablet_meta_pb);
+    Status _read_remote_tablet_meta(io::FileSystemSPtr fs, const std::string& meta_path,
+                                    TabletMetaPB* tablet_meta_pb);
     Status _write_remote_tablet_meta(io::FileSystemSPtr fs, int64_t tablet_id,
                                      const TabletMetaPB& tablet_meta_pb);
-    Status _write_remote_tablet_meta(const std::string& meta_path,
+    Status _write_remote_tablet_meta(io::FileSystemSPtr fs, const std::string& meta_path,
                                      const TabletMetaPB& tablet_meta_pb);
 
 public:
