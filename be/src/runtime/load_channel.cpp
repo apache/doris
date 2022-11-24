@@ -97,7 +97,6 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
-        VLOG_PROGRESS << "load channel " << _load_id << " add batch sends eos";
         RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
                                        &finished, request.partition_ids(),
                                        response->mutable_tablet_vec(),

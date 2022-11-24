@@ -127,7 +127,6 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
         auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
         if (tablet_writer_it == _tablet_writers.end()) {
-            LOG(WARNING) << "unknown tablet to append data, tablet=" << tablet_to_rowidxs_it.first;
             return Status::InternalError(strings::Substitute(
                     "unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
         }
@@ -204,16 +203,11 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         }
 
         // 2. wait delta writers and build the tablet vector
-        std::stringstream ss;
-        ss << "[";
         for (auto writer : need_wait_writers) {
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            ss << writer->tablet_id() << ",";
             _close_wait(writer, tablet_vec, tablet_errors);
         }
-        VLOG_PROGRESS << "close wait tablet writer successfully, tablet_ids=" << ss.str() << "]"
-                      << ", transaction_id=" << _txn_id << " add this one to close wait";
         // TODO(gaodayue) clear and destruct all delta writers to make sure all memory are freed
         // DCHECK_EQ(_mem_tracker->consumption(), 0);
     }
@@ -229,8 +223,6 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
             PTabletInfo* tablet_info = tablet_vec->Add();
             tablet_info->set_tablet_id(writer->tablet_id());
             tablet_info->set_schema_hash(writer->schema_hash());
-            VLOG_PROGRESS << "couldn't find broken tablet " << writer->tablet_id()
-                          << " transaction_id " << _txn_id;
         }
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
