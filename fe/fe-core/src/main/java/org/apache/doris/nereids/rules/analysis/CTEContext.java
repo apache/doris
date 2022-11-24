@@ -92,7 +92,7 @@ public class CTEContext {
     }
 
     private LogicalPlan doAnalyzeCTE() {
-        // we always analyze a cte as least once, if the cte only use once, we can return firstAnalyzedPlan.
+        // we always analyze a cte as least once, if the cte only use once, we can return analyzedPlanCacheOnce.
         // but if the cte use more then once, we should return difference analyzed plan to generate difference
         // relation id, so the relation will not conflict in the memo.
         if (analyzedPlanCacheOnce != null) {

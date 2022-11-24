@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -168,24 +167,25 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
         PlanChecker.from(connectContext, cte1AnalyzedPlan)
                 .matches(
-                    logicalSubQueryAlias(
-                        logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(
-                                new SlotReference(new ExprId(14), "s_suppkey", IntegerType.INSTANCE,
-                                        false, ImmutableList.of("defaulst_cluster:test", "supplier")),
-                                new SlotReference(new ExprId(18), "s_nation", VarcharType.createVarcharType(16),
-                                        false, ImmutableList.of("defaulst_cluster:test", "supplier"))
-                        )))
+                    logicalProject(
+                        logicalProject()
+                        .when(p -> p.getProjects().size() == 2
+                                && p.getProjects().get(0).getName().equals("s_suppkey")
+                                && p.getProjects().get(0).getExprId().asInt() == 14
+                                && p.getProjects().get(0).getQualifier().equals(ImmutableList.of("default_cluster:test", "supplier"))
+                                && p.getProjects().get(1).getName().equals("s_nation")
+                                && p.getProjects().get(1).getExprId().asInt() == 18
+                                && p.getProjects().get(1).getQualifier().equals(ImmutableList.of("default_cluster:test", "supplier"))
+                        )
+                    ).when(p -> p.getProjects().size() == 2
+                            && p.getProjects().get(0).getName().equals("skey")
+                            && p.getProjects().get(0).getExprId().asInt() == 14
+                            && p.getProjects().get(0).getQualifier().equals(ImmutableList.of("cte1"))
+                            && p.getProjects().get(1).getName().equals("s_nation")
+                            && p.getProjects().get(1).getExprId().asInt() == 18
+                            && p.getProjects().get(1).getQualifier().equals(ImmutableList.of("cte1"))
                     )
                 );
-
-        List<Slot> output = cte1AnalyzedPlan.getOutput();
-        Assertions.assertEquals(14, output.get(0).getExprId().asInt());
-        Assertions.assertEquals("skey", output.get(0).getName());
-        Assertions.assertEquals(ImmutableList.of("cte1"), output.get(0).getQualifier());
-
-        Assertions.assertEquals(18, output.get(1).getExprId().asInt());
-        Assertions.assertEquals("s_nation", output.get(1).getName());
-        Assertions.assertEquals(ImmutableList.of("cte1"), output.get(1).getQualifier());
     }
 
     @Test

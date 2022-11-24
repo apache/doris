@@ -105,7 +105,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     public void testCaseSubQuery() {
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(0))
-                .applyTopDown(new EliminateAliasNode())
+                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .matchesFromRoot(
                     logicalProject(
                         logicalProject(
@@ -125,7 +125,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     public void testCaseMixed() {
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(1))
-                .applyTopDown(new EliminateAliasNode())
+                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
@@ -156,7 +156,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
     public void testCaseJoinSameTable() {
         PlanChecker.from(connectContext)
                 .analyze(testSql.get(5))
-                .applyTopDown(new EliminateAliasNode())
+                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
