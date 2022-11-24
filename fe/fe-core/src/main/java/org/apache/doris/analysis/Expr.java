@@ -1259,9 +1259,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return true;
     }
 
-    protected void compactForDecimalV3Literal(Type type) throws AnalysisException {
+    protected void compactForLiteral(Type type) throws AnalysisException {
         for (Expr expr : children) {
-            expr.compactForDecimalV3Literal(type);
+            expr.compactForLiteral(type);
         }
     }
 

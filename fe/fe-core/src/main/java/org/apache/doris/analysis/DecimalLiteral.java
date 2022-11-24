@@ -48,11 +48,6 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     public DecimalLiteral(BigDecimal value) {
-        try {
-            value = new BigDecimal(value.longValueExact());
-        } catch (ArithmeticException e) {
-            // ignore
-        }
         init(value);
         analysisDone();
     }
@@ -61,11 +56,8 @@ public class DecimalLiteral extends LiteralExpr {
         BigDecimal v = null;
         try {
             v = new BigDecimal(value);
-            v = new BigDecimal(v.longValueExact());
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
-        } catch (ArithmeticException e) {
-            // ignore
         }
         init(v);
         analysisDone();
@@ -273,10 +265,21 @@ public class DecimalLiteral extends LiteralExpr {
     }
 
     @Override
-    protected void compactForDecimalV3Literal(Type type) throws AnalysisException {
+    protected void compactForLiteral(Type type) throws AnalysisException {
         if (type.isDecimalV3()) {
             this.type = ScalarType.createDecimalV3Type(Math.max(this.value.precision(), type.getPrecision()),
                     Math.max(this.value.scale(), ((ScalarType) type).decimalScale()));
+        }
+    }
+
+    public void tryToReduceType() {
+        if (this.type.isDecimalV3()) {
+            try {
+                value = new BigDecimal(value.longValueExact());
+            } catch (ArithmeticException e) {
+                // ignore
+            }
+            this.type = ScalarType.createDecimalV3Type(this.value.precision(), this.value.scale());
         }
     }
 

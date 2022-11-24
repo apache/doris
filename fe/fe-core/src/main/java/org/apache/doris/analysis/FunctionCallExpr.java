@@ -28,7 +28,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -1267,7 +1266,7 @@ public class FunctionCallExpr extends Expr {
                                 ((ScalarType) argTypes[i]).getScalarScale()), i);
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())
-                            && !PrimitiveType.typeWithPrecision.contains(fn.getReturnType().getPrimitiveType())) {
+                            && !fn.getReturnType().isDecimalV3()) {
                         uncheckedCastChild(args[ix], i);
                     }
                 }

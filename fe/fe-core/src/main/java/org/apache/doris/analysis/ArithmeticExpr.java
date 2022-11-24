@@ -536,6 +536,11 @@ public class ArithmeticExpr extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (VectorizedUtil.isVectorized()) {
+            for (Expr child : children) {
+                if (child instanceof DecimalLiteral && child.getType().isDecimalV3()) {
+                    ((DecimalLiteral) child).tryToReduceType();
+                }
+            }
             // bitnot is the only unary op, deal with it here
             if (op == Operator.BITNOT) {
                 Type t = getChild(0).getType();
@@ -682,11 +687,13 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
-    protected void compactForDecimalV3Literal(Type type) throws AnalysisException {
-        super.compactForDecimalV3Literal(type);
-        Type t1TargetType = getChild(0).getType();
-        Type t2TargetType = getChild(1).getType();
-        analyzeDecimalV3Op(t1TargetType, t2TargetType);
+    protected void compactForLiteral(Type type) throws AnalysisException {
+        super.compactForLiteral(type);
+        Type t1 = getChild(0).getType();
+        Type t2 = getChild(1).getType();
+        if (t1.isDecimalV3() || t2.isDecimalV3()) {
+            analyzeDecimalV3Op(t1, t2);
+        }
     }
 
     @Override
