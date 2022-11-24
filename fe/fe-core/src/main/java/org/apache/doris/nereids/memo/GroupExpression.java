@@ -105,6 +105,11 @@ public class GroupExpression {
         return children.get(i);
     }
 
+    public void setChild(int i, Group group) {
+        children.set(i, group);
+        group.addParentExpression(this);
+    }
+
     public List<Group> children() {
         return children;
     }

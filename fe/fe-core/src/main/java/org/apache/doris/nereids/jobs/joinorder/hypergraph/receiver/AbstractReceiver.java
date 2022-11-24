@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.Edge;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.memo.Group;
 
 import java.util.BitSet;
 
@@ -28,9 +28,11 @@ import java.util.BitSet;
 public interface AbstractReceiver {
     public boolean emitCsgCmp(BitSet csg, BitSet cmp, Edge edge);
 
-    public void addPlan(BitSet bitSet, Plan plan);
+    public void addGroup(BitSet bitSet, Group group);
 
     public boolean contain(BitSet bitSet);
 
-    public Plan getBestPlan(BitSet bitSet);
+    public void reset();
+
+    public Group getBestPlan(BitSet bitSet);
 }

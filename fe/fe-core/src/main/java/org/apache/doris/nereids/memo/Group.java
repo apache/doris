@@ -20,6 +20,7 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -314,6 +315,10 @@ public class Group {
             }
         });
         lowestCostPlans.clear();
+    }
+
+    public boolean isJoinGroup() {
+        return getLogicalExpression().getPlan() instanceof LogicalJoin;
     }
 
     @Override

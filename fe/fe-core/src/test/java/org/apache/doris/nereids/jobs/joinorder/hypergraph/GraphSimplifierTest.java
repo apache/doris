@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.receiver.Counter;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
@@ -33,7 +33,7 @@ public class GraphSimplifierTest {
         //      |
         //     t2
         HyperGraph hyperGraph = new HyperGraphBuilder()
-                .init(10, 20, 30, 40, 50)
+                .init(10, 30, 20, 40, 50)
                 .addEdge(JoinType.INNER_JOIN, 0, 1)
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
@@ -47,8 +47,9 @@ public class GraphSimplifierTest {
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         for (int count : counter.getAllCount().values()) {
-            Assertions.assertEquals(count, 1);
+            Assertions.assertTrue(count < 10);
         }
+        Assertions.assertTrue(graphSimplifier.isTotalOrder());
     }
 
     @Test
@@ -74,8 +75,9 @@ public class GraphSimplifierTest {
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         for (int count : counter.getAllCount().values()) {
-            Assertions.assertEquals(count, 1);
+            Assertions.assertTrue(count < 10);
         }
+        Assertions.assertTrue(graphSimplifier.isTotalOrder());
     }
 
     @Test
@@ -102,8 +104,9 @@ public class GraphSimplifierTest {
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         for (int count : counter.getAllCount().values()) {
-            Assertions.assertEquals(count, 1);
+            Assertions.assertTrue(count < 10);
         }
+        Assertions.assertTrue(graphSimplifier.isTotalOrder());
     }
 
     @Test
@@ -135,8 +138,9 @@ public class GraphSimplifierTest {
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         for (int count : counter.getAllCount().values()) {
-            Assertions.assertEquals(count, 1);
+            Assertions.assertTrue(count < 10);
         }
+        Assertions.assertTrue(graphSimplifier.isTotalOrder());
     }
 
     @Test
@@ -160,8 +164,8 @@ public class GraphSimplifierTest {
 
     @Test
     void testRandomQuery() {
-        for (int i = 0; i < 10; i++) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(10, 40);
+        for (int i = 0; i < 100; i++) {
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(20, 40);
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
             graphSimplifier.initFirstStep();
             while (graphSimplifier.applySimplificationStep()) {
@@ -170,8 +174,25 @@ public class GraphSimplifierTest {
             SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
             subgraphEnumerator.enumerate();
             for (int count : counter.getAllCount().values()) {
-                Assertions.assertEquals(count, 1);
+                Assertions.assertTrue(count < 1000);
             }
+            Assertions.assertTrue(graphSimplifier.isTotalOrder());
         }
+    }
+
+    @Test
+    void testLimit() {
+        int tableNum = 10;
+        int edgeNum = 20;
+        for (int limit = 1000; limit < 10000; limit += 100) {
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
+            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+            graphSimplifier.simplifyGraph(limit);
+            Counter counter = new Counter();
+            SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+            subgraphEnumerator.enumerate();
+            Assertions.assertTrue(counter.getLimit() >= 0);
+        }
+
     }
 }

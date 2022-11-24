@@ -15,13 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.joinreorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.plans.Plan;
-
-import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -33,7 +31,7 @@ import javax.annotation.Nullable;
  */
 public class Node {
     private final int index;
-    private Plan plan;
+    private Group group;
     private List<Edge> edges = new ArrayList<>();
     // We split these into simple edges (only one node on each side) and complex edges (others)
     // because we can often quickly discard all simple edges by testing the set of interesting nodes
@@ -43,8 +41,8 @@ public class Node {
     private List<Edge> simpleEdges = new ArrayList<>();
     private BitSet complexNeighborhood = new BitSet();
 
-    public Node(int index, Plan plan) {
-        this.plan = plan;
+    public Node(int index, Group group) {
+        this.group = group;
         this.index = index;
     }
 
@@ -65,7 +63,11 @@ public class Node {
             throw new RuntimeException(String.format("There is no simple Edge <%d - %s>", index, nodes));
         } else if (Bitmap.isOverlap(complexNeighborhood, nodes)) {
             for (Edge edge : complexEdges) {
-                if (Bitmap.isSubset(edge.getLeft(), nodes) || Bitmap.isSubset(edge.getRight(), nodes)) {
+                // TODO: Right now we check all edges. But due to the simple cmp, we can only check that the edge with
+                // one side that equal to this node
+                if ((Bitmap.isSubset(edge.getLeft(), nodes) && Bitmap.isSubset(edge.getRight(),
+                        Bitmap.newBitmap(index))) || (Bitmap.isSubset(edge.getRight(), nodes) && Bitmap.isSubset(
+                        edge.getLeft(), Bitmap.newBitmap(index)))) {
                     return edge;
                 }
             }
@@ -82,12 +84,12 @@ public class Node {
     }
 
     public Plan getPlan() {
-        return plan;
+        return group.getLogicalExpression().getPlan();
     }
 
-    public void setPlan(Plan plan) {
-        this.plan = plan;
-    }
+    //    public void setPlan(Plan plan) {
+    //        this.plan = plan;
+    //    }
 
     public List<Edge> getComplexEdges() {
         return complexEdges;
@@ -137,6 +139,10 @@ public class Node {
      * by graph simplifier.
      */
     public void splitEdges() {
+        simpleEdges.clear();
+        Bitmap.clear(simpleNeighborhood);
+        complexEdges.clear();
+        Bitmap.clear(complexNeighborhood);
         for (Edge edge : edges) {
             if (edge.isSimple()) {
                 simpleEdges.add(edge);
@@ -153,12 +159,14 @@ public class Node {
     }
 
     public String getName() {
-        Preconditions.checkArgument(plan instanceof GroupPlan, "Each node is a group plan in child");
-        return ((GroupPlan) plan).getGroup().getLogicalExpression().getPlan().getType().name() + index;
+        return getPlan().getType().name() + index;
     }
 
     public double getRowCount() {
-        Preconditions.checkArgument(plan instanceof GroupPlan, "Each node is a group plan in child");
-        return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
+        return group.getStatistics().getRowCount();
+    }
+
+    public Group getGroup() {
+        return group;
     }
 }
