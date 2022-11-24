@@ -37,7 +37,6 @@ import java.util.Map;
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
 
-    public static final String DEFAULT_DB = "default_db";
     public static final String PROP_USER = "jdbc.user";
     public static final String PROP_PASSWORD = "jdbc.password";
     public static final String PROP_JDBC_URL = "jdbc.jdbc_url";

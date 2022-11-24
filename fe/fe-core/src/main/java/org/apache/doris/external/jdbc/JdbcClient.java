@@ -28,8 +28,11 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -54,6 +57,8 @@ public class JdbcClient {
     private String driverUrl;
     private String driverClass;
 
+    private URLClassLoader classLoader;
+
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
         this.jdbcUser = user;
         this.jdbcPasswd = password;
@@ -61,6 +66,14 @@ public class JdbcClient {
         this.driverUrl = driverUrl;
         this.driverClass = driverClass;
         this.dbType = parseDbType(jdbcUrl);
+
+        try {
+            URL[] urls = {new URL(driverUrl)};
+            // set parent ClassLoader to null, we can achieve class loading isolation.
+            classLoader = URLClassLoader.newInstance(urls, null);
+        } catch (Exception e) {
+            throw new JdbcClientException("failed to load jar");
+        }
     }
 
     public String parseDbType(String url) {
@@ -85,12 +98,12 @@ public class JdbcClient {
     public Connection getConnection() throws JdbcClientException {
         Connection conn = null;
         try {
-            Class.forName(driverClass);
+            Driver driver = (Driver) Class.forName(driverClass, true, classLoader).newInstance();
+            DriverManager.registerDriver(new JdbcDriverShim(driver));
             conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPasswd);
             conn.setAutoCommit(true);
-        } catch (ClassNotFoundException e) {
-            throw new JdbcClientException("Can not find driver class", e);
-        } catch (SQLException e) {
+            DriverManager.deregisterDriver(driver);
+        } catch (Exception e) {
             throw new JdbcClientException("Can not connect to jdbc", e);
         }
         return conn;
