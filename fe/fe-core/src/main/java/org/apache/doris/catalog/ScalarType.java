@@ -643,6 +643,7 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DATETIMEV2: {
+                Preconditions.checkArgument(precision >= scale);
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
