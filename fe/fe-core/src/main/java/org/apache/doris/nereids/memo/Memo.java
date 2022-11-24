@@ -101,7 +101,9 @@ public class Memo {
     }
 
     private void maybeAddStateId(CopyInResult result) {
-        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace() && result.generateNewExpression) {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+                && result.generateNewExpression) {
             stateId++;
         }
     }
