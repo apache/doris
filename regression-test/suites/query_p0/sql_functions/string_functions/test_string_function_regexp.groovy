@@ -94,6 +94,7 @@ suite("test_string_function_regexp") {
             (1,"Ben"),
             (4,"Henry")
         """
-    qt_sql_field "select name from ${tbName2} order by field(name,'Suzi','Ben','Henry');"
+    qt_sql_field1 "select name from ${tbName2} order by field(name,'Suzi','Ben','Henry');"
+    qt_sql_field2 "select name from ${tbName2} order by field(name,'Ben','Henry');"
 }
 

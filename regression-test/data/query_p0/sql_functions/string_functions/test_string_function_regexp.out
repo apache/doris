@@ -90,7 +90,15 @@ false	3	1989	1002	11011905	24453.325	false	2012-03-14	2000-01-01T00:00	yunlj8@nk
 -- !sql --
 2
 
--- !sql_field --
+-- !sql_field1 --
+Suzi
+Suzi
+Ben
+Ben
+Henry
+Henry
+
+-- !sql_field2 --
 Suzi
 Suzi
 Ben
