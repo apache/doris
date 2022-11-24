@@ -56,9 +56,6 @@ public:
     using ConstLookupResult = typename Impl::ConstLookupResult;
 
 protected:
-    friend class const_iterator;
-    friend class iterator;
-
     using HashValue = size_t;
     using Self = PartitionedHashTable;
 
