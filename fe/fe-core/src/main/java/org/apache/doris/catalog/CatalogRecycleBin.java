@@ -396,6 +396,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             idToTable.remove(tableId);
             idToRecycleTime.remove(tableId);
+            Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
             LOG.info("erase table[{}] name: {} from db[{}]", tableId, tableName, dbId);
         }
     }
