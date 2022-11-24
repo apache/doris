@@ -15,26 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.algebra;
-
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.UnaryPlan;
+package org.apache.doris.nereids.util;
 
 import java.util.List;
 
 /**
- * Common interface for logical/physical Aggregate.
+ * Bit Util tools.
  */
-public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE> {
-
-    List<Expression> getGroupByExpressions();
-
-    List<NamedExpression> getOutputExpressions();
-
-    Aggregate withAggOutput(List<NamedExpression> newOutput);
-
-    @Override
-    Aggregate<Plan> withChildren(List<Plan> children);
+public class BitUtils {
+    /**
+     * parse the bits array of big ending to long value.
+     */
+    public static long bigEndianBitsToLong(List<Boolean> bits) {
+        long value = 0;
+        for (int i = 0; i < bits.size(); i++) {
+            long bit = bits.get(i) ? 1 : 0;
+            // e.g. the 1 in [1, 0, 0] should shift left 2 length and become to 4.
+            int leftShiftLength = bits.size() - 1 - i;
+            value |= (bit << leftShiftLength);
+        }
+        return value;
+    }
 }

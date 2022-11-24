@@ -79,11 +79,17 @@ public class RewriteTopDownJob extends Job {
             // This `for` loop runs at most once.
             for (Plan before : groupExpressionMatching) {
                 Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
-                if (copyInResult.isPresent() && copyInResult.get().generateNewExpression) {
+                if (!copyInResult.isPresent()) {
+                    continue;
+                }
+                CopyInResult result = copyInResult.get();
+                boolean groupChanged = result.correspondingExpression.getOwnerGroup() != group;
+                if (result.generateNewExpression || groupChanged) {
                     // new group-expr replaced the origin group-expr in `group`,
                     // run this rule against this `group` again.
                     context.setRewritten(true);
-                    pushJob(new RewriteTopDownJob(group, rules, context));
+                    pushJob(new RewriteTopDownJob(result.correspondingExpression.getOwnerGroup(),
+                            rules, context));
                     return;
                 }
             }

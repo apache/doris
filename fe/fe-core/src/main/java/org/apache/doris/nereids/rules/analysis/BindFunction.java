@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 
@@ -65,12 +66,6 @@ public class BindFunction implements AnalysisRuleFactory {
                     LogicalOneRowRelation oneRowRelation = ctx.root;
                     List<NamedExpression> projects = oneRowRelation.getProjects();
                     List<NamedExpression> boundProjects = bind(projects, ctx.connectContext.getEnv());
-                    // TODO:
-                    // trick logic: currently XxxRelation in GroupExpression always difference to each other,
-                    // so this rule must check the expression whether is changed to prevent dead loop because
-                    // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
-                    // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
-                    // GroupExpression by id
                     if (projects.equals(boundProjects)) {
                         return oneRowRelation;
                     }
@@ -92,6 +87,17 @@ public class BindFunction implements AnalysisRuleFactory {
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
+            RuleType.BINDING_REPEAT_FUNCTION.build(
+                logicalRepeat().thenApply(ctx -> {
+                    LogicalRepeat<GroupPlan> repeat = ctx.root;
+                    List<List<Expression>> groupingSets = repeat.getGroupingSets()
+                            .stream()
+                            .map(groupingSet -> bind(groupingSet, ctx.connectContext.getEnv()))
+                            .collect(ImmutableList.toImmutableList());
+                    List<NamedExpression> output = bind(repeat.getOutputExpressions(), ctx.connectContext.getEnv());
+                    return repeat.withGroupSetsAndOutput(groupingSets, output);
+                })
+            ),
             RuleType.BINDING_FILTER_FUNCTION.build(
                logicalFilter().thenApply(ctx -> {
                    LogicalFilter<GroupPlan> filter = ctx.root;
@@ -107,23 +113,23 @@ public class BindFunction implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_SORT_FUNCTION.build(
-                    logicalSort().thenApply(ctx -> {
-                        LogicalSort<GroupPlan> sort = ctx.root;
-                        List<OrderKey> orderKeys = sort.getOrderKeys().stream()
-                                .map(orderKey -> new OrderKey(
-                                        FunctionBinder.INSTANCE.bind(orderKey.getExpr(), ctx.connectContext.getEnv()),
-                                        orderKey.isAsc(),
-                                        orderKey.isNullFirst()
-                                ))
-                                .collect(ImmutableList.toImmutableList());
-                        return new LogicalSort<>(orderKeys, sort.child());
-                    })
+                logicalSort().thenApply(ctx -> {
+                    LogicalSort<GroupPlan> sort = ctx.root;
+                    List<OrderKey> orderKeys = sort.getOrderKeys().stream()
+                            .map(orderKey -> new OrderKey(
+                                    FunctionBinder.INSTANCE.bind(orderKey.getExpr(), ctx.connectContext.getEnv()),
+                                    orderKey.isAsc(),
+                                    orderKey.isNullFirst()
+                            ))
+                            .collect(ImmutableList.toImmutableList());
+                    return new LogicalSort<>(orderKeys, sort.child());
+                })
             ),
             RuleType.BINDING_UNBOUND_TVF_RELATION_FUNCTION.build(
-                    unboundTVFRelation().thenApply(ctx -> {
-                        UnboundTVFRelation relation = ctx.root;
-                        return FunctionBinder.INSTANCE.bindTableValuedFunction(relation, ctx.statementContext);
-                    })
+                unboundTVFRelation().thenApply(ctx -> {
+                    UnboundTVFRelation relation = ctx.root;
+                    return FunctionBinder.INSTANCE.bindTableValuedFunction(relation, ctx.statementContext);
+                })
             )
         );
     }
