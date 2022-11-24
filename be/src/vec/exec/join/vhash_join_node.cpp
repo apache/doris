@@ -576,9 +576,12 @@ struct ProcessHashTableProbe {
                 output_block->get_by_position(result_column_id).column =
                         std::move(new_filter_column);
             } else if constexpr (JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN) {
-                for (int i = 0; i < column->size(); ++i) {
-                    DCHECK(visited_map[i]);
-                    *visited_map[i] |= column->get_bool(i);
+                if (visited_map.size() != 0) {
+                    for (int i = 0; i < column->size(); ++i) {
+                        DCHECK(visited_map[i]);
+                        bool ret = column->get_bool(i);
+                        *visited_map[i] |= ret;
+                    }
                 }
             } else if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN) {
                 auto new_filter_column = ColumnVector<UInt8>::create();
