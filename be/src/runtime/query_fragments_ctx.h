@@ -100,8 +100,8 @@ public:
         return _ready_to_execute.load() && !_is_cancelled.load();
     }
 
-    vectorized::SharedHashTableController* get_shared_hash_table_controller() {
-        return _shared_hash_table_controller.get();
+    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
+        return _shared_hash_table_controller;
     }
 
 public:
@@ -144,7 +144,7 @@ private:
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
 
-    std::unique_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
 };
 
 } // namespace doris
