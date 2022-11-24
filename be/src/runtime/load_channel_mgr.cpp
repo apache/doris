@@ -123,8 +123,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
-Status LoadChannelMgr::
-add_batch(const PTabletWriterAddBatchRequest& request,
+Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
                                  PTabletWriterAddBatchResult* response) {
     UniqueId load_id(request.id());
     // 1. get load channel
