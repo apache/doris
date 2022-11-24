@@ -279,7 +279,8 @@ public class DecimalLiteral extends LiteralExpr {
             } catch (ArithmeticException e) {
                 // ignore
             }
-            this.type = ScalarType.createDecimalV3Type(this.value.precision(), this.value.scale());
+            this.type = ScalarType.createDecimalV3Type(
+                    Math.max(this.value.scale(), this.value.precision()), this.value.scale());
         }
     }
 

@@ -507,8 +507,12 @@ public class ArithmeticExpr extends Expr {
                 }
                 type = ScalarType.createDecimalV3Type(precision, scale);
                 if (op == Operator.ADD || op == Operator.SUBTRACT) {
-                    castChild(type, 0);
-                    castChild(type, 1);
+                    if (!Type.matchExactType(type, children.get(0).type)) {
+                        castChild(type, 0);
+                    }
+                    if (!Type.matchExactType(type, children.get(1).type)) {
+                        castChild(type, 1);
+                    }
                 } else if (op == Operator.DIVIDE && (t2Scale != 0)) {
                     castChild(ScalarType.createDecimalV3Type(precision, t1Scale + t2Scale), 0);
                 }
