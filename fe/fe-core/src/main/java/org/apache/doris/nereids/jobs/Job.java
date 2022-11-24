@@ -100,9 +100,10 @@ public abstract class Job {
         if (after != before) {
             CopyInResult result = context.getCascadesContext()
                     .getMemo()
-                    .copyIn(after, targetGroup, true);
+                    .copyIn(after, targetGroup, rule.isRewrite());
 
-            if (result.generateNewExpression && enableTrace) {
+            if ((result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup)
+                    && enableTrace) {
                 String traceAfter = getPlanTraceLog();
                 printTraceLog(rule, traceBefore, traceAfter);
             }

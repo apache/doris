@@ -103,6 +103,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -352,6 +354,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(GetJsonInt.class, "get_json_int"),
             scalar(GetJsonString.class, "get_json_string"),
             scalar(Greatest.class, "greatest"),
+            scalar(Grouping.class, "grouping"),
+            scalar(GroupingId.class, "grouping_id"),
             scalar(Hex.class, "hex"),
             scalar(HllCardinality.class, "hll_cardinality"),
             scalar(HllEmpty.class, "hll_empty"),

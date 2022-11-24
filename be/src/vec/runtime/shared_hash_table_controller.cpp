@@ -121,10 +121,10 @@ Status SharedHashTableController::release_ref_count_if_need(TUniqueId fragment_i
 
 Status SharedHashTableController::wait_for_closable(RuntimeState* state, int my_node_id) {
     std::unique_lock<std::mutex> lock(_mutex);
-    RETURN_IF_CANCELLED(state);
     if (!_ref_fragments[my_node_id].empty()) {
         _cv.wait(lock, [&]() { return _ref_fragments[my_node_id].empty(); });
     }
+    RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
 

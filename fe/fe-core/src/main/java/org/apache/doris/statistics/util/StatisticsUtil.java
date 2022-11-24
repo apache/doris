@@ -41,6 +41,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -76,24 +77,20 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
-        ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-        try {
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-            connectContext.setExecutor(stmtExecutor);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
-        } finally {
-            connectContext.kill(false);
         }
     }
 
     public static void execUpdate(String sql) throws Exception {
-        ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-        try {
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-            connectContext.setExecutor(stmtExecutor);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         } finally {
-            connectContext.kill(false);
+            ConnectContext.remove();
         }
     }
 
@@ -107,7 +104,7 @@ public class StatisticsUtil {
         return resultBatches.stream().map(ColumnStatistic::fromResultRow).collect(Collectors.toList());
     }
 
-    public static ConnectContext buildConnectContext() {
+    public static AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
@@ -121,15 +118,16 @@ public class StatisticsUtil {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
-        connectContext.setThreadLocalInfo();
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        return connectContext;
+        return new AutoCloseConnectContext(connectContext);
     }
 
     public static void analyze(StatementBase statementBase) throws UserException {
-        Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), buildConnectContext());
-        statementBase.analyze(analyzer);
+        try (AutoCloseConnectContext r = buildConnectContext()) {
+            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
+            statementBase.analyze(analyzer);
+        }
     }
 
     public static LiteralExpr readableValue(Type type, String columnValue) throws AnalysisException {

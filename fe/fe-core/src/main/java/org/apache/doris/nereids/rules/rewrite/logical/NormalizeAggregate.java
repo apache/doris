@@ -141,7 +141,8 @@ public class NormalizeAggregate extends OneRewriteRuleFactory {
                 root = new LogicalProject<>(bottomProjections, root);
             }
             root = new LogicalAggregate<>(newKeys, newOutputs, aggregate.isDisassembled(),
-                    true, aggregate.isFinalPhase(), aggregate.getAggPhase(), root);
+                    true, aggregate.isFinalPhase(), aggregate.getAggPhase(),
+                    aggregate.getSourceRepeat(), root);
             List<NamedExpression> projections = outputs.stream()
                     .map(e -> ExpressionUtils.replace(e, substitutionMap))
                     .map(NamedExpression.class::cast)

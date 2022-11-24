@@ -73,20 +73,37 @@ struct ProcessHashTableBuild {
 
         Defer defer {[&]() {
             int64_t bucket_size = hash_table_ctx.hash_table.get_buffer_size_in_cells();
+            int64_t filled_bucket_size = hash_table_ctx.hash_table.size();
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
             _join_node->_mem_used += bucket_bytes - old_bucket_bytes;
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
+            COUNTER_SET(_join_node->_build_buckets_fill_counter, filled_bucket_size);
+
+            auto hash_table_buckets = hash_table_ctx.hash_table.get_buffer_sizes_in_cells();
+            std::string hash_table_buckets_info;
+            for (auto bucket_count : hash_table_buckets) {
+                hash_table_buckets_info += std::to_string(bucket_count) + ", ";
+            }
+            _join_node->add_hash_buckets_info(hash_table_buckets_info);
+
+            auto hash_table_sizes = hash_table_ctx.hash_table.sizes();
+            hash_table_buckets_info.clear();
+            for (auto table_size : hash_table_sizes) {
+                hash_table_buckets_info += std::to_string(table_size) + ", ";
+            }
+            _join_node->add_hash_buckets_filled_info(hash_table_buckets_info);
         }};
 
         KeyGetter key_getter(_build_raw_ptrs, _join_node->_build_key_sz, nullptr);
 
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
+        hash_table_ctx.hash_table.reset_resize_timer();
+
         // only not build_unique, we need expanse hash table before insert data
         if (!_join_node->_build_unique) {
             // _rows contains null row, which will cause hash table resize to be large.
             RETURN_IF_CATCH_BAD_ALLOC(hash_table_ctx.hash_table.expanse_for_add_elem(_rows));
         }
-        hash_table_ctx.hash_table.reset_resize_timer();
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];
         bool has_runtime_filter = !_join_node->_runtime_filter_descs.empty();
@@ -172,6 +189,9 @@ struct ProcessHashTableBuild {
 
         COUNTER_UPDATE(_join_node->_build_table_expanse_timer,
                        hash_table_ctx.hash_table.get_resize_timer_value());
+        COUNTER_UPDATE(_join_node->_build_table_convert_timer,
+                       hash_table_ctx.hash_table.get_convert_timer_value());
+
         return Status::OK();
     }
 
@@ -337,6 +357,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_table_insert_timer = ADD_TIMER(build_phase_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(build_phase_profile, "BuildExprCallTime");
     _build_table_expanse_timer = ADD_TIMER(build_phase_profile, "BuildTableExpanseTime");
+    _build_table_convert_timer =
+            ADD_TIMER(build_phase_profile, "BuildTableConvertToPartitionedTime");
     _build_rows_counter = ADD_COUNTER(build_phase_profile, "BuildRows", TUnit::UNIT);
     _build_side_compute_hash_timer = ADD_TIMER(build_phase_profile, "BuildSideHashComputingTime");
 
@@ -355,6 +377,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
+    _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
 
     if (_is_broadcast_join) {
         runtime_profile()->add_info_string("BroadcastJoin", "true");
@@ -374,11 +397,19 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _left_table_data_types = VectorizedUtils::get_data_types(child(0)->row_desc());
 
     // Hash Table Init
-    _hash_table_init();
+    _hash_table_init(state);
     _process_hashtable_ctx_variants_init(state);
     _construct_mutable_join_block();
 
     return Status::OK();
+}
+
+void HashJoinNode::add_hash_buckets_info(const std::string& info) {
+    runtime_profile()->add_info_string("HashTableBuckets", info);
+}
+
+void HashJoinNode::add_hash_buckets_filled_info(const std::string& info) {
+    runtime_profile()->add_info_string("HashTableFilledBuckets", info);
 }
 
 Status HashJoinNode::close(RuntimeState* state) {
@@ -833,7 +864,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     return st;
 }
 
-void HashJoinNode::_hash_table_init() {
+void HashJoinNode::_hash_table_init(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
@@ -956,6 +987,16 @@ void HashJoinNode::_hash_table_init() {
             _join_op_variants, make_bool_variant(_have_other_join_conjunct));
 
     DCHECK(!std::holds_alternative<std::monostate>(*_hash_table_variants));
+
+    std::visit(Overload {[&](std::monostate& arg) {
+                             LOG(FATAL) << "FATAL: uninited hash table";
+                             __builtin_unreachable();
+                         },
+                         [&](auto&& arg) {
+                             arg.hash_table_ptr->set_partitioned_threshold(
+                                     state->partitioned_hash_join_rows_threshold());
+                         }},
+               *_hash_table_variants);
 }
 
 void HashJoinNode::_process_hashtable_ctx_variants_init(RuntimeState* state) {
