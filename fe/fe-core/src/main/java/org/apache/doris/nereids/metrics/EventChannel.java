@@ -92,7 +92,6 @@ public class EventChannel {
 
     public void start() {
         thread = new Thread(new Worker(), "nereids_event");
-        thread.setDaemon(true);
         thread.start();
     }
 
