@@ -32,9 +32,9 @@ backends
 
 ### description
 
-backends是doris内置的一张系统表，存放在information_schema数据库下。通过backends系统表可以查看当前doris集群中的 `BE` 节点信息。
+`backends` 是doris内置的一张系统表，存放在`information_schema`数据库下。通过`backends`系统表可以查看当前doris集群中的 `BE` 节点信息。
 
-backends表结构为：
+`backends` 表结构为：
 ```sql
 MySQL [information_schema]> desc information_schema.backends;
 +-----------------------+-------------+------+-------+---------+-------+
@@ -65,7 +65,7 @@ MySQL [information_schema]> desc information_schema.backends;
 | Status                | VARCHAR(40) | Yes  | false | NULL    |       |
 +-----------------------+-------------+------+-------+---------+-------+
 ```
-backends 系统表展示出来的信息基本与 `show backends` 语句展示出的信息一致。但是backends系统表的各个字段类型更加明确，且可以利用backends 系统表去做过滤、join等操作。
+`backends` 系统表展示出来的信息基本与 `show backends` 语句展示出的信息一致。但是`backends`系统表的各个字段类型更加明确，且可以利用 `backends` 系统表去做过滤、join等操作。
 
 ### Example
 

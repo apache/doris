@@ -1,7 +1,7 @@
 ---
 {
     "title": "rowsets",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -32,9 +32,9 @@ rowsets
 
 ### description
 
-`rowsets` 是doris内置的一张系统表，存放在`information_schema`数据库下。通过 `rowsets` 系统表可以查看各个`BE` 当前rowsets情况。
+`rowsets` is a built-in system table of doris, which is stored under the information_schema database. You can view the current rowsets information of each `BE` through the `rowsets` system table.
 
-rowsets表结构为：
+The `rowsets` table schema is:
 ```sql
 MySQL [(none)]> desc information_schema.rowsets;
 +------------------------+------------+------+-------+---------+-------+
@@ -55,7 +55,6 @@ MySQL [(none)]> desc information_schema.rowsets;
 | NEWEST_WRITE_TIMESTAMP | BIGINT     | Yes  | false | NULL    |       |
 +------------------------+------------+------+-------+---------+-------+
 ```
-backends 系统表展示出来的信息基本与 `show backends` 语句展示出的信息一致。但是backends系统表的各个字段类型更加明确，且可以利用backends 系统表去做过滤、join等操作。
 
 ### Example
 
