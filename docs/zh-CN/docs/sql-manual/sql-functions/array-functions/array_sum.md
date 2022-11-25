@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_SUM 函数",
+    "title": "array_sum",
     "language": "zh-CN"
 }
 ---
