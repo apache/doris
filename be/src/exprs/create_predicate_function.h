@@ -20,6 +20,8 @@
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/exprs/vbitmap_predicate.h"
 
 namespace doris {
 
@@ -51,6 +53,15 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new BloomFilterFunc<type>();
+    };
+};
+
+class BitmapFilterTraits {
+public:
+    using BasePtr = BitmapFilterFuncBase*;
+    template <PrimitiveType type>
+    static BasePtr get_function() {
+        return new BitmapFilterFunc<type>();
     };
 };
 
@@ -118,6 +129,26 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
     return nullptr;
 }
 
+template <class Traits>
+typename Traits::BasePtr create_bitmap_predicate_function(PrimitiveType type) {
+    using Creator = PredicateFunctionCreator<Traits>;
+
+    switch (type) {
+    case TYPE_TINYINT:
+        return Creator::template create<TYPE_TINYINT>();
+    case TYPE_SMALLINT:
+        return Creator::template create<TYPE_SMALLINT>();
+    case TYPE_INT:
+        return Creator::template create<TYPE_INT>();
+    case TYPE_BIGINT:
+        return Creator::template create<TYPE_BIGINT>();
+    default:
+        DCHECK(false) << "Invalid type.";
+    }
+
+    return nullptr;
+}
+
 inline auto create_minmax_filter(PrimitiveType type) {
     return create_predicate_function<MinmaxFunctionTraits>(type);
 }
@@ -132,6 +163,10 @@ inline auto create_set(PrimitiveType type, bool is_vectorized = false) {
 
 inline auto create_bloom_filter(PrimitiveType type) {
     return create_predicate_function<BloomFilterTraits>(type);
+}
+
+inline auto create_bitmap_filter(PrimitiveType type) {
+    return create_bitmap_predicate_function<BitmapFilterTraits>(type);
 }
 
 } // namespace doris

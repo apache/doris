@@ -22,6 +22,7 @@
 #include <stack>
 #include <string>
 
+#include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
@@ -33,6 +34,8 @@ namespace doris::vectorized {
 class VNestedLoopJoinNode final : public VJoinNodeBase {
 public:
     VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     Status prepare(RuntimeState* state) override;
 
@@ -78,6 +81,8 @@ private:
 
     void _release_mem();
 
+    Status get_left_side(RuntimeState* state, Block* block);
+
     // List of build blocks, constructed in prepare()
     Blocks _build_blocks;
     // Visited flags for each row in build side.
@@ -104,6 +109,14 @@ private:
     bool _left_side_eos; // if true, left child has no more rows to process
 
     bool _old_version_flag;
+
+    MutableColumns _dst_columns;
+
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<vectorized::VExprContext*> _filter_src_expr_ctxs;
+    bool _is_output_left_side_only = false;
+
+    friend struct RuntimeFilterBuild;
 };
 
 } // namespace doris::vectorized
