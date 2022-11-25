@@ -1631,3 +1631,13 @@ webserver默认工作线程数
 * 类型：int32
 * 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
+
+### `big_column_size_buffer`
+* 类型：int64
+* 描述：当使用odbc外表时，如果odbc源表的某一列类型为HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
+* 默认值：65535
+
+### `small_column_size_buffer`
+* 类型：int64
+* 描述：当使用odbc外表时，如果odbc源表的某一列类型不是HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
+* 默认值：100
