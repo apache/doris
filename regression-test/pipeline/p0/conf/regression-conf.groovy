@@ -77,5 +77,5 @@ pg_14_port=7121
 enableHiveTest=false
 hms_port=7141
 
-sf1DataPath = "/data"
+sf1DataPath = "https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression"
 cacheDataPath = "/data/regression/"
