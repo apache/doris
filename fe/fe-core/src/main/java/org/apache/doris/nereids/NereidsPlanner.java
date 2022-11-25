@@ -93,6 +93,7 @@ public class NereidsPlanner extends Planner {
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
+        EventChannel.getDefaultChannel().start();
     }
 
     @Override
@@ -118,6 +119,8 @@ public class NereidsPlanner extends Planner {
             String memo = cascadesContext.getMemo().toString();
             System.out.println(memo);
             LOG.info(memo);
+            CounterEvent.clearCounter();
+            EventChannel.getDefaultChannel().stop();
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
