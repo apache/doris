@@ -23,11 +23,11 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:4830/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:4630"
+feHttpAddress = "127.0.0.1:9030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -45,7 +45,7 @@ sf1DataPath = "https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/re
 testGroups = ""
 // empty suite will test all suite
 testSuites = ""
-// empty directories will test all directories ,tpcds_sf0.1_unique_p1,tpcds_sf1_p2,tpcds_sf1_unique_p2
+// empty directories will test all directories
 testDirectories = "tpcds_sf0.1_p1"
 
 // this groups will not be executed
