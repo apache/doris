@@ -24,14 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## array_size
+## array_size (size, cardinality)
 
 ### description
 
 #### Syntax
 
 ```
+BIGINT size(ARRAY<T> arr)
 BIGINT array_size(ARRAY<T> arr) 
+BIGINT cardinality(ARRAY<T> arr)
 ```
 
 返回数组中元素数量，如果输入数组为NULL，则返回NULL
@@ -45,6 +47,15 @@ BIGINT array_size(ARRAY<T> arr)
 ```
 mysql> set enable_vectorized_engine=true;
 
+mysql> select k1,k2,size(k2) from array_test;
++------+-----------+------------+
+| k1   | k2        | size(`k2`) |
++------+-----------+------------+
+|    1 | [1, 2, 3] |          3 |
+|    2 | []        |          0 |
+|    3 | NULL      |       NULL |
++------+-----------+------------+
+
 mysql> select k1,k2,array_size(k2) from array_test;
 +------+-----------+------------------+
 | k1   | k2        | array_size(`k2`) |
@@ -53,8 +64,17 @@ mysql> select k1,k2,array_size(k2) from array_test;
 |    2 | []        |                0 |
 |    3 | NULL      |             NULL |
 +------+-----------+------------------+
+
+mysql> select k1,k2,cardinality(k2) from array_test;
++------+-----------+-------------------+
+| k1   | k2        | cardinality(`k2`) |
++------+-----------+-------------------+
+|    1 | [1, 2, 3] |                 3 |
+|    2 | []        |                 0 |
+|    3 | NULL      |              NULL |
++------+-----------+-------------------+
 ```
 
 ### keywords
 
-ARRAY_SIZE ARRAY
+ARRAY_SIZE, SIZE, CARDINALITY
