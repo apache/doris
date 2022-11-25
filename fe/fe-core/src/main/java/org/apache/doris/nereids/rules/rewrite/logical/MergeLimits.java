@@ -53,7 +53,7 @@ public class MergeLimits extends OneRewriteRuleFactory {
             long newLimit;
             if (bottomLimit >= 0 && upLimit >= 0) {
                 newLimit = Math.min(upLimit, minus(bottomLimit, upOffset));
-            } else if (upLimit < 0 & bottomLimit < 0) {
+            } else if (upLimit < 0 && bottomLimit < 0) {
                 newLimit = -1;
             } else if (bottomLimit < 0) {
                 newLimit = upLimit;

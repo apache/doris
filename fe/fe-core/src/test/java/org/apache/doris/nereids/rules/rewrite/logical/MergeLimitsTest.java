@@ -38,9 +38,7 @@ public class MergeLimitsTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new MergeLimits())
-                .printlnTree()
                 .matchesFromRoot(
                         logicalLimit(logicalOlapScan())
                                 .when(limit -> limit.getLimit() == 1)
@@ -55,9 +53,7 @@ public class MergeLimitsTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new MergeLimits())
-                .printlnTree()
                 .matchesFromRoot(
                         logicalLimit(logicalOlapScan())
                                 .when(limit -> limit.getLimit() == 5 && limit.getOffset() == 5)
@@ -82,9 +78,7 @@ public class MergeLimitsTest implements PatternMatchSupported {
                 .limit(3, 11)
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan1)
-                .printlnTree()
                 .applyTopDown(new MergeLimits())
-                .printlnTree()
                 .matchesFromRoot(
                         logicalLimit(logicalOlapScan())
                                 .when(limit -> limit.getLimit() == 0 && limit.getOffset() == 11)
@@ -99,9 +93,7 @@ public class MergeLimitsTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new MergeLimits())
-                .printlnTree()
                 .matchesFromRoot(
                         logicalLimit(logicalOlapScan())
                                 .when(limit -> limit.getLimit() == 10 && limit.getOffset() == 10)
@@ -116,9 +108,7 @@ public class MergeLimitsTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new MergeLimits())
-                .printlnTree()
                 .matchesFromRoot(
                         logicalLimit(logicalOlapScan())
                                 .when(limit -> limit.getLimit() == 5 && limit.getOffset() == 5)
@@ -133,9 +123,7 @@ public class MergeLimitsTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .printlnTree()
                 .applyTopDown(new MergeLimits())
-                .printlnTree()
                 .matchesFromRoot(
                         logicalLimit(logicalOlapScan())
                                 .when(limit -> limit.getLimit() == -1 && limit.getOffset() == 8)
