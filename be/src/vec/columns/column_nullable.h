@@ -315,7 +315,7 @@ private:
     WrappedPtr nested_column;
     WrappedPtr null_map;
 
-    bool _need_update_has_null = false;
+    bool _need_update_has_null = true;
     bool _has_null;
 
     void _update_has_null();
