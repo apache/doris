@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_PRODUCT 函数",
+    "title": "array_product",
     "language": "zh-CN"
 }
 ---
@@ -24,11 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_PRODUCT
-
-### Name
-
-ARRAY_PRODUCT
+## array_product
 
 ### description
 
