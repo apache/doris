@@ -49,8 +49,6 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     if (is_column_const(*null_map)) {
         LOG(FATAL) << "ColumnNullable cannot have constant null map";
     }
-
-    _update_has_null();
 }
 
 MutableColumnPtr ColumnNullable::get_shrinked_column() {
@@ -258,7 +256,6 @@ void ColumnNullable::insert_indices_from(const IColumn& src, const int* indices_
                                             indices_end);
     get_null_map_column().insert_indices_from(src_concrete.get_null_map_column(), indices_begin,
                                               indices_end);
-    _update_has_null();
 }
 
 void ColumnNullable::insert(const Field& x) {
@@ -301,7 +298,6 @@ void ColumnNullable::insert_many_from_not_nullable(const IColumn& src, size_t po
 void ColumnNullable::pop_back(size_t n) {
     get_nested_column().pop_back(n);
     get_null_map_column().pop_back(n);
-    _update_has_null();
 }
 
 ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) const {
@@ -318,7 +314,6 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
             sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
     RETURN_IF_ERROR(get_null_map_column().filter_by_selector(
             sel, sel_size, const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
-    _update_has_null();
     return Status::OK();
 }
 
@@ -423,12 +418,8 @@ void ColumnNullable::reserve(size_t n) {
 
 void ColumnNullable::resize(size_t n) {
     auto& null_map_data = get_null_map_data();
-    auto old_size = null_map_data.size();
     get_nested_column().resize(n);
     null_map_data.resize(n);
-    if (UNLIKELY(old_size > n)) {
-        _update_has_null();
-    }
 }
 
 size_t ColumnNullable::byte_size() const {

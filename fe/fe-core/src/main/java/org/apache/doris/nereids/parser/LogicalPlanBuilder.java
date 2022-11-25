@@ -35,6 +35,8 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
+import org.apache.doris.nereids.DorisParser.GroupingElementContext;
+import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
@@ -136,7 +138,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -147,6 +149,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -208,8 +211,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
-        LogicalPlan plan = visitQuery(ctx.query());
-        return ctx.cte() == null ? plan : withCte(ctx.cte(), plan);
+        LogicalPlan plan = plan(ctx.query());
+        plan = withCte(plan, ctx.cte());
+        return withExplain(plan, ctx.explain());
     }
 
     /**
@@ -238,8 +242,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * process CTE and store the results in a logical plan node LogicalCTE
      */
-    public LogicalPlan withCte(CteContext ctx, LogicalPlan plan) {
-        return new LogicalCTE<>(visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
+    public LogicalPlan withCte(LogicalPlan plan, CteContext ctx) {
+        if (ctx == null) {
+            return plan;
+        }
+        return new LogicalCTE<>((List) visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
     }
 
     /**
@@ -260,29 +267,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Command visitExplain(ExplainContext ctx) {
-        return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan logicalPlan = plan(ctx.query());
-            ExplainLevel explainLevel = ExplainLevel.NORMAL;
-
-            if (ctx.planType() != null) {
-                if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
-                    throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
-                }
-            }
-
-            if (ctx.level != null) {
-                if (!ctx.level.getText().equalsIgnoreCase("plan")) {
-                    explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
-                } else {
-                    explainLevel = parseExplainPlanType(ctx.planType());
-                }
-            }
-            return new ExplainCommand(explainLevel, logicalPlan);
-        });
-    }
-
-    @Override
     public LogicalPlan visitQuery(QueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
@@ -294,18 +278,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRegularQuerySpecification(RegularQuerySpecificationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
+            SelectClauseContext selectCtx = ctx.selectClause();
+            LogicalPlan selectPlan;
             if (ctx.fromClause() == null) {
-                return withOneRowRelation(ctx.selectClause());
+                selectPlan = withOneRowRelation(selectCtx);
+            } else {
+                LogicalPlan relation = visitFromClause(ctx.fromClause());
+                selectPlan = withSelectQuerySpecification(
+                        ctx, relation,
+                        selectCtx,
+                        Optional.ofNullable(ctx.whereClause()),
+                        Optional.ofNullable(ctx.aggClause()),
+                        Optional.ofNullable(ctx.havingClause())
+                );
             }
 
-            LogicalPlan relation = visitFromClause(ctx.fromClause());
-            return withSelectQuerySpecification(
-                ctx, relation,
-                ctx.selectClause(),
-                Optional.ofNullable(ctx.whereClause()),
-                Optional.ofNullable(ctx.aggClause()),
-                Optional.ofNullable(ctx.havingClause())
-            );
+            return withSelectHint(selectPlan, selectCtx.selectHint());
         });
     }
 
@@ -862,6 +850,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return typedVisit(ctx);
     }
 
+    private LogicalPlan withExplain(LogicalPlan inputPlan, ExplainContext ctx) {
+        if (ctx == null) {
+            return inputPlan;
+        }
+        return ParserUtils.withOrigin(ctx, () -> {
+            ExplainLevel explainLevel = ExplainLevel.NORMAL;
+
+            if (ctx.planType() != null) {
+                if (ctx.level == null || !ctx.level.getText().equalsIgnoreCase("plan")) {
+                    throw new ParseException("Only explain plan can use plan type: " + ctx.planType().getText(), ctx);
+                }
+            }
+
+            if (ctx.level != null) {
+                if (!ctx.level.getText().equalsIgnoreCase("plan")) {
+                    explainLevel = ExplainLevel.valueOf(ctx.level.getText().toUpperCase(Locale.ROOT));
+                } else {
+                    explainLevel = parseExplainPlanType(ctx.planType());
+                }
+            }
+            return new ExplainCommand(explainLevel, inputPlan);
+        });
+    }
+
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
         Optional<SortClauseContext> sortClauseContext = Optional.ofNullable(ctx.sortClause());
         Optional<LimitClauseContext> limitClauseContext = Optional.ofNullable(ctx.limitClause());
@@ -925,8 +937,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             LogicalPlan aggregate = withAggregate(filter, selectClause, aggClause);
             // TODO: replace and process having at this position
             LogicalPlan having = withHaving(aggregate, havingClause);
-            LogicalPlan projection = withProjection(having, selectClause, aggClause);
-            return withSelectHint(projection, selectClause.selectHint());
+            return withProjection(having, selectClause, aggClause);
         });
     }
 
@@ -1025,15 +1036,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withAggregate(LogicalPlan input, SelectClauseContext selectCtx,
                                       Optional<AggClauseContext> aggCtx) {
         return input.optionalMap(aggCtx, () -> {
-            List<Expression> groupByExpressions = visit(aggCtx.get().groupByItem().expression(), Expression.class);
+            GroupingElementContext groupingElementContext = aggCtx.get().groupingElement();
             List<NamedExpression> namedExpressions = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+            if (groupingElementContext.GROUPING() != null) {
+                ImmutableList.Builder<List<Expression>> groupingSets = ImmutableList.builder();
+                for (GroupingSetContext groupingSetContext : groupingElementContext.groupingSet()) {
+                    groupingSets.add(visit(groupingSetContext.expression(), Expression.class));
+                }
+                return new LogicalRepeat<>(groupingSets.build(), namedExpressions, input);
+            } else if (groupingElementContext.CUBE() != null) {
+                List<Expression> cubeExpressions = visit(groupingElementContext.expression(), Expression.class);
+                List<List<Expression>> groupingSets = ExpressionUtils.cubeToGroupingSets(cubeExpressions);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+            } else if (groupingElementContext.ROLLUP() != null) {
+                List<Expression> rollupExpressions = visit(groupingElementContext.expression(), Expression.class);
+                List<List<Expression>> groupingSets = ExpressionUtils.rollupToGroupingSets(rollupExpressions);
+                return new LogicalRepeat<>(groupingSets, namedExpressions, input);
+            } else {
+                List<Expression> groupByExpressions = visit(groupingElementContext.expression(), Expression.class);
+                return new LogicalAggregate<>(groupByExpressions, namedExpressions, input);
+            }
         });
     }
 
     private LogicalPlan withHaving(LogicalPlan input, Optional<HavingClauseContext> havingCtx) {
         return input.optionalMap(havingCtx, () -> {
-            if (!(input instanceof LogicalAggregate)) {
+            if (!(input instanceof Aggregate)) {
                 throw new ParseException("Having clause should be applied against an aggregation.", havingCtx.get());
             }
             return new LogicalHaving<>(getExpression((havingCtx.get().booleanExpression())), input);

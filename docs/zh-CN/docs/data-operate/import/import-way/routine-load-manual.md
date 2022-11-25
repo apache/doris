@@ -306,6 +306,8 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 >
 > [https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 
+<version since="1.2">
+
 **访问 Kerberos 认证的 Kafka 集群**
 
 访问开启kerberos认证的Kafka集群，需要增加以下配置：
@@ -336,6 +338,8 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 **注意：**
 - 若要使 Doris 访问开启kerberos认证方式的Kafka集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，并配置 krb5.conf，填写KDC 服务信息等。
 - 配置 property.sasl.kerberos.keytab 的值需要指定 keytab 本地文件的绝对路径，并允许 Doris 进程访问该本地文件。
+
+</version>
 
 ### 查看作业状态
 

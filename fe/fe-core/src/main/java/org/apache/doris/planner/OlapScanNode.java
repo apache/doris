@@ -1175,7 +1175,8 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void filterDeletedRows(Analyzer analyzer) throws AnalysisException {
-        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign()) {
+        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign() && !ConnectContext.get().getSessionVariable()
+                .skipDeleteSign()) {
             SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
             deleteSignSlot.analyze(analyzer);
             deleteSignSlot.getDesc().setIsMaterialized(true);

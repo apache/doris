@@ -23,6 +23,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 // this class used in a hash join node
@@ -229,19 +230,24 @@ public:
         }
     }
 
-    Status apply_from_other(RuntimeFilterSlotsBase<ExprCtxType>* other) {
+    void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {
         for (auto& it : _runtime_filters) {
-            auto& other_filters = other->_runtime_filters[it.first];
+            for (auto& filter : it.second) {
+                auto& target = context->runtime_filters[filter->filter_id()];
+                filter->copy_to_shared_context(target);
+            }
+        }
+    }
+
+    Status copy_from_shared_context(vectorized::SharedHashTableContextPtr& context) {
+        for (auto& it : _runtime_filters) {
             for (auto& filter : it.second) {
                 auto filter_id = filter->filter_id();
-                auto ret = std::find_if(other_filters.begin(), other_filters.end(),
-                                        [&](IRuntimeFilter* other_filter) {
-                                            return other_filter->filter_id() == filter_id;
-                                        });
-                if (ret == other_filters.end()) {
+                auto ret = context->runtime_filters.find(filter_id);
+                if (ret == context->runtime_filters.end()) {
                     return Status::Aborted("invalid runtime filter id: {}", filter_id);
                 }
-                filter->apply_from_other(*ret);
+                filter->copy_from_shared_context(ret->second);
             }
         }
         return Status::OK();

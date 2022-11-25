@@ -25,6 +25,8 @@ suite("tpch_sf1_q16_nereids") {
     sql "use ${realDb}"
 
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_stats_derive_v2=false'
+    sql 'set exec_mem_limit=8589934592'
     sql 'set enable_fallback_to_original_planner=false'
 
     qt_select """

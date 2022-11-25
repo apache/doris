@@ -312,6 +312,70 @@ Directory structure description:
 
    All images are in the `static/images` directory
 
+## How to write SQL manual
+
+SQL manual doc refers to the documentation under `docs/sql-manual`. These documents are used in two places:
+
+1. Official website document.
+2. The output of the HELP command.
+
+In order to support HELP command output, these documents need to be written in strict accordance with the following format, otherwise they will fail the admission check.
+
+An example of the `SHOW ALTER` command is as follows:
+
+```
+---
+{
+    "title": "SHOW-ALTER",
+    "language": "en"
+}
+---
+
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+## SHOW-ALTER
+
+### Nameo
+
+SHOW ALTER
+
+### Description
+
+(Describe the syntax)
+
+### Example
+
+(Give some example)
+
+### Keywords
+
+SHOW, ALTER
+
+### Best Practice
+
+(Optional)
+
+```
+
+Note that, regardless of Chinese or English documents, the above headings are in English, and pay attention to the level of the headings.
+
 ## Multiple Versions
 
 Website documentation supports version tagging via html tags. You can use the `<version>` tag to mark which version a section of content in the document started from, or which version it was removed from.

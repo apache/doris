@@ -414,7 +414,7 @@ CONF_Bool(disable_mem_pools, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "10%");
+CONF_mString(chunk_reserved_bytes_limit, "0");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.

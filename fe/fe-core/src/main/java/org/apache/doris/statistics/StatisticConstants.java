@@ -20,8 +20,6 @@ package org.apache.doris.statistics;
 import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
-    public static final String STATISTIC_DB_NAME = "__internal_schema";
-
     public static final String STATISTIC_TBL_NAME = "column_statistics";
 
     public static final String ANALYSIS_JOB_TABLE = "analysis_jobs";
@@ -48,10 +46,6 @@ public class StatisticConstants {
      */
     public static final int STATISTIC_CLEAN_INTERVAL_IN_HOURS = 24 * 2;
 
-    /**
-     * If statistics related table creation failed, will retry after below seconds.
-     */
-    public static final int STATISTICS_TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
 
     /**
      * The max cached item in `StatisticsCache`.
@@ -59,8 +53,11 @@ public class StatisticConstants {
     public static final long STATISTICS_RECORDS_CACHE_SIZE = 100000;
 
     /**
-     * If analysys job execution time exceeds this time, it would be cancelled.
+     * If analysis job execution time exceeds this time, it would be cancelled.
      */
     public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);
+
+
+    public static final int LOAD_TASK_LIMITS = 10;
 
 }

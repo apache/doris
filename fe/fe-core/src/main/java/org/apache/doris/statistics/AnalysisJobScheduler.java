@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 import org.apache.doris.statistics.AnalysisJobInfo.JobType;
@@ -46,7 +47,7 @@ public class AnalysisJobScheduler {
     private static final Logger LOG = LogManager.getLogger(AnalysisJobScheduler.class);
 
     private static final String UPDATE_JOB_STATE_SQL_TEMPLATE = "UPDATE "
-            + StatisticConstants.STATISTIC_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE + " "
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_JOB_TABLE + " "
             + "SET state = '${jobState}' ${message} ${updateExecTime} WHERE job_id = ${jobId}";
 
     private final PriorityQueue<AnalysisJob> systemJobQueue =

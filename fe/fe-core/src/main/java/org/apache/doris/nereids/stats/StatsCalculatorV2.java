@@ -345,7 +345,8 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
             builder.setNdv(Math.min(columnStat.ndv, resultSetCount));
             slotToColumnStats.put(outputExpression.toSlot().getExprId(), columnStat);
         }
-        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, slotToColumnStats);
+        StatsDeriveResult statsDeriveResult = new StatsDeriveResult(resultSetCount, childStats.getWidth(),
+                childStats.getPenalty(), slotToColumnStats);
         statsDeriveResult.setWidth(childStats.getWidth());
         statsDeriveResult.setPenalty(childStats.getPenalty() + childStats.getRowCount());
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
@@ -355,8 +356,8 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
     // TODO: do real project on column stats
     private StatsDeriveResult computeProject(Project project) {
         List<NamedExpression> projections = project.getProjects();
-        StatsDeriveResult statsDeriveResult = groupExpression.childStatistics(0);
-        Map<Id, ColumnStatistic> childColumnStats = statsDeriveResult.getSlotIdToColumnStats();
+        StatsDeriveResult childStats = groupExpression.childStatistics(0);
+        Map<Id, ColumnStatistic> childColumnStats = childStats.getSlotIdToColumnStats();
         Map<Id, ColumnStatistic> columnsStats = projections.stream().map(projection -> {
             ColumnStatistic value = null;
             Set<Slot> slots = projection.getInputSlots();
@@ -376,7 +377,8 @@ public class StatsCalculatorV2 extends DefaultPlanVisitor<StatsDeriveResult, Voi
             }
             return new SimpleEntry<>(projection.toSlot().getExprId(), value);
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
-        return new StatsDeriveResult(statsDeriveResult.getRowCount(), columnsStats);
+        return new StatsDeriveResult(childStats.getRowCount(), childStats.getWidth(),
+                childStats.getPenalty(), columnsStats);
     }
 
     private StatsDeriveResult computeOneRowRelation(OneRowRelation oneRowRelation) {

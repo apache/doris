@@ -162,6 +162,8 @@ CREATE AGGREGATE FUNCTION simple_sum(int) RETURNS int PROPERTIES (
     "type"="JAVA_UDF"
 );
 ```
+* 实现的jar包可以放在本地也可以存放在远程服务端通过http下载，但必须让每个BE节点都能获取到jar包;
+否则将会返回错误状态信息"Couldn't open file ......".
 
 目前还暂不支持UDTF
 

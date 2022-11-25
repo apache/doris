@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
@@ -233,6 +234,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public PlanFragmentId getFragmentId() {
         return fragment.getFragmentId();
+    }
+
+    public int getFragmentSeqenceNum() {
+        return fragment.getFragmentSequenceNum();
     }
 
     public void setFragmentId(PlanFragmentId id) {
@@ -887,7 +892,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     public String getPlanTreeExplainStr() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
-        sb.append("\n[Fragment: ").append(getFragmentId().asInt()).append("]");
+        sb.append("\n[Fragment: ").append(getFragmentSeqenceNum()).append("]");
         sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
         return sb.toString();
     }
@@ -948,8 +953,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void convertToVectoriezd() {
-        if (!conjuncts.isEmpty()) {
-            vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
+        List<Expr> conjunctsExcludeBitmapFilter = Lists.newArrayList();
+        for (Expr expr : conjuncts) {
+            if (!(expr instanceof BitmapFilterPredicate)) {
+                conjunctsExcludeBitmapFilter.add(expr);
+            }
+        }
+        if (!conjunctsExcludeBitmapFilter.isEmpty()) {
+            vconjunct = convertConjunctsToAndCompoundPredicate(conjunctsExcludeBitmapFilter);
             initCompoundPredicate(vconjunct);
         }
 

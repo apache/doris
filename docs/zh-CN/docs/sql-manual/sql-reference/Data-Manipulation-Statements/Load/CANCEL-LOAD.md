@@ -37,8 +37,10 @@ CANCEL LOAD
 ```sql
 CANCEL LOAD
 [FROM db_name]
-WHERE [LABEL = "load_label" | LABEL like "label_pattern"];
+WHERE [LABEL = "load_label" | LABEL like "label_pattern" | STATE = "PENDING/ETL/LOADING"]
 ```
+
+注：1.2.0 版本之后支持根据 State 取消作业。
 
 ### Example
 
@@ -57,6 +59,18 @@ WHERE [LABEL = "load_label" | LABEL like "label_pattern"];
    FROM example_db
    WHERE LABEL like "example_";
    ```
+
+<version since="1.2.0">
+
+3. 取消状态为 LOADING 的导入作业。
+
+   ```sql
+   CANCEL LOAD
+   FROM example_db
+   WHERE STATE = "loading";
+   ```
+
+</version>
 
 ### Keywords
 

@@ -357,6 +357,13 @@ public:
         return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
     }
 
+    int partitioned_hash_join_rows_threshold() const {
+        if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
+            return 0;
+        }
+        return _query_options.partitioned_hash_join_rows_threshold;
+    }
+
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
@@ -389,6 +396,11 @@ public:
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
     bool enable_profile() const { return _query_options.is_report_success; }
+
+    bool enable_share_hash_table_for_broadcast_join() const {
+        return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
+               _query_options.enable_share_hash_table_for_broadcast_join;
+    }
 
 private:
     // Use a custom block manager for the query for testing purposes.
