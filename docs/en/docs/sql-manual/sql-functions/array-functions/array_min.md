@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_MIN Function",
+    "title": "array_min",
     "language": "en"
 }
 ---
@@ -24,11 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_MIN
-
-### Name
-
-ARRAY_MIN
+## array_min
 
 ### description
 

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "size",
-    "language": "zh-CN"
+    "title": "array_size",
+    "language": "en"
 }
 ---
 
@@ -24,45 +24,35 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## size (cardinality)
+## array_size
 
 ### description
 
 #### Syntax
 
 ```
-BIGINT size(ARRAY<T> arr) 
-BIGINT cardinality(ARRAY<T> arr)
+BIGINT array_size(ARRAY<T> arr) 
 ```
 
-返回数组中元素数量，如果输入数组为NULL，则返回NULL
+Returns the size of the array, returns NULL for NULL input.
 
 ### notice
 
-`仅支持向量化引擎中使用`
+`Only supported in vectorized engine`
 
 ### example
 
 ```
 mysql> set enable_vectorized_engine=true;
 
-mysql> select k1,k2,size(k2) from array_test;
-+------+-----------+------------+
-| k1   | k2        | size(`k2`) |
-+------+-----------+------------+
-|    1 | [1, 2, 3] |          3 |
-|    2 | []        |          0 |
-|    3 | NULL      |       NULL |
-+------+-----------+------------+
-
-mysql> select k1,k2,cardinality(k2) from array_test;
-+------+-----------+-------------------+
-| k1   | k2        | cardinality(`k2`) |
-+------+-----------+-------------------+
-|    1 | [1, 2, 3] |                 3 |
-|    2 | []        |                 0 |
-|    3 | NULL      |              NULL |
-+------+-----------+-------------------+
+mysql> select k1,k2,array_size(k2) from array_test;
++------+-----------+------------------+
+| k1   | k2        | array_size(`k2`) |
++------+-----------+------------------+
+|    1 | [1, 2, 3] |                3 |
+|    2 | []        |                0 |
+|    3 | NULL      |             NULL |
++------+-----------+------------------+
 ```
 
 ### keywords
