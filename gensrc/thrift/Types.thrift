@@ -89,7 +89,7 @@ enum TPrimitiveType {
   TIMEV2,
   DECIMAL32,
   DECIMAL64,
-  DECIMAL128,
+  DECIMAL128I,
   JSONB,
 }
 
@@ -554,7 +554,8 @@ enum TOdbcTableType {
     POSTGRESQL,
     SQLSERVER,
     REDIS,
-    MONGODB
+    MONGODB,
+    CLICKHOUSE
 }
 
 enum TKeysType {

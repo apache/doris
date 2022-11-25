@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_load", "p0") {
+suite("test_array_load", "load_p0") {
     // define a sql table
     def testTable = "tbl_test_array_load"
     def testTable01 = "tbl_test_array_load01"
@@ -293,6 +293,8 @@ suite("test_array_load", "p0") {
         def hdfs_json_file_path = uploadToHdfs "broker_load/simple_object_array.json"
         def hdfs_csv_file_path = uploadToHdfs "broker_load/simple_array.csv"
         def hdfs_orc_file_path = uploadToHdfs "broker_load/simple_array.orc"
+        // orc file with native array(list) type
+        def hdfs_orc_file_path2 = uploadToHdfs "broker_load/simple_array_list_type.orc"
         def hdfs_parquet_file_path = uploadToHdfs "broker_load/simple_array.parquet"
  
         // case5: import array data by hdfs and enable vectorized engine
@@ -422,5 +424,38 @@ suite("test_array_load", "p0") {
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
+
+        // case13: import array data by hdfs in orc format(with array type) and enable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, true)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case14: import array data by hdfs in orc format(with array type) and disable vectorized
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+
+            create_test_table.call(testTable, false)
+
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_orc_file_path2, "orc",
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            check_load_result.call(test_load_label, testTable)
+
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
     }
 }

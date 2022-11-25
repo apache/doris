@@ -44,7 +44,7 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state
 RuntimeFilterMgr::~RuntimeFilterMgr() {}
 
 Status RuntimeFilterMgr::init() {
-    DCHECK(_state->instance_mem_tracker() != nullptr);
+    DCHECK(_state->query_mem_tracker() != nullptr);
     _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr");
     return Status::OK();
 }
@@ -78,8 +78,9 @@ Status RuntimeFilterMgr::get_producer_filter(const int filter_id,
     return get_filter_by_role(filter_id, RuntimeFilterRole::PRODUCER, producer_filter);
 }
 
-Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                                       const TQueryOptions& options, int node_id) {
+Status RuntimeFilterMgr::register_filter(const RuntimeFilterRole role,
+                                         const TRuntimeFilterDesc& desc,
+                                         const TQueryOptions& options, int node_id) {
     DCHECK((role == RuntimeFilterRole::CONSUMER && node_id >= 0) ||
            role != RuntimeFilterRole::CONSUMER);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
@@ -160,7 +161,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
     _fragment_instance_id = fragment_instance_id;
-    _mem_tracker = std::make_unique<MemTracker>("RuntimeFilterMergeControllerEntity");
+    _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
         int filter_id = filterid_to_desc.first;
@@ -181,7 +182,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
                                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
-    // SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
     {

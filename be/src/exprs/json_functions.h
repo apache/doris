@@ -108,9 +108,8 @@ public:
                                                 const doris_udf::StringVal& json_str,
                                                 const doris_udf::StringVal& path);
 
-    static rapidjson::Value* get_json_object(FunctionContext* context,
-                                             const std::string_view& json_string,
-                                             const std::string_view& path_string,
+    static rapidjson::Value* get_json_object(FunctionContext* context, std::string_view json_string,
+                                             std::string_view path_string,
                                              const JsonFunctionType& fntype,
                                              rapidjson::Document* document);
 

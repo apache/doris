@@ -29,10 +29,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import com.google.common.base.Preconditions;
-
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -66,8 +65,9 @@ public class RewriteBottomUpJob extends Job {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
             pushJob(new RewriteBottomUpJob(group, rules, context, true));
-            for (Group childGroup : logicalExpression.children()) {
-                pushJob(new RewriteBottomUpJob(childGroup, rules, context, false));
+            List<Group> children = logicalExpression.children();
+            for (int i = children.size() - 1; i >= 0; i--) {
+                pushJob(new RewriteBottomUpJob(children.get(i), rules, context, false));
             }
             return;
         }
@@ -77,18 +77,16 @@ public class RewriteBottomUpJob extends Job {
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
-                context.onInvokeRule(rule.getRuleType());
-                List<Plan> afters = rule.transform(before, context.getCascadesContext());
-                Preconditions.checkArgument(afters.size() == 1);
-                Plan after = afters.get(0);
-                if (after != before) {
-                    CopyInResult result = context.getCascadesContext()
-                            .getMemo()
-                            .copyIn(after, group, rule.isRewrite());
-                    if (result.generateNewExpression) {
-                        pushJob(new RewriteBottomUpJob(group, rules, context, false));
-                        return;
-                    }
+                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
+                if (!copyInResult.isPresent()) {
+                    continue;
+                }
+                CopyInResult result = copyInResult.get();
+                boolean groupChanged = result.correspondingExpression.getOwnerGroup() != group;
+                if (result.generateNewExpression || groupChanged) {
+                    pushJob(new RewriteBottomUpJob(result.correspondingExpression.getOwnerGroup(),
+                            rules, context, !groupChanged));
+                    return;
                 }
             }
         }

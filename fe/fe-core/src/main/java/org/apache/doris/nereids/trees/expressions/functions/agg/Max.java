@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -27,31 +30,34 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /** max agg function. */
-public class Max extends AggregateFunction implements UnaryExpression {
-
+public class Max extends AggregateFunction implements UnaryExpression, PropagateNullable, CustomSignature {
     public Max(Expression child) {
         super("max", child);
     }
 
-    @Override
-    public DataType getDataType() {
-        return child().getDataType();
+    public Max(AggregateParam aggregateParam, Expression child) {
+        super("max", aggregateParam, child);
     }
 
     @Override
-    public boolean nullable() {
-        return child().nullable();
+    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
+        return FunctionSignature.ret(argumentTypes.get(0)).args(argumentTypes.get(0));
     }
 
     @Override
-    public Expression withChildren(List<Expression> children) {
+    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+        return argumentTypes;
+    }
+
+    @Override
+    public Max withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(children.get(0));
+        return new Max(getAggregateParam(), children.get(0));
     }
 
     @Override
-    public DataType getIntermediateType() {
-        return getDataType();
+    public Max withAggregateParam(AggregateParam aggregateParam) {
+        return new Max(aggregateParam, child());
     }
 
     @Override

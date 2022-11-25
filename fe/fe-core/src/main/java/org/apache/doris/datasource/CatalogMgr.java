@@ -25,6 +25,8 @@ import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -39,6 +41,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -92,6 +95,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         if (catalog != null) {
             nameToCatalog.remove(catalog.getName());
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
         }
         return catalog;
     }
@@ -101,7 +105,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             String catalogName = catalog.getName();
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                ((ExternalCatalog) catalog).setInitialized(false);
+                ((ExternalCatalog) catalog).setUninitialized();
             }
         }
     }
@@ -404,6 +408,39 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public void replayInitCatalog(InitCatalogLog log) {
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        Preconditions.checkArgument(catalog != null);
+        catalog.replayInitCatalog(log);
+    }
+
+    public void replayInitExternalDb(InitDatabaseLog log) {
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        Preconditions.checkArgument(catalog != null);
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        Preconditions.checkArgument(db != null);
+        db.replayInitDb(log, catalog);
+    }
+
+    public void replayRefreshExternalDb(ExternalObjectLog log) {
+        writeLock();
+        try {
+            ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+            ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+            db.setUnInitialized();
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void replayRefreshExternalTable(ExternalObjectLog log) {
+        ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
+        ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
+        ExternalTable table = db.getTableForReplay(log.getTableId());
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateTableCache(catalog.getId(), db.getFullName(), table.getName());
     }
 
     @Override

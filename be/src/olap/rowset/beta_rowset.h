@@ -46,8 +46,15 @@ public:
 
     std::string segment_cache_path(int segment_id);
 
+    static std::string segment_cache_path(const std::string& rowset_dir, const RowsetId& rowset_id,
+                                          int segment_id);
+
     static std::string segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                          int segment_id);
+
+    static std::string local_segment_path_segcompacted(const std::string& tablet_path,
+                                                       const RowsetId& rowset_id, int64_t begin,
+                                                       int64_t end);
 
     static std::string remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
                                            int segment_id);

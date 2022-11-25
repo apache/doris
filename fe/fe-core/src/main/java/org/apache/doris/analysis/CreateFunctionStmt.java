@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -96,6 +97,8 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String MERGE_METHOD_NAME = "merge";
     public static final String GETVALUE_METHOD_NAME = "getValue";
     public static final String STATE_CLASS_NAME = "State";
+    // add for java udf check return type nullable mode, always_nullable or always_not_nullable
+    public static final String IS_RETURN_NULL = "always_nullable";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
 
     private final FunctionName functionName;
@@ -113,12 +116,16 @@ public class CreateFunctionStmt extends DdlStmt {
     private String userFile;
     private Function function;
     private String checksum = "";
+    // now set udf default NullableMode is ALWAYS_NULLABLE
+    // if not, will core dump when input is not null column, but need return null
+    // like https://github.com/apache/doris/pull/14002/files
+    private NullableMode returnNullMode = NullableMode.ALWAYS_NULLABLE;
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
 
     public CreateFunctionStmt(boolean isAggregate, FunctionName functionName, FunctionArgsDef argsDef,
-                              TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+            TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
         this.functionName = functionName;
         this.isAggregate = isAggregate;
         this.argsDef = argsDef;
@@ -135,7 +142,7 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     public CreateFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef,
-                              List<String> parameters, Expr originFunction) {
+            List<String> parameters, Expr originFunction) {
         this.functionName = functionName;
         this.isAlias = true;
         this.argsDef = argsDef;
@@ -221,6 +228,19 @@ public class CreateFunctionStmt extends DdlStmt {
                 throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
             }
         }
+        if (binaryType == TFunctionBinaryType.JAVA_UDF) {
+            String returnNullModeStr = properties.get(IS_RETURN_NULL);
+            if (returnNullModeStr == null) {
+                return;
+            }
+            if (!returnNullModeStr.equalsIgnoreCase("false") && !returnNullModeStr.equalsIgnoreCase("true")) {
+                throw new AnalysisException("'always_nullable' in properties, you should set it false or true");
+            }
+
+            if (!Boolean.parseBoolean(returnNullModeStr)) {
+                returnNullMode = NullableMode.ALWAYS_NOT_NULLABLE;
+            }
+        }
     }
 
     private void computeObjectChecksum() throws IOException, NoSuchAlgorithmException {
@@ -302,6 +322,7 @@ public class CreateFunctionStmt extends DdlStmt {
         function.setLocation(location);
         function.setBinaryType(binaryType);
         function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
     }
 
     private void analyzeUdf() throws AnalysisException {
@@ -327,6 +348,7 @@ public class CreateFunctionStmt extends DdlStmt {
                 returnType.getType(), argsDef.isVariadic(),
                 location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
     }
 
     private void analyzeJavaUdaf(String clazz) throws AnalysisException {
@@ -464,55 +486,62 @@ public class CreateFunctionStmt extends DdlStmt {
     private void analyzeJavaUdf(String clazz) throws AnalysisException {
         try {
             URL[] urls = {new URL("jar:" + userFile + "!/")};
-            URLClassLoader cl = URLClassLoader.newInstance(urls);
-            Class udfClass = cl.loadClass(clazz);
+            try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
+                Class udfClass = cl.loadClass(clazz);
 
-            Method eval = null;
-            for (Method m : udfClass.getMethods()) {
-                if (!m.getDeclaringClass().equals(udfClass)) {
-                    continue;
+                Method eval = null;
+                for (Method m : udfClass.getMethods()) {
+                    if (!m.getDeclaringClass().equals(udfClass)) {
+                        continue;
+                    }
+                    String name = m.getName();
+                    if (EVAL_METHOD_KEY.equals(name) && eval == null) {
+                        eval = m;
+                    } else if (EVAL_METHOD_KEY.equals(name)) {
+                        throw new AnalysisException(String.format(
+                                "UDF class '%s' has multiple methods with name '%s' ", udfClass.getCanonicalName(),
+                                EVAL_METHOD_KEY));
+                    }
                 }
-                String name = m.getName();
-                if (EVAL_METHOD_KEY.equals(name) && eval == null) {
-                    eval = m;
-                } else if (EVAL_METHOD_KEY.equals(name)) {
+                if (eval == null) {
                     throw new AnalysisException(String.format(
-                            "UDF class '%s' has multiple methods with name '%s' ", udfClass.getCanonicalName(),
-                            EVAL_METHOD_KEY));
+                            "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
                 }
-            }
-            if (eval == null) {
-                throw new AnalysisException(String.format(
-                        "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
-            }
-            if (Modifier.isStatic(eval.getModifiers())) {
-                throw new AnalysisException(
-                        String.format("Method '%s' in class '%s' should be non-static", eval.getName(),
-                                udfClass.getCanonicalName()));
-            }
-            if (!Modifier.isPublic(eval.getModifiers())) {
-                throw new AnalysisException(
-                        String.format("Method '%s' in class '%s' should be public", eval.getName(),
-                                udfClass.getCanonicalName()));
-            }
-            if (eval.getParameters().length != argsDef.getArgTypes().length) {
-                throw new AnalysisException(
-                        String.format("The number of parameters for method '%s' in class '%s' should be %d",
-                                eval.getName(), udfClass.getCanonicalName(), argsDef.getArgTypes().length));
-            }
+                if (Modifier.isStatic(eval.getModifiers())) {
+                    throw new AnalysisException(
+                            String.format("Method '%s' in class '%s' should be non-static", eval.getName(),
+                                    udfClass.getCanonicalName()));
+                }
+                if (!Modifier.isPublic(eval.getModifiers())) {
+                    throw new AnalysisException(
+                            String.format("Method '%s' in class '%s' should be public", eval.getName(),
+                                    udfClass.getCanonicalName()));
+                }
+                if (eval.getParameters().length != argsDef.getArgTypes().length) {
+                    throw new AnalysisException(
+                            String.format("The number of parameters for method '%s' in class '%s' should be %d",
+                                    eval.getName(), udfClass.getCanonicalName(), argsDef.getArgTypes().length));
+                }
 
-            checkUdfType(udfClass, eval, returnType.getType(), eval.getReturnType(), "return");
-            for (int i = 0; i < eval.getParameters().length; i++) {
-                Parameter p = eval.getParameters()[i];
-                checkUdfType(udfClass, eval, argsDef.getArgTypes()[i], p.getType(), p.getName());
+                checkUdfType(udfClass, eval, returnType.getType(), eval.getReturnType(), "return");
+                for (int i = 0; i < eval.getParameters().length; i++) {
+                    Parameter p = eval.getParameters()[i];
+                    checkUdfType(udfClass, eval, argsDef.getArgTypes()[i], p.getType(), p.getName());
+                }
+            } catch (ClassNotFoundException e) {
+                throw new AnalysisException("Class [" + clazz + "] not found in file :" + userFile);
+            } catch (IOException e) {
+                throw new AnalysisException("Failed to load file: " + userFile);
             }
         } catch (MalformedURLException e) {
             throw new AnalysisException("Failed to load file: " + userFile);
-        } catch (ClassNotFoundException e) {
-            throw new AnalysisException("Class [" + clazz + "] not found in file :" + userFile);
         }
     }
 
+    public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
+            org.joda.time.LocalDate.class);
+    public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
+            org.joda.time.DateTime.class, org.joda.time.LocalDateTime.class);
     private static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
             new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
                     .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
@@ -525,10 +554,10 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.DATE, Sets.newHashSet(LocalDate.class))
-                    .put(PrimitiveType.DATEV2, Sets.newHashSet(LocalDate.class))
-                    .put(PrimitiveType.DATETIME, Sets.newHashSet(LocalDateTime.class))
-                    .put(PrimitiveType.DATETIMEV2, Sets.newHashSet(LocalDateTime.class))
+                    .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))

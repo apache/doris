@@ -84,6 +84,19 @@ public class SlotRef extends Expr {
         analysisDone();
     }
 
+    // nerieds use this constructor to build aggFnParam
+    public SlotRef(Type type, boolean nullable) {
+        super();
+        // tuple id and slot id is meaningless here, nereids just use type and nullable
+        // to build the TAggregateExpr.param_types
+        TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
+        desc = new SlotDescriptor(new SlotId(-1), tupleDescriptor);
+        tupleDescriptor.addSlot(desc);
+        desc.setIsNullable(nullable);
+        desc.setType(type);
+        this.type = type;
+    }
+
     protected SlotRef(SlotRef other) {
         super(other);
         tblName = other.tblName;

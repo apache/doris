@@ -321,8 +321,12 @@ public class CastExpr extends Expr {
         }
 
         if (fn == null) {
-            throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
+            if (childType.isNull() && Type.canCastTo(childType, type)) {
+                return;
+            } else {
+                throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                     + " from " + childType + " to " + type);
+            }
         }
 
         if (PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
@@ -417,7 +421,12 @@ public class CastExpr extends Expr {
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
         } else if (type.isDecimalV2() || type.isDecimalV3()) {
-            return new DecimalLiteral(value.getStringValue());
+            if (targetTypeDef != null) {
+                return new DecimalLiteral(value.getStringValue(),
+                        ((ScalarType) targetTypeDef.getType()).getScalarScale());
+            } else {
+                return new DecimalLiteral(value.getStringValue());
+            }
         } else if (type.isFloatingPointType()) {
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
@@ -573,4 +582,10 @@ public class CastExpr extends Expr {
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
     }
+
+    @Override
+    public String getStringValueForArray() {
+        return children.get(0).getStringValueForArray();
+    }
 }
+

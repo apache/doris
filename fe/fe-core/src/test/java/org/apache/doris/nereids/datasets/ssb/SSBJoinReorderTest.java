@@ -37,9 +37,9 @@ public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSuppo
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "(CAST(c_region AS STRING) = 'AMERICA')",
-                        "(CAST(s_region AS STRING) = 'AMERICA')",
-                        "((CAST(p_mfgr AS STRING) = 'MFGR#1') OR (CAST(p_mfgr AS STRING) = 'MFGR#2'))"
+                        "(c_region = 'AMERICA')",
+                        "(s_region = 'AMERICA')",
+                        "((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2'))"
                 )
         );
     }
@@ -55,10 +55,10 @@ public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSuppo
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "((d_year = 1997) OR (d_year = 1998))",
-                        "(CAST(c_region AS STRING) = 'AMERICA')",
-                        "(CAST(s_region AS STRING) = 'AMERICA')",
-                        "((CAST(p_mfgr AS STRING) = 'MFGR#1') OR (CAST(p_mfgr AS STRING) = 'MFGR#2'))"
+                        "d_year IN (1997, 1998)",
+                        "(c_region = 'AMERICA')",
+                        "(s_region = 'AMERICA')",
+                        "((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2'))"
                 )
         );
     }
@@ -74,9 +74,9 @@ public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSuppo
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "((d_year = 1997) OR (d_year = 1998))",
-                        "(CAST(s_nation AS STRING) = 'UNITED STATES')",
-                        "(CAST(p_category AS STRING) = 'MFGR#14')"
+                        "d_year IN (1997, 1998)",
+                        "(s_nation = 'UNITED STATES')",
+                        "(p_category = 'MFGR#14')"
                 )
         );
     }

@@ -28,6 +28,9 @@ kind/test:
   - regression-test/**/*.groovy
   - regression-test/**/*.sql
 
+area/docker:
+  - docker/runtime/*
+
 area/vectorization:
   - be/src/vec/**/*
 

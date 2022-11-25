@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -365,10 +364,6 @@ public class LoadStmt extends DdlStmt {
         if (resourceDesc != null) {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
-            // TODO(wyb): spark-load
-            if (!Config.enable_spark_load) {
-                throw new AnalysisException("Spark Load is coming soon");
-            }
             // check resource usage privilege
             if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
                                                                          resourceDesc.getName(),

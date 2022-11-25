@@ -52,9 +52,6 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), group())
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
-                // TODO: handle otherJoinCondition
-                .when(topJoin -> topJoin.getOtherJoinConjuncts().isEmpty())
-                .when(topJoin -> topJoin.left().getOtherJoinConjuncts().isEmpty())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -62,24 +59,31 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     GroupPlan c = topJoin.right();
 
                     // split HashJoinConjuncts.
-                    Map<Boolean, List<Expression>> splitOn = splitHashConjuncts(topJoin.getHashJoinConjuncts(),
-                            bottomJoin);
-                    List<Expression> newTopHashConjuncts = splitOn.get(true);
-                    List<Expression> newBottomHashConjuncts = splitOn.get(false);
+                    Map<Boolean, List<Expression>> splitHashConjunts = splitConjuncts(topJoin.getHashJoinConjuncts(),
+                            bottomJoin, bottomJoin.getHashJoinConjuncts());
+                    List<Expression> newTopHashConjuncts = splitHashConjunts.get(true);
+                    List<Expression> newBottomHashConjuncts = splitHashConjunts.get(false);
+                    Preconditions.checkState(!newTopHashConjuncts.isEmpty(),
+                            "LAsscom newTopHashJoinConjuncts join can't empty");
                     if (newBottomHashConjuncts.size() == 0) {
                         return null;
                     }
 
-                    // TODO: split otherCondition.
+                    // split OtherJoinConjuncts.
+                    Map<Boolean, List<Expression>> splitOtherConjunts = splitConjuncts(topJoin.getOtherJoinConjuncts(),
+                            bottomJoin, bottomJoin.getOtherJoinConjuncts());
+                    List<Expression> newTopOtherConjuncts = splitOtherConjunts.get(true);
+                    List<Expression> newBottomOtherConjuncts = splitOtherConjunts.get(false);
 
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newBottomHashConjuncts, a, c, bottomJoin.getJoinReorderContext());
+                            newBottomHashConjuncts, newBottomOtherConjuncts,
+                            a, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            JoinType.INNER_JOIN, newTopHashConjuncts, newBottomJoin, b,
-                            topJoin.getJoinReorderContext());
+                            JoinType.INNER_JOIN, newTopHashConjuncts, newTopOtherConjuncts,
+                            newBottomJoin, b, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     return newTopJoin;
@@ -93,29 +97,26 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
     }
 
     /**
-     * Split HashCondition into two part.
+     * Split onCondition into two part.
+     * True: contains B.
+     * False: just contains A C.
      */
-    public static Map<Boolean, List<Expression>> splitHashConjuncts(List<Expression> topHashConjuncts,
-            LogicalJoin<GroupPlan, GroupPlan> bottomJoin) {
+    private static Map<Boolean, List<Expression>> splitConjuncts(List<Expression> topConjuncts,
+            LogicalJoin<GroupPlan, GroupPlan> bottomJoin, List<Expression> bottomConjuncts) {
         // top: (A B)(error) (A C) (B C) (A B C)
         // Split topJoin hashCondition to two part according to include B.
-        Map<Boolean, List<Expression>> splitOn = topHashConjuncts.stream()
+        Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
                 .collect(Collectors.partitioningBy(topHashOn -> {
-                    Set<Slot> usedSlot = topHashOn.collect(Slot.class::isInstance);
-                    // TODO: tmp check.
-                    Preconditions.checkArgument(
-                            !(ExpressionUtils.isIntersecting(bottomJoin.left().getOutputSet(), usedSlot)
-                                    && ExpressionUtils.isIntersecting(bottomJoin.right().getOutputSet(), usedSlot)));
-                    return ExpressionUtils.isIntersecting(bottomJoin.right().getOutputSet(), usedSlot);
+                    Set<Slot> usedSlot = topHashOn.getInputSlots();
+                    Set<Slot> bOutputSet = bottomJoin.right().getOutputSet();
+                    return ExpressionUtils.isIntersecting(bOutputSet, usedSlot);
                 }));
         // * don't include B, just include (A C)
         // we add it into newBottomJoin HashJoinConjuncts.
         // * include B, include (A B C) or (A B)
         // we add it into newTopJoin HashJoinConjuncts.
         List<Expression> newTopHashJoinConjuncts = splitOn.get(true);
-        newTopHashJoinConjuncts.addAll(bottomJoin.getHashJoinConjuncts());
-        Preconditions.checkState(!newTopHashJoinConjuncts.isEmpty(),
-                "LAsscom newTopHashJoinConjuncts join can't empty");
+        newTopHashJoinConjuncts.addAll(bottomConjuncts);
 
         return splitOn;
     }

@@ -55,6 +55,13 @@ CREATE TABLE table_name [( column_name_list )]
 - 创建表成功后，会进行数据导入，如果导入失败，将会删除表
 - 可以自行指定 key type，默认为`Duplicate Key`
 
+<version since='1.2'>
+
+- 所有字符串类型的列(varchar/var/string) 都会被创建为 string 类型。
+- 如果创建的来源为外部表，并且第一列为 String 类型，则会自动将第一列设置为 VARCHAR(65533)。因为 Doris 内部表，不允许 String 列作为第一列。
+
+</version>
+
 ### Example
 
 1. 使用 select 语句中的字段名

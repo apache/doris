@@ -99,7 +99,6 @@ set(RUNTIME_FILES
     memory/chunk_allocator.cpp
     memory/mem_tracker_limiter.cpp
     memory/mem_tracker.cpp
-    memory/mem_tracker_task_pool.cpp
     memory/thread_mem_tracker_mgr.cpp
     fold_constant_executor.cpp
     cache/result_node.cpp
@@ -114,7 +113,7 @@ if (WITH_MYSQL)
         )
 endif()
 
-if (USE_JEMALLOC)
+if (USE_JEMALLOC AND USE_MEM_TRACKER)
     set(RUNTIME_FILES ${RUNTIME_FILES}
         memory/jemalloc_hook.cpp
         )

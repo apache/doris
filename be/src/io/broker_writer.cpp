@@ -144,16 +144,12 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
             return status;
         }
 
-        // we do not re-try simply, because broker server may already write data
         try {
             client->pwrite(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
             RETURN_IF_ERROR(client.reopen());
-
-            std::stringstream ss;
-            ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
-            LOG(WARNING) << ss.str();
-            return Status::RpcError(ss.str());
+            // broker server will check write offset, so it is safe to re-try
+            client->pwrite(response, request);
         }
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
@@ -206,8 +202,8 @@ Status BrokerWriter::close() {
         try {
             client->closeWriter(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "Close broker writer failed. broker=" << broker_addr
-                         << ", status=" << status.get_error_msg();
+            LOG(WARNING) << "Close broker writer failed. broker:" << broker_addr
+                         << " msg:" << e.what();
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Reopen broker writer failed. broker=" << broker_addr

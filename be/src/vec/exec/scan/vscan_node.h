@@ -31,6 +31,16 @@ namespace doris::vectorized {
 class VScanner;
 class VSlotRef;
 
+struct FilterPredicates {
+    // Save all runtime filter predicates which may be pushed down to data source.
+    // column name -> bloom filter function
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+
+    std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+
+    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
+};
+
 class VScanNode : public ExecNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -133,6 +143,8 @@ protected:
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
+    virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
+
     virtual PushDownType _should_push_down_is_null_predicate() {
         return PushDownType::UNACCEPTABLE;
     }
@@ -181,10 +193,7 @@ protected:
     // indicate this scan node has no more data to return
     bool _eos = false;
 
-    // Save all bloom filter predicates which may be pushed down to data source.
-    // column name -> bloom filter function
-    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
-            _bloom_filters_push_down;
+    FilterPredicates _filter_predicates {};
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
@@ -195,7 +204,7 @@ protected:
             _slot_id_to_value_range;
     // column -> ColumnValueRange
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
-    // We use _colname_to_value_range to store a column and its conresponding value ranges.
+    // We use _colname_to_value_range to store a column and its corresponding value ranges.
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
@@ -221,6 +230,8 @@ protected:
     RuntimeProfile::Counter* _total_throughput_counter;
     RuntimeProfile::Counter* _num_scanners;
 
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
+    RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     // time of prefilter input block from scanner
@@ -256,6 +267,9 @@ private:
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                    PushDownType* pdt);
+
+    Status _normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
+                                    PushDownType* pdt);
 
     Status _normalize_function_filters(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);

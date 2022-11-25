@@ -38,7 +38,7 @@ doris::Status resolve_symbol(T& pointer, void* handle, const char* symbol) {
     pointer = reinterpret_cast<T>(dlsym(handle, symbol));
     return (pointer != nullptr)
                    ? doris::Status::OK()
-                   : doris::Status::RuntimeError("Failed to resolve the symbol %s", symbol);
+                   : doris::Status::RuntimeError("Failed to resolve the symbol {}", symbol);
 }
 
 } // namespace
@@ -71,7 +71,7 @@ LibJVMLoader& LibJVMLoader::instance() {
 
 Status LibJVMLoader::load() {
     if (_library.empty()) {
-        return Status::RuntimeError("Failed to find the library %s.", LIBJVM_SO);
+        return Status::RuntimeError("Failed to find the library {}.", LIBJVM_SO);
     }
 
     static std::once_flag resolve_symbols;

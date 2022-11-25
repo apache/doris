@@ -67,6 +67,11 @@ struct IntersectAction {
         }
         return false;
     }
+
+    void reset() {
+        null_flag = false;
+        result_null_flag = false;
+    }
 };
 
 using FunctionArrayIntersect =

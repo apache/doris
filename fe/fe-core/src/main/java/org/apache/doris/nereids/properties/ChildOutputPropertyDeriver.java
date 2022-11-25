@@ -20,6 +20,10 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -37,9 +41,14 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Used for property drive.
@@ -117,8 +126,37 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanContext context) {
+        // TODO: order spec do not process since we do not use it.
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        return childrenOutputProperties.get(0);
+        PhysicalProperties childProperties = childrenOutputProperties.get(0);
+        DistributionSpec childDistributionSpec = childProperties.getDistributionSpec();
+        OrderSpec childOrderSpec = childProperties.getOrderSpec();
+        DistributionSpec outputDistributionSpec;
+        if (childDistributionSpec instanceof DistributionSpecHash) {
+            Map<ExprId, ExprId> projections = Maps.newHashMap();
+            Set<ExprId> obstructions = Sets.newHashSet();
+            for (NamedExpression namedExpression : project.getProjects()) {
+                if (namedExpression instanceof Alias) {
+                    Alias alias = (Alias) namedExpression;
+                    if (alias.child() instanceof SlotReference) {
+                        projections.put(((SlotReference) alias.child()).getExprId(), alias.getExprId());
+                    } else {
+                        obstructions.addAll(
+                                alias.child().getInputSlots().stream()
+                                        .map(NamedExpression::getExprId)
+                                        .collect(Collectors.toSet()));
+                    }
+                }
+            }
+            if (projections.entrySet().stream().allMatch(kv -> kv.getKey().equals(kv.getValue()))) {
+                return childrenOutputProperties.get(0);
+            }
+            outputDistributionSpec = ((DistributionSpecHash) childDistributionSpec).project(projections, obstructions);
+            return new PhysicalProperties(outputDistributionSpec, childOrderSpec);
+        } else {
+            return childrenOutputProperties.get(0);
+        }
+
     }
 
     @Override

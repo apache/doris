@@ -54,7 +54,7 @@ public enum PrimitiveType {
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32),
     DECIMAL64("DECIMAL64", 8, TPrimitiveType.DECIMAL64),
-    DECIMAL128("DECIMAL128", 16, TPrimitiveType.DECIMAL128),
+    DECIMAL128("DECIMAL128", 16, TPrimitiveType.DECIMAL128I),
     TIME("TIME", 8, TPrimitiveType.TIME),
     // these following types are stored as object binary in BE.
     HLL("HLL", 16, TPrimitiveType.HLL),
@@ -969,7 +969,7 @@ public enum PrimitiveType {
                 return DECIMAL32;
             case DECIMAL64:
                 return DECIMAL64;
-            case DECIMAL128:
+            case DECIMAL128I:
                 return DECIMAL128;
             case TIME:
                 return TIME;
@@ -1203,3 +1203,4 @@ public enum PrimitiveType {
         }
     }
 }
+

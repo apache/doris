@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.types.IntegerType;
@@ -176,14 +177,14 @@ public class ExpressionEqualsTest {
         Assertions.assertEquals(count1, count2);
         Assertions.assertEquals(count1.hashCode(), count2.hashCode());
 
-        Count count3 = new Count(child1, true);
-        Count count4 = new Count(child2, true);
+        Count count3 = new Count(AggregateParam.distinctAndGlobal(), child1);
+        Count count4 = new Count(AggregateParam.distinctAndGlobal(), child2);
         Assertions.assertEquals(count3, count4);
         Assertions.assertEquals(count3.hashCode(), count4.hashCode());
 
         // bad case
-        Count count5 = new Count(child1, true);
-        Count count6 = new Count(child2, false);
+        Count count5 = new Count(AggregateParam.distinctAndGlobal(), child1);
+        Count count6 = new Count(child2);
         Assertions.assertNotEquals(count5, count6);
         Assertions.assertNotEquals(count5.hashCode(), count6.hashCode());
     }

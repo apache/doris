@@ -46,11 +46,11 @@ struct HashTableBuild {
         KeyGetter key_getter(_build_raw_ptrs, _operation_node->_build_key_sz, nullptr);
 
         for (size_t k = 0; k < _rows; ++k) {
-            auto emplace_result =
-                    key_getter.emplace_key(hash_table_ctx.hash_table, k, _operation_node->_arena);
+            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
+                                                         *(_operation_node->_arena));
 
             if (k + 1 < _rows) {
-                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, _operation_node->_arena);
+                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, *(_operation_node->_arena));
             }
 
             if (emplace_result.is_inserted()) { //only inserted once as the same key, others skip
@@ -75,7 +75,10 @@ VSetOperationNode::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
           _valid_element_in_hash_tbl(0),
           _mem_used(0),
           _probe_index(-1),
-          _probe_rows(0) {}
+          _probe_rows(0) {
+    _hash_table_variants = std::make_unique<HashTableVariants>();
+    _arena = std::make_unique<Arena>();
+}
 
 Status VSetOperationNode::close(RuntimeState* state) {
     if (is_closed()) {
@@ -85,6 +88,7 @@ Status VSetOperationNode::close(RuntimeState* state) {
     for (auto& exprs : _child_expr_lists) {
         VExpr::close(exprs, state);
     }
+    release_mem();
     return ExecNode::close(state);
 }
 
@@ -150,16 +154,16 @@ void VSetOperationNode::hash_table_init() {
         switch (_child_expr_lists[0][0]->root()->result_type()) {
         case TYPE_BOOLEAN:
         case TYPE_TINYINT:
-            _hash_table_variants.emplace<I8HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I8HashTableContext<RowRefListWithFlags>>();
             break;
         case TYPE_SMALLINT:
-            _hash_table_variants.emplace<I16HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I16HashTableContext<RowRefListWithFlags>>();
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
         case TYPE_DECIMAL32:
-            _hash_table_variants.emplace<I32HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I32HashTableContext<RowRefListWithFlags>>();
             break;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
@@ -167,15 +171,15 @@ void VSetOperationNode::hash_table_init() {
         case TYPE_DATE:
         case TYPE_DECIMAL64:
         case TYPE_DATETIMEV2:
-            _hash_table_variants.emplace<I64HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I64HashTableContext<RowRefListWithFlags>>();
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
-        case TYPE_DECIMAL128:
-            _hash_table_variants.emplace<I128HashTableContext<RowRefListWithFlags>>();
+        case TYPE_DECIMAL128I:
+            _hash_table_variants->emplace<I128HashTableContext<RowRefListWithFlags>>();
             break;
         default:
-            _hash_table_variants.emplace<SerializedHashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
         }
         return;
     }
@@ -209,29 +213,29 @@ void VSetOperationNode::hash_table_init() {
         if (has_null) {
             if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
                 _hash_table_variants
-                        .emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlags>>();
+                        ->emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlags>>();
             } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                        sizeof(UInt128)) {
                 _hash_table_variants
-                        .emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlags>>();
+                        ->emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlags>>();
             } else {
                 _hash_table_variants
-                        .emplace<I256FixedKeyHashTableContext<true, RowRefListWithFlags>>();
+                        ->emplace<I256FixedKeyHashTableContext<true, RowRefListWithFlags>>();
             }
         } else {
             if (key_byte_size <= sizeof(UInt64)) {
                 _hash_table_variants
-                        .emplace<I64FixedKeyHashTableContext<false, RowRefListWithFlags>>();
+                        ->emplace<I64FixedKeyHashTableContext<false, RowRefListWithFlags>>();
             } else if (key_byte_size <= sizeof(UInt128)) {
                 _hash_table_variants
-                        .emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlags>>();
+                        ->emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlags>>();
             } else {
                 _hash_table_variants
-                        .emplace<I256FixedKeyHashTableContext<false, RowRefListWithFlags>>();
+                        ->emplace<I256FixedKeyHashTableContext<false, RowRefListWithFlags>>();
             }
         }
     } else {
-        _hash_table_variants.emplace<SerializedHashTableContext<RowRefListWithFlags>>();
+        _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
     }
 }
 
@@ -272,6 +276,7 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     }
 
     _build_blocks.emplace_back(mutable_block.to_block());
+    child(0)->close(state);
     RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
     return Status::OK();
 }
@@ -297,7 +302,7 @@ Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
             },
-            _hash_table_variants);
+            *_hash_table_variants);
 
     return Status::OK();
 }
@@ -407,6 +412,16 @@ void VSetOperationNode::debug_string(int indentation_level, std::stringstream* o
     *out << "] \n";
     ExecNode::debug_string(indentation_level, out);
     *out << ")" << std::endl;
+}
+
+void VSetOperationNode::release_mem() {
+    _hash_table_variants = nullptr;
+    _arena = nullptr;
+
+    std::vector<Block> tmp_build_blocks;
+    _build_blocks.swap(tmp_build_blocks);
+
+    _probe_block.clear();
 }
 
 } // namespace vectorized

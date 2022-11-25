@@ -46,6 +46,9 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.statistics.AnalysisJob;
+import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisJobScheduler;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
@@ -234,7 +237,7 @@ public class OlapTable extends Table {
     public Map<String, Index> getIndexesMap() {
         Map<String, Index> indexMap = new HashMap<>();
         if (indexes != null) {
-            Optional.ofNullable(indexes.getIndexes()).orElse(Collections.emptyList()).stream().forEach(
+            Optional.ofNullable(indexes.getIndexes()).orElse(Collections.emptyList()).forEach(
                     i -> indexMap.put(i.getIndexName(), i));
         }
         return indexMap;
@@ -706,14 +709,14 @@ public class OlapTable extends Table {
         nameToPartition.put(partition.getName(), partition);
     }
 
-    // This is a private methid.
+    // This is a private method.
     // Call public "dropPartitionAndReserveTablet" and "dropPartition"
     private Partition dropPartition(long dbId, String partitionName, boolean isForceDrop, boolean reserveTablets) {
         // 1. If "isForceDrop" is false, the partition will be added to the Catalog Recyle bin, and all tablets of this
         //    partition will not be deleted.
-        // 2. If "ifForceDrop" is true, the partition will be dropped the immediately, but whether to drop the tablets
+        // 2. If "ifForceDrop" is true, the partition will be dropped immediately, but whether to drop the tablets
         //    of this partition depends on "reserveTablets"
-        //    If "reserveTablets" is true, the tablets of this partition will not to deleted.
+        //    If "reserveTablets" is true, the tablets of this partition will not be deleted.
         //    Otherwise, the tablets of this partition will be deleted immediately.
         Partition partition = nameToPartition.get(partitionName);
         if (partition != null) {
@@ -741,7 +744,7 @@ public class OlapTable extends Table {
                     try {
                         dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
                     } catch (AnalysisException e) {
-                        e.printStackTrace();
+                        LOG.warn("should not happen", e);
                     }
                     Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
 
@@ -867,7 +870,7 @@ public class OlapTable extends Table {
     }
 
     public List<Long> getPartitionIds() {
-        return getPartitions().stream().map(entity -> entity.getId()).collect(Collectors.toList());
+        return new ArrayList<>(idToPartition.keySet());
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -891,6 +894,21 @@ public class OlapTable extends Table {
     public void setBloomFilterInfo(Set<String> bfColumns, double bfFpp) {
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public String getSequenceMapCol() {
+        if (tableProperty == null) {
+            return null;
+        }
+        return tableProperty.getSequenceMapCol();
+    }
+
+    // map the sequence column to other column
+    public void setSequenceMapCol(String colName) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setSequenceMapCol(colName);
     }
 
     public void setSequenceInfo(Type type) {
@@ -974,6 +992,11 @@ public class OlapTable extends Table {
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setOlapTable(tOlapTable);
         return tTableDescriptor;
+    }
+
+    @Override
+    public AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info) {
+        return new AnalysisJob(scheduler, info);
     }
 
     @Override
@@ -1930,5 +1953,9 @@ public class OlapTable extends Table {
         for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
             indexMeta.initSchemaColumnUniqueId();
         }
+    }
+
+    public Set<Long> getPartitionKeys() {
+        return idToPartition.keySet();
     }
 }

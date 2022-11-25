@@ -20,6 +20,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -56,9 +57,7 @@ struct WriteRequest {
 class DeltaWriter {
 public:
     static Status open(WriteRequest* req, DeltaWriter** writer,
-                       const std::shared_ptr<MemTrackerLimiter>& parent_tracker =
-                               std::shared_ptr<MemTrackerLimiter>(),
-                       bool is_vec = false);
+                       const UniqueId& load_id = TUniqueId(), bool is_vec = false);
 
     ~DeltaWriter();
 
@@ -83,6 +82,7 @@ public:
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
     Status cancel();
+    Status cancel_with_status(const Status& st);
 
     // submit current memtable to flush queue, and wait all memtables in flush queue
     // to be flushed.
@@ -93,7 +93,7 @@ public:
 
     int64_t partition_id() const;
 
-    int64_t mem_consumption() const;
+    int64_t mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
@@ -101,8 +101,6 @@ public:
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
     int32_t schema_hash() { return _tablet->schema_hash(); }
-
-    int64_t memtable_consumption() const;
 
     void save_mem_consumption_snapshot();
 
@@ -113,8 +111,8 @@ public:
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine,
-                const std::shared_ptr<MemTrackerLimiter>& parent_tracker, bool is_vec);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
+                bool is_vec);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -131,6 +129,7 @@ private:
 
     bool _is_init = false;
     bool _is_cancelled = false;
+    Status _cancel_status;
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
@@ -146,17 +145,11 @@ private:
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
+    UniqueId _load_id;
     std::unique_ptr<FlushToken> _flush_token;
-    // The memory value automatically tracked by the Tcmalloc hook is 20% less than the manually recorded
-    // value in the memtable, because some freed memory is not allocated in the DeltaWriter.
-    // The memory value automatically tracked by the Tcmalloc hook, used for load channel mgr to trigger
-    // flush memtable when the sum of all channel memory exceeds the limit.
-    // The manually recorded value of memtable is used to flush when it is larger than write_buffer_size.
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
-    std::shared_ptr<MemTrackerLimiter> _parent_tracker;
-
-    // The counter of number of segment flushed already.
-    int64_t _segment_counter = 0;
+    std::vector<std::shared_ptr<MemTracker>> _mem_table_tracker;
+    SpinLock _mem_table_tracker_lock;
+    std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
 

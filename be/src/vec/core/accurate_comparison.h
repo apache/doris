@@ -491,6 +491,11 @@ struct EqualsOp<DecimalV2Value, DecimalV2Value> {
     static UInt8 apply(const Int128& a, const Int128& b) { return a == b; }
 };
 
+template <>
+struct EqualsOp<StringRef, StringRef> {
+    static UInt8 apply(const StringRef& a, const StringRef& b) { return a == b; }
+};
+
 template <typename A, typename B>
 struct NotEqualsOp {
     using SymmetricOp = NotEqualsOp<B, A>;

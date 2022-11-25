@@ -298,8 +298,4 @@ ColumnPtr ColumnDecimal<T>::index_impl(const PaddedPODArray<Type>& indexes, size
     return res;
 }
 
-using ColumnDecimal32 = ColumnDecimal<Decimal32>;
-using ColumnDecimal64 = ColumnDecimal<Decimal64>;
-using ColumnDecimal128 = ColumnDecimal<Decimal128>;
-
 } // namespace doris::vectorized

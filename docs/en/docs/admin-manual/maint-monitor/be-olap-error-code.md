@@ -6,7 +6,7 @@
 
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -249,6 +249,10 @@ under the License.
 | OLAP_ERR_ROWSET_READER_INIT | -3110 | Rowset read object initialization failed |
 | OLAP_ERR_ROWSET_READ_FAILED | -3111 | Rowset read failure |
 | OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION | -3112 | Rowset invalid transaction state |
+| OLAP_ERR_ROWSET_RENAME_FILE_FAILED | -3116 | Rowset failed to rename file |
+| OLAP_ERR_SEGCOMPACTION_INIT_READER | -3117 | Segment Compaction failed to init reader |
+| OLAP_ERR_SEGCOMPACTION_INIT_WRITER | -3118 | Segment Compaction failed to init writer |
+| OLAP_ERR_SEGCOMPACTION_FAILED | -3119 | Segment Compaction failed |
 
 
 

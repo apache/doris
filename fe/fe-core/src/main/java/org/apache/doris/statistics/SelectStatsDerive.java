@@ -24,12 +24,6 @@ import com.google.common.base.Preconditions;
  */
 public class SelectStatsDerive extends BaseStatsDerive {
 
-    // Current SORT_NODE also uses this derivation method
-    @Override
-    public StatsDeriveResult deriveStats() {
-        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
-    }
-
     @Override
     protected long deriveRowCount() {
         Preconditions.checkState(!childrenStatsResult.isEmpty());

@@ -169,7 +169,7 @@ under the License.
 
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
-        <commons-codec.version>1.9</commons-codec.version>
+        <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.9</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
@@ -238,6 +238,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
+        <dlf-metastore-client-hive2.version>0.2.14</dlf-metastore-client-hive2.version>
 
         <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
@@ -921,6 +922,11 @@ under the License.
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
+            </dependency>
+             <dependency>
+                <groupId>com.aliyun.datalake</groupId>
+                <artifactId>metastore-client-hive2</artifactId>
+                <version>${dlf-metastore-client-hive2.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

@@ -151,7 +151,7 @@ enum FieldType {
     OLAP_FIELD_TYPE_TIMEV2 = 30,
     OLAP_FIELD_TYPE_DECIMAL32 = 31,
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
-    OLAP_FIELD_TYPE_DECIMAL128 = 33,
+    OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
 };
 
@@ -231,6 +231,13 @@ using Versions = std::vector<Version>;
 
 inline std::ostream& operator<<(std::ostream& os, const Version& version) {
     return os << version.to_string();
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Versions& versions) {
+    for (auto& version : versions) {
+        os << version;
+    }
+    return os;
 }
 
 // used for hash-struct of hash_map<Version, Rowset*>.
@@ -330,7 +337,7 @@ struct OlapReaderStatistics {
     // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
     // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
     // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
-    // so general_debug_ns' values will update to _general_debug_timer automaticly,
+    // so general_debug_ns' values will update to _general_debug_timer automatically,
     // the timer result can be checked through QueryProfile web page easily.
     // when search general_debug_ns, you can find that general_debug_ns has not been used,
     // this is because such codes added for debug purpose should not commit, it's just for debuging.

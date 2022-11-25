@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -33,6 +32,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Rule for change inner join LAsscom (associative and commutive).
@@ -62,9 +62,6 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputSet()))
-                // TODO: handle otherJoinCondition
-                .when(topJoin -> topJoin.getOtherJoinConjuncts().isEmpty())
-                .when(topJoin -> topJoin.left().getOtherJoinConjuncts().isEmpty())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -72,13 +69,15 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                     GroupPlan c = topJoin.right();
 
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            topJoin.getHashJoinConjuncts(), a, c, bottomJoin.getJoinReorderContext());
+                            topJoin.getHashJoinConjuncts(), topJoin.getOtherJoinConjuncts(),
+                            a, c, bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            bottomJoin.getJoinType(), bottomJoin.getHashJoinConjuncts(), newBottomJoin, b,
-                            topJoin.getJoinReorderContext());
+                            bottomJoin.getJoinType(),
+                            bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                            newBottomJoin, b, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     return newTopJoin;
@@ -87,18 +86,20 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
 
     /**
      * topHashConjunct possiblity: (A B) (A C) (B C) (A B C).
-     * (A B) is forbidden, because it should in bottom join.
+     * (A B) is forbidden, because it should be in bottom join.
      * (B C) (A B C) check failed, because it contains B.
      * So, just allow: top (A C), bottom (A B), we can exchange HashConjunct directly.
+     * <p>
+     * Same with OtherJoinConjunct.
      */
     private boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<Slot> bOutputSet) {
-        for (Expression topHashConjunct : topJoin.getHashJoinConjuncts()) {
-            Set<Slot> usedSlot = topHashConjunct.collect(SlotReference.class::isInstance);
-            if (ExpressionUtils.isIntersecting(usedSlot, bOutputSet)) {
-                return false;
-            }
-        }
-        return true;
+        return Stream.concat(
+                        topJoin.getHashJoinConjuncts().stream(),
+                        topJoin.getOtherJoinConjuncts().stream())
+                .allMatch(expr -> {
+                    Set<Slot> usedSlot = expr.collect(SlotReference.class::isInstance);
+                    return !ExpressionUtils.isIntersecting(usedSlot, bOutputSet);
+                });
     }
 
     /**

@@ -20,7 +20,10 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?"
+// add useLocalSessionState so that the jdbc will not send
+// init cmd like: select @@session.tx_read_only
+// at each time we connect.
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -79,3 +82,10 @@ pg_14_port=5442
 enableHiveTest=false
 hms_port=9183
 hdfs_port=8120
+
+// elasticsearch catalog test config
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableEsTest=false
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200

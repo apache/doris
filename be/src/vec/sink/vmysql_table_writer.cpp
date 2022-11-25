@@ -176,7 +176,7 @@ Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
         }
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
-        case TYPE_DECIMAL128: {
+        case TYPE_DECIMAL128I: {
             auto val = type_ptr->to_string(*column, row);
             fmt::format_to(_insert_stmt_buffer, "{}", val);
             break;

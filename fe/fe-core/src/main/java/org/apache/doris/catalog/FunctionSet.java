@@ -1393,6 +1393,10 @@ public class FunctionSet<T> {
 
     public static final String RETENTION = "retention";
 
+    public static final String SEQUENCE_MATCH = "sequence_match";
+
+    public static final String SEQUENCE_COUNT = "sequence_count";
+
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1472,7 +1476,93 @@ public class FunctionSet<T> {
         // retention vectorization
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION,
                 Lists.newArrayList(Type.BOOLEAN),
-                Type.ARRAY,
+                new ArrayType(Type.BOOLEAN),
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        // sequenceMatch
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+                Lists.newArrayList(Type.STRING, Type.DATEV2, Type.BOOLEAN),
+                Type.BOOLEAN,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+                Lists.newArrayList(Type.STRING, Type.DATETIME, Type.BOOLEAN),
+                Type.BOOLEAN,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_MATCH,
+                Lists.newArrayList(Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
+                Type.BOOLEAN,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        // sequenceCount
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+                Lists.newArrayList(Type.STRING, Type.DATEV2, Type.BOOLEAN),
+                Type.BIGINT,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+                Lists.newArrayList(Type.STRING, Type.DATETIME, Type.BOOLEAN),
+                Type.BIGINT,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.SEQUENCE_COUNT,
+                Lists.newArrayList(Type.STRING, Type.DATETIMEV2, Type.BOOLEAN),
+                Type.BIGINT,
                 Type.VARCHAR,
                 true,
                 "",
@@ -2139,6 +2229,11 @@ public class FunctionSet<T> {
                         null, prefix + VAR_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
                         false, true, false));
+
+                addBuiltin(AggregateFunction.createBuiltin("avg_weighted",
+                        Lists.<Type>newArrayList(t, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                        "", "", "", "", "", "", "",
+                        false, true, false, true));
             }
         }
 
@@ -2384,6 +2479,18 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
+        //group_bit_function
+        for (Type t : Type.getIntegerTypes()) {
+            addBuiltin(AggregateFunction.createBuiltin("group_bit_or",
+                    Lists.newArrayList(t), t, t, "", "", "", "", "",
+                    false, true, false, true));
+            addBuiltin(AggregateFunction.createBuiltin("group_bit_and",
+                    Lists.newArrayList(t), t, t, "", "", "", "", "",
+                    false, true, false, true));
+            addBuiltin(AggregateFunction.createBuiltin("group_bit_xor",
+                    Lists.newArrayList(t), t, t, "", "", "", "", "",
+                    false, true, false, true));
+        }
         //quantile_state
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
                 Type.QUANTILE_STATE,
@@ -2460,12 +2567,35 @@ public class FunctionSet<T> {
                 prefix + "26percentile_approx_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 false, true, false, true));
 
+        addBuiltin(AggregateFunction.createBuiltin("percentile_array",
+                Lists.newArrayList(Type.BIGINT, new ArrayType(Type.DOUBLE)), new ArrayType(Type.DOUBLE), Type.VARCHAR,
+                "", "", "", "", "",
+                false, true, false, true));
+
         // collect_list
         for (Type t : Type.getArraySubTypes()) {
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_LIST, Lists.newArrayList(t), new ArrayType(t), t,
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t), new ArrayType(t), t,
                     "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin("topn_array", Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
+                            "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction
+                            .createBuiltin("topn_array", Lists.newArrayList(t, Type.INT, Type.INT), new ArrayType(t), t,
+                                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction
+                            .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT),
+                                    new ArrayType(t),
+                                    t,
+                                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction
+                            .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT, Type.INT),
+                                    new ArrayType(t), t,
+                                    "", "", "", "", "", true, false, true, true));
         }
 
         // Avg

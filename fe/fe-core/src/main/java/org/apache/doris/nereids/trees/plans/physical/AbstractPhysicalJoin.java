@@ -48,6 +48,8 @@ public abstract class AbstractPhysicalJoin<
 
     protected final ImmutableList<Expression> otherJoinConjuncts;
 
+    protected boolean shouldTranslateOutput = true;
+
     /**
      * Constructor of PhysicalJoin.
      */
@@ -75,6 +77,14 @@ public abstract class AbstractPhysicalJoin<
 
     public List<Expression> getHashJoinConjuncts() {
         return hashJoinConjuncts;
+    }
+
+    public boolean isShouldTranslateOutput() {
+        return shouldTranslateOutput;
+    }
+
+    public void setShouldTranslateOutput(boolean shouldTranslateOutput) {
+        this.shouldTranslateOutput = shouldTranslateOutput;
     }
 
     public JoinType getJoinType() {

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
@@ -71,6 +72,7 @@ public class TabletReplicaTooSlowTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        InternalSchemaInitializer.forTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
         FeConstants.tablet_checker_interval_ms = 1000;

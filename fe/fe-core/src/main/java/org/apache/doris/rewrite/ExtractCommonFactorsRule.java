@@ -20,12 +20,14 @@ package org.apache.doris.rewrite;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
@@ -70,7 +72,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             return null;
         } else if (expr instanceof CompoundPredicate
                 && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
-            Expr rewrittenExpr = extractCommonFactors(exprFormatting((CompoundPredicate) expr), analyzer);
+            Expr rewrittenExpr = extractCommonFactors(exprFormatting((CompoundPredicate) expr), analyzer, clauseType);
             if (rewrittenExpr != null) {
                 return rewrittenExpr;
             }
@@ -101,7 +103,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
      * 4. Construct new expr:
      * @return: a and b' and (b or (e and f))
      */
-    private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer) {
+    private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer, ExprRewriter.ClauseType clauseType) {
         if (exprs.size() < 2) {
             return null;
         }
@@ -156,9 +158,11 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
 
         // 3. find merge cross the clause
-        if (analyzer.getContext() != null && analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
+        if (analyzer.getContext() != null && clauseType == ClauseType.WHERE_CLAUSE
+                && analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
             Expr wideCommonExpr = findWideRangeExpr(clearExprs);
-            if (wideCommonExpr != null) {
+            if (wideCommonExpr != null && !(wideCommonExpr instanceof CompoundPredicate
+                    && ((CompoundPredicate) wideCommonExpr).getOp() == Operator.OR)) {
                 commonFactorList.add(wideCommonExpr);
             }
         }

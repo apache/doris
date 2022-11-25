@@ -48,54 +48,60 @@ illustrate:
 
     file_path points to the path where the file is stored and the file prefix. Such as `hdfs://path/to/my_file_`.
 
-   The final filename will consist of `my_file_`, the file number and the file format suffix. The file serial number starts from 0, and the number is the number of files to be divided. Such as:
+    ```
+    The final filename will consist of `my_file_`, the file number and the file format suffix. The file serial number starts from 0, and the number is the number of files to be divided. Such as:
 
     my_file_abcdefg_0.csv
     my_file_abcdefg_1.csv
     my_file_abcdegf_2.csv
+    ```
 
 2. format_as
 
+    ```
     FORMAT AS CSV
+    ```
 
-    Specifies the export format. Default is CSV.
+    Specifies the export format. Supported formats include CSV, PARQUET, CSV_WITH_NAMES, CSV_WITH_NAMES_AND_TYPES and ORC. Default is CSV.
 
 3. properties
 
     Specify related properties. Currently exporting via the Broker process, or via the S3 protocol is supported.
 
-       grammar:
-       [PROPERTIES ("key"="value", ...)]
-       The following properties are supported:
-       column_separator: column separator
-       line_delimiter: line delimiter
-       max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
+    ```
+    grammar:
+    [PROPERTIES ("key"="value", ...)]
+    The following properties are supported:
+    column_separator: column separator. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
+    line_delimiter: line delimiter. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
+    max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
     
-       Broker related properties need to be prefixed with `broker.`:
-       broker.name: broker name
-       broker.hadoop.security.authentication: specify the authentication method as kerberos
-       broker.kerberos_principal: specifies the principal of kerberos
-       broker.kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
+    Broker related properties need to be prefixed with `broker.`:
+    broker.name: broker name
+    broker.hadoop.security.authentication: specify the authentication method as kerberos
+    broker.kerberos_principal: specifies the principal of kerberos
+    broker.kerberos_keytab: specifies the path to the keytab file of kerberos. The file must be the absolute path to the file on the server where the broker process is located. and can be accessed by the Broker process
     
-       HDFS related properties:
-       fs.defaultFS: namenode address and port
-       hadoop.username: hdfs username
-       dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
-       dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
-       dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
-       dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+    HDFS related properties:
+    fs.defaultFS: namenode address and port
+    hadoop.username: hdfs username
+    dfs.nameservices: if hadoop enable HA, please set fs nameservice. See hdfs-site.xml
+    dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
+    dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
+    dfs.client.failover.proxy.provider.[nameservice ID]：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
 
-       For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
-       dfs.namenode.kerberos.principal: HDFS namenode service principal
-       hadoop.security.authentication: kerberos
-       hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
-       hadoop.kerberos.keytab: HDFS client keytab location.
+    For a kerberos-authentication enabled Hadoop cluster, additional properties need to be set:
+    dfs.namenode.kerberos.principal: HDFS namenode service principal
+    hadoop.security.authentication: kerberos
+    hadoop.kerberos.principal: the Kerberos pincipal that Doris will use when connectiong to HDFS.
+    hadoop.kerberos.keytab: HDFS client keytab location.
     
-       For the S3 protocol, you can directly execute the S3 protocol configuration:
-       AWS_ENDPOINT
-       AWS_ACCESS_KEY
-       AWS_SECRET_KEY
-       AWS_REGION
+    For the S3 protocol, you can directly execute the S3 protocol configuration:
+    AWS_ENDPOINT
+    AWS_ACCESS_KEY
+    AWS_SECRET_KEY
+    AWS_REGION
+    ```
 
 ### example
 
@@ -181,7 +187,7 @@ illustrate:
    );
    ````
 
-5. Export the query result of the select statement to the file `cos://${bucket_name}/path/result.txt`. Specify the export format as csv.
+5. Export the query result of the select statement to the file `s3a://${bucket_name}/path/result.txt`. Specify the export format as csv.
    After the export is complete, an identity file is generated.
 
    ```sql
@@ -278,6 +284,26 @@ illustrate:
 
    If the final generated file is not larger than 100MB, it will be: `result_0.csv`.
    If larger than 100MB, it may be `result_0.csv, result_1.csv, ...`.
+
+9. Export the query result of the select statement to the file `cosn://${bucket_name}/path/result.txt` on Tencent Cloud Object Storage (COS). Specify the export format as csv.
+   After the export is complete, an identity file is generated.
+
+   ```sql
+   select k1,k2,v1 from tbl1 limit 100000
+   into outfile "cosn://my_bucket/export/my_file_"
+   FORMAT AS CSV
+   PROPERTIES
+   (
+       "broker.name" = "broker_name",
+       "broker.fs.cosn.userinfo.secretId" = "xxx",
+       "broker.fs.cosn.userinfo.secretKey" = "xxxx",
+       "broker.fs.cosn.bucket.endpoint_suffix" = "https://cos.xxxxxx.myqcloud.com/",
+       "column_separator" = ",",
+       "line_delimiter" = "\n",
+       "max_file_size" = "1024MB",
+       "success_file_name" = "SUCCESS"
+   )
+   ````
 
 ### keywords
 

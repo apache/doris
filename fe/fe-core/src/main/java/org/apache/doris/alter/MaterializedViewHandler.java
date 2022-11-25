@@ -233,6 +233,7 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processBatchAddRollup(List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+        checkReplicaCount(olapTable);
         Map<String, RollupJobV2> rollupNameJobMap = new LinkedHashMap<>();
         // save job id for log
         Set<Long> logJobIdSet = new HashSet<>();
@@ -519,7 +520,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 nextColUniqueId++;
             }
         } else {
-            newMVColumns.stream().forEach(column -> {
+            newMVColumns.forEach(column -> {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }
@@ -721,7 +722,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 nextColUniqueId++;
             }
         } else {
-            rollupSchema.stream().forEach(column -> {
+            rollupSchema.forEach(column -> {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }

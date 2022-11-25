@@ -27,7 +27,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 /**
  * small int type literal
  */
-public class SmallIntLiteral extends Literal {
+public class SmallIntLiteral extends IntegerLikeLiteral {
 
     private final short value;
 
@@ -54,5 +54,10 @@ public class SmallIntLiteral extends Literal {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "Can not convert to legacy literal: " + value, e);
         }
+    }
+
+    @Override
+    public Number getNumber() {
+        return value;
     }
 }

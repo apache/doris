@@ -345,9 +345,8 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         TCreateTabletReq create_tablet_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -420,9 +419,8 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TDropTabletReq drop_tablet_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -473,9 +471,8 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -596,9 +593,8 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         int32_t index = 0;
         do {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -668,9 +664,8 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         TPublishVersionRequest publish_version_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -735,25 +730,29 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                     .error(status);
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            for (int i = 0; i < succ_tablet_ids.size(); i++) {
-                TabletSharedPtr tablet =
-                        StorageEngine::instance()->tablet_manager()->get_tablet(succ_tablet_ids[i]);
-                if (tablet != nullptr) {
-                    tablet->publised_count++;
-                    if (tablet->publised_count % 10 == 0) {
-                        StorageEngine::instance()->submit_compaction_task(
-                                tablet, CompactionType::CUMULATIVE_COMPACTION);
-                        LOG(INFO) << "trigger compaction succ, tabletid:" << succ_tablet_ids[i]
-                                  << ", publised:" << tablet->publised_count;
+            if (config::enable_quick_compaction && config::quick_compaction_batch_size > 0) {
+                for (int i = 0; i < succ_tablet_ids.size(); i++) {
+                    TabletSharedPtr tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(
+                                    succ_tablet_ids[i]);
+                    if (tablet != nullptr) {
+                        tablet->publised_count++;
+                        if (tablet->publised_count % config::quick_compaction_batch_size == 0) {
+                            StorageEngine::instance()->submit_quick_compaction_task(tablet);
+                            LOG(INFO) << "trigger quick compaction succ, tabletid:"
+                                      << succ_tablet_ids[i]
+                                      << ", publised:" << tablet->publised_count;
+                        }
+                    } else {
+                        LOG(WARNING) << "trigger quick compaction failed, tabletid:"
+                                     << succ_tablet_ids[i];
                     }
-                } else {
-                    LOG(WARNING) << "trigger compaction failed, tabletid:" << succ_tablet_ids[i];
                 }
+                LOG_INFO("successfully publish version")
+                        .tag("signature", agent_task_req.signature)
+                        .tag("transaction_id", publish_version_req.transaction_id)
+                        .tag("tablets_num", succ_tablet_ids.size());
             }
-            LOG_INFO("successfully publish version")
-                    .tag("signature", agent_task_req.signature)
-                    .tag("transaction_id", publish_version_req.transaction_id)
-                    .tag("tablets_num", succ_tablet_ids.size());
         }
 
         status.to_thrift(&finish_task_request.task_status);
@@ -773,9 +772,8 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
         TClearTransactionTaskRequest clear_transaction_task_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -826,9 +824,8 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
         TUpdateTabletMetaInfoReq update_tablet_meta_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -902,9 +899,8 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
 
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -952,9 +948,8 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         TStorageMediumMigrateReq storage_medium_migrate_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1054,9 +1049,8 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         TCheckConsistencyReq check_consistency_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1248,9 +1242,8 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
         TUploadReq upload_request;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1300,9 +1293,8 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         TDownloadReq download_request;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1353,9 +1345,8 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         TSnapshotRequest snapshot_request;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1413,9 +1404,8 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         TReleaseSnapshotRequest release_snapshot_request;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1463,9 +1453,8 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         TMoveDirReq move_dir_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1571,9 +1560,8 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
 
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }
@@ -1673,9 +1661,8 @@ void TaskWorkerPool::_storage_update_storage_policy_worker_thread_callback() {
         TGetStoragePolicy get_storage_policy_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
-            while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait(worker_thread_lock);
-            }
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
             if (!_is_work) {
                 return;
             }

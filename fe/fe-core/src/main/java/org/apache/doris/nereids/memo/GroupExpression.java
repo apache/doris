@@ -24,10 +24,10 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -44,14 +44,18 @@ public class GroupExpression {
     private double cost = 0.0;
     private CostEstimate costEstimate = null;
     private Group ownerGroup;
-    private ImmutableList<Group> children;
+    private final List<Group> children;
     private final Plan plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
 
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
+    // key is the physical properties the group expression support for its parent
+    // and value is cost and request physical properties to its children.
     private final Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> lowestCostTable;
     // Each physical group expression maintains mapping incoming requests to the corresponding child requests.
+    // key is the output physical properties satisfying the incoming request properties
+    // value is the request physical properties
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
     public GroupExpression(Plan plan) {
@@ -67,12 +71,12 @@ public class GroupExpression {
     public GroupExpression(Plan plan, List<Group> children) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null")
                 .withGroupExpression(Optional.of(this));
-        this.children = ImmutableList.copyOf(Objects.requireNonNull(children, "children can not be null"));
+        this.children = Lists.newArrayList(Objects.requireNonNull(children, "children can not be null"));
+        this.children.forEach(childGroup -> childGroup.addParentExpression(this));
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
         this.lowestCostTable = Maps.newHashMap();
         this.requestPropertiesMap = Maps.newHashMap();
-        this.children.forEach(childGroup -> childGroup.addParentExpression(this));
     }
 
     public PhysicalProperties getOutputProperties(PhysicalProperties requestProperties) {
@@ -101,32 +105,25 @@ public class GroupExpression {
         return children.get(i);
     }
 
-    public List<Group> children() {
-        return children;
+    public void setChild(int i, Group group) {
+        children.set(i, group);
+        group.addParentExpression(this);
     }
 
-    public void setChildren(ImmutableList<Group> children) {
-        this.children = children;
+    public List<Group> children() {
+        return children;
     }
 
     /**
      * replaceChild.
      *
-     * @param originChild origin child group
+     * @param oldChild origin child group
      * @param newChild new child group
      */
-    public void replaceChild(Group originChild, Group newChild) {
-        originChild.removeParentExpression(this);
-        for (int i = 0; i < children.size(); i++) {
-            if (children.get(i) == originChild) {
-                children.set(i, newChild);
-                newChild.addParentExpression(this);
-            }
-        }
-    }
-
-    public void setChild(int index, Group group) {
-        this.children.set(index, group);
+    public void replaceChild(Group oldChild, Group newChild) {
+        oldChild.removeParentExpression(this);
+        newChild.addParentExpression(this);
+        Utils.replaceList(children, oldChild, newChild);
     }
 
     public boolean hasApplied(Rule rule) {
@@ -168,6 +165,8 @@ public class GroupExpression {
 
     /**
      * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
+     * if the outputProperties exists, will be covered.
+     * @return true if lowest cost table change.
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties, double cost) {
@@ -186,7 +185,6 @@ public class GroupExpression {
 
     /**
      * get the lowest cost when satisfy property
-     *
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */
@@ -238,8 +236,8 @@ public class GroupExpression {
         return Objects.hash(children, plan);
     }
 
-    public StatsDeriveResult getCopyOfChildStats(int idx) {
-        return child(idx).getStatistics().copy();
+    public StatsDeriveResult childStatistics(int idx) {
+        return new StatsDeriveResult(child(idx).getStatistics());
     }
 
     @Override
@@ -255,7 +253,7 @@ public class GroupExpression {
         if (costEstimate != null) {
             builder.append(" est=").append(costEstimate);
         }
-        builder.append(" (plan=" + plan.toString() + ") children=[");
+        builder.append(" (plan=").append(plan.toString()).append(") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
         }

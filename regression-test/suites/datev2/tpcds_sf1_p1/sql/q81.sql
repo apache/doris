@@ -35,7 +35,7 @@ FROM
 , customer_address
 , customer
 WHERE (ctr1.ctr_total_return > (
-      SELECT (avg(ctr_total_return) * CAST('1.2' AS DECIMAL))
+      SELECT (avg(ctr_total_return) * CAST('1.2' AS DECIMAL(2,1)))
       FROM
         customer_total_return ctr2
       WHERE (ctr1.ctr_state = ctr2.ctr_state)

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -95,6 +96,7 @@ public class TabletRepairAndBalanceTest {
 
     static {
         try {
+            InternalSchemaInitializer.forTest = true;
             tag1 = Tag.create(Tag.TYPE_LOCATION, "zone1");
             tag2 = Tag.create(Tag.TYPE_LOCATION, "zone2");
         } catch (AnalysisException e) {

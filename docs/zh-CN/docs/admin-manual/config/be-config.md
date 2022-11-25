@@ -101,7 +101,7 @@ BE 的配置项有两种方式进行配置：
 
 进行schema change的线程数
 
-### `generate_compaction_tasks_interval_ms`
+### `generate_compaction_tasks_min_interval_ms`
 
 默认值：10 （ms）
 
@@ -113,7 +113,13 @@ BE 的配置项有两种方式进行配置：
 
 是否开启向量化compaction
 
-### `base_compaction_min_rowset_num`
+### `base_compaction_interval_seconds_since_last_operation`
+
+默认值：86400
+
+BaseCompaction触发条件之一：上一次BaseCompaction距今的间隔
+
+### `base_compaction_num_cumulative_deltas`
 
 默认值：5
 
@@ -125,7 +131,7 @@ BaseCompaction触发条件之一：Cumulative文件数目要达到的限制，�
 
 BaseCompaction任务每秒写磁盘最大速度
 
-### `base_compaction_min_data_ratio`
+### `base_cumulative_delta_ratio`
 
 默认值：0.3  （30%）
 
@@ -210,6 +216,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 默认值：20%
 
 BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构，通过buffer page来进行内存管理，并能够实现数据的落盘。并发的所有查询的内存申请都会通过buffer pool来申请。当前buffer pool仅作用在**AggregationNode**与**ExchangeNode**。
+
+### `check_auto_compaction_interval_seconds`
+
+* 类型：int32
+* 描述：当自动执行compaction的功能关闭时，检查自动compaction开关是否被开启的时间间隔。
+* 默认值：5
 
 ### `check_consistency_worker_count`
 
@@ -335,34 +347,34 @@ BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 
 如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 
-### `compaction_promotion_size_mbytes`
+### `cumulative_size_based_promotion_size_mbytes`
 
 * 类型：int64
-* 描述：cumulative compaction的输出rowset总磁盘大小超过了此配置大小，该rowset将用于base compaction。单位是m字节。
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过了此配置大小，该rowset将用于base compaction。单位是m字节。
 * 默认值：1024
 
 一般情况下，配置在2G以内，为了防止cumulative compaction时间过长，导致版本积压。
 
-### `compaction_promotion_ratio`
+### `cumulative_size_based_promotion_ratio`
 
 * 类型：double
-* 描述：cumulative compaction的输出rowset总磁盘大小超过base版本rowset的配置比例时，该rowset将用于base compaction。
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过base版本rowset的配置比例时，该rowset将用于base compaction。
 * 默认值：0.05
 
 一般情况下，建议配置不要高于0.1，低于0.02。
 
-### `compaction_promotion_min_size_mbytes`
+### `cumulative_size_based_promotion_min_size_mbytes`
 
 * 类型：int64
-* 描述：Cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
+* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
 * 默认值：64
 
 一般情况下，配置在512m以内，配置过大会导致base版本早期的大小过小，一直不进行base compaction。
 
-### `compaction_min_size_mbytes`
+### `cumulative_size_based_compaction_lower_size_mbytes`
 
 * 类型：int64
-* 描述：cumulative compaction进行合并时，选出的要进行合并的rowset的总磁盘大小大于此配置时，才按级别策略划分合并。小于这个配置时，直接执行合并。单位是m字节。
+* 描述：在size_based策略下，cumulative compaction进行合并时，选出的要进行合并的rowset的总磁盘大小大于此配置时，才按级别策略划分合并。小于这个配置时，直接执行合并。单位是m字节。
 * 默认值：64
 
 一般情况下，配置在128m以内，配置过大会导致cumulative compaction写放大较多。
@@ -741,13 +753,13 @@ soft limit是指站单节点导入内存上限的比例。例如所有导入任�
 
 一个数据消费者组中的最大消费者数量，用于routine load
 
-### `cumulative_compaction_min_deltas`
+### `min_cumulative_compaction_num_singleton_deltas`
 
 默认值：5
 
 cumulative compaction策略：最小增量文件的数量
 
-### `cumulative_compaction_max_deltas`
+### `max_cumulative_compaction_num_singleton_deltas`
 
 默认值：1000
 
@@ -827,9 +839,15 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 * 描述：限制BE进程使用服务器最大内存百分比。用于防止BE内存挤占太多的机器内存，该参数必须大于0，当百分大于100%之后，该值会默认为100%。
 * 默认值：80%
 
-### `memory_limitation_per_thread_for_schema_change`
+### `memory_mode`
 
-默认值：2 （GB）
+* 类型：string
+* 描述：控制tcmalloc的回收。如果配置为performance，内存使用超过mem_limit的90%时，doris会释放tcmalloc cache中的内存，如果配置为compact，内存使用超过mem_limit的50%时，doris会释放tcmalloc cache中的内存。
+* 默认值：performance
+
+### `memory_limitation_per_thread_for_schema_change_bytes`
+
+默认值：2147483648
 
 单个schema change任务允许占用的最大内存
 
@@ -856,6 +874,13 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 默认值：1024
 
 最小读取缓冲区大小（以字节为单位）
+
+### `min_compaction_failure_interval_sec`
+
+* 类型：int32
+* 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
+* 默认值：5
+* 单位：秒
 
 ### `min_compaction_threads`
 
@@ -1054,6 +1079,13 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 默认值：true
 
 检查 BE/CE 和schema更改的行号。 true 是打开的，false 是关闭的。
+
+### `row_step_for_compaction_merge_log`
+
+* 类型：int64
+* 描述：Compaction执行过程中，每次合并row_step_for_compaction_merge_log行数据会打印一条LOG。如果该参数被设置为0，表示merge过程中不需要打印LOG。
+* 默认值： 0
+* 可动态修改：是
 
 ### `scan_context_gc_interval_min`
 
@@ -1347,26 +1379,6 @@ tablet状态缓存的更新间隔，单位：秒
 
 当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
 
-### `tc_free_memory_rate`
-
-默认值：20   (%)
-
-可用内存，取值范围：[0-100]
-
-### `tc_max_total_thread_cache_bytes`
-
-* 类型：int64
-* 描述：用来限制 tcmalloc 中总的线程缓存大小。这个限制不是硬限，因此实际线程缓存使用可能超过这个限制。具体可参阅 [TCMALLOC\_MAX\_TOTAL\_THREAD\_CACHE\_BYTES](https://gperftools.github.io/gperftools/tcmalloc.html)
-* 默认值： 1073741824
-
-如果发现系统在高压力场景下，通过 BE 线程堆栈发现大量线程处于 tcmalloc 的锁竞争阶段，如大量的 `SpinLock` 相关堆栈，则可以尝试增大该参数来提升系统性能。[参考](https://github.com/gperftools/gperftools/issues/1111)
-
-### `tc_use_memory_min`
-
-默认值：10737418240
-
-TCmalloc 的最小内存，当使用的内存小于这个时，不返回给操作系统
-
 ### `thrift_client_retry_interval_ms`
 
 * 类型：int64
@@ -1601,3 +1613,21 @@ webserver默认工作线程数
 * 类型：int64
 * 描述：缓存文件的保存时间，单位：秒
 * 默认值：604800（1个星期）
+
+### `enable_segcompaction`
+
+* 类型：bool
+* 描述：在导入时进行 segment compaction 来减少 segment 数量
+* 默认值：false
+
+### `segcompaction_threshold_segment_num`
+
+* 类型：int32
+* 描述：当 segment 数量超过此阈值时触发 segment compaction
+* 默认值：10
+
+### `segcompaction_small_threshold`
+
+* 类型：int32
+* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 默认值：1048576

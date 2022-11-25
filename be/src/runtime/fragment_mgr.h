@@ -114,6 +114,9 @@ private:
 
     std::condition_variable _cv;
 
+    std::mutex _lock_for_shared_hash_table;
+    std::condition_variable _cv_for_sharing_hashtable;
+
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
     // query id -> QueryFragmentsCtx

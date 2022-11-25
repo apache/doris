@@ -49,8 +49,20 @@ singleStatement
     ;
 
 statement
-    : query                                                            #statementDefault
-    | (EXPLAIN | DESC | DESCRIBE) level=(VERBOSE | GRAPH)? query       #explain
+    : explain? cte? query                           #statementDefault
+    ;
+
+explain
+    : (EXPLAIN planType? | DESC | DESCRIBE)
+          level=(VERBOSE | GRAPH | PLAN)?
+    ;
+
+planType
+    : PARSED
+    | ANALYZED
+    | REWRITTEN | LOGICAL  // same type
+    | OPTIMIZED | PHYSICAL   // same type
+    | ALL // default type
     ;
 
 //  -----------------Query-----------------
@@ -76,6 +88,18 @@ querySpecification
       havingClause?                                                         #regularQuerySpecification
     ;
 
+cte
+    : WITH aliasQuery (COMMA aliasQuery)*
+    ;
+
+aliasQuery
+    : identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
+    ;
+
+columnAliases
+    : LEFT_PAREN identifier (COMMA identifier)* RIGHT_PAREN
+    ;
+
 selectClause
     : SELECT selectHint? namedExpressionSeq
     ;
@@ -97,11 +121,18 @@ joinRelation
     ;
 
 aggClause
-    : GROUP BY groupByItem?
+    : GROUP BY groupingElement?
     ;
 
-groupByItem
-    : expression (',' expression)*
+groupingElement
+    : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+    | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+    | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
+    | expression (COMMA expression)*
+    ;
+
+groupingSet
+    : LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     ;
 
 havingClause
@@ -123,7 +154,7 @@ queryOrganization
     ;
 
 sortClause
-    : (ORDER BY sortItem (',' sortItem)*)
+    : (ORDER BY sortItem (COMMA sortItem)*)
     ;
 
 sortItem
@@ -162,10 +193,18 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias                #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias       #aliasedQuery
-    | LEFT_PAREN relation RIGHT_PAREN tableAlias    #aliasedRelation
+    : multipartIdentifier tableAlias                                            #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
+    | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
+    | tvfName=identifier LEFT_PAREN
+      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
     ;
+
+tvfProperty
+    : key=tvfPropertyItem EQ value=tvfPropertyItem
+    ;
+
+tvfPropertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?
@@ -315,6 +354,7 @@ ansiNonReserved
     | AFTER
     | ALTER
     | ANALYZE
+    | ANALYZED
     | ANTI
     | ARCHIVE
     | ARRAY
@@ -421,6 +461,7 @@ ansiNonReserved
     | NO
     | NULLS
     | OF
+    | OPTIMIZED
     | OPTION
     | OPTIONS
     | OUT
@@ -428,12 +469,15 @@ ansiNonReserved
     | OVER
     | OVERLAY
     | OVERWRITE
+    | PARSED
     | PARTITION
     | PARTITIONED
     | PARTITIONS
     | PERCENTLIT
+    | PHYSICAL
     | PIVOT
     | PLACING
+    | PLAN
     | POSITION
     | PRECEDING
     | PRINCIPALS
@@ -454,6 +498,7 @@ ansiNonReserved
     | RESPECT
     | RESTRICT
     | REVOKE
+    | REWRITTEN
     | RLIKE
     | ROLE
     | ROLES
@@ -555,6 +600,7 @@ nonReserved
     | ALL
     | ALTER
     | ANALYZE
+    | ANALYZED
     | AND
     | ANY
     | ARCHIVE
@@ -696,6 +742,7 @@ nonReserved
     | NULLS
     | OF
     | ONLY
+    | OPTIMIZED
     | OPTION
     | OPTIONS
     | OR
@@ -707,13 +754,16 @@ nonReserved
     | OVERLAPS
     | OVERLAY
     | OVERWRITE
+    | PARSED
     | PARTITION
     | PARTITIONED
     | PARTITIONS
     | PERCENTILE_CONT
     | PERCENTLIT
+    | PHYSICAL
     | PIVOT
     | PLACING
+    | PLAN
     | POSITION
     | PRECEDING
     | PRIMARY
@@ -736,6 +786,7 @@ nonReserved
     | RESPECT
     | RESTRICT
     | REVOKE
+    | REWRITTEN
     | RLIKE
     | ROLE
     | ROLES

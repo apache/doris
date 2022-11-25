@@ -208,16 +208,50 @@ public class DistributionSpecHash extends DistributionSpec {
                 equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
+    /**
+     * generate a new DistributionSpec after projection.
+     */
+    public DistributionSpec project(Map<ExprId, ExprId> projections, Set<ExprId> obstructions) {
+        List<ExprId> orderedShuffledColumns = Lists.newArrayList();
+        List<Set<ExprId>> equivalenceExprIds = Lists.newArrayList();
+        Map<ExprId, Integer> exprIdToEquivalenceSet = Maps.newHashMap();
+        for (ExprId shuffledColumn : this.orderedShuffledColumns) {
+            if (obstructions.contains(shuffledColumn)) {
+                return DistributionSpecAny.INSTANCE;
+            }
+            orderedShuffledColumns.add(projections.getOrDefault(shuffledColumn, shuffledColumn));
+        }
+        for (Set<ExprId> equivalenceSet : this.equivalenceExprIds) {
+            Set<ExprId> projectionEquivalenceSet = Sets.newHashSet();
+            for (ExprId equivalence : equivalenceSet) {
+                if (obstructions.contains(equivalence)) {
+                    return DistributionSpecAny.INSTANCE;
+                }
+                projectionEquivalenceSet.add(projections.getOrDefault(equivalence, equivalence));
+            }
+            equivalenceExprIds.add(projectionEquivalenceSet);
+        }
+        for (Map.Entry<ExprId, Integer> exprIdSetKV : this.exprIdToEquivalenceSet.entrySet()) {
+            if (obstructions.contains(exprIdSetKV.getKey())) {
+                return DistributionSpecAny.INSTANCE;
+            }
+            if (projections.containsKey(exprIdSetKV.getKey())) {
+                exprIdToEquivalenceSet.put(projections.get(exprIdSetKV.getKey()), exprIdSetKV.getValue());
+            } else {
+                exprIdToEquivalenceSet.put(exprIdSetKV.getKey(), exprIdSetKV.getValue());
+            }
+        }
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (!super.equals(o)) {
             return false;
         }
         DistributionSpecHash that = (DistributionSpecHash) o;
-        //TODO: that.orderedShuffledColumns may have equivalent slots. This will be done later
-        return shuffleType == that.shuffleType
-                && orderedShuffledColumns.size() == that.orderedShuffledColumns.size()
-                && equalsSatisfy(that.orderedShuffledColumns);
+        return shuffleType == that.shuffleType && orderedShuffledColumns.equals(that.orderedShuffledColumns);
     }
 
     @Override

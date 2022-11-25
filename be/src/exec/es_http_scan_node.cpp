@@ -424,7 +424,7 @@ static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
 
 void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
     SCOPED_ATTACH_TASK(_runtime_state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);
@@ -456,17 +456,10 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
             properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
     // start scanner to scan
-    if (!_vectorized) {
-        std::unique_ptr<EsHttpScanner> scanner(
-                new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
-                                  scanner_expr_ctxs, &counter, doc_value_mode));
-        status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
-    } else {
-        std::unique_ptr<vectorized::VEsHttpScanner> scanner(new vectorized::VEsHttpScanner(
-                _runtime_state, runtime_profile(), _tuple_id, properties, scanner_expr_ctxs,
-                &counter, doc_value_mode));
-        status = scanner_scan(std::move(scanner));
-    }
+    std::unique_ptr<EsHttpScanner> scanner(
+            new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
+                              scanner_expr_ctxs, &counter, doc_value_mode));
+    status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx
                      << "] process failed. status=" << status.get_error_msg();

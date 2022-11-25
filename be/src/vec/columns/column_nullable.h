@@ -124,6 +124,15 @@ public:
                                                   dict_num);
     }
 
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            const size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        get_null_map_column().fill(0, num);
+        get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
+    }
+
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         get_null_map_column().fill(0, num);
@@ -133,19 +142,16 @@ public:
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
-        _has_null = true;
     }
 
     void insert_many_defaults(size_t length) override {
         get_nested_column().insert_many_defaults(length);
         get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);
-        _has_null = true;
     }
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
         get_null_map_column().fill(1, num);
-        _has_null = true;
     }
 
     void pop_back(size_t n) override;
@@ -229,9 +235,15 @@ public:
     /// Return the column that represents the byte map.
     const ColumnPtr& get_null_map_column_ptr() const { return null_map; }
 
-    MutableColumnPtr get_null_map_column_ptr() { return null_map->assume_mutable(); }
+    MutableColumnPtr get_null_map_column_ptr() {
+        _need_update_has_null = true;
+        return null_map->assume_mutable();
+    }
 
-    ColumnUInt8& get_null_map_column() { return assert_cast<ColumnUInt8&>(*null_map); }
+    ColumnUInt8& get_null_map_column() {
+        _need_update_has_null = true;
+        return assert_cast<ColumnUInt8&>(*null_map);
+    }
     const ColumnUInt8& get_null_map_column() const {
         return assert_cast<const ColumnUInt8&>(*null_map);
     }
@@ -242,10 +254,7 @@ public:
         _has_null = false;
     }
 
-    NullMap& get_null_map_data() {
-        _need_update_has_null = true;
-        return get_null_map_column().get_data();
-    }
+    NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
 
     const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
 
@@ -306,7 +315,7 @@ private:
     WrappedPtr nested_column;
     WrappedPtr null_map;
 
-    bool _need_update_has_null = false;
+    bool _need_update_has_null = true;
     bool _has_null;
 
     void _update_has_null();

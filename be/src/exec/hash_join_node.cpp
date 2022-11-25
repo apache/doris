@@ -92,7 +92,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     _runtime_filters.resize(_runtime_filter_descs.size());
 
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
                 RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
@@ -184,7 +184,7 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 void HashJoinNode::probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
     status->set_value(child(0)->open(state));
 }
 
@@ -250,20 +250,36 @@ Status HashJoinNode::open(RuntimeState* state) {
     if (!_runtime_filter_descs.empty()) {
         RuntimeFilterSlots runtime_filter_slots(_probe_expr_ctxs, _build_expr_ctxs,
                                                 _runtime_filter_descs);
-
-        RETURN_IF_ERROR(construct_hash_table(state));
-        RETURN_IF_ERROR(runtime_filter_slots.init(state, _hash_tbl->size()));
-        {
-            SCOPED_TIMER(_push_compute_timer);
-            auto func = [&](TupleRow* row) { runtime_filter_slots.insert(row); };
-            _hash_tbl->for_each_row(func);
-        }
-        COUNTER_UPDATE(_build_timer, _push_compute_timer->value());
-        {
-            SCOPED_TIMER(_push_down_timer);
-            runtime_filter_slots.publish();
-        }
+        Status st;
+        do {
+            st = construct_hash_table(state);
+            if (UNLIKELY(!st.ok())) {
+                break;
+            }
+            st = runtime_filter_slots.init(state, _hash_tbl->size());
+            if (UNLIKELY(!st.ok())) {
+                break;
+            }
+            {
+                SCOPED_TIMER(_push_compute_timer);
+                auto func = [&](TupleRow* row) { runtime_filter_slots.insert(row); };
+                _hash_tbl->for_each_row(func);
+            }
+            COUNTER_UPDATE(_build_timer, _push_compute_timer->value());
+            {
+                SCOPED_TIMER(_push_down_timer);
+                runtime_filter_slots.publish();
+            }
+        } while (false);
+        VLOG_ROW << "runtime st: " << st;
+        // Don't exit even if we see an error, we still need to wait for the probe thread
+        // to finish.
+        // If this return first, probe thread will use '_await_time_cost'
+        // which is already destructor and then coredump.
         RETURN_IF_ERROR(thread_status.get_future().get());
+        if (UNLIKELY(!st.ok())) {
+            return st;
+        }
     } else {
         // Blocks until ConstructHashTable has returned, after which
         // the hash table is fully constructed and we can start the probe

@@ -38,15 +38,6 @@ T-type could be any of:
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
 DATETIME, CHAR, VARCHAR, STRING
 ```
-### notice
-
-We should turn on the switch for the ARRAY types feature with the following command before use:
-
-```
-$ mysql-client > admin set frontend config("enable_array_type"="true");
-```
-
-In this way the config will be reset after the FE process restarts. For permanent setting, you can add config `enable_array_type=true` inside fe.conf.
 
 ### example
 
@@ -71,9 +62,8 @@ Insert data example:
 
 ```
 mysql> INSERT INTO `array_test` VALUES (1, [1,2,3,4,5]);
-mysql> INSERT INTO `array_test` VALUES (2, array(6,7,8)), (3, array()), (4, null);
+mysql> INSERT INTO `array_test` VALUES (2, [6,7,8]), (3, []), (4, null);
 ```
-Note: The above sql supports the array() function only in non-vectorized scenarios, but not in vectorized scenarios.
 
 Select data example:
 

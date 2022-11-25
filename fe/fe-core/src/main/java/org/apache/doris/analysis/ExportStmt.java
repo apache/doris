@@ -239,9 +239,11 @@ public class ExportStmt extends StatementBase {
             if (schema == null || (!schema.equalsIgnoreCase("hdfs")
                     && !schema.equalsIgnoreCase("ofs")
                     && !schema.equalsIgnoreCase("obs")
-                    && !schema.equalsIgnoreCase("s3a"))) {
+                    && !schema.equalsIgnoreCase("oss")
+                    && !schema.equalsIgnoreCase("s3a")
+                    && !schema.equalsIgnoreCase("cosn"))) {
                 throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'ofs://', 'obs://',"
-                    + " or 's3a://' path.");
+                    + "'oss://', 's3a://' or 'cosn://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {

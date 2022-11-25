@@ -144,12 +144,12 @@ suite("test_select_stddev_variance_window") {
     qt_select_default  "select k1, percentile(k2,0.8) over (partition by k6 order by k1 rows between current row and unbounded following) from ${tableName} order by k1;"
     qt_select_default  "select k1, percentile(k2,0.8) over (partition by k6 order by k1) from ${tableName} order by k1;"
 
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between 3 preceding and unbounded following) from ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 preceding) from  ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 following) from  ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between current row and current row) from  ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1 rows between current row and unbounded following) from ${tableName} order by k1;"
-    qt_select_default  "select k1, percentile_approx(k2,0.8,4096) over (partition by k6 order by k1) from ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between 3 preceding and unbounded following) from ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 preceding) from  ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between 3 preceding and 1 following) from  ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between current row and current row) from  ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1 rows between current row and unbounded following) from ${tableName} order by k1;"
+    qt_select_default  "select k1, percentile_approx(k2,0.5,4096) over (partition by k6 order by k1) from ${tableName} order by k1;"
 }
 
 

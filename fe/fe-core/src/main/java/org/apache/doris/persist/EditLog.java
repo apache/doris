@@ -43,6 +43,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownJob;
 import org.apache.doris.datasource.CatalogLog;
+import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -64,8 +67,8 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mtmv.metadata.AlterMTMVTask;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
+import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.DropMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -492,8 +495,8 @@ public class EditLog {
                     int version = Integer.parseInt(versionString);
                     if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                + "please update FeConstants.meta_version and restart.",
-                                version, FeConstants.meta_version);
+                                        + "please update FeConstants.meta_version and restart.", version,
+                                FeConstants.meta_version);
                         System.exit(-1);
                     }
                     MetaContext.get().setMetaVersion(version);
@@ -572,8 +575,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
-                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal
-                            .getData();
+                    final BatchRemoveTransactionsOperation operation =
+                            (BatchRemoveTransactionsOperation) journal.getData();
                     Env.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
@@ -673,8 +676,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_LOAD_JOB: {
-                    org.apache.doris.load.loadv2.LoadJob loadJob = (org.apache.doris.load.loadv2.LoadJob) journal
-                            .getData();
+                    org.apache.doris.load.loadv2.LoadJob loadJob =
+                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
                     env.getLoadManager().replayCreateLoadJob(loadJob);
                     break;
                 }
@@ -766,14 +769,14 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
-                    ModifyTableDefaultDistributionBucketNumOperationLog log
-                            = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
+                    ModifyTableDefaultDistributionBucketNumOperationLog log =
+                            (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
                     env.replayModifyTableDefaultDistributionBucketNum(log);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
-                    ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal
-                            .getData();
+                    ReplacePartitionOperationLog replaceTempPartitionLog =
+                            (ReplacePartitionOperationLog) journal.getData();
                     env.replayReplaceTempPartition(replaceTempPartitionLog);
                     break;
                 }
@@ -917,7 +920,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_ALTER_MTMV_TASK: {
-                    final AlterMTMVTask changeTask = (AlterMTMVTask) journal.getData();
+                    final ChangeMTMVTask changeTask = (ChangeMTMVTask) journal.getData();
                     env.getMTMVJobManager().replayUpdateTask(changeTask);
                     break;
                 }
@@ -929,6 +932,30 @@ public class EditLog {
                 case OperationType.OP_ALTER_USER: {
                     final AlterUserOperationLog log = (AlterUserOperationLog) journal.getData();
                     env.getAuth().replayAlterUser(log);
+                    break;
+                }
+                case OperationType.OP_INIT_CATALOG: {
+                    final InitCatalogLog log = (InitCatalogLog) journal.getData();
+                    env.getCatalogMgr().replayInitCatalog(log);
+                    break;
+                }
+                case OperationType.OP_REFRESH_EXTERNAL_DB: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayRefreshExternalDb(log);
+                    break;
+                }
+                case OperationType.OP_INIT_EXTERNAL_DB: {
+                    final InitDatabaseLog log = (InitDatabaseLog) journal.getData();
+                    env.getCatalogMgr().replayInitExternalDb(log);
+                    break;
+                }
+                case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
+                    final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
+                    env.getCatalogMgr().replayRefreshExternalTable(log);
+                    break;
+                }
+                case OperationType.OP_INIT_EXTERNAL_TABLE: {
+                    // Do nothing.
                     break;
                 }
                 default: {
@@ -1582,12 +1609,28 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_MTMV_TASK, task);
     }
 
-    public void logAlterScheduleTask(AlterMTMVTask changeTaskRecord) {
+    public void logAlterScheduleTask(ChangeMTMVTask changeTaskRecord) {
         logEdit(OperationType.OP_ALTER_MTMV_TASK, changeTaskRecord);
     }
 
     public void logAlterScheduleTask(List<String> taskIds) {
         logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
+    }
+
+    public void logInitCatalog(InitCatalogLog log) {
+        logEdit(OperationType.OP_INIT_CATALOG, log);
+    }
+
+    public void logRefreshExternalDb(ExternalObjectLog log) {
+        logEdit(OperationType.OP_REFRESH_EXTERNAL_DB, log);
+    }
+
+    public void logInitExternalDb(InitDatabaseLog log) {
+        logEdit(OperationType.OP_INIT_EXTERNAL_DB, log);
+    }
+
+    public void logRefreshExternalTable(ExternalObjectLog log) {
+        logEdit(OperationType.OP_REFRESH_EXTERNAL_TABLE, log);
     }
 
     public Journal getJournal() {

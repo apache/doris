@@ -68,4 +68,13 @@ public class BooleanLiteral extends Literal {
     public LiteralExpr toLegacyLiteral() {
         return new BoolLiteral(value);
     }
+
+    @Override
+    public double getDouble() {
+        if (value) {
+            return 1.0;
+        } else {
+            return 0;
+        }
+    }
 }

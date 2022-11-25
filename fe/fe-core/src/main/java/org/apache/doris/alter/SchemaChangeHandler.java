@@ -574,6 +574,12 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Column[" + columnPos.getLastCol() + "] does not exists");
         }
 
+        // sequence col can not change type
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && typeChanged
+                && modColumn.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())) {
+            throw new DdlException("Can not alter sequence column[" + modColumn.getName() + "]");
+        }
+
         // check if add to first
         if (columnPos != null && columnPos.isFirst()) {
             lastColIndex = -1;
@@ -1139,6 +1145,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
 
+        checkReplicaCount(olapTable);
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 

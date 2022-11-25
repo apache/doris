@@ -22,21 +22,13 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 
-import com.google.common.base.Preconditions;
-
-import java.util.Objects;
-
 /**
  * char type literal
  */
-public class CharLiteral extends Literal {
-
-    private final String value;
+public class CharLiteral extends StringLikeLiteral {
 
     public CharLiteral(String value, int len) {
-        super(CharType.createCharType(len));
-        this.value = Objects.requireNonNull(value);
-        Preconditions.checkArgument(value.length() <= len);
+        super(len >= 0 ? value.substring(0, Math.min(value.length(), len)) : value, CharType.createCharType(len));
     }
 
     @Override
@@ -52,17 +44,5 @@ public class CharLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new StringLiteral(value);
-    }
-
-    @Override
-    public double getDouble() {
-        long v = 0;
-        int pos = 0;
-        int len = Math.min(value.length(), 8);
-        while (pos < len) {
-            v += ((long) value.charAt(pos)) << ((7 - pos) * 8);
-            pos++;
-        }
-        return (double) v;
     }
 }

@@ -17,6 +17,8 @@
 
 #include "vec/common/sort/sorter.h"
 
+#include "runtime/thread_context.h"
+
 namespace doris::vectorized {
 
 void MergeSorterState::build_merge_tree(SortDescription& sort_description) {
@@ -136,8 +138,8 @@ Status FullSorter::append_block(Block* block) {
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)));
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz);
+            RETURN_IF_CATCH_BAD_ALLOC(data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const().get(), 0, sz));
         }
         block->clear_column_data();
     }
@@ -177,7 +179,7 @@ Status FullSorter::_do_sort() {
 
     // dispose TOP-N logic
     if (_limit != -1) {
-        // Here is a little opt to reduce the mem uasge, we build a max heap
+        // Here is a little opt to reduce the mem usage, we build a max heap
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.

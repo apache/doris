@@ -38,7 +38,7 @@ import java.util.Objects;
  * All data type literal expression in Nereids.
  * TODO: Increase the implementation of sub expression. such as Integer.
  */
-public abstract class Literal extends Expression implements LeafExpression {
+public abstract class Literal extends Expression implements LeafExpression, Comparable<Literal> {
 
     private final DataType dataType;
 
@@ -48,7 +48,7 @@ public abstract class Literal extends Expression implements LeafExpression {
      * @param dataType logical data type in Nereids
      */
     public Literal(DataType dataType) {
-        this.dataType = dataType;
+        this.dataType = Objects.requireNonNull(dataType);
     }
 
     /**
@@ -58,21 +58,21 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (value == null) {
             return new NullLiteral();
         } else if (value instanceof Byte) {
-            return new TinyIntLiteral((byte) value);
+            return new TinyIntLiteral((Byte) value);
         } else if (value instanceof Short) {
-            return new SmallIntLiteral((short) value);
+            return new SmallIntLiteral((Short) value);
         } else if (value instanceof Integer) {
-            return new IntegerLiteral((int) value);
+            return new IntegerLiteral((Integer) value);
         } else if (value instanceof Long) {
-            return new BigIntLiteral((long) value);
+            return new BigIntLiteral((Long) value);
         } else if (value instanceof BigInteger) {
             return new LargeIntLiteral((BigInteger) value);
         } else if (value instanceof Float) {
-            return new FloatLiteral((float) value);
+            return new FloatLiteral((Float) value);
         } else if (value instanceof Double) {
-            return new DoubleLiteral((double) value);
+            return new DoubleLiteral((Double) value);
         } else if (value instanceof Boolean) {
-            return BooleanLiteral.of((boolean) value);
+            return BooleanLiteral.of((Boolean) value);
         } else if (value instanceof String) {
             return new StringLiteral((String) value);
         } else {
@@ -95,7 +95,11 @@ public abstract class Literal extends Expression implements LeafExpression {
      * @return double representation of literal.
      */
     public double getDouble() {
-        return Double.parseDouble(getValue().toString());
+        try {
+            return Double.parseDouble(getValue().toString());
+        } catch (Exception e) {
+            return 0.0;
+        }
     }
 
     public String getStringValue() {
@@ -125,6 +129,7 @@ public abstract class Literal extends Expression implements LeafExpression {
     /**
      * literal expr compare.
      */
+    @Override
     public int compareTo(Literal other) {
         if (isNullLiteral() && other.isNullLiteral()) {
             return 0;
@@ -201,6 +206,8 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new DateTimeLiteral(desc);
         } else if (targetType.isDecimalType()) {
             return new DecimalLiteral(BigDecimal.valueOf(Double.parseDouble(desc)));
+        } else if (targetType.isDateV2()) {
+            return new DateV2Literal(desc);
         }
         throw new AnalysisException("no support cast!");
     }

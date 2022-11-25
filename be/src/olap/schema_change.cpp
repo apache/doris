@@ -1596,10 +1596,10 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
             RETURN_IF_ERROR(create_rowset());
 
-            if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+            if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
                              << " _memory_limitation=" << _memory_limitation
                              << ", new_block->allocated_bytes()=" << new_block->allocated_bytes()
@@ -1729,6 +1729,12 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 }
 
 Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
+    if (!request.__isset.desc_tbl) {
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+                .append("desc_tbl is not set. Maybe the FE version is not equal to the BE "
+                        "version.");
+    }
+
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;

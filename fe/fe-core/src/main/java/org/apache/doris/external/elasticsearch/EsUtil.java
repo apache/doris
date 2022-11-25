@@ -50,6 +50,7 @@ import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -192,12 +193,13 @@ public class EsUtil {
         return properties;
     }
 
-    private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList) {
+    private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList,
+            Map<String, String> fieldsContext) {
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         switch (compoundPredicate.getOp()) {
             case AND: {
-                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
-                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList);
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext);
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext);
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().must(left).must(right);
                 }
@@ -205,8 +207,8 @@ public class EsUtil {
             }
             case OR: {
                 int beforeSize = notPushDownList.size();
-                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
-                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList);
+                QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext);
+                QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext);
                 int afterSize = notPushDownList.size();
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().should(left).should(right);
@@ -224,7 +226,7 @@ public class EsUtil {
                 return null;
             }
             case NOT: {
-                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList);
+                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext);
                 if (child != null) {
                     return QueryBuilders.boolQuery().mustNot(child);
                 }
@@ -243,19 +245,19 @@ public class EsUtil {
     }
 
     public static QueryBuilder toEsDsl(Expr expr) {
-        return toEsDsl(expr, new ArrayList<>());
+        return toEsDsl(expr, new ArrayList<>(), new HashMap<>());
     }
 
     /**
      * Doris expr to es dsl.
      **/
-    public static QueryBuilder toEsDsl(Expr expr, List<Expr> notPushDownList) {
+    public static QueryBuilder toEsDsl(Expr expr, List<Expr> notPushDownList, Map<String, String> fieldsContext) {
         if (expr == null) {
             return null;
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
-            return toCompoundEsDsl(expr, notPushDownList);
+            return toCompoundEsDsl(expr, notPushDownList, fieldsContext);
         }
         TExprOpcode opCode = expr.getOpcode();
         String column;
@@ -271,9 +273,14 @@ public class EsUtil {
                 notPushDownList.add(expr);
                 return null;
             }
-        } else {
+        } else if (leftExpr instanceof SlotRef) {
             column = ((SlotRef) leftExpr).getColumnName();
+        } else {
+            notPushDownList.add(expr);
+            return null;
         }
+        // Replace col with col.keyword if mapping exist.
+        column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
             Object value = toDorisLiteral(expr.getChild(1));
             switch (opCode) {
@@ -370,6 +377,7 @@ public class EsUtil {
             column.setName(key);
             column.setIsKey(true);
             column.setIsAllowNull(true);
+            column.setUniqueId(-1);
             if (arrayFields.contains(key)) {
                 column.setType(ArrayType.create(type, true));
             } else {
@@ -414,7 +422,7 @@ public class EsUtil {
             case "nested":
             case "object":
             default:
-                return Type.STRING;
+                return ScalarType.createStringType();
         }
     }
 
@@ -442,3 +450,4 @@ public class EsUtil {
     }
 
 }
+

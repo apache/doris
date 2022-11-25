@@ -42,7 +42,7 @@ class FunctionRunnable : public Runnable {
 public:
     explicit FunctionRunnable(std::function<void()> func) : _func(std::move(func)) {}
 
-    void run() OVERRIDE { _func(); }
+    void run() override { _func(); }
 
 private:
     std::function<void()> _func;
@@ -148,9 +148,7 @@ void ThreadPoolToken::shutdown() {
     case State::QUIESCING:
         // The token is already quiescing. Just wait for a worker thread to
         // switch it to QUIESCED.
-        while (state() != State::QUIESCED) {
-            _not_running_cond.wait(l);
-        }
+        _not_running_cond.wait(l, [this]() { return state() == State::QUIESCED; });
         break;
     default:
         break;
@@ -160,9 +158,7 @@ void ThreadPoolToken::shutdown() {
 void ThreadPoolToken::wait() {
     std::unique_lock<std::mutex> l(_pool->_lock);
     _pool->check_not_pool_thread_unlocked();
-    while (is_active()) {
-        _not_running_cond.wait(l);
-    }
+    _not_running_cond.wait(l, [this]() { return !is_active(); });
 }
 
 void ThreadPoolToken::transition(State new_state) {
@@ -320,9 +316,8 @@ void ThreadPool::shutdown() {
         _idle_threads.front().not_empty.notify_one();
         _idle_threads.pop_front();
     }
-    while (_num_threads + _num_threads_pending_start > 0) {
-        _no_threads_cond.wait(l);
-    }
+
+    _no_threads_cond.wait(l, [this]() { return _num_threads + _num_threads_pending_start == 0; });
 
     // All the threads have exited. Check the state of each token.
     for (auto* t : _tokens) {
@@ -465,9 +460,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
 void ThreadPool::wait() {
     std::unique_lock<std::mutex> l(_lock);
     check_not_pool_thread_unlocked();
-    while (_total_queued_tasks > 0 || _active_threads > 0) {
-        _idle_cond.wait(l);
-    }
+    _idle_cond.wait(l, [this]() { return _total_queued_tasks == 0 && _active_threads == 0; });
 }
 
 void ThreadPool::dispatch_thread() {

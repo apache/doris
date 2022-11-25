@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.common.Id;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -41,8 +40,6 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 
-import java.util.List;
-
 /**
  * Calculate the cost of a plan.
  * Inspired by Presto.
@@ -51,14 +48,7 @@ public class CostCalculator {
     static final double CPU_WEIGHT = 1;
     static final double MEMORY_WEIGHT = 1;
     static final double NETWORK_WEIGHT = 1.5;
-    /**
-     * Except stats information, there are some special criteria in doris.
-     * For example, in hash join cluster, BE could build hash tables
-     * in parallel for left deep tree. And hence, we need to punish right deep tree.
-     * penalyWeight is the factor of punishment.
-     * The punishment is denoted by stats.penalty.
-     */
-    static final double PENALTY_WEIGHT = 0.5;
+
     /**
      * The intuition behind `HEAVY_OPERATOR_PUNISH_FACTOR` is we need to avoid this form of join patterns:
      * Plan1: L join ( AGG1(A) join AGG2(B))
@@ -80,7 +70,16 @@ public class CostCalculator {
         CostEstimator costCalculator = new CostEstimator();
         CostEstimate costEstimate = groupExpression.getPlan().accept(costCalculator, planContext);
         groupExpression.setCostEstimate(costEstimate);
-        CostWeight costWeight = new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT, PENALTY_WEIGHT);
+        /*
+         * About PENALTY:
+         * Except stats information, there are some special criteria in doris.
+         * For example, in hash join cluster, BE could build hash tables
+         * in parallel for left deep tree. And hence, we need to punish right deep tree.
+         * penalyWeight is the factor of punishment.
+         * The punishment is denoted by stats.penalty.
+         */
+        CostWeight costWeight = new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT,
+                ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
         return costWeight.calculate(costEstimate);
     }
 
@@ -185,25 +184,22 @@ public class CostCalculator {
 
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult inputStatistics = context.getChildStatistics(0);
-            return CostEstimate.of(inputStatistics.computeSize(), statistics.computeSize(), 0);
+            return CostEstimate.of(inputStatistics.getRowCount(), statistics.computeSize(), 0);
         }
 
         @Override
         public CostEstimate visitPhysicalHashJoin(
                 PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin, PlanContext context) {
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
-            Preconditions.checkState(context.getChildrenStats().size() == 2);
 
             StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
-            double outputRowCount = outputStats.computeSize();
+            double outputRowCount = outputStats.getRowCount();
 
             StatsDeriveResult probeStats = context.getChildStatistics(0);
             StatsDeriveResult buildStats = context.getChildStatistics(1);
-            List<Id> leftIds = context.getChildOutputIds(0);
-            List<Id> rightIds = context.getChildOutputIds(1);
 
-            double leftRowCount = probeStats.computeColumnSize(leftIds);
-            double rightRowCount = buildStats.computeColumnSize(rightIds);
+            double leftRowCount = probeStats.getRowCount();
+            double rightRowCount = buildStats.getRowCount();
             /*
             pattern1: L join1 (Agg1() join2 Agg2())
             result number of join2 may much less than Agg1.
@@ -216,7 +212,7 @@ public class CostCalculator {
                     * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
             if (buildStats.getWidth() >= 2) {
                 //penalty for right deep tree
-                penalty += Math.abs(leftRowCount - rightRowCount);
+                penalty += rightRowCount;
             }
 
             if (physicalHashJoin.getJoinType().isCrossJoin()) {
@@ -238,7 +234,6 @@ public class CostCalculator {
                 PlanContext context) {
             // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
-            Preconditions.checkState(context.getChildrenStats().size() == 2);
 
             StatsDeriveResult leftStatistics = context.getChildStatistics(0);
             StatsDeriveResult rightStatistics = context.getChildStatistics(1);

@@ -671,13 +671,21 @@ public:
 
         res_offset.resize(input_rows_count);
 
-        int res_reserve_size = 0;
+        size_t res_reserve_size = 0;
         // we could ignore null string column
         // but it's not necessary to ignore it
         for (size_t i = 0; i < offsets_list.size(); ++i) {
             for (size_t j = 0; j < input_rows_count; ++j) {
-                res_reserve_size += (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
+                size_t append = (*offsets_list[i])[j] - (*offsets_list[i])[j - 1];
+                // check whether the concat output might overflow(unlikely)
+                if (UNLIKELY(UINT_MAX - append < res_reserve_size)) {
+                    return Status::BufferAllocFailed("concat output is too large to allocate");
+                }
+                res_reserve_size += append;
             }
+        }
+        if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
+            return Status::BufferAllocFailed("concat output is too large to allocate");
         }
         // for each terminal zero
         res_reserve_size += input_rows_count;

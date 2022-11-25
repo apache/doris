@@ -39,8 +39,8 @@ Status ExceptNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status ExceptNode::open(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(SetOperationNode::open(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();

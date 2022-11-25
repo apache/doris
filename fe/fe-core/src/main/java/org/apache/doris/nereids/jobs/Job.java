@@ -18,32 +18,47 @@
 package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.CopyInResult;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
 public abstract class Job {
+    public final Logger logger = LogManager.getLogger(getClass());
+
     protected JobType type;
     protected JobContext context;
     protected boolean once;
+    protected final boolean enableTrace;
 
     public Job(JobType type, JobContext context) {
-        this.type = type;
-        this.context = context;
-        this.once = true;
+        this(type, context, true);
     }
 
+    /** job full parameter constructor */
     public Job(JobType type, JobContext context, boolean once) {
         this.type = type;
         this.context = context;
         this.once = once;
+        ConnectContext connectContext = ConnectContext.get();
+        this.enableTrace = connectContext == null
+                ? false
+                : connectContext.getSessionVariable().isEnableNereidsTrace();
     }
 
     public void pushJob(Job job) {
@@ -65,12 +80,56 @@ public abstract class Job {
      * @param candidateRules rules to be applied
      * @return all rules that can be applied on this group expression
      */
-    public List<Rule> getValidRules(GroupExpression groupExpression,
-            List<Rule> candidateRules) {
+    public List<Rule> getValidRules(GroupExpression groupExpression, List<Rule> candidateRules) {
         return candidateRules.stream()
                 .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchRoot(groupExpression.getPlan())
                         && groupExpression.notApplied(rule)).collect(Collectors.toList());
     }
 
     public abstract void execute() throws AnalysisException;
+
+    protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup) {
+        context.onInvokeRule(rule.getRuleType());
+
+        String traceBefore = enableTrace ? getPlanTraceLog() : null;
+
+        List<Plan> afters = rule.transform(before, context.getCascadesContext());
+        Preconditions.checkArgument(afters.size() == 1);
+        Plan after = afters.get(0);
+
+        if (after != before) {
+            CopyInResult result = context.getCascadesContext()
+                    .getMemo()
+                    .copyIn(after, targetGroup, rule.isRewrite());
+
+            if ((result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup)
+                    && enableTrace) {
+                String traceAfter = getPlanTraceLog();
+                printTraceLog(rule, traceBefore, traceAfter);
+            }
+
+            return Optional.of(result);
+        }
+
+        return Optional.empty();
+    }
+
+    protected String getPlanTraceLog() {
+        return context.getCascadesContext()
+                .getMemo()
+                .copyOut(false)
+                .treeString();
+    }
+
+    protected String getMemoTraceLog() {
+        return context.getCascadesContext()
+                .getMemo()
+                .getRoot()
+                .treeString();
+    }
+
+    protected void printTraceLog(Rule rule, String traceBefore, String traceAfter) {
+        logger.info("========== {} {} ==========\nbefore:\n{}\n\nafter:\n{}\n",
+                getClass().getSimpleName(), rule.getRuleType(), traceBefore, traceAfter);
+    }
 }

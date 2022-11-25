@@ -457,7 +457,8 @@ public class InferFiltersRule implements ExprRewriteRule {
                     || (joinOperator == JoinOperator.LEFT_SEMI_JOIN)
                     || (!needChange && joinOperator == JoinOperator.RIGHT_OUTER_JOIN)
                     || (needChange && (joinOperator == JoinOperator.LEFT_OUTER_JOIN
-                    || joinOperator == JoinOperator.LEFT_ANTI_JOIN))) {
+                    || joinOperator == JoinOperator.LEFT_ANTI_JOIN
+                    || joinOperator == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN))) {
                 ret = true;
             }
         } else if (clauseType == ExprRewriter.ClauseType.WHERE_CLAUSE) {
@@ -465,7 +466,8 @@ public class InferFiltersRule implements ExprRewriteRule {
                     || (joinOperator == JoinOperator.LEFT_SEMI_JOIN
                     || (needChange && joinOperator == JoinOperator.RIGHT_OUTER_JOIN))
                     || (!needChange && (joinOperator == JoinOperator.LEFT_OUTER_JOIN
-                    || joinOperator == JoinOperator.LEFT_ANTI_JOIN))) {
+                    || joinOperator == JoinOperator.LEFT_ANTI_JOIN
+                    || joinOperator == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN))) {
                 ret = true;
             }
         }

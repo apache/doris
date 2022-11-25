@@ -20,6 +20,7 @@
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -119,6 +120,11 @@ private:
         return new_size;
     }
 
+    std::string _debug_string() override {
+        std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) + ")";
+        return info;
+    }
+
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
     mutable uint64_t _evaluated_rows = 1;
@@ -175,12 +181,5 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& colu
             _evaluated_rows - _passed_rows, _evaluated_rows, _has_calculate_filter, _always_true);
     return new_size;
 }
-
-class BloomFilterColumnPredicateFactory {
-public:
-    static ColumnPredicate* create_column_predicate(
-            uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, FieldType type,
-            int be_exec_version);
-};
 
 } //namespace doris

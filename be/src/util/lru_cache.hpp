@@ -84,7 +84,7 @@ public:
         }
     }
 
-    // Must copy value, because value maybe relased when caller used
+    // Must copy value, because value maybe released when caller used
     bool get(const Key& key, Value* value) {
         auto it = _cache_items_map.find(key);
         if (it == _cache_items_map.end()) {

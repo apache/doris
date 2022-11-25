@@ -18,8 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
@@ -30,26 +32,37 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.
  * This class will used in olaptable
  */
 public class Index implements Writable {
+    public static final int INDEX_ID_INIT_VALUE = -1;
+
+    @SerializedName(value = "indexId")
+    private long indexId = -1; // -1 for compatibale
     @SerializedName(value = "indexName")
     private String indexName;
     @SerializedName(value = "columns")
     private List<String> columns;
     @SerializedName(value = "indexType")
     private IndexDef.IndexType indexType;
+    @SerializedName(value = "properties")
+    private Map<String, String> properties;
     @SerializedName(value = "comment")
     private String comment;
 
-    public Index(String indexName, List<String> columns, IndexDef.IndexType indexType, String comment) {
+    public Index(long indexId, String indexName, List<String> columns,
+                 IndexDef.IndexType indexType, Map<String, String> properties, String comment) {
+        this.indexId = indexId;
         this.indexName = indexName;
         this.columns = columns;
         this.indexType = indexType;
+        this.properties = properties;
         this.comment = comment;
     }
 
@@ -57,7 +70,16 @@ public class Index implements Writable {
         this.indexName = null;
         this.columns = null;
         this.indexType = null;
+        this.properties = null;
         this.comment = null;
+    }
+
+    public long getIndexId() {
+        return indexId;
+    }
+
+    public void setIndexId(long indexId) {
+        this.indexId = indexId;
     }
 
     public String getIndexName() {
@@ -84,6 +106,26 @@ public class Index implements Writable {
         this.indexType = indexType;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public String getPropertiesString() {
+        if (properties == null || properties.isEmpty()) {
+            return "";
+        }
+
+        return "(" + new PrintableMap(properties, "=", true, false, ",").toString() + ")";
+    }
+
+    public String getInvertedIndexParser() {
+        return InvertedIndexUtil.getInvertedIndexParser(properties);
+    }
+
     public String getComment() {
         return comment;
     }
@@ -108,7 +150,8 @@ public class Index implements Writable {
     }
 
     public Index clone() {
-        return new Index(indexName, new ArrayList<>(columns), indexType, comment);
+        return new Index(indexId, indexName, new ArrayList<>(columns),
+                         indexType, new HashMap<>(properties), comment);
     }
 
     @Override
@@ -133,6 +176,10 @@ public class Index implements Writable {
         if (indexType != null) {
             sb.append(" USING ").append(indexType.toString());
         }
+        if (properties != null && properties.size() > 0) {
+            sb.append(" PROPERTIES");
+            sb.append(getPropertiesString());
+        }
         if (comment != null) {
             sb.append(" COMMENT '" + comment + "'");
         }
@@ -141,11 +188,12 @@ public class Index implements Writable {
 
     public TOlapTableIndex toThrift() {
         TOlapTableIndex tIndex = new TOlapTableIndex();
+        tIndex.setIndexId(indexId);
         tIndex.setIndexName(indexName);
         tIndex.setColumns(columns);
         tIndex.setIndexType(TIndexType.valueOf(indexType.toString()));
-        if (columns != null) {
-            tIndex.setComment(comment);
+        if (properties != null) {
+            tIndex.setProperties(properties);
         }
         return tIndex;
     }

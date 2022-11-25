@@ -241,6 +241,12 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_NAME = 322;
     public static final short OP_ALTER_CATALOG_PROPS = 323;
     public static final short OP_REFRESH_CATALOG = 324;
+    public static final short OP_INIT_CATALOG = 325;
+    public static final short OP_REFRESH_EXTERNAL_DB = 326;
+    public static final short OP_INIT_EXTERNAL_DB = 327;
+    public static final short OP_REFRESH_EXTERNAL_TABLE = 328;
+    @Deprecated
+    public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
     // scheduler job and task 330-350
     public static final short OP_CREATE_MTMV_JOB = 330;

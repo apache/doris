@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
@@ -128,6 +129,11 @@ public:
         LOG(FATAL) << "Cannot clone_resized() column " << get_name();
         return nullptr;
     }
+
+    // Only used on ColumnDictionary
+    virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
+
+    virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;
@@ -243,6 +249,14 @@ public:
         LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
 
+    /// Insert binary data into column from a continuous buffer, the implementation maybe copy all binary data
+    /// in one single time.
+    virtual void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                                    const size_t num) {
+        LOG(FATAL) << "Method insert_many_continuous_binary_data is not supported for "
+                   << get_name();
+    }
+
     virtual void insert_many_strings(const StringRef* strings, size_t num) {
         LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
@@ -269,10 +283,6 @@ public:
         for (size_t i = 0; i < length; ++i) {
             insert_default();
         }
-    }
-
-    virtual void insert_elements(void* elements, size_t num) {
-        LOG(FATAL) << "Method insert_elements is not supported for " << get_name();
     }
 
     /** Removes last n elements.

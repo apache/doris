@@ -203,6 +203,7 @@ set(OLAP_TEST_FILES
     olap/tablet_cooldown_test.cpp
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
+    olap/segcompaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -323,13 +324,19 @@ set(UTIL_TEST_FILES
     util/interval_tree_test.cpp
     util/key_util_test.cpp
 )
+if (OS_MACOSX)
+    list(REMOVE_ITEM UTIL_TEST_FILES util/system_metrics_test.cpp)
+endif()
+
 set(VEC_TEST_FILES
     vec/aggregate_functions/agg_collect_test.cpp
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
     vec/aggregate_functions/vec_retention_test.cpp
+    vec/aggregate_functions/vec_sequence_match_test.cpp
     vec/aggregate_functions/agg_min_max_by_test.cpp
+    vec/columns/column_decimal_test.cpp
     vec/core/block_test.cpp
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp
@@ -363,12 +370,12 @@ set(VEC_TEST_FILES
     vec/function/function_test_util.cpp
     vec/function/function_url_test.cpp
     vec/function/table_function_test.cpp
+    vec/function/function_running_difference_test.cpp
     vec/runtime/vdata_stream_test.cpp
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
 )
-
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}
     ${COMMON_TEST_FILES}

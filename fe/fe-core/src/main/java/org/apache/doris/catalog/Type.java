@@ -158,6 +158,8 @@ public abstract class Type {
         arraySubTypes.add(DECIMALV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
+        arraySubTypes.add(DATEV2);
+        arraySubTypes.add(DATETIMEV2);
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
@@ -481,13 +483,17 @@ public abstract class Type {
         return false;
     }
 
-    public static boolean canCastTo(Type t1, Type t2) {
-        if (t1.isScalarType() && t2.isScalarType()) {
-            return ScalarType.canCastTo((ScalarType) t1, (ScalarType) t2);
-        } else if (t1.isArrayType() && t2.isArrayType()) {
-            return ArrayType.canCastTo((ArrayType) t1, (ArrayType) t2);
+    public static boolean canCastTo(Type sourceType, Type targetType) {
+        if (sourceType.isScalarType() && targetType.isScalarType()) {
+            return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
+        } else if (sourceType.isArrayType() && targetType.isArrayType()) {
+            return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
+        } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
+                && !sourceType.isNull()) {
+            // TODO: current not support cast any non-array type(except for null) to nested array type.
+            return false;
         }
-        return t1.isNull() || t1.getPrimitiveType().isCharFamily();
+        return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
 
     /**
@@ -756,7 +762,7 @@ public abstract class Type {
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
                         || scalarType.getType() == TPrimitiveType.DECIMAL32
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
-                        || scalarType.getType() == TPrimitiveType.DECIMAL128) {
+                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
@@ -1716,3 +1722,4 @@ public abstract class Type {
         return false;
     }
 }
+

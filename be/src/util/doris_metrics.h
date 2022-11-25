@@ -139,7 +139,7 @@ public:
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits;
-    // permits required by the compaction task which is waitting for permits
+    // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits;
 
     HistogramMetric* tablet_version_num_distribution;
@@ -185,6 +185,7 @@ public:
     UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
 
+    UIntGauge* segcompaction_mem_consumption;
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
     UIntGauge* load_channel_mem_consumption;

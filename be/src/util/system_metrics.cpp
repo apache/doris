@@ -93,6 +93,22 @@ DEFINE_MEMORY_GAUGE_METRIC(pgpgin, MetricUnit::NOUNIT);
 DEFINE_MEMORY_GAUGE_METRIC(pgpgout, MetricUnit::NOUNIT);
 DEFINE_MEMORY_GAUGE_METRIC(pswpin, MetricUnit::NOUNIT);
 DEFINE_MEMORY_GAUGE_METRIC(pswpout, MetricUnit::NOUNIT);
+#ifndef USE_JEMALLOC
+DEFINE_MEMORY_GAUGE_METRIC(tcmalloc_allocated_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(tcmalloc_total_thread_cache_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(tcmalloc_central_cache_free_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(tcmalloc_transfer_cache_free_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(tcmalloc_thread_cache_free_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(tcmalloc_pageheap_free_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(tcmalloc_pageheap_unmapped_bytes, MetricUnit::BYTES);
+#else
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_allocated_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_active_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_metadata_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_resident_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_mapped_bytes, MetricUnit::BYTES);
+DEFINE_MEMORY_GAUGE_METRIC(jemalloc_retained_bytes, MetricUnit::BYTES);
+#endif
 
 struct MemoryMetrics {
     MemoryMetrics(MetricEntity* ent) : entity(ent) {
@@ -101,6 +117,23 @@ struct MemoryMetrics {
         INT_GAUGE_METRIC_REGISTER(entity, memory_pgpgout);
         INT_GAUGE_METRIC_REGISTER(entity, memory_pswpin);
         INT_GAUGE_METRIC_REGISTER(entity, memory_pswpout);
+
+#ifndef USE_JEMALLOC
+        INT_GAUGE_METRIC_REGISTER(entity, memory_tcmalloc_allocated_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_tcmalloc_total_thread_cache_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_tcmalloc_central_cache_free_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_tcmalloc_transfer_cache_free_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_tcmalloc_thread_cache_free_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_tcmalloc_pageheap_free_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_tcmalloc_pageheap_unmapped_bytes);
+#else
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_allocated_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_active_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_metadata_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_resident_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_mapped_bytes);
+        INT_GAUGE_METRIC_REGISTER(entity, memory_jemalloc_retained_bytes);
+#endif
     }
 
     MetricEntity* entity = nullptr;
@@ -109,6 +142,23 @@ struct MemoryMetrics {
     IntGauge* memory_pgpgout;
     IntGauge* memory_pswpin;
     IntGauge* memory_pswpout;
+
+#ifndef USE_JEMALLOC
+    IntGauge* memory_tcmalloc_allocated_bytes;
+    IntGauge* memory_tcmalloc_total_thread_cache_bytes;
+    IntGauge* memory_tcmalloc_central_cache_free_bytes;
+    IntGauge* memory_tcmalloc_transfer_cache_free_bytes;
+    IntGauge* memory_tcmalloc_thread_cache_free_bytes;
+    IntGauge* memory_tcmalloc_pageheap_free_bytes;
+    IntGauge* memory_tcmalloc_pageheap_unmapped_bytes;
+#else
+    IntGauge* memory_jemalloc_allocated_bytes;
+    IntGauge* memory_jemalloc_active_bytes;
+    IntGauge* memory_jemalloc_metadata_bytes;
+    IntGauge* memory_jemalloc_resident_bytes;
+    IntGauge* memory_jemalloc_mapped_bytes;
+    IntGauge* memory_jemalloc_retained_bytes;
+#endif
 };
 
 #define DEFINE_DISK_COUNTER_METRIC(metric, unit) \
@@ -372,6 +422,37 @@ void SystemMetrics::_install_memory_metrics(MetricEntity* entity) {
 void SystemMetrics::_update_memory_metrics() {
     _memory_metrics->memory_allocated_bytes->set_value(PerfCounters::get_vm_rss());
     get_metrics_from_proc_vmstat();
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
+    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
+#elif defined(USE_JEMALLOC)
+    _memory_metrics->memory_jemalloc_allocated_bytes->set_value(
+            MemInfo::get_je_metrics("stats.allocated"));
+    _memory_metrics->memory_jemalloc_active_bytes->set_value(
+            MemInfo::get_je_metrics("stats.active"));
+    _memory_metrics->memory_jemalloc_metadata_bytes->set_value(
+            MemInfo::get_je_metrics("stats.metadata"));
+    _memory_metrics->memory_jemalloc_resident_bytes->set_value(
+            MemInfo::get_je_metrics("stats.resident"));
+    _memory_metrics->memory_jemalloc_mapped_bytes->set_value(
+            MemInfo::get_je_metrics("stats.mapped"));
+    _memory_metrics->memory_jemalloc_retained_bytes->set_value(
+            MemInfo::get_je_metrics("stats.retained"));
+#else
+    _memory_metrics->memory_tcmalloc_allocated_bytes->set_value(
+            MemInfo::get_tc_metrics("generic.total_physical_bytes"));
+    _memory_metrics->memory_tcmalloc_total_thread_cache_bytes->set_value(
+            MemInfo::allocator_cache_mem());
+    _memory_metrics->memory_tcmalloc_central_cache_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.central_cache_free_bytes"));
+    _memory_metrics->memory_tcmalloc_transfer_cache_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.transfer_cache_free_bytes"));
+    _memory_metrics->memory_tcmalloc_thread_cache_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.thread_cache_free_bytes"));
+    _memory_metrics->memory_tcmalloc_pageheap_free_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.pageheap_free_bytes"));
+    _memory_metrics->memory_tcmalloc_pageheap_unmapped_bytes->set_value(
+            MemInfo::get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"));
+#endif
 }
 
 void SystemMetrics::_install_disk_metrics(const std::set<std::string>& disk_devices) {

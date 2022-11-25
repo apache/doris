@@ -81,6 +81,14 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     _init_profile();
 }
 
+OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+                     const std::vector<std::string>& column_names, const std::string& ctz)
+        : _profile(nullptr),
+          _scan_params(params),
+          _scan_range(range),
+          _ctz(ctz),
+          _column_names(column_names) {}
+
 OrcReader::~OrcReader() {
     close();
 }
@@ -166,6 +174,40 @@ Status OrcReader::init_reader(
     return Status::OK();
 }
 
+Status OrcReader::get_parsered_schema(std::vector<std::string>* col_names,
+                                      std::vector<TypeDescriptor>* col_types) {
+    if (_file_reader == nullptr) {
+        std::unique_ptr<FileReader> inner_reader;
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _scan_params, _scan_range.path,
+                                                        _scan_range.start_offset,
+                                                        _scan_range.file_size, 0, inner_reader));
+        RETURN_IF_ERROR(inner_reader->open());
+        _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader.release());
+    }
+    if (_file_reader->getLength() == 0) {
+        return Status::EndOfFile("Empty orc file");
+    }
+
+    // create orc reader
+    try {
+        orc::ReaderOptions options;
+        _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_reader), options);
+    } catch (std::exception& e) {
+        return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
+    }
+
+    if (_reader->getNumberOfRows() == 0) {
+        return Status::EndOfFile("Empty orc file");
+    }
+
+    auto& root_type = _reader->getType();
+    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
+        col_names->emplace_back(root_type.getFieldName(i));
+        col_types->emplace_back(_convert_to_doris_type(root_type.getSubtype(i)));
+    }
+    return Status::OK();
+}
+
 Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
     std::unordered_set<std::string> orc_cols;
@@ -178,9 +220,6 @@ Status OrcReader::_init_read_columns() {
         } else {
             _read_cols.emplace_back(col_name);
         }
-    }
-    if (_read_cols.empty()) {
-        return Status::InternalError("No columns found in orc file");
     }
     return Status::OK();
 }
@@ -650,6 +689,9 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         return _decode_decimal_column<Int64>(col_name, data_column, data_type,
                                              _decimal_scale_params, cvb, num_values);
     case TypeIndex::Decimal128:
+        return _decode_decimal_column<Int128>(col_name, data_column, data_type,
+                                              _decimal_scale_params, cvb, num_values);
+    case TypeIndex::Decimal128I:
         return _decode_decimal_column<Int128>(col_name, data_column, data_type,
                                               _decimal_scale_params, cvb, num_values);
     case TypeIndex::Date:

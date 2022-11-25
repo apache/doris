@@ -34,7 +34,8 @@
 #include "common/logging.h"
 #include "udf/udf.h"
 #include "util/coding.h"
-
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 namespace doris {
 
 // serialized bitmap := TypeCode(1), Payload
@@ -1681,19 +1682,35 @@ public:
      */
     int64_t sub_range(const int64_t& range_start, const int64_t& range_end,
                       BitmapValue* ret_bitmap) {
-        int64_t count = 0;
-        for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
-            if (*it < range_start) {
-                continue;
-            }
-            if (*it < range_end) {
-                ret_bitmap->add(*it);
-                ++count;
+        switch (_type) {
+        case EMPTY:
+            return 0;
+        case SINGLE: {
+            //only single value, so _sv must in [range_start,range_end)
+            if (range_start <= _sv && _sv < range_end) {
+                ret_bitmap->add(_sv);
+                return 1;
             } else {
-                break;
+                return 0;
             }
         }
-        return count;
+        case BITMAP: {
+            int64_t count = 0;
+            for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+                if (*it < range_start) {
+                    continue;
+                }
+                if (*it < range_end) {
+                    ret_bitmap->add(*it);
+                    ++count;
+                } else {
+                    break;
+                }
+            }
+            return count;
+        }
+        }
+        return 0;
     }
 
     /**
@@ -1704,19 +1721,35 @@ public:
      */
     int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit,
                       BitmapValue* ret_bitmap) {
-        int64_t count = 0;
-        for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
-            if (*it < range_start) {
-                continue;
-            }
-            if (count < cardinality_limit) {
-                ret_bitmap->add(*it);
-                ++count;
+        switch (_type) {
+        case EMPTY:
+            return 0;
+        case SINGLE: {
+            //only single value, so range_start must less than _sv
+            if (range_start > _sv) {
+                return 0;
             } else {
-                break;
+                ret_bitmap->add(_sv);
+                return 1;
             }
         }
-        return count;
+        case BITMAP: {
+            int64_t count = 0;
+            for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+                if (*it < range_start) {
+                    continue;
+                }
+                if (count < cardinality_limit) {
+                    ret_bitmap->add(*it);
+                    ++count;
+                } else {
+                    break;
+                }
+            }
+            return count;
+        }
+        }
+        return 0;
     }
 
     /**
@@ -1725,8 +1758,23 @@ public:
      * Analog of the substring string function, but for bitmap.
      */
     int64_t offset_limit(const int64_t& offset, const int64_t& limit, BitmapValue* ret_bitmap) {
-        if (std::abs(offset) >= _bitmap.cardinality()) {
+        switch (_type) {
+        case EMPTY:
             return 0;
+        case SINGLE: {
+            //only single value, so offset must start 0
+            if (offset == 0) {
+                ret_bitmap->add(_sv);
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+        case BITMAP: {
+            if (std::abs(offset) >= _bitmap.cardinality()) {
+                return 0;
+            }
+        }
         }
         int64_t abs_offset = offset;
         if (offset < 0) {
@@ -1743,6 +1791,24 @@ public:
             ret_bitmap->add(*it);
         }
         return count;
+    }
+
+    //for function bitmap_to_array
+    void to_array(vectorized::PaddedPODArray<int64_t>& data) const {
+        switch (_type) {
+        case EMPTY:
+            break;
+        case SINGLE: {
+            data.emplace_back(_sv);
+            break;
+        }
+        case BITMAP: {
+            for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+                data.emplace_back(*it);
+            }
+            break;
+        }
+        }
     }
 
     void clear() {

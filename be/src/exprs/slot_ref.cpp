@@ -284,7 +284,7 @@ Decimal64Val SlotRef::get_decimal64_val(ExprContext* context, TupleRow* row) {
 }
 
 Decimal128Val SlotRef::get_decimal128_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DECIMAL128);
+    DCHECK_EQ(_type.type, TYPE_DECIMAL128I);
     Tuple* t = row->get_tuple(_tuple_idx);
     if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return Decimal128Val::null();

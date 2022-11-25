@@ -20,7 +20,6 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.datasource.EsExternalCatalog;
-import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -36,9 +35,6 @@ import java.util.List;
 public class EsExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(EsExternalTable.class);
-
-    private final EsExternalCatalog catalog;
-    private final String dbName;
     private EsTable esTable;
 
     /**
@@ -50,50 +46,14 @@ public class EsExternalTable extends ExternalTable {
      * @param catalog HMSExternalDataSource.
      */
     public EsExternalTable(long id, String name, String dbName, EsExternalCatalog catalog) {
-        super(id, name);
-        this.dbName = dbName;
-        this.catalog = catalog;
-        this.type = TableType.ES_EXTERNAL_TABLE;
+        super(id, name, catalog, dbName, TableType.ES_EXTERNAL_TABLE);
     }
 
-
-    private synchronized void makeSureInitialized() {
-        if (!initialized) {
-            init();
-            initialized = true;
+    protected synchronized void makeSureInitialized() {
+        if (!objectCreated) {
+            esTable = toEsTable();
+            objectCreated = true;
         }
-    }
-
-    private void init() {
-        fullSchema = EsUtil.genColumnsFromEs(catalog.getEsRestClient(), name, null);
-        esTable = toEsTable();
-    }
-
-    @Override
-    public List<Column> getFullSchema() {
-        makeSureInitialized();
-        return fullSchema;
-    }
-
-    @Override
-    public List<Column> getBaseSchema() {
-        return getFullSchema();
-    }
-
-    @Override
-    public List<Column> getBaseSchema(boolean full) {
-        return getFullSchema();
-    }
-
-    @Override
-    public Column getColumn(String name) {
-        makeSureInitialized();
-        for (Column column : fullSchema) {
-            if (name.equals(column.getName())) {
-                return column;
-            }
-        }
-        return null;
     }
 
     public EsTable getEsTable() {
@@ -107,7 +67,7 @@ public class EsExternalTable extends ExternalTable {
     }
 
     /**
-     * get database name of hms table.
+     * get database name of es table.
      */
     public String getDbName() {
         return dbName;
@@ -115,25 +75,28 @@ public class EsExternalTable extends ExternalTable {
 
     @Override
     public TTableDescriptor toThrift() {
+        List<Column> schema = getFullSchema();
         TEsTable tEsTable = new TEsTable();
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, fullSchema.size(), 0,
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, schema.size(), 0,
                 getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
     }
 
     private EsTable toEsTable() {
-        EsTable esTable = new EsTable(this.id, this.name, this.fullSchema, TableType.ES_EXTERNAL_TABLE);
+        List<Column> schema = getFullSchema();
+        EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
+        EsTable esTable = new EsTable(this.id, this.name, schema, TableType.ES_EXTERNAL_TABLE);
         esTable.setIndexName(name);
-        esTable.setClient(catalog.getEsRestClient());
-        esTable.setUserName(catalog.getUsername());
-        esTable.setPasswd(catalog.getPassword());
-        esTable.setEnableDocValueScan(catalog.isEnableDocValueScan());
-        esTable.setEnableKeywordSniff(catalog.isEnableKeywordSniff());
-        esTable.setNodesDiscovery(catalog.isEnableNodesDiscovery());
-        esTable.setHttpSslEnabled(catalog.isEnableSsl());
-        esTable.setSeeds(catalog.getNodes());
-        esTable.setHosts(String.join(",", catalog.getNodes()));
+        esTable.setClient(esCatalog.getEsRestClient());
+        esTable.setUserName(esCatalog.getUsername());
+        esTable.setPasswd(esCatalog.getPassword());
+        esTable.setEnableDocValueScan(esCatalog.isEnableDocValueScan());
+        esTable.setEnableKeywordSniff(esCatalog.isEnableKeywordSniff());
+        esTable.setNodesDiscovery(esCatalog.isEnableNodesDiscovery());
+        esTable.setHttpSslEnabled(esCatalog.isEnableSsl());
+        esTable.setSeeds(esCatalog.getNodes());
+        esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
         return esTable;
     }

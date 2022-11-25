@@ -231,7 +231,11 @@ class PStatus;
     M(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION, -3112, "", true)         \
     M(OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE, -3113, "", true)           \
     M(OLAP_ERR_ROWSET_ADD_MIGRATION_V2, -3114, "", true)                 \
-    M(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS, -3115, "", false)
+    M(OLAP_ERR_PUBLISH_VERSION_NOT_CONTINUOUS, -3115, "", false)         \
+    M(OLAP_ERR_ROWSET_RENAME_FILE_FAILED, -3116, "", false)              \
+    M(OLAP_ERR_SEGCOMPACTION_INIT_READER, -3117, "", false)              \
+    M(OLAP_ERR_SEGCOMPACTION_INIT_WRITER, -3118, "", false)              \
+    M(OLAP_ERR_SEGCOMPACTION_FAILED, -3119, "", false)
 
 enum ErrorCode {
 #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) NAME = ERRORCODE,
@@ -260,13 +264,13 @@ public:
 
     Status(const PStatus& pstatus);
 
+    // Not allow user create status using constructors, could only use util methods
+private:
     Status(TStatusCode::type code, std::string_view msg, int16_t precise_code = 1)
             : _code(code), _precise_code(precise_code), _err_msg(msg) {}
 
     Status(TStatusCode::type code, std::string&& msg, int16_t precise_code = 1)
             : _code(code), _precise_code(precise_code), _err_msg(std::move(msg)) {}
-
-    static Status OK() { return Status(); }
 
     template <typename... Args>
     static Status ErrorFmt(TStatusCode::type code, std::string_view fmt, Args&&... args) {
@@ -277,6 +281,20 @@ public:
             return Status(code, fmt::format(fmt, std::forward<Args>(args)...));
         }
     }
+
+    template <typename... Args>
+    static Status ErrorFmtWithStackTrace(TStatusCode::type code, std::string_view fmt,
+                                         Args&&... args) {
+        // In some cases, fmt contains '{}' but there are no args.
+        if constexpr (sizeof...(args) == 0) {
+            return ConstructErrorStatus(code, -1, fmt);
+        } else {
+            return ConstructErrorStatus(code, -1, fmt::format(fmt, std::forward<Args>(args)...));
+        }
+    }
+
+public:
+    static Status OK() { return Status(); }
 
     template <typename... Args>
     static Status PublishTimeout(std::string_view fmt, Args&&... args) {
@@ -351,7 +369,8 @@ public:
 
     template <typename... Args>
     static Status RpcError(std::string_view fmt, Args&&... args) {
-        return ErrorFmt(TStatusCode::THRIFT_RPC_ERROR, fmt, std::forward<Args>(args)...);
+        return ErrorFmtWithStackTrace(TStatusCode::THRIFT_RPC_ERROR, fmt,
+                                      std::forward<Args>(args)...);
     }
 
     template <typename... Args>
@@ -387,17 +406,15 @@ public:
     // A wrapper for ErrorCode
     //      Precise code is for ErrorCode's enum value
     //      All Status Error is treated as Internal Error
-    static Status OLAPInternalError(int16_t precise_code) {
-        return ConstructErrorStatus(precise_code);
-    }
+    static Status OLAPInternalError(int16_t precise_code, std::string_view msg = "");
 
-    static Status ConstructErrorStatus(int16_t precise_code);
+    static Status ConstructErrorStatus(TStatusCode::type tcode, int16_t precise_code,
+                                       std::string_view msg);
 
     bool ok() const { return _code == TStatusCode::OK; }
 
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
-    bool is_rpc_error() const { return code() == TStatusCode::THRIFT_RPC_ERROR; }
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
     bool is_already_exist() const { return code() == TStatusCode::ALREADY_EXIST; }

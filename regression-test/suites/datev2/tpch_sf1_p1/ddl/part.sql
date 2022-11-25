@@ -9,9 +9,10 @@ CREATE TABLE IF NOT EXISTS part (
   P_RETAILPRICE DECIMAL(15,2) NOT NULL,
   P_COMMENT     VARCHAR(23) NOT NULL 
 )
-UNIQUE KEY(P_PARTKEY)
+DUPLICATE KEY(P_PARTKEY)
 DISTRIBUTED BY HASH(P_PARTKEY) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "colocate_with" = "part_partsupp"
 )
 

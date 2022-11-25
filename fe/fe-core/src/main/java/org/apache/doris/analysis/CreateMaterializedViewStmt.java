@@ -137,6 +137,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
+        rewriteToBitmapWithCheck();
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.forbiddenMVRewrite();
         selectStmt.analyze(analyzer);
@@ -210,25 +211,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     if (!mvColumnPattern.match(functionCallExpr)) {
                         throw new AnalysisException(
                                 "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
-                    }
-
-                    // for bitmap_union(to_bitmap(column)) function, we should check value is not negative
-                    // in vectorized schema_change mode, so we should rewrite the function to
-                    // bitmap_union(to_bitmap_with_check(column))
-                    if (functionName.equalsIgnoreCase("bitmap_union")) {
-                        if (functionCallExpr.getChildren().size() == 1
-                                && functionCallExpr.getChild(0) instanceof FunctionCallExpr) {
-                            Expr child = functionCallExpr.getChild(0);
-                            FunctionCallExpr childFunctionCallExpr = (FunctionCallExpr) child;
-                            if (childFunctionCallExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")) {
-                                childFunctionCallExpr.setFnName(
-                                        new FunctionName(childFunctionCallExpr.getFnName().getDb(),
-                                                "to_bitmap_with_check"));
-                                childFunctionCallExpr.getFn().setName(
-                                        new FunctionName(childFunctionCallExpr.getFn().getFunctionName().getDb(),
-                                                "to_bitmap_with_check"));
-                            }
-                        }
                     }
                 }
                 // check duplicate column
@@ -502,6 +484,26 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
         }
         return result;
+    }
+
+    // for bitmap_union(to_bitmap(column)) function, we should check value is not negative
+    // in vectorized schema_change mode, so we should rewrite the function to
+    // bitmap_union(to_bitmap_with_check(column))
+    private void rewriteToBitmapWithCheck() {
+        for (SelectListItem item : selectStmt.getSelectList().getItems()) {
+            if (item.getExpr() instanceof FunctionCallExpr) {
+                String functionName = ((FunctionCallExpr) item.getExpr()).getFnName().getFunction();
+                if (functionName.equalsIgnoreCase("bitmap_union")) {
+                    if (item.getExpr().getChildren().size() == 1
+                            && item.getExpr().getChild(0) instanceof FunctionCallExpr) {
+                        FunctionCallExpr childFunctionCallExpr = (FunctionCallExpr) item.getExpr().getChild(0);
+                        if (childFunctionCallExpr.getFnName().getFunction().equalsIgnoreCase("to_bitmap")) {
+                            childFunctionCallExpr.setFnName(FunctionName.createBuiltinName("to_bitmap_with_check"));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     public static String mvColumnBuilder(String functionName, String sourceColumnName) {

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
@@ -47,7 +48,7 @@ public class CharType extends CharacterType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof CharType;
     }
 
@@ -77,6 +78,9 @@ public class CharType extends CharacterType {
 
     @Override
     public String toSql() {
+        if (len == -1) {
+            return "CHAR";
+        }
         return "CHAR(" + len + ")";
     }
 }

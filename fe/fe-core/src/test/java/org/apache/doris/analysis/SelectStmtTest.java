@@ -937,4 +937,13 @@ public class SelectStmtTest {
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
     }
+
+    @Test
+    public void testSelectExcept() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql = "SELECT * EXCEPT (siteid) FROM db1.table1";
+        SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        Assert.assertFalse(stmt.getColLabels().contains("siteid"));
+        Assert.assertEquals(stmt.resultExprs.size(), 3);
+    }
 }

@@ -47,53 +47,62 @@ INTO OUTFILE "file_path"
 
 1. file_path
    
-    ​    file_path 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file_`。
+    ```
+    file_path 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file_`。
     
-    ​    最终的文件名将由 `my_file_`，文件序号以及文件格式后缀组成。其中文件序号由0开始，数量为文件被分割的数量。如：
-    ​        my_file_abcdefg_0.csv
-    ​        my_file_abcdefg_1.csv
-    ​        my_file_abcdegf_2.csv
+    最终的文件名将由 `my_file_`，文件序号以及文件格式后缀组成。其中文件序号由0开始，数量为文件被分割的数量。如：
+    my_file_abcdefg_0.csv
+    my_file_abcdefg_1.csv
+    my_file_abcdegf_2.csv
+    ```
     
 2. format_as
-    ​    FORMAT AS CSV
-    ​    指定导出格式. 支持csv、parquet、csv_with_names、csv_with_names_and_types. 默认为 CSV。
+
+    ```
+    FORMAT AS CSV
+    ```
+
+    指定导出格式. 支持 CSV、PARQUET、CSV_WITH_NAMES、CSV_WITH_NAMES_AND_TYPES、ORC. 默认为 CSV。
     
 3. properties
    
-    ​    指定相关属性。目前支持通过 Broker 进程, 或通过 S3 协议进行导出。
+    ```
+    指定相关属性。目前支持通过 Broker 进程, 或通过 S3 协议进行导出。
     
-        语法：
-        [PROPERTIES ("key"="value", ...)]
-        支持如下属性：
-        column_separator: 列分隔符
-        line_delimiter: 行分隔符
-        max_file_size: 单个文件大小限制，如果结果超过这个值，将切割成多个文件。
-        
-        Broker 相关属性需加前缀 `broker.`:
-        broker.name: broker名称
-        broker.hadoop.security.authentication: 指定认证方式为 kerberos
-        broker.kerberos_principal: 指定 kerberos 的 principal
-        broker.kerberos_keytab: 指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问
-        
-        HDFS 相关属性:
-        fs.defaultFS: namenode 地址和端口
-        hadoop.username: hdfs 用户名
-        dfs.nameservices: name service名称，与hdfs-site.xml保持一致
-        dfs.ha.namenodes.[nameservice ID]: namenode的id列表,与hdfs-site.xml保持一致
-        dfs.namenode.rpc-address.[nameservice ID].[name node ID]: Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保
-持一致
-        dfs.client.failover.proxy.provider.[nameservice ID]: HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    语法：
+    [PROPERTIES ("key"="value", ...)]
+    支持如下属性：
+    column_separator: 列分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
+    line_delimiter: 行分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
+    max_file_size: 单个文件大小限制，如果结果超过这个值，将切割成多个文件。
+    
+    Broker 相关属性需加前缀 `broker.`:
+    broker.name: broker名称
+    broker.hadoop.security.authentication: 指定认证方式为 kerberos
+    broker.kerberos_principal: 指定 kerberos 的 principal
+    broker.kerberos_keytab: 指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问
+    
+    HDFS 相关属性:
+    fs.defaultFS: namenode 地址和端口
+    hadoop.username: hdfs 用户名
+    dfs.nameservices: name service名称，与hdfs-site.xml保持一致
+    dfs.ha.namenodes.[nameservice ID]: namenode的id列表,与hdfs-site.xml保持一致
+    dfs.namenode.rpc-address.[nameservice ID].[name node ID]: Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保
+持一
+    dfs.client.failover.proxy.provider.[nameservice ID]: HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 
-        对于开启kerberos认证的Hadoop 集群，还需要额外设置如下 PROPERTIES 属性:
-        dfs.namenode.kerberos.principal: HDFS namenode 服务的 principal 名称
-        hadoop.security.authentication: 认证方式设置为 kerberos
-        hadoop.kerberos.principal: 设置 Doris 连接 HDFS 时使用的 Kerberos 主体
-        hadoop.kerberos.keytab: 设置 keytab 本地文件路径
-        S3 协议则直接执行 S3 协议配置即可:
-        AWS_ENDPOINT
-        AWS_ACCESS_KEY
-        AWS_SECRET_KEY
-        AWS_REGION
+    对于开启kerberos认证的Hadoop 集群，还需要额外设置如下 PROPERTIES 属性:
+    dfs.namenode.kerberos.principal: HDFS namenode 服务的 principal 名称
+    hadoop.security.authentication: 认证方式设置为 kerberos
+    hadoop.kerberos.principal: 设置 Doris 连接 HDFS 时使用的 Kerberos 主体
+    hadoop.kerberos.keytab: 设置 keytab 本地文件路径
+
+    S3 协议则直接执行 S3 协议配置即可:
+    AWS_ENDPOINT
+    AWS_ACCESS_KEY
+    AWS_SECRET_KEY
+    AWS_REGION
+    ```
 
 ### example
 
@@ -179,7 +188,7 @@ INTO OUTFILE "file_path"
     );
     ```
     
-5. 将 select 语句的查询结果导出到文件 `cos://${bucket_name}/path/result.txt`。指定导出格式为 csv。
+5. 将 select 语句的查询结果导出到文件 `s3a://${bucket_name}/path/result.txt`。指定导出格式为 csv。
     导出完成后，生成一个标识文件。
     
     ```sql
@@ -277,6 +286,26 @@ INTO OUTFILE "file_path"
     
     最终生成文件如如果不大于 100MB，则为：`result_0.csv`。
     如果大于 100MB，则可能为 `result_0.csv, result_1.csv, ...`。
+
+9. 将 select 语句的查询结果导出到腾讯云cos的文件 `cosn://${bucket_name}/path/result.txt`。指定导出格式为 csv。
+    导出完成后，生成一个标识文件。
+
+    ```sql
+    select k1,k2,v1 from tbl1 limit 100000
+    into outfile "cosn://my_bucket/export/my_file_"
+    FORMAT AS CSV
+    PROPERTIES
+    (
+        "broker.name" = "broker_name",
+        "broker.fs.cosn.userinfo.secretId" = "xxx",
+        "broker.fs.cosn.userinfo.secretKey" = "xxxx",
+        "broker.fs.cosn.bucket.endpoint_suffix" = "https://cos.xxxxxx.myqcloud.com/",
+        "column_separator" = ",",
+        "line_delimiter" = "\n",
+        "max_file_size" = "1024MB",
+        "success_file_name" = "SUCCESS"
+    )
+    ```
 
 ### keywords
     SELECT, INTO, OUTFILE

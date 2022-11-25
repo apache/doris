@@ -38,4 +38,8 @@ public abstract class Slot extends NamedExpression implements LeafExpression {
     public Slot withQualifier(List<String> qualifiers) {
         throw new RuntimeException("Do not implement");
     }
+
+    public Slot withName(String name) {
+        throw new RuntimeException("Do not implement");
+    }
 }

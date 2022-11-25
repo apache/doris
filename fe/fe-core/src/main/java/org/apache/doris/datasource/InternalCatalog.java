@@ -98,6 +98,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -143,6 +144,7 @@ import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
+import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -181,16 +183,16 @@ import com.google.common.collect.Sets;
 import lombok.Getter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.mortbay.log.Log;
 
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -199,6 +201,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * The Internal catalog will manage all self-managed meta object in a Doris cluster.
@@ -318,6 +321,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public List<Long> getDbIds() {
         return Lists.newArrayList(idToDb.keySet());
+    }
+
+    public List<Database> getDbs() {
+        return Lists.newArrayList(idToDb.values());
     }
 
     private void unlock() {
@@ -946,12 +953,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        // TODO: impl real logic of drop multi-table MaterializedView here.
         if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
-            if (Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()) != null) {
-                long jobId = Env.getCurrentEnv().getMTMVJobManager().getJob(table.getName()).getId();
-                Env.getCurrentEnv().getMTMVJobManager().dropJobs(Collections.singletonList(jobId), false);
-            }
+            List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
+                    .stream().map(MTMVJob::getId).collect(Collectors.toList());
+            Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, false);
+            Log.info("Drop related {} mv job.", dropIds.size());
         }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
@@ -1205,8 +1211,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
-                if (resultType.isStringType() && resultType.getLength() < 0) {
-                    typeDef = new TypeDef(Type.STRING);
+                if (resultType.isStringType()) {
+                    // Use String for varchar/char/string type,
+                    // to avoid char-length-vs-byte-length issue.
+                    typeDef = new TypeDef(ScalarType.createStringType());
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
@@ -1214,6 +1222,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                             ((ScalarType) resultType).getScalarScale()));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
+                }
+                if (i == 0) {
+                    // If this is the first column, because olap table does not support the first column to be
+                    // string, float, double or array, we should check and modify its type
+                    // For string type, change it to varchar.
+                    // For other unsupported types, just remain unchanged, the analysis phash of create table stmt
+                    // will handle it.
+                    if (typeDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        typeDef = TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH);
+                    }
                 }
                 ColumnDef columnDef;
                 if (resultExpr.getSrcSlotRef() == null) {
@@ -2010,10 +2028,32 @@ public class InternalCatalog implements CatalogIf<Database> {
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
-        // analyse sequence column
+        // analyse sequence map column
+        String sequenceMapCol = null;
+        try {
+            sequenceMapCol = PropertyAnalyzer.analyzeSequenceMapCol(properties, olapTable.getKeysType());
+            if (sequenceMapCol != null) {
+                Column col = olapTable.getColumn(sequenceMapCol);
+                if (col == null) {
+                    throw new DdlException("The specified sequence column[" + sequenceMapCol + "] not exists");
+                }
+                if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
+                    throw new DdlException("Sequence type only support integer types and date types");
+                }
+                olapTable.setSequenceMapCol(sequenceMapCol);
+                olapTable.setSequenceInfo(col.getType());
+            }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        // analyse sequence type
         Type sequenceColType = null;
         try {
             sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
+            if (sequenceMapCol != null && sequenceColType != null) {
+                throw new DdlException("The sequence_col and sequence_type cannot be set at the same time");
+            }
             if (sequenceColType != null) {
                 olapTable.setSequenceInfo(sequenceColType);
             }
@@ -2171,10 +2211,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
 
-        // TODO: impl the real logic of create multi-table MaterializedView here.
-        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
-            Env.getCurrentEnv().getMTMVJobManager().createJob(MTMVJobFactory.buildJob((MaterializedView) olapTable),
-                    false);
+        if (olapTable instanceof MaterializedView && Config.enable_mtmv_scheduler_framework
+                && MTMVJobFactory.isGenerateJob((MaterializedView) olapTable)) {
+            List<MTMVJob> jobs = MTMVJobFactory.buildJob((MaterializedView) olapTable, db.getFullName());
+            for (MTMVJob job : jobs) {
+                Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
+            }
+            Log.info("Create related {} mv job.", jobs.size());
         }
     }
 
@@ -2268,10 +2311,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         HiveTable hiveTable = new HiveTable(tableId, tableName, columns, stmt.getProperties());
         hiveTable.setComment(stmt.getComment());
         // check hive table whether exists in hive database
-        HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(
-                hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
-        if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hiveTable.getHiveDb(),
-                hiveTable.getHiveTable())) {
+        HiveConf hiveConf = new HiveConf();
+        hiveConf.set(HiveMetaStoreClientHelper.HIVE_METASTORE_URIS,
+                hiveTable.getHiveProperties().get(HiveMetaStoreClientHelper.HIVE_METASTORE_URIS));
+        PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
+        if (!client.tableExists(hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive.", hiveTable.getHiveDbTable()));
         }
         // check hive table if exists in doris database
@@ -2290,15 +2334,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         // check hudi properties in create stmt.
         HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
-        String metastoreUris = hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
-        HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(metastoreUris);
-        if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hudiTable.getHmsDatabaseName(),
-                hudiTable.getHmsTableName())) {
+        HiveConf hiveConf = new HiveConf();
+        hiveConf.set(HiveMetaStoreClientHelper.HIVE_METASTORE_URIS,
+                hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
+        PooledHiveMetaStoreClient client = new PooledHiveMetaStoreClient(hiveConf, 1);
+        if (!client.tableExists(hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {
             throw new DdlException(
                     String.format("Table [%s] dose not exist in Hive Metastore.", hudiTable.getHmsTableIdentifer()));
         }
-        org.apache.hadoop.hive.metastore.api.Table hiveTable = HiveMetaStoreClientHelper.getTable(
-                hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName(), metastoreUris);
+
+        org.apache.hadoop.hive.metastore.api.Table hiveTable = client.getTable(
+                hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName());
         if (!HudiUtils.isHudiTable(hiveTable)) {
             throw new DdlException(String.format("Table [%s] is not a hudi table.", hudiTable.getHmsTableIdentifer()));
         }
@@ -2594,7 +2640,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Partition oldPartition = olapTable.replacePartition(newPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
-                index.getTablets().stream().forEach(t -> {
+                index.getTablets().forEach(t -> {
                     oldTabletIds.add(t.getId());
                 });
             }

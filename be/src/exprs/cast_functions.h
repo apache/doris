@@ -185,28 +185,6 @@ public:
                                                            const DateTimeVal& val);
     static doris_udf::DateTimeV2Val cast_to_datetimev2_val(FunctionContext* context,
                                                            const doris_udf::DateTimeV2Val& val);
-
-#define DECLARE_CAST_TO_DECIMAL(width)                                                             \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const TinyIntVal&);  \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const SmallIntVal&); \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const IntVal&);      \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const BigIntVal&);   \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const LargeIntVal&); \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const FloatVal&);    \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const DoubleVal&);   \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const DateTimeVal&); \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*, const StringVal&);   \
-    static Decimal##width##Val cast_to_decimal##width##_val(FunctionContext*,                      \
-                                                            const Decimal##width##Val&);
-
-    DECLARE_CAST_TO_DECIMAL(32)
-    DECLARE_CAST_TO_DECIMAL(64)
-    DECLARE_CAST_TO_DECIMAL(128)
-
-    static Decimal64Val cast_to_decimal64_val(FunctionContext*, const Decimal32Val&);
-    static Decimal128Val cast_to_decimal128_val(FunctionContext*, const Decimal32Val&);
-    static Decimal128Val cast_to_decimal128_val(FunctionContext*, const Decimal64Val&);
-
     static CollectionVal cast_to_array_val(FunctionContext* context, const StringVal& val);
 };
 

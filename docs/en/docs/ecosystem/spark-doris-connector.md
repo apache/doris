@@ -272,6 +272,8 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.write.fields                | --                 | Specifies the fields (or the order of the fields) to write to the Doris table, fileds separated by commas.<br/>By default, all fields are written in the order of Doris table fields. |
 | sink.batch.size | 10000 | Maximum number of lines in a single write BE |
 | sink.max-retries | 1 | Number of retries after writing BE failed |
+| sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> |
+
 
 ### SQL & Dataframe Configuration
 

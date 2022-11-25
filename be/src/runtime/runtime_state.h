@@ -76,14 +76,13 @@ public:
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
-    // Set up four-level hierarchy of mem trackers: process, query, fragment instance.
-    // The instance tracker is tied to our profile.
-    // Specific parts of the fragment (i.e. exec nodes, sinks, data stream senders, etc)
-    // will add a fourth level when they are initialized.
-    Status init_mem_trackers(const TUniqueId& query_id);
-
-    // for ut only
-    Status init_instance_mem_tracker();
+    // after SCOPED_ATTACH_TASK;
+    void init_scanner_mem_trackers() {
+        _scanner_mem_tracker = std::make_shared<MemTracker>(
+                fmt::format("Scanner#QueryId={}", print_id(_query_id)));
+    }
+    // for ut and non-query.
+    Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
     // Gets/Creates the query wide block mgr.
     Status create_block_mgr();
@@ -116,8 +115,7 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
-    std::shared_ptr<MemTrackerLimiter> instance_mem_tracker() { return _instance_mem_tracker; }
-    std::shared_ptr<MemTrackerLimiter> scanner_mem_tracker() { return _scanner_mem_tracker; }
+    std::shared_ptr<MemTracker> scanner_mem_tracker() { return _scanner_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
@@ -359,6 +357,13 @@ public:
         return _query_options.__isset.skip_delete_predicate && _query_options.skip_delete_predicate;
     }
 
+    int partitioned_hash_join_rows_threshold() const {
+        if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {
+            return 0;
+        }
+        return _query_options.partitioned_hash_join_rows_threshold;
+    }
+
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
@@ -382,11 +387,20 @@ public:
 
     QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
 
+    void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
+        _query_mem_tracker = tracker;
+    }
+
     OpentelemetryTracer get_tracer() { return _tracer; }
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
     bool enable_profile() const { return _query_options.is_report_success; }
+
+    bool enable_share_hash_table_for_broadcast_join() const {
+        return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
+               _query_options.enable_share_hash_table_for_broadcast_join;
+    }
 
 private:
     // Use a custom block manager for the query for testing purposes.
@@ -398,15 +412,9 @@ private:
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    // MemTracker that is shared by all fragment instances running on this host.
-    // The query mem tracker must be released after the _instance_mem_tracker.
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
-    // Memory usage of this fragment instance
-    std::shared_ptr<MemTrackerLimiter> _instance_mem_tracker;
-    // Count the memory consumption of Scanner, independent and unique for each query,
-    // this means that scnner memory does not count into query mem tracker,
-    // label is `Scanner#{queryId}`.
-    std::shared_ptr<MemTrackerLimiter> _scanner_mem_tracker;
+    // Count the memory consumption of Scanner
+    std::shared_ptr<MemTracker> _scanner_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.

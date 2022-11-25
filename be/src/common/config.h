@@ -46,25 +46,9 @@ CONF_Int32(single_replica_load_brpc_num_threads, "64");
 // If no ip match this rule, will choose one randomly.
 CONF_String(priority_networks, "");
 
-////
-//// tcmalloc gc parameter
-////
-// min memory for TCmalloc, when used memory is smaller than this, do not returned to OS
-CONF_mInt64(tc_use_memory_min, "10737418240");
-// free memory rate.[0-100]
-CONF_mInt64(tc_free_memory_rate, "20");
-// tcmallc aggressive_memory_decommit
-CONF_Bool(tc_enable_aggressive_memory_decommit, "false");
-
-// Bound on the total amount of bytes allocated to thread caches.
-// This bound is not strict, so it is possible for the cache to go over this bound
-// in certain circumstances. This value defaults to 1GB
-// If you suspect your application is not scaling to many threads due to lock contention in TCMalloc,
-// you can try increasing this value. This may improve performance, at a cost of extra memory
-// use by TCMalloc.
-// reference: https://gperftools.github.io/gperftools/tcmalloc.html: TCMALLOC_MAX_TOTAL_THREAD_CACHE_BYTES
-//            https://github.com/gperftools/gperftools/issues/1111
-CONF_Int64(tc_max_total_thread_cache_bytes, "1073741824");
+// memory mode
+// performance or compact
+CONF_String(memory_mode, "performance");
 
 // process memory limit specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
@@ -110,7 +94,7 @@ CONF_Int32(download_worker_count, "1");
 CONF_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 CONF_Int32(release_snapshot_worker_count, "5");
-// the interval time(seconds) for agent report tasks signatrue to FE
+// the interval time(seconds) for agent report tasks signature to FE
 CONF_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for refresh storage policy from FE
 CONF_mInt32(storage_refresh_storage_policy_task_interval_seconds, "5");
@@ -215,7 +199,7 @@ CONF_mInt32(default_num_rows_per_column_file_block, "1024");
 // pending data policy
 CONF_mInt32(pending_data_expire_time_sec, "1800");
 // inc_rowset snapshot rs sweep time interval
-CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
+CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
 // garbage sweep policy
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");
@@ -253,41 +237,62 @@ CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
 
+// check the configuration of auto compaction in seconds when auto compaction disabled
+CONF_mInt32(check_auto_compaction_interval_seconds, "5");
+
+CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
+CONF_mDouble(base_cumulative_delta_ratio, "0.3");
+CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
+CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
+CONF_Bool(enable_base_compaction_idle_sched, "true");
+
+// dup key not compaction big files
+CONF_Bool(enable_dup_key_base_compaction_skip_big_file, "true");
+CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
+
+// In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
+// this rowset will be given to base compaction, unit is m byte.
+CONF_mInt64(cumulative_size_based_promotion_size_mbytes, "1024");
+
+// In size_based policy, output rowset of cumulative compaction total disk size exceed this config ratio of
+// base rowset's total disk size, this rowset will be given to base compaction. The value must be between
+// 0 and 1.
+CONF_mDouble(cumulative_size_based_promotion_ratio, "0.05");
+
+// In size_based policy, the smallest size of rowset promotion. When the rowset is less than this config, this
+// rowset will be not given to base compaction. The unit is m byte.
+CONF_mInt64(cumulative_size_based_promotion_min_size_mbytes, "64");
+
+// The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
+// this size, size_based policy may not do to cumulative compaction. The unit is m byte.
+CONF_mInt64(cumulative_size_based_compaction_lower_size_mbytes, "64");
+
+// cumulative compaction policy: min and max delta file's number
+CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
+CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
+
+// if compaction of a tablet failed, this tablet should not be chosen to
+// compaction until this interval passes.
+CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
+
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_base_compaction_threads, "4");
 CONF_mInt32(max_cumu_compaction_threads, "10");
 
-CONF_Bool(enable_base_compaction_idle_sched, "true");
-CONF_mInt64(base_compaction_min_rowset_num, "5");
-CONF_mDouble(base_compaction_min_data_ratio, "0.3");
-CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
+// This config can be set to limit thread number in  smallcompaction thread pool.
+CONF_mInt32(quick_compaction_max_threads, "10");
 
-// output rowset of cumulative compaction total disk size exceed this config size,
-// this rowset will be given to base compaction, unit is m byte.
-CONF_mInt64(compaction_promotion_size_mbytes, "1024");
+// Thread count to do tablet meta checkpoint, -1 means use the data directories count.
+CONF_Int32(max_meta_checkpoint_threads, "-1");
 
-// output rowset of cumulative compaction total disk size exceed this config ratio of
-// base rowset's total disk size, this rowset will be given to base compaction. The value must be between
-// 0 and 1.
-CONF_mDouble(compaction_promotion_ratio, "0.05");
-
-// the smallest size of rowset promotion. When the rowset is less than this config, this
-// rowset will be not given to base compaction. The unit is m byte.
-CONF_mInt64(compaction_promotion_min_size_mbytes, "64");
-
-// The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
-// this size, size_based policy may not do to cumulative compaction. The unit is m byte.
-CONF_mInt64(compaction_min_size_mbytes, "64");
-
-// cumulative compaction policy: min and max delta file's number
-CONF_mInt64(cumulative_compaction_min_deltas, "5");
-CONF_mInt64(cumulative_compaction_max_deltas, "1000");
+// This config can be set to limit thread number in  segcompaction thread pool.
+CONF_mInt32(seg_compaction_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
 // sleep interval in ms after generated compaction tasks
-CONF_mInt32(generate_compaction_tasks_interval_ms, "10");
+CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -301,16 +306,22 @@ CONF_Validator(compaction_task_num_per_fast_disk,
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 
+// Merge log will be printed for each "row_step_for_compaction_merge_log" rows merged during compaction
+CONF_mInt64(row_step_for_compaction_merge_log, "0");
+
 // Threshold to logging compaction trace, in seconds.
 CONF_mInt32(base_compaction_trace_threshold, "60");
 CONF_mInt32(cumulative_compaction_trace_threshold, "10");
 CONF_mBool(disable_compaction_trace_log, "true");
 
-// Thread count to do tablet meta checkpoint, -1 means use the data directories count.
-CONF_Int32(max_meta_checkpoint_threads, "-1");
-
 // Threshold to logging agent task trace, in seconds.
 CONF_mInt32(agent_task_trace_threshold_sec, "2");
+
+// time interval to record tablet scan count in second for the purpose of calculating tablet scan frequency
+CONF_mInt64(tablet_scan_frequency_time_node_interval_second, "300");
+// coefficient for tablet scan frequency and compaction score when finding a tablet for compaction
+CONF_mInt32(compaction_tablet_scan_frequency_factor, "0");
+CONF_mInt32(compaction_tablet_compaction_score_factor, "1");
 
 // This config can be set to limit thread number in tablet migration thread pool.
 CONF_Int32(min_tablet_migration_threads, "1");
@@ -403,7 +414,7 @@ CONF_Bool(disable_mem_pools, "false");
 // must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
 // increase this variable can improve performance,
 // but will acquire more free memory which can not be used by other modules.
-CONF_mString(chunk_reserved_bytes_limit, "10%");
+CONF_mString(chunk_reserved_bytes_limit, "0");
 // 1024, The minimum chunk allocator size (in bytes)
 CONF_Int32(min_chunk_reserved_bytes, "1024");
 // Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
@@ -475,7 +486,7 @@ CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
 // soft limit which can trigger the memtable flush for the load channel who
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
-CONF_Int32(load_process_soft_mem_limit_percent, "50");
+CONF_Int32(load_process_soft_mem_limit_percent, "80");
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -623,16 +634,8 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(enable_tcmalloc_hook, "true");
 
-// If true, switch TLS MemTracker to count more detailed memory,
-// including caches such as ExecNode operators and TabletManager.
-//
-// At present, there is a performance problem in the frequent switch thread mem tracker.
-// This is because the mem tracker exists as a shared_ptr in the thread local. Each time it is switched,
-// the atomic variable use_count in the shared_ptr of the current tracker will be -1, and the tracker to be
-// replaced use_count +1, multi-threading Frequent changes to the same tracker shared_ptr are slow.
-// TODO: 1. Reduce unnecessary thread mem tracker switches,
-//       2. Consider using raw pointers for mem tracker in thread local
-CONF_Bool(memory_verbose_track, "false");
+// Print more detailed logs, more detailed records, etc.
+CONF_mBool(memory_debug, "false");
 
 // The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
 // smaller than this value will continue to accumulate. specified as number of bytes.
@@ -781,7 +784,14 @@ CONF_mInt32(orc_natural_read_size_mb, "8");
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
-CONF_Bool(enable_decimalv3, "false");
+//whether turn on quick compaction feature
+CONF_Bool(enable_quick_compaction, "false");
+// For continuous versions that rows less than quick_compaction_max_rows will  trigger compaction quickly
+CONF_Int32(quick_compaction_max_rows, "1000");
+// min compaction versions
+CONF_Int32(quick_compaction_batch_size, "10");
+// do compaction min rowsets
+CONF_Int32(quick_compaction_min_rowsets, "10");
 
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
@@ -813,10 +823,6 @@ CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
 // number of s3 scanner thread pool queue size
 CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
 
-// If set to true, the new scan node framework will be used.
-// This config should be removed when the new scan node is ready.
-CONF_Bool(enable_new_scan_node, "true");
-
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
 
@@ -835,7 +841,18 @@ CONF_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
+CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+
+// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
+CONF_Int32(segcompaction_threshold_segment_num, "10");
+
+// The segment whose row number above the threshold will be compacted during segcompaction
+CONF_Int32(segcompaction_small_threshold, "1048576");
+
 CONF_String(jvm_max_heap_size, "1024M");
+
+// enable java udf and jdbc scannode
+CONF_Bool(enable_java_support, "true");
 
 #ifdef BE_TEST
 // test s3

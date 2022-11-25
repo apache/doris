@@ -37,6 +37,7 @@ public:
     bool unref() { return _refs.fetch_sub(1) == 1; }
 
     void Run() override {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (unref()) {
             delete this;
         }

@@ -22,6 +22,8 @@ suite("test_cast_function") {
     qt_sql """ select cast(cast ("11.2" as double) as bigint) """
     qt_sql """ select cast ("0.0101031417" as datetime) """
     qt_sql """ select cast ("0.0000031417" as datetime) """
+    qt_sql """ select cast (NULL AS CHAR(1)); """
+    qt_sql """ select cast ('20190101' AS CHAR(2)); """
 
     sql """ SET enable_vectorized_engine = FALSE; """
 
@@ -29,6 +31,7 @@ suite("test_cast_function") {
     qt_sql """ select cast(cast ("11.2" as double) as bigint) """
     qt_sql """ select cast ("0.0101031417" as datetime) """
     qt_sql """ select cast ("0.0000031417" as datetime) """
-
+    qt_sql """ select cast (NULL AS CHAR(1)); """
+    qt_sql """ select cast ('20190101' AS CHAR(2)); """
 }
 

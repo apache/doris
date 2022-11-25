@@ -142,7 +142,7 @@ protected:
         EXPECT_EQ("", writer.min_encoded_key().to_string());
         EXPECT_EQ("", writer.max_encoded_key().to_string());
 
-        st = segment_v2::Segment::open(fs, path, "", 0, query_schema, res);
+        st = segment_v2::Segment::open(fs, path, "", 0, {}, query_schema, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }

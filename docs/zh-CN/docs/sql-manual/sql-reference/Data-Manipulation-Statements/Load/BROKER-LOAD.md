@@ -457,6 +457,22 @@ WITH BROKER broker_name
     "timeout"="1200",
     "max_filter_ratio"="0.1"
     );
+
+11. 从腾讯云cos中以csv格式导入数据。
+
+    ```SQL
+    LOAD LABEL example_db.label10
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
     ```
 
 ### Keywords

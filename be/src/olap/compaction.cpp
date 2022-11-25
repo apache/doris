@@ -34,13 +34,7 @@ Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
           _input_rowsets_size(0),
           _input_row_num(0),
           _state(CompactionState::INITED) {
-#ifndef BE_TEST
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, label, StorageEngine::instance()->compaction_mem_tracker());
-    _mem_tracker->enable_reset_zero();
-#else
-    _mem_tracker = std::make_shared<MemTrackerLimiter>(-1, label);
-#endif
+    _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
 }
 
 Compaction::~Compaction() {}
@@ -57,6 +51,57 @@ Status Compaction::execute_compact() {
         gc_output_rowset();
     }
     return st;
+}
+
+Status Compaction::quick_rowsets_compact() {
+    std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
+        LOG(WARNING) << "The tablet is under cumulative compaction. tablet="
+                     << _tablet->full_name();
+        return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
+    }
+
+    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
+    // for compaction may change. In this case, current compaction task should not be executed.
+    if (_tablet->get_clone_occurred()) {
+        _tablet->set_clone_occurred(false);
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_CLONE_OCCURRED);
+    }
+
+    _input_rowsets.clear();
+    int version_count = _tablet->version_count();
+    MonotonicStopWatch watch;
+    watch.start();
+    int64_t permits = 0;
+    _tablet->pick_quick_compaction_rowsets(&_input_rowsets, &permits);
+    std::vector<Version> missedVersions;
+    find_longest_consecutive_version(&_input_rowsets, &missedVersions);
+    if (missedVersions.size() != 0) {
+        LOG(WARNING) << "quick_rowsets_compaction, find missed version"
+                     << ",input_size:" << _input_rowsets.size();
+    }
+    int nums = _input_rowsets.size();
+    if (_input_rowsets.size() >= config::quick_compaction_min_rowsets) {
+        Status st = check_version_continuity(_input_rowsets);
+        if (!st.ok()) {
+            LOG(WARNING) << "quick_rowsets_compaction failed, cause version not continuous";
+            return st;
+        }
+        st = do_compaction(permits);
+        if (!st.ok()) {
+            gc_output_rowset();
+            LOG(WARNING) << "quick_rowsets_compaction failed";
+        } else {
+            LOG(INFO) << "quick_compaction succ"
+                      << ", before_versions:" << version_count
+                      << ", after_versions:" << _tablet->version_count()
+                      << ", cost:" << (watch.elapsed_time() / 1000 / 1000) << "ms"
+                      << ", merged: " << nums << ", batch:" << config::quick_compaction_batch_size
+                      << ", segments:" << permits << ", tabletid:" << _tablet->tablet_id();
+            _tablet->set_last_quick_compaction_success_time(UnixMillis());
+        }
+    }
+    return Status::OK();
 }
 
 Status Compaction::do_compaction(int64_t permits) {
@@ -136,7 +181,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
@@ -172,7 +217,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     auto cumu_policy = _tablet->cumulative_compaction_policy();
-    DCHECK(cumu_policy);
     LOG(INFO) << "succeed to do " << merge_type << compaction_name()
               << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
@@ -180,7 +224,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
               << ". elapsed time=" << watch.get_elapse_second()
-              << "s. cumulative_compaction_policy=" << cumu_policy->name()
+              << "s. cumulative_compaction_policy="
+              << (cumu_policy == nullptr ? "quick" : cumu_policy->name())
               << ", compact_row_per_second=" << int(_input_row_num / watch.get_elapse_second());
 
     return Status::OK();

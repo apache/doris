@@ -58,6 +58,8 @@ github:
           - Build Broker
           - Build Documents
           - BE UT (Clang)
+          - ShellCheck
+          - clickbench (benchmark)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -82,6 +84,8 @@ github:
     - zuochunwei
     - thomascai126
     - dataalive
+    - LemonLiTree
+    - zy-kkk
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

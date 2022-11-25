@@ -32,6 +32,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -77,27 +78,26 @@ public class RewriteTopDownJob extends Job {
             // In topdown job, there must be only one matching plan.
             // This `for` loop runs at most once.
             for (Plan before : groupExpressionMatching) {
-                context.onInvokeRule(rule.getRuleType());
-                List<Plan> afters = rule.transform(before, context.getCascadesContext());
-                Preconditions.checkArgument(afters.size() == 1);
-                Plan after = afters.get(0);
-                if (after != before) {
-                    CopyInResult result = context.getCascadesContext()
-                            .getMemo()
-                            .copyIn(after, group, rule.isRewrite());
-                    if (result.generateNewExpression) {
-                        // new group-expr replaced the origin group-expr in `group`,
-                        // run this rule against this `group` again.
-                        context.setRewritten(true);
-                        pushJob(new RewriteTopDownJob(group, rules, context));
-                        return;
-                    }
+                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
+                if (!copyInResult.isPresent()) {
+                    continue;
+                }
+                CopyInResult result = copyInResult.get();
+                boolean groupChanged = result.correspondingExpression.getOwnerGroup() != group;
+                if (result.generateNewExpression || groupChanged) {
+                    // new group-expr replaced the origin group-expr in `group`,
+                    // run this rule against this `group` again.
+                    context.setRewritten(true);
+                    pushJob(new RewriteTopDownJob(result.correspondingExpression.getOwnerGroup(),
+                            rules, context));
+                    return;
                 }
             }
         }
 
-        for (Group childGroup : group.getLogicalExpression().children()) {
-            pushJob(new RewriteTopDownJob(childGroup, rules, context));
+        List<Group> children = group.getLogicalExpression().children();
+        for (int i = children.size() - 1; i >= 0; i--) {
+            pushJob(new RewriteTopDownJob(children.get(i), rules, context));
         }
     }
 }

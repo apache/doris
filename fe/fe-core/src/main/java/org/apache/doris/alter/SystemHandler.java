@@ -72,7 +72,7 @@ public class SystemHandler extends AlterHandler {
         runAlterJobV2();
     }
 
-    // check all decommissioned backends, if there is no tablet on that backend, drop it.
+    // check all decommissioned backends, if there is no available tablet on that backend, drop it.
     private void runAlterJobV2() {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -84,10 +84,10 @@ public class SystemHandler extends AlterHandler {
             }
 
             List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
-            if (backendTabletIds.isEmpty() && Config.drop_backend_after_decommission) {
+            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds)) {
                 try {
                     systemInfoService.dropBackend(beId);
-                    LOG.info("no tablet on decommission backend {}, drop it", beId);
+                    LOG.info("no available tablet on decommission backend {}, drop it", beId);
                 } catch (DdlException e) {
                     // does not matter, may be backend not exist
                     LOG.info("backend {} is dropped failed after decommission {}", beId, e.getMessage());
@@ -175,6 +175,24 @@ public class SystemHandler extends AlterHandler {
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }
+    }
+
+    /*
+     * check if the specified backends can be dropped
+     * 1. backend does not have any tablet.
+     * 2. all tablets in backend have been recycled.
+     */
+    private boolean checkTablets(Long beId, List<Long> backendTabletIds) {
+        if (backendTabletIds.isEmpty()) {
+            return true;
+        }
+        if (backendTabletIds.size() < Config.decommission_tablet_check_threshold
+                && Env.getCurrentRecycleBin().allTabletsInRecycledStatus(backendTabletIds)) {
+            LOG.info("tablet size is {}, all tablets on decommissioned backend {} have been recycled,"
+                    + " so this backend will be dropped immediately", backendTabletIds.size(), beId);
+            return true;
+        }
+        return false;
     }
 
     private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)

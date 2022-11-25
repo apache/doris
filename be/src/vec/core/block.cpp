@@ -616,21 +616,31 @@ void Block::update_hash(SipHash& hash) const {
     }
 }
 
-void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
-                                  uint32_t column_to_keep) {
+void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
+                                  const IColumn::Filter& filter) {
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
-        for (size_t i = 0; i < column_to_keep; ++i) {
-            std::move(*block->get_by_position(i).column).assume_mutable()->clear();
+        for (auto& col : columns_to_filter) {
+            std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
-        if (count != block->rows()) {
-            for (size_t i = 0; i < column_to_keep; ++i) {
-                block->get_by_position(i).column =
-                        block->get_by_position(i).column->filter(filter, count);
+        for (auto& col : columns_to_filter) {
+            if (block->get_by_position(col).column->size() != count) {
+                block->get_by_position(col).column =
+                        block->get_by_position(col).column->filter(filter, count);
             }
         }
     }
+}
+
+void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
+                                  uint32_t column_to_keep) {
+    std::vector<uint32_t> columns_to_filter;
+    columns_to_filter.resize(column_to_keep);
+    for (uint32_t i = 0; i < column_to_keep; ++i) {
+        columns_to_filter[i] = i;
+    }
+    filter_block_internal(block, columns_to_filter, filter);
 }
 
 Block Block::copy_block(const std::vector<int>& column_offset) const {
@@ -650,7 +660,8 @@ void Block::append_block_by_selector(MutableColumns& columns,
     }
 }
 
-Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
+Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
+                           int filter_column_id, int column_to_keep) {
     ColumnPtr filter_column = block->get_by_position(filter_column_id).column;
     if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
@@ -674,23 +685,32 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
         for (size_t i = 0; i < size; ++i) {
             filter_data[i] &= !null_map[i];
         }
-        filter_block_internal(block, filter, column_to_keep);
+        filter_block_internal(block, columns_to_filter, filter);
     } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
-            for (size_t i = 0; i < column_to_keep; ++i) {
-                std::move(*block->get_by_position(i).column).assume_mutable()->clear();
+            for (auto& col : columns_to_filter) {
+                std::move(*block->get_by_position(col).column).assume_mutable()->clear();
             }
         }
     } else {
         const IColumn::Filter& filter =
                 assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
                         .get_data();
-        filter_block_internal(block, filter, column_to_keep);
+        filter_block_internal(block, columns_to_filter, filter);
     }
 
     erase_useless_column(block, column_to_keep);
     return Status::OK();
+}
+
+Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
+    std::vector<uint32_t> columns_to_filter;
+    columns_to_filter.resize(column_to_keep);
+    for (uint32_t i = 0; i < column_to_keep; ++i) {
+        columns_to_filter[i] = i;
+    }
+    return filter_block(block, columns_to_filter, filter_column_id, column_to_keep);
 }
 
 Status Block::serialize(int be_exec_version, PBlock* pblock,
@@ -856,7 +876,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                     DateTimeVal datetime_val;
                     datetime_value.to_datetime_val(&datetime_val);
                     iterator.set(&datetime_val);
-                } else if (item_type_desc.is_decimal_type()) {
+                } else if (item_type_desc.is_decimal_v2_type()) {
                     // In CollectionValue, decimal type data is stored as decimal12_t.
                     DecimalV2Value decimal_value;
                     deep_copy_slot(&decimal_value, pool, item_type_desc, data_ref, item_column,

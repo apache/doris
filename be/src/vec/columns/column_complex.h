@@ -79,6 +79,17 @@ public:
         }
     }
 
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            const size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+
+        for (size_t i = 0; i != num; ++i) {
+            insert_binary_data(data + offsets[i], offsets[i + 1] - offsets[i]);
+        }
+    }
+
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         for (size_t i = 0; i < num; i++) {

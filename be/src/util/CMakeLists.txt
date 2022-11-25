@@ -114,6 +114,7 @@ set(UTIL_FILES
   quantile_state.cpp
   jni-util.cpp
   exception.cpp
+  libjvm_loader.cpp
 )
 
 if (WITH_MYSQL)
@@ -125,10 +126,6 @@ endif()
 if (OS_MACOSX)
     list(REMOVE_ITEM UTIL_FILES perf_counters.cpp disk_info.cpp)
     list(APPEND UTIL_FILES perf_counters_mac.cpp disk_info_mac.cpp)
-endif()
-
-if (BUILD_JAVA_UDF)
-    list(APPEND UTIL_FILES libjvm_loader.cpp)
 endif()
 
 add_library(Util STATIC

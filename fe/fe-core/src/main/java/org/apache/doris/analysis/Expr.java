@@ -1373,8 +1373,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
         if (!Type.canCastTo(this.type, targetType)) {
-            throw new AnalysisException("type not match, originType=" + this.type
-                    + ", targeType=" + targetType);
+            throw new AnalysisException("can not cast from origin type " + this.type
+                    + " to target type=" + targetType);
 
         }
         return uncheckedCastTo(targetType);
@@ -1487,6 +1487,24 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return null;
         }
         return sourceExpr.get(0).getSrcSlotRef();
+    }
+
+    // same as getSrcSlotRef, but choose first expr if has multiple src exprs
+    // only used in RewriteInPredicateRule
+    public SlotRef tryGetSrcSlotRef() {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null) {
+            return null;
+        }
+        List<Expr> sourceExpr = slotDescriptor.getSourceExprs();
+        if (sourceExpr == null || sourceExpr.isEmpty()) {
+            return unwrapSloRef;
+        }
+        return sourceExpr.get(0).tryGetSrcSlotRef();
     }
 
     public boolean comeFrom(Expr srcExpr) {
@@ -1879,10 +1897,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String getStringValue() {
-        if (this instanceof LiteralExpr) {
-            return ((LiteralExpr) this).getStringValue();
-        }
         return "";
+    }
+
+    // A special method only for array literal, all primitive type in array
+    // will be wrapped by double quote. eg:
+    // ["1", "2", "3"]
+    // ["a", "b", "c"]
+    // [["1", "2", "3"], ["1"], ["3"]]
+    public String getStringValueForArray() {
+        return null;
     }
 
     public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
@@ -2016,4 +2040,17 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             child.materializeSrcExpr();
         }
     }
+
+    // This is only for transactional insert operation,
+    // to check it the given value in insert stmt is LiteralExpr.
+    // And if we write "1" to a boolean column, there will be a cast(1 as boolean) expr,
+    // which is also accepted.
+    public boolean isLiteralOrCastExpr() {
+        if (this instanceof CastExpr) {
+            return children.get(0) instanceof LiteralExpr;
+        } else {
+            return this instanceof LiteralExpr;
+        }
+    }
 }
+

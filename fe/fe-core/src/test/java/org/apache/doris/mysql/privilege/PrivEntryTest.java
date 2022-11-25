@@ -45,4 +45,19 @@ public class PrivEntryTest {
         tablePrivTable.getPrivs(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "db_db1", "tbl_tbl1", privs2);
         Assert.assertTrue(PaloPrivilege.satisfy(privs2, PrivPredicate.DROP));
     }
+
+    @Test
+    public void testPrivBitSet() {
+        PrivBitSet privBitSet = PrivBitSet.of(PaloPrivilege.ADMIN_PRIV, PaloPrivilege.NODE_PRIV);
+        Assert.assertTrue(privBitSet.containsPrivs(PaloPrivilege.ADMIN_PRIV));
+        Assert.assertTrue(privBitSet.containsPrivs(PaloPrivilege.NODE_PRIV));
+        privBitSet.set(PaloPrivilege.DROP_PRIV.getIdx());
+        Assert.assertTrue(privBitSet.containsPrivs(PaloPrivilege.DROP_PRIV));
+        privBitSet.set(PaloPrivilege.DROP_PRIV.getIdx());
+        Assert.assertTrue(privBitSet.containsPrivs(PaloPrivilege.DROP_PRIV));
+        privBitSet.unset(PaloPrivilege.NODE_PRIV.getIdx());
+        Assert.assertFalse(privBitSet.containsPrivs(PaloPrivilege.NODE_PRIV));
+        privBitSet.unset(PaloPrivilege.NODE_PRIV.getIdx());
+        Assert.assertFalse(privBitSet.containsPrivs(PaloPrivilege.NODE_PRIV));
+    }
 }

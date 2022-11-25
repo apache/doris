@@ -65,6 +65,37 @@ public:
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
 
+    bool update_profile(RuntimeProfile* profile) override {
+        if (_short_cir_eval_predicate.empty() && _pre_eval_block_predicate.empty()) {
+            if (_col_predicates.empty()) {
+                return false;
+            }
+
+            std::string info;
+            for (auto pred : _col_predicates) {
+                info += "\n" + pred->debug_string();
+            }
+            profile->add_info_string("ColumnPredicates", info);
+        } else {
+            if (!_short_cir_eval_predicate.empty()) {
+                std::string info;
+                for (auto pred : _short_cir_eval_predicate) {
+                    info += "\n" + pred->debug_string();
+                }
+                profile->add_info_string("Short Circuit ColumnPredicates", info);
+            }
+            if (!_pre_eval_block_predicate.empty()) {
+                std::string info;
+                for (auto pred : _pre_eval_block_predicate) {
+                    info += "\n" + pred->debug_string();
+                }
+                profile->add_info_string("Pre Evaluate Block ColumnPredicates", info);
+            }
+        }
+
+        return true;
+    }
+
 private:
     Status _init(bool is_vec = false);
 

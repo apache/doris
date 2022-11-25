@@ -77,6 +77,9 @@ public:
               const TFileRangeDesc& range, const std::vector<std::string>& column_names,
               size_t batch_size, const std::string& ctz);
 
+    OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+              const std::vector<std::string>& column_names, const std::string& ctz);
+
     ~OrcReader() override;
     // for test
     void set_file_reader(const std::string& file_name, FileReader* file_reader) {
@@ -95,6 +98,9 @@ public:
     std::unordered_map<std::string, TypeDescriptor> get_name_to_type() override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+
+    Status get_parsered_schema(std::vector<std::string>* col_names,
+                               std::vector<TypeDescriptor>* col_types) override;
 
 private:
     struct OrcProfile {

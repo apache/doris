@@ -376,6 +376,24 @@ MySQL> SELECT * FROM table1 ORDER BY citycode;
 5 rows in set (0.01 sec)
 ```
 
+### SELECT * EXCEPT
+
+A `SELECT * EXCEPT` statement specifies the names of one or more columns to exclude from the result. All matching column names are omitted from the output.
+
+```sql
+MySQL> SELECT * except (username, citycode) FROM table1;
++--------+------+
+| siteid | pv   |
++--------+------+
+|      2 |    2 |
+|      5 |    3 |
+|      3 |    2 |
++--------+------+
+3 rows in set (0.01 sec)
+```
+
+**Note**: `SELECT * EXCEPT` does not exclude columns that do not have names.
+
 ###  Join Query
 
 Query example::

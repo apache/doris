@@ -17,6 +17,7 @@
 
 #include "exec/schema_scanner.h"
 
+#include "exec/schema_scanner/schema_backends_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
@@ -31,6 +32,8 @@
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/string_value.h"
 
 namespace doris {
 
@@ -41,9 +44,23 @@ SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
           _param(nullptr),
           _columns(columns),
           _column_num(column_num),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr),
+          _schema_table_type(TSchemaTableType::SCH_INVALID) {}
 
-SchemaScanner::~SchemaScanner() {}
+SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num, TSchemaTableType::type type)
+        : _is_init(false),
+          _param(nullptr),
+          _columns(columns),
+          _column_num(column_num),
+          _tuple_desc(nullptr),
+          _schema_table_type(type) {}
+
+SchemaScanner::~SchemaScanner() {
+    if (_is_create_columns == true && _columns != nullptr) {
+        delete[] _columns;
+        _columns = nullptr;
+    }
+}
 
 Status SchemaScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -70,8 +87,15 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     if (_is_init) {
         return Status::OK();
     }
+    if (nullptr == param || nullptr == pool) {
+        return Status::InternalError("invalid parameter");
+    }
 
-    if (nullptr == param || nullptr == pool || nullptr == _columns) {
+    if (_schema_table_type == TSchemaTableType::SCH_BACKENDS) {
+        RETURN_IF_ERROR(create_columns(param->table_structure, pool));
+    }
+
+    if (nullptr == _columns) {
         return Status::InternalError("invalid parameter");
     }
 
@@ -113,15 +137,30 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
         return new (std::nothrow) SchemaPartitionsScanner();
     case TSchemaTableType::SCH_ROWSETS:
         return new (std::nothrow) SchemaRowsetsScanner();
+    case TSchemaTableType::SCH_BACKENDS:
+        return new (std::nothrow) SchemaBackendsScanner();
     default:
         return new (std::nothrow) SchemaDummyScanner();
         break;
     }
 }
 
+Status SchemaScanner::create_columns(const std::vector<TSchemaTableStructure>* table_structure,
+                                     ObjectPool* pool) {
+    _column_num = table_structure->size();
+    _columns = new ColumnDesc[_column_num];
+    _is_create_columns = true;
+    for (size_t idx = 0; idx < table_structure->size(); ++idx) {
+        _columns[idx].name = table_structure->at(idx).column_name.c_str();
+        _columns[idx].type = thrift_to_type(table_structure->at(idx).type);
+        _columns[idx].size = table_structure->at(idx).len;
+        _columns[idx].is_null = table_structure->at(idx).is_null;
+    }
+    return Status::OK();
+}
+
 Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
     int null_column = 0;
-
     for (int i = 0; i < _column_num; ++i) {
         if (_columns[i].is_null) {
             null_column++;

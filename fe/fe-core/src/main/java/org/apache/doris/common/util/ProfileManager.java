@@ -18,7 +18,9 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
@@ -67,6 +69,11 @@ public class ProfileManager {
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
+
+    public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
+
+    public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
+
     public static final String TRACE_ID = "Trace ID";
 
     public enum ProfileType {
@@ -203,8 +210,29 @@ public class ProfileManager {
             if (element == null) {
                 return null;
             }
-
             return element.profileContent;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    /**
+     * Check if the query with specific query id is queried by specific user.
+     *
+     * @param user
+     * @param queryId
+     * @throws DdlException
+     */
+    public void checkAuthByUserAndQueryId(String user, String queryId) throws AuthenticationException {
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(queryId);
+            if (element == null) {
+                throw new AuthenticationException("query with id " + queryId + " not found");
+            }
+            if (!element.infoStrings.get(USER).equals(user)) {
+                throw new AuthenticationException("Access deny to view query with id: " + queryId);
+            }
         } finally {
             readLock.unlock();
         }

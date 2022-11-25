@@ -185,6 +185,7 @@ public:
     virtual const RowDescriptor& row_desc() const {
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
+    virtual const RowDescriptor& intermediate_row_desc() const { return _row_descriptor; }
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
@@ -194,6 +195,7 @@ public:
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
+    std::shared_ptr<MemTracker> mem_tracker_shared() const { return _mem_tracker; }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
@@ -298,12 +300,13 @@ protected:
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
     /// Account for peak memory used by this node
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
+    RuntimeProfile::Counter* _projection_timer;
 
     /// Since get_next is a frequent operation, it is not necessary to generate a span for each call
     /// to the get_next method. Therefore, the call of the get_next method in the ExecNode is

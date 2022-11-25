@@ -44,6 +44,166 @@ inline uint64_t ParquetInt96::to_timestamp_micros() const {
     M(TypeIndex::Float32, Float32)   \
     M(TypeIndex::Float64, Float64)
 
+ColumnSelectVector::ColumnSelectVector(const uint8_t* filter_map, size_t filter_map_size,
+                                       bool filter_all) {
+    build(filter_map, filter_map_size, filter_all);
+}
+
+void ColumnSelectVector::build(const uint8_t* filter_map, size_t filter_map_size, bool filter_all) {
+    _filter_all = filter_all;
+    _filter_map = filter_map;
+    _filter_map_size = filter_map_size;
+    if (filter_all) {
+        _has_filter = true;
+        _filter_ratio = 1;
+    } else if (filter_map == nullptr) {
+        _has_filter = false;
+        _filter_ratio = 0;
+    } else {
+        size_t filter_count =
+                simd::count_zero_num(reinterpret_cast<const int8_t*>(filter_map), filter_map_size);
+        if (filter_count == filter_map_size) {
+            _has_filter = true;
+            _filter_all = true;
+            _filter_ratio = 1;
+        } else if (filter_count > 0 && filter_map_size > 0) {
+            _has_filter = true;
+            _filter_ratio = (double)filter_count / filter_map_size;
+        } else {
+            _has_filter = false;
+            _filter_ratio = 0;
+        }
+    }
+}
+
+void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& run_length_null_map,
+                                                 size_t num_values, NullMap* null_map) {
+    _num_values = num_values;
+    _num_nulls = 0;
+    _read_index = 0;
+    size_t map_index = 0;
+    bool is_null = false;
+    if (_has_filter) {
+        // No run length null map is generated when _filter_all = true
+        DCHECK(!_filter_all);
+        _data_map.resize(num_values);
+        for (auto& run_length : run_length_null_map) {
+            if (is_null) {
+                _num_nulls += run_length;
+                for (int i = 0; i < run_length; ++i) {
+                    _data_map[map_index++] = FILTERED_NULL;
+                }
+            } else {
+                for (int i = 0; i < run_length; ++i) {
+                    _data_map[map_index++] = FILTERED_CONTENT;
+                }
+            }
+            is_null = !is_null;
+        }
+        size_t num_read = 0;
+        DCHECK_LE(_filter_map_index + num_values, _filter_map_size);
+        for (size_t i = 0; i < num_values; ++i) {
+            if (_filter_map[_filter_map_index++]) {
+                _data_map[i] = _data_map[i] == FILTERED_NULL ? NULL_DATA : CONTENT;
+                num_read++;
+            }
+        }
+        _num_filtered = num_values - num_read;
+        if (null_map != nullptr && num_read > 0) {
+            NullMap& map_data_column = *null_map;
+            auto null_map_index = map_data_column.size();
+            map_data_column.resize(null_map_index + num_read);
+            for (size_t i = 0; i < num_values; ++i) {
+                if (_data_map[i] == CONTENT) {
+                    map_data_column[null_map_index++] = (UInt8) false;
+                } else if (_data_map[i] == NULL_DATA) {
+                    map_data_column[null_map_index++] = (UInt8) true;
+                }
+            }
+        }
+    } else {
+        _num_filtered = 0;
+        _run_length_null_map = &run_length_null_map;
+        if (null_map != nullptr) {
+            NullMap& map_data_column = *null_map;
+            auto null_map_index = map_data_column.size();
+            map_data_column.resize(null_map_index + num_values);
+            for (auto& run_length : run_length_null_map) {
+                if (is_null) {
+                    _num_nulls += run_length;
+                    for (int i = 0; i < run_length; ++i) {
+                        map_data_column[null_map_index++] = (UInt8) true;
+                    }
+                } else {
+                    for (int i = 0; i < run_length; ++i) {
+                        map_data_column[null_map_index++] = (UInt8) false;
+                    }
+                }
+                is_null = !is_null;
+            }
+        } else {
+            for (auto& run_length : run_length_null_map) {
+                if (is_null) {
+                    _num_nulls += run_length;
+                }
+                is_null = !is_null;
+            }
+        }
+    }
+}
+
+bool ColumnSelectVector::can_filter_all(size_t remaining_num_values) {
+    if (!_has_filter) {
+        return false;
+    }
+    if (_filter_all) {
+        // all data in normal columns can be skipped when _filter_all = true,
+        // so the remaining_num_values should be less than the remaining filter map size.
+        DCHECK_LE(remaining_num_values + _filter_map_index, _filter_map_size);
+        // return true always, to make sure that the data in normal columns can be skipped.
+        return true;
+    }
+    if (remaining_num_values + _filter_map_index > _filter_map_size) {
+        return false;
+    }
+    return simd::count_zero_num(reinterpret_cast<const int8_t*>(_filter_map + _filter_map_index),
+                                remaining_num_values) == remaining_num_values;
+}
+
+void ColumnSelectVector::skip(size_t num_values) {
+    _filter_map_index += num_values;
+}
+
+size_t ColumnSelectVector::get_next_run(DataReadType* data_read_type) {
+    if (_has_filter) {
+        if (_read_index == _num_values) {
+            return 0;
+        }
+        const DataReadType& type = _data_map[_read_index++];
+        size_t run_length = 1;
+        while (_read_index < _num_values) {
+            if (_data_map[_read_index] == type) {
+                run_length++;
+                _read_index++;
+            } else {
+                break;
+            }
+        }
+        *data_read_type = type;
+        return run_length;
+    } else {
+        size_t run_length = 0;
+        while (run_length == 0) {
+            if (_read_index == (*_run_length_null_map).size()) {
+                return 0;
+            }
+            *data_read_type = _read_index % 2 == 0 ? CONTENT : NULL_DATA;
+            run_length = (*_run_length_null_map)[_read_index++];
+        }
+        return run_length;
+    }
+}
+
 Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
                             std::unique_ptr<Decoder>& decoder) {
     switch (encoding) {
@@ -158,9 +318,8 @@ Status FixLengthDecoder::skip_values(size_t num_values) {
 }
 
 Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                       RunLengthNullMap& null_map, size_t num_values,
-                                       size_t num_nulls) {
-    size_t non_null_size = num_values - num_nulls;
+                                       ColumnSelectVector& select_vector) {
+    size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (_has_dict) {
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
@@ -171,75 +330,77 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
     switch (logical_type) {
 #define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE) \
     case NUMERIC_TYPE:                           \
-        return _decode_numeric<CPP_NUMERIC_TYPE>(doris_column, null_map, num_values);
+        return _decode_numeric<CPP_NUMERIC_TYPE>(doris_column, select_vector);
         FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
     case TypeIndex::Date:
         if (_physical_type == tparquet::Type::INT32) {
-            return _decode_date<VecDateTimeValue, Int64>(doris_column, null_map, num_values);
+            return _decode_date<VecDateTimeValue, Int64>(doris_column, select_vector);
         }
         break;
     case TypeIndex::DateV2:
         if (_physical_type == tparquet::Type::INT32) {
-            return _decode_date<DateV2Value<DateV2ValueType>, UInt32>(doris_column, null_map,
-                                                                      num_values);
+            return _decode_date<DateV2Value<DateV2ValueType>, UInt32>(doris_column, select_vector);
         }
         break;
     case TypeIndex::DateTime:
         if (_physical_type == tparquet::Type::INT96) {
-            return _decode_datetime96<VecDateTimeValue, Int64>(doris_column, null_map, num_values);
+            return _decode_datetime96<VecDateTimeValue, Int64>(doris_column, select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_datetime64<VecDateTimeValue, Int64>(doris_column, null_map, num_values);
+            return _decode_datetime64<VecDateTimeValue, Int64>(doris_column, select_vector);
         }
         break;
     case TypeIndex::DateTimeV2:
         // Spark can set the timestamp precision by the following configuration:
         // spark.sql.parquet.outputTimestampType = INT96(NANOS), TIMESTAMP_MICROS, TIMESTAMP_MILLIS
         if (_physical_type == tparquet::Type::INT96) {
-            return _decode_datetime96<DateV2Value<DateTimeV2ValueType>, UInt64>(
-                    doris_column, null_map, num_values);
+            return _decode_datetime96<DateV2Value<DateTimeV2ValueType>, UInt64>(doris_column,
+                                                                                select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_datetime64<DateV2Value<DateTimeV2ValueType>, UInt64>(
-                    doris_column, null_map, num_values);
+            return _decode_datetime64<DateV2Value<DateTimeV2ValueType>, UInt64>(doris_column,
+                                                                                select_vector);
         }
         break;
     case TypeIndex::Decimal32:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_binary_decimal<Int32>(doris_column, data_type, null_map, num_values);
+            return _decode_binary_decimal<Int32>(doris_column, data_type, select_vector);
         } else if (_physical_type == tparquet::Type::INT32) {
-            return _decode_primitive_decimal<Int32, Int32>(doris_column, data_type, null_map,
-                                                           num_values);
+            return _decode_primitive_decimal<Int32, Int32>(doris_column, data_type, select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_primitive_decimal<Int32, Int64>(doris_column, data_type, null_map,
-                                                           num_values);
+            return _decode_primitive_decimal<Int32, Int64>(doris_column, data_type, select_vector);
         }
         break;
     case TypeIndex::Decimal64:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_binary_decimal<Int64>(doris_column, data_type, null_map, num_values);
+            return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
         } else if (_physical_type == tparquet::Type::INT32) {
-            return _decode_primitive_decimal<Int64, Int32>(doris_column, data_type, null_map,
-                                                           num_values);
+            return _decode_primitive_decimal<Int64, Int32>(doris_column, data_type, select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_primitive_decimal<Int64, Int64>(doris_column, data_type, null_map,
-                                                           num_values);
+            return _decode_primitive_decimal<Int64, Int64>(doris_column, data_type, select_vector);
         }
         break;
     case TypeIndex::Decimal128:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_binary_decimal<Int128>(doris_column, data_type, null_map, num_values);
+            return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
         } else if (_physical_type == tparquet::Type::INT32) {
-            return _decode_primitive_decimal<Int128, Int32>(doris_column, data_type, null_map,
-                                                            num_values);
+            return _decode_primitive_decimal<Int128, Int32>(doris_column, data_type, select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, null_map,
-                                                            num_values);
+            return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, select_vector);
+        }
+        break;
+    case TypeIndex::Decimal128I:
+        if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+            return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+        } else if (_physical_type == tparquet::Type::INT32) {
+            return _decode_primitive_decimal<Int128, Int32>(doris_column, data_type, select_vector);
+        } else if (_physical_type == tparquet::Type::INT64) {
+            return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, select_vector);
         }
         break;
     case TypeIndex::String:
     case TypeIndex::FixedString:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-            return _decode_string(doris_column, null_map, num_values);
+            return _decode_string(doris_column, select_vector);
         }
         break;
     default:
@@ -250,24 +411,40 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                                    tparquet::to_string(_physical_type), getTypeName(logical_type));
 }
 
-Status FixLengthDecoder::_decode_string(MutableColumnPtr& doris_column, RunLengthNullMap& null_map,
-                                        size_t num_values) {
-    bool is_null = false;
+Status FixLengthDecoder::_decode_string(MutableColumnPtr& doris_column,
+                                        ColumnSelectVector& select_vector) {
     size_t dict_index = 0;
-    for (auto& run_length : null_map) {
-        if (is_null) {
-            doris_column->insert_many_defaults(run_length);
-        } else {
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
             std::vector<StringRef> string_values;
             string_values.reserve(run_length);
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 string_values.emplace_back(buf_start, _type_length);
                 _FIXED_SHIFT_DATA_OFFSET();
             }
             doris_column->insert_many_strings(&string_values[0], run_length);
+            break;
         }
-        is_null = !is_null;
+        case ColumnSelectVector::NULL_DATA: {
+            doris_column->insert_many_defaults(run_length);
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
@@ -327,9 +504,8 @@ Status ByteArrayDecoder::skip_values(size_t num_values) {
 }
 
 Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                       RunLengthNullMap& null_map, size_t num_values,
-                                       size_t num_nulls) {
-    size_t non_null_size = num_values - num_nulls;
+                                       ColumnSelectVector& select_vector) {
+    size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
     if (_has_dict) {
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
@@ -338,15 +514,15 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
     switch (logical_type) {
     case TypeIndex::String:
     case TypeIndex::FixedString: {
-        bool is_null = false;
         size_t dict_index = 0;
-        for (auto& run_length : null_map) {
-            if (is_null) {
-                doris_column->insert_many_defaults(run_length);
-            } else {
+
+        ColumnSelectVector::DataReadType read_type;
+        while (size_t run_length = select_vector.get_next_run(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT: {
                 std::vector<StringRef> string_values;
                 string_values.reserve(run_length);
-                for (int i = 0; i < run_length; ++i) {
+                for (size_t i = 0; i < run_length; ++i) {
                     if (_has_dict) {
                         string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
                     } else {
@@ -365,17 +541,48 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                     }
                 }
                 doris_column->insert_many_strings(&string_values[0], run_length);
+                break;
             }
-            is_null = !is_null;
+            case ColumnSelectVector::NULL_DATA: {
+                doris_column->insert_many_defaults(run_length);
+                break;
+            }
+            case ColumnSelectVector::FILTERED_CONTENT: {
+                if (_has_dict) {
+                    dict_index += run_length;
+                } else {
+                    for (int i = 0; i < run_length; ++i) {
+                        if (UNLIKELY(_offset + 4 > _data->size)) {
+                            return Status::IOError(
+                                    "Can't read byte array length from plain decoder");
+                        }
+                        uint32_t length = decode_fixed32_le(
+                                reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+                        _offset += 4;
+                        if (UNLIKELY(_offset + length) > _data->size) {
+                            return Status::IOError("Can't read enough bytes in plain decoder");
+                        }
+                        _offset += length;
+                    }
+                }
+                break;
+            }
+            case ColumnSelectVector::FILTERED_NULL: {
+                // do nothing
+                break;
+            }
+            }
         }
         return Status::OK();
     }
     case TypeIndex::Decimal32:
-        return _decode_binary_decimal<Int32>(doris_column, data_type, null_map, num_values);
+        return _decode_binary_decimal<Int32>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal64:
-        return _decode_binary_decimal<Int64>(doris_column, data_type, null_map, num_values);
+        return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128:
-        return _decode_binary_decimal<Int128>(doris_column, data_type, null_map, num_values);
+        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+    case TypeIndex::Decimal128I:
+        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
     default:
         break;
     }
@@ -409,25 +616,42 @@ Status BoolPlainDecoder::skip_values(size_t num_values) {
 }
 
 Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                       RunLengthNullMap& null_map, size_t num_values,
-                                       size_t num_nulls) {
+                                       ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
-    column_data.resize(data_index + num_values);
-    bool is_null = false;
-    for (auto& run_length : null_map) {
-        if (is_null) {
-            data_index += run_length;
-        } else {
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
             bool value;
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 if (UNLIKELY(!_decode_value(&value))) {
                     return Status::IOError("Can't read enough booleans in plain decoder");
                 }
                 column_data[data_index++] = (UInt8)value;
             }
+            break;
         }
-        is_null = !is_null;
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            bool value;
+            for (int i = 0; i < run_length; ++i) {
+                if (UNLIKELY(!_decode_value(&value))) {
+                    return Status::IOError("Can't read enough booleans in plain decoder");
+                }
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }

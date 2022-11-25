@@ -724,6 +724,9 @@ public final class SparkDpp implements java.io.Serializable {
         );
 
         Dataset<Row> dataframe = spark.createDataFrame(rowRDD, srcSchema);
+        if (!Strings.isNullOrEmpty(fileGroup.where)) {
+            dataframe = dataframe.where(fileGroup.where);
+        }
         return dataframe;
     }
 

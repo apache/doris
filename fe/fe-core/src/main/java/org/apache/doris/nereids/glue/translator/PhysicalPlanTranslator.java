@@ -22,6 +22,8 @@ import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.GroupByClause.GroupingType;
+import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -42,13 +44,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
@@ -64,6 +66,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -71,24 +75,31 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AssertNumRowsNode;
-import org.apache.doris.planner.CrossJoinNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
+import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.RepeatNode;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -109,6 +120,8 @@ import java.util.stream.Stream;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
+    private static final Logger LOG = LoggerFactory.getLogger(PhysicalPlanTranslator.class);
+
     /**
      * Translate Nereids Physical Plan tree to Stale Planner PlanFragment tree.
      *
@@ -143,6 +156,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalAggregate(
             PhysicalAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
+
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
 
         // TODO: stale planner generate aggregate tuple in a special way. tuple include 2 parts:
@@ -157,17 +171,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<NamedExpression> outputExpressionList = aggregate.getOutputExpressions();
 
         // 1. generate slot reference for each group expression
-        List<SlotReference> groupSlotList = Lists.newArrayList();
-        for (Expression e : groupByExpressionList) {
-            if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.anyMatch(e::equals))) {
-                groupSlotList.add((SlotReference) e);
-            } else {
-                // TODO: review this, should not
-                groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), Collections.emptyList()));
-            }
-        }
+        List<SlotReference> groupSlotList = collectGroupBySlots(groupByExpressionList, outputExpressionList);
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
-                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toCollection(ArrayList::new));
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toCollection(ArrayList::new));
         // 2. collect agg functions and generate agg function to slot reference map
         List<Slot> aggFunctionOutput = Lists.newArrayList();
         List<AggregateFunction> aggregateFunctionList = outputExpressionList.stream()
@@ -177,7 +184,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .flatMap(Set::stream)
                 .collect(Collectors.toList());
         ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateFunctionList.stream()
-                .map(x -> (FunctionCallExpr) ExpressionTranslator.translate(x, context))
+                .map(aggregateFunction -> (FunctionCallExpr) ExpressionTranslator.translate(aggregateFunction, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 
         // process partition list
@@ -210,11 +217,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputTupleDesc = localAggNode.getAggInfo().getOutputTupleDesc();
         }
 
-        if (aggregate.getAggPhase() == AggPhase.GLOBAL) {
-            for (FunctionCallExpr execAggregateFunction : execAggregateFunctions) {
-                execAggregateFunction.setMergeForNereids(true);
-            }
-        }
+        // TODO: move setMergeForNereids to ExpressionTranslator.visitAggregateFunction
         if (aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
             for (FunctionCallExpr execAggregateFunction : execAggregateFunctions) {
                 if (!execAggregateFunction.isDistinct()) {
@@ -251,7 +254,66 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new RuntimeException("Unsupported yet");
         }
         currentFragment.setPlanRoot(aggregationNode);
+        if (aggregate.getStats() != null) {
+            aggregationNode.setCardinality((long) aggregate.getStats().getRowCount());
+        }
         return currentFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PlanTranslatorContext context) {
+        PlanFragment inputPlanFragment = repeat.child(0).accept(this, context);
+
+        Set<VirtualSlotReference> sortedVirtualSlots = repeat.getSortedVirtualSlots();
+        TupleDescriptor virtualSlotsTuple =
+                generateTupleDesc(ImmutableList.copyOf(sortedVirtualSlots), null, context);
+
+        ImmutableSet<Expression> flattenGroupingSetExprs = ImmutableSet.copyOf(
+                ExpressionUtils.flatExpressions(repeat.getGroupingSets()));
+
+        List<Slot> aggregateFunctionUsedSlots = repeat.getOutputExpressions()
+                .stream()
+                .filter(output -> !(output instanceof VirtualSlotReference))
+                .filter(output -> !flattenGroupingSetExprs.contains(output))
+                .distinct()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
+
+        Set<Expression> usedSlotInRepeat = ImmutableSet.<Expression>builder()
+                .addAll(flattenGroupingSetExprs)
+                .addAll(aggregateFunctionUsedSlots)
+                .build();
+
+        List<Expr> preRepeatExprs = usedSlotInRepeat.stream()
+                .map(expr -> ExpressionTranslator.translate(expr, context))
+                .collect(ImmutableList.toImmutableList());
+
+        List<Slot> outputSlots = repeat.getOutputExpressions()
+                .stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
+
+        // NOTE: we should first translate preRepeatExprs, then generate output tuple,
+        //       or else the preRepeatExprs can not find the bottom slotRef and throw
+        //       exception: invalid slot id
+        TupleDescriptor outputTuple = generateTupleDesc(outputSlots, null, context);
+
+        // cube and rollup already convert to grouping sets in LogicalPlanBuilder.withAggregate()
+        GroupingInfo groupingInfo = new GroupingInfo(
+                GroupingType.GROUPING_SETS, virtualSlotsTuple, outputTuple, preRepeatExprs);
+
+        List<Set<Integer>> repeatSlotIdList = repeat.computeRepeatSlotIdList(getSlotIdList(outputTuple));
+        Set<Integer> allSlotId = repeatSlotIdList.stream()
+                .flatMap(Set::stream)
+                .collect(ImmutableSet.toImmutableSet());
+
+        RepeatNode repeatNode = new RepeatNode(context.nextPlanNodeId(),
+                inputPlanFragment.getPlanRoot(), groupingInfo, repeatSlotIdList,
+                allSlotId, repeat.computeVirtualSlotValues(sortedVirtualSlots));
+        repeatNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
+        inputPlanFragment.addPlanRoot(repeatNode);
+        inputPlanFragment.updateDataPartition(DataPartition.RANDOM);
+        return inputPlanFragment;
     }
 
     @Override
@@ -267,7 +329,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             slotRef.setLabel(slot.getName());
         }
 
-        ArrayList<TupleId> tupleIds = new ArrayList();
+        ArrayList<TupleId> tupleIds = new ArrayList<>();
         tupleIds.add(tupleDescriptor.getId());
         EmptySetNode emptySetNode = new EmptySetNode(context.nextPlanNodeId(), tupleIds);
 
@@ -292,10 +354,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
             Expr expr = legacyExprs.get(i);
             slotDescriptor.setSourceExpr(expr);
-            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
+            slotDescriptor.setIsNullable(legacyExprs.get(i).isNullable());
         }
 
         UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());
+        unionNode.setCardinality(1L);
         unionNode.addConstExprList(legacyExprs);
         unionNode.finalizeForNereids(oneRowTuple, oneRowTuple.getSlots());
 
@@ -351,6 +414,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return planFragment;
     }
 
+    @Override
+    public PlanFragment visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, PlanTranslatorContext context) {
+        List<Slot> slots = tvfRelation.getLogicalProperties().getOutput();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getTable(), context);
+
+        TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
+        ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        scanNode.finalizeForNereids();
+        context.addScanNode(scanNode);
+
+        // set label for explain
+        for (Slot slot : slots) {
+            String tableColumnName = "_table_valued_function_" + tvfRelation.getFunction().getName()
+                    + "." + slots.get(0).getName();
+            context.findSlotRef(slot.getExprId()).setLabel(tableColumnName);
+        }
+
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);
+        context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
     /*-
      * Physical sort:
      * 1. Build sortInfo
@@ -371,11 +456,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      *       Currently we cannot test whether this will have any effect.
      *       After a+1 can be parsed , reprocessing.
      */
-    @Override
-    public PlanFragment visitLogicalSort(LogicalSort<? extends Plan> sort, PlanTranslatorContext context) {
-        return super.visitLogicalSort(sort, context);
-    }
-
     @Override
     public PlanFragment visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort,
             PlanTranslatorContext context) {
@@ -442,6 +522,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode childNode = childFragment.getPlanRoot();
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true);
         sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
+        if (sort.getStats() != null) {
+            sortNode.setCardinality((long) sort.getStats().getRowCount());
+        }
         childFragment.addPlanRoot(sortNode);
         return childFragment;
     }
@@ -663,6 +746,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setvOutputTupleDesc(outputDescriptor);
             hashJoinNode.setvSrcToOutputSMap(srcToOutput);
         }
+        if (hashJoin.getStats() != null) {
+            hashJoinNode.setCardinality((long) hashJoin.getStats().getRowCount());
+        }
         return currentFragment;
     }
 
@@ -685,15 +771,112 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(TupleDescriptor::getId)
                     .collect(Collectors.toList());
 
-            CrossJoinNode crossJoinNode = new CrossJoinNode(context.nextPlanNodeId(),
-                    leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds);
-            rightFragment.getPlanRoot().setCompactData(false);
-            crossJoinNode.setChild(0, leftFragment.getPlanRoot());
-            connectChildFragment(crossJoinNode, 1, leftFragment, rightFragment, context);
-            leftFragment.setPlanRoot(crossJoinNode);
-            nestedLoopJoin.getOtherJoinConjuncts().stream()
-                    .map(e -> ExpressionTranslator.translate(e, context)).forEach(crossJoinNode::addConjunct);
+            JoinType joinType = nestedLoopJoin.getJoinType();
 
+            NestedLoopJoinNode nestedLoopJoinNode = new NestedLoopJoinNode(context.nextPlanNodeId(),
+                    leftFragmentPlanRoot, rightFragmentPlanRoot, tupleIds, JoinType.toJoinOperator(joinType),
+                    null, null, null);
+            if (nestedLoopJoin.getStats() != null) {
+                nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+            }
+
+            Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
+            nestedLoopJoin.child(0).getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> leftChildOutputMap.put(s.getExprId(), s));
+            Map<ExprId, SlotReference> rightChildOutputMap = Maps.newHashMap();
+            nestedLoopJoin.child(1).getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> rightChildOutputMap.put(s.getExprId(), s));
+            // make intermediate tuple
+            List<SlotDescriptor> leftIntermediateSlotDescriptor = Lists.newArrayList();
+            List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
+            TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
+
+            // Nereids does not care about output order of join,
+            // but BE need left child's output must be before right child's output.
+            // So we need to swap the output order of left and right child if necessary.
+            // TODO: revert this after Nereids could ensure the output order is correct.
+            List<SlotDescriptor> leftSlotDescriptors = leftTuples.stream()
+                    .map(TupleDescriptor::getSlots)
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            List<SlotDescriptor> rightSlotDescriptors = rightTuples.stream()
+                    .map(TupleDescriptor::getSlots)
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
+            Map<ExprId, SlotReference> outputSlotReferenceMap = Maps.newHashMap();
+
+            nestedLoopJoin.getOutput().stream()
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> outputSlotReferenceMap.put(s.getExprId(), s));
+            List<SlotReference> outputSlotReferences = Stream.concat(leftTuples.stream(), rightTuples.stream())
+                    .map(TupleDescriptor::getSlots)
+                    .flatMap(Collection::stream)
+                    .map(sd -> context.findExprId(sd.getId()))
+                    .map(outputSlotReferenceMap::get)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            if (nestedLoopJoinNode.getConjuncts().isEmpty()
+                    && (joinType == JoinType.LEFT_ANTI_JOIN || joinType == JoinType.LEFT_SEMI_JOIN)) {
+                for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                    SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    leftIntermediateSlotDescriptor.add(sd);
+                }
+            } else if (nestedLoopJoinNode.getConjuncts().isEmpty()
+                    && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
+                for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                    SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    rightIntermediateSlotDescriptor.add(sd);
+                }
+            } else {
+                for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
+                    SlotReference sf = leftChildOutputMap.get(context.findExprId(leftSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    leftIntermediateSlotDescriptor.add(sd);
+                }
+                for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
+                    SlotReference sf = rightChildOutputMap.get(context.findExprId(rightSlotDescriptor.getId()));
+                    SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    rightIntermediateSlotDescriptor.add(sd);
+                }
+            }
+
+            // set slots as nullable for outer join
+            if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+                rightIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
+            }
+            if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+                leftIntermediateSlotDescriptor.forEach(sd -> sd.setIsNullable(true));
+            }
+
+            nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
+
+            rightFragment.getPlanRoot().setCompactData(false);
+            nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
+            connectChildFragment(nestedLoopJoinNode, 1, leftFragment, rightFragment, context);
+            leftFragment.setPlanRoot(nestedLoopJoinNode);
+            nestedLoopJoin.getOtherJoinConjuncts().stream()
+                    .map(e -> ExpressionTranslator.translate(e, context)).forEach(nestedLoopJoinNode::addConjunct);
+
+            if (nestedLoopJoin.isShouldTranslateOutput()) {
+                // translate output expr on intermediate tuple
+                List<Expr> srcToOutput = outputSlotReferences.stream()
+                        .map(e -> ExpressionTranslator.translate(e, context))
+                        .collect(Collectors.toList());
+
+                TupleDescriptor outputDescriptor = context.generateTupleDesc();
+                outputSlotReferences.forEach(s -> context.createSlotDesc(outputDescriptor, s));
+
+                nestedLoopJoinNode.setvOutputTupleDesc(outputDescriptor);
+                nestedLoopJoinNode.setvSrcToOutputSMap(srcToOutput);
+            }
+            if (nestedLoopJoin.getStats() != null) {
+                nestedLoopJoinNode.setCardinality((long) nestedLoopJoin.getStats().getRowCount());
+            }
             return leftFragment;
         } else {
             throw new RuntimeException("Physical nested loop join could not execute with equal join condition.");
@@ -706,9 +889,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (project.child(0) instanceof PhysicalHashJoin) {
             ((PhysicalHashJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
         }
+        if (project.child(0) instanceof PhysicalNestedLoopJoin) {
+            ((PhysicalNestedLoopJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
+        }
         if (project.child(0) instanceof PhysicalFilter) {
             if (project.child(0).child(0) instanceof PhysicalHashJoin) {
                 ((PhysicalHashJoin<?, ?>) project.child(0).child(0)).setShouldTranslateOutput(false);
+            }
+            if (project.child(0).child(0) instanceof PhysicalNestedLoopJoin) {
+                ((PhysicalNestedLoopJoin<?, ?>) project.child(0).child(0)).setShouldTranslateOutput(false);
             }
         }
         PlanFragment inputFragment = project.child(0).accept(this, context);
@@ -728,6 +917,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             HashJoinNode hashJoinNode = (HashJoinNode) inputPlanNode;
             hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
             hashJoinNode.setvSrcToOutputSMap(execExprList);
+            return inputFragment;
+        }
+        if (inputPlanNode instanceof NestedLoopJoinNode) {
+            NestedLoopJoinNode nestedLoopJoinNode = (NestedLoopJoinNode) inputPlanNode;
+            nestedLoopJoinNode.setvOutputTupleDesc(tupleDescriptor);
+            nestedLoopJoinNode.setvSrcToOutputSMap(execExprList);
             return inputFragment;
         }
         inputPlanNode.setProjectList(execExprList);
@@ -947,6 +1142,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setChild(0, leftFragment.getPlanRoot());
         hashJoinNode.setChild(1, rightFragment.getPlanRoot());
         leftFragment.setPlanRoot(hashJoinNode);
+        rightFragment.getTargetRuntimeFilterIds().stream().forEach(leftFragment::setTargetRuntimeFilterIds);
+        rightFragment.getBuilderRuntimeFilterIds().stream().forEach(leftFragment::setBuilderRuntimeFilterIds);
         context.removePlanFragment(rightFragment);
         leftFragment.setHasColocatePlanNode(true);
         return leftFragment;
@@ -1020,5 +1217,33 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rightFragment.setOutputPartition(rhsJoinPartition);
 
         return joinFragment;
+    }
+
+    private List<SlotReference> collectGroupBySlots(List<Expression> groupByExpressionList,
+            List<NamedExpression> outputExpressionList) {
+        List<SlotReference> groupSlotList = Lists.newArrayList();
+        Set<VirtualSlotReference> virtualSlotReferences = groupByExpressionList.stream()
+                .filter(VirtualSlotReference.class::isInstance)
+                .map(VirtualSlotReference.class::cast)
+                .collect(Collectors.toSet());
+        for (Expression e : groupByExpressionList) {
+            if (e instanceof SlotReference && outputExpressionList.stream().anyMatch(o -> o.anyMatch(e::equals))) {
+                groupSlotList.add((SlotReference) e);
+            } else if (e instanceof SlotReference && !virtualSlotReferences.isEmpty()) {
+                // When there is a virtualSlot, it is a groupingSets scenario,
+                // and the original exprId should be retained at this time.
+                groupSlotList.add((SlotReference) e);
+            } else {
+                groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), Collections.emptyList()));
+            }
+        }
+        return groupSlotList;
+    }
+
+    private List<Integer> getSlotIdList(TupleDescriptor tupleDescriptor) {
+        return tupleDescriptor.getSlots()
+                .stream()
+                .map(slot -> slot.getId().asInt())
+                .collect(ImmutableList.toImmutableList());
     }
 }

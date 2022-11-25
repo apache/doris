@@ -49,16 +49,15 @@ namespace doris {
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos)
         : _push_req(push_req), _tablet_infos(tablet_infos) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1,
+            MemTrackerLimiter::Type::BATCHLOAD,
             fmt::format("EngineBatchLoadTask#pushType={}:tabletId={}", _push_req.push_type,
-                        std::to_string(_push_req.tablet_id)),
-            StorageEngine::instance()->batch_load_mem_tracker());
+                        std::to_string(_push_req.tablet_id)));
 }
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
 Status EngineBatchLoadTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     Status status;
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
         RETURN_IF_ERROR(_init());

@@ -25,6 +25,6 @@ FROM
             AND (i_class IN ('shirts'         , 'birdal'         , 'dresses'))))
    GROUP BY i_category, i_class, i_brand, s_store_name, s_company_name, d_moy
 )  tmp1
-WHERE ((CASE WHEN (avg_monthly_sales <> 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > CAST('0.1' AS DECIMAL))
+WHERE ((CASE WHEN (avg_monthly_sales <> 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > CAST('0.1' AS DECIMAL(2,1)))
 ORDER BY (sum_sales - avg_monthly_sales) ASC, s_store_name ASC
 LIMIT 100

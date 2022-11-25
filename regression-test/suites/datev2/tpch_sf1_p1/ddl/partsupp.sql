@@ -5,9 +5,10 @@ CREATE TABLE IF NOT EXISTS partsupp (
   PS_SUPPLYCOST  DECIMAL(15,2)  NOT NULL,
   PS_COMMENT     VARCHAR(199) NOT NULL 
 )
-UNIQUE KEY(PS_PARTKEY, PS_SUPPKEY)
+DUPLICATE KEY(PS_PARTKEY)
 DISTRIBUTED BY HASH(PS_PARTKEY) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "colocate_with" = "part_partsupp"
 )
 

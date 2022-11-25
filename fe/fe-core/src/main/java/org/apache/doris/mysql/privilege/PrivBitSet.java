@@ -53,7 +53,7 @@ public class PrivBitSet implements Writable {
 
     public void unset(int index) {
         Preconditions.checkState(index < PaloPrivilege.privileges.length, index);
-        set ^= 1 << index;
+        set &= ~(1 << index);
     }
 
     public boolean get(int index) {

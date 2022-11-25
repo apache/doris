@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
-import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -40,7 +40,8 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.types.DecimalType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -49,15 +50,18 @@ import org.apache.doris.nereids.types.TinyIntType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
 
-public class TypeCoercionTest {
+public class TypeCoercionTest extends ExpressionRewriteTestHelper {
 
-    private final NereidsParser parser = new NereidsParser();
-    private final ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE));
+    @BeforeEach
+    public void setUp() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(TypeCoercion.INSTANCE));
+    }
 
     @Test
     public void testSubStringImplicitCast() {
@@ -71,42 +75,43 @@ public class TypeCoercionTest {
                 new Cast(new StringLiteral("1"), IntegerType.INSTANCE),
                 new Cast(new StringLiteral("3"), IntegerType.INSTANCE)
         );
-        assertRewrite(expected, expression);
+        assertRewrite(expression, expected);
     }
 
     @Test
     public void testLikeImplicitCast() {
         String expression = "1 like 5";
         String expected = "cast(1 as string) like cast(5 as string)";
-        assertRewrite(expected, expression);
+        assertRewrite(expression, expected);
     }
 
     @Test
     public void testRegexImplicitCast() {
         String expression = "1 regexp 5";
         String expected = "cast(1 as string) regexp cast(5 as string)";
-        assertRewrite(expected, expression);
+        assertRewrite(expression, expected);
     }
 
     @Test
     public void testYearImplicitCast() {
+        // date to datev2
         Expression expression = new Year(new DateLiteral("2022-01-01"));
-        Expression expected = new Year(new DateLiteral("2022-01-01"));
-        assertRewrite(expected, expression);
+        Expression expected = new Year(new Cast(new DateLiteral("2022-01-01"), DateV2Type.INSTANCE));
+        assertRewrite(expression, expected);
     }
 
     @Test
     public void testSumImplicitCast() {
-        Expression expression = new Sum(new StringLiteral("1"));
-        Expression expected = new Sum(new Cast(new StringLiteral("1"), DoubleType.INSTANCE));
-        assertRewrite(expected, expression);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new Sum(new StringLiteral("1")).getDataType();
+        });
     }
 
     @Test
     public void testAvgImplicitCast() {
-        Expression expression = new Avg(new StringLiteral("1"));
-        Expression expected = new Avg(new Cast(new StringLiteral("1"), DoubleType.INSTANCE));
-        assertRewrite(expected, expression);
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            new Avg(new StringLiteral("1")).getDataType();
+        });
     }
 
     @Test
@@ -118,7 +123,7 @@ public class TypeCoercionTest {
                 new LessThanEqual(
                         left,
                         new Cast(right, left.getDataType()));
-        assertRewrite(rewrittenPred, lessThanEq);
+        assertRewrite(lessThanEq, rewrittenPred);
 
         rewrittenPred =
                 new LessThanEqual(
@@ -126,16 +131,16 @@ public class TypeCoercionTest {
                         left
                         );
         lessThanEq = new LessThanEqual(right, left);
-        assertRewrite(rewrittenPred, lessThanEq);
+        assertRewrite(lessThanEq, rewrittenPred);
 
         left = new DecimalLiteral(new BigDecimal(1));
         lessThanEq = new LessThanEqual(left, right);
         rewrittenPred =
                 new LessThanEqual(
-                        new Cast(left, DecimalType.forType(TinyIntType.INSTANCE)),
-                        new Cast(right, DecimalType.forType(TinyIntType.INSTANCE))
+                        new Cast(left, DecimalV2Type.forType(TinyIntType.INSTANCE)),
+                        new Cast(right, DecimalV2Type.forType(TinyIntType.INSTANCE))
                 );
-        assertRewrite(rewrittenPred, lessThanEq);
+        assertRewrite(lessThanEq, rewrittenPred);
     }
 
     @Test
@@ -154,7 +159,7 @@ public class TypeCoercionTest {
         Expression expectedDefaultValue = new Cast(new IntegerLiteral(1), DoubleType.INSTANCE);
         Expression expected = new CaseWhen(expectedWhenClauses, expectedDefaultValue);
 
-        assertRewrite(expected, actual);
+        assertRewrite(actual, expected);
     }
 
     @Test
@@ -171,7 +176,7 @@ public class TypeCoercionTest {
         List<Expression> expectedOptions = Lists.newArrayList(expectedOption1, expectedOption2);
         Expression expected = new InPredicate(expectedCompare, expectedOptions);
 
-        assertRewrite(expected, actual);
+        assertRewrite(actual, expected);
     }
 
     @Test
@@ -179,17 +184,6 @@ public class TypeCoercionTest {
         Expression actual = new Divide(new SmallIntLiteral((short) 1), new BigIntLiteral(10L));
         Expression expected = new Divide(new Cast(Literal.of((short) 1), DoubleType.INSTANCE),
                 new Cast(Literal.of(10L), DoubleType.INSTANCE));
-        assertRewrite(expected, actual);
-    }
-
-    private void assertRewrite(Expression expected, Expression expression) {
-        Expression rewrittenExpression = executor.rewrite(expression);
-        Assertions.assertEquals(expected, rewrittenExpression);
-    }
-
-    private void assertRewrite(String expected, String expression) {
-        Expression needRewriteExpression = parser.parseExpression(expression);
-        Expression expectedExpression = parser.parseExpression(expected);
-        assertRewrite(expectedExpression, needRewriteExpression);
+        assertRewrite(actual, expected);
     }
 }
