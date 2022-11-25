@@ -81,11 +81,11 @@ public class RewriteBottomUpJob extends Job {
                 if (!copyInResult.isPresent()) {
                     continue;
                 }
-                CopyInResult result = copyInResult.get();
-                boolean groupChanged = result.correspondingExpression.getOwnerGroup() != group;
-                if (result.generateNewExpression || groupChanged) {
-                    pushJob(new RewriteBottomUpJob(result.correspondingExpression.getOwnerGroup(),
-                            rules, context, !groupChanged));
+                Group correspondingGroup = copyInResult.get().correspondingExpression.getOwnerGroup();
+                if (copyInResult.get().generateNewExpression
+                        || correspondingGroup != group
+                        || logicalExpression.getOwnerGroup() == null) {
+                    pushJob(new RewriteBottomUpJob(correspondingGroup, rules, context, false));
                     return;
                 }
             }
