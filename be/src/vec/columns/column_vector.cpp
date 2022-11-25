@@ -27,6 +27,7 @@
 #include <cstring>
 
 #include "util/simd/bits.h"
+#include "util/stack_util.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
@@ -385,7 +386,8 @@ template <typename T>
 ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     size_t size = data.size();
     if (size != filt.size()) {
-        LOG(FATAL) << "Size of filter doesn't match size of column.";
+        LOG(FATAL) << "Size of filter doesn't match size of column. data size: " << size
+                   << ", filter size: " << filt.size() << get_stack_trace();
     }
 
     auto res = this->create();
