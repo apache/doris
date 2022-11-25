@@ -62,11 +62,8 @@ public:
         bool direct_mode = false;
         bool aggregation = false;
         bool need_agg_finalize = true;
-        // 1. when read column data page:
-        //     for compaction, schema_change, check_sum: we don't use page cache
-        //     for query and config::disable_storage_page_cache is false, we use page cache
-        // 2. when read column index page
-        //     if config::disable_storage_page_cache is false, we use page cache
+        // for compaction, schema_change, check_sum: we don't use page cache
+        // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
