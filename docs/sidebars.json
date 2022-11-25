@@ -931,6 +931,13 @@
                         },
                         {
                             "type": "category",
+                            "label": "Operators",
+                            "items": [
+                                "sql-manual/sql-reference/Operators/in"
+                            ]
+                        },
+                        {
+                            "type": "category",
                             "label": "Utility",
                             "items": [
                                 "sql-manual/sql-reference/Utility-Statements/HELP",

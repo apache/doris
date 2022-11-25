@@ -19,6 +19,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
@@ -77,6 +78,7 @@ public:
 
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+        std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
         std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
@@ -170,6 +172,9 @@ protected:
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
+
+    ColumnPredicate* _parse_to_predicate(
+            const std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>& bitmap_filter);
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter);

@@ -370,8 +370,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _vconjunct_ctx_ptr.get(),
-                                             _olap_filters, _bloom_filters_push_down,
-                                             _in_filters_push_down, _push_down_functions));
+                                             _olap_filters, _filter_predicates,
+                                             _push_down_functions));
             scanners->push_back((VScanner*)scanner);
             disk_set.insert(scanner->scan_disk());
         }

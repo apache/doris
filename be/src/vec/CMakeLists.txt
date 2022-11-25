@@ -134,6 +134,7 @@ set(VEC_FILES
   exprs/varray_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
+  exprs/vbitmap_predicate.cpp
   exprs/vruntimefilter_wrapper.cpp
   exprs/vtuple_is_null_predicate.cpp
   exprs/vslot_ref.cpp

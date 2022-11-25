@@ -18,10 +18,13 @@
 #pragma once
 
 #include <charconv>
+#include <type_traits>
 
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "olap/bitmap_filter_predicate.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
@@ -313,7 +316,7 @@ inline ColumnPredicate* parse_to_predicate(TabletSchemaSPtr tablet_schema,
 template <PrimitiveType PT>
 inline ColumnPredicate* create_olap_column_predicate(
         uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, int be_exec_version,
-        const TabletColumn* column = nullptr) {
+        const TabletColumn*) {
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
     filter_olap.reset(create_bloom_filter(PT));
     filter_olap->light_copy(filter.get());
@@ -321,10 +324,24 @@ inline ColumnPredicate* create_olap_column_predicate(
 }
 
 template <PrimitiveType PT>
+inline ColumnPredicate* create_olap_column_predicate(
+        uint32_t column_id, const std::shared_ptr<BitmapFilterFuncBase>& filter,
+        int be_exec_version, const TabletColumn*) {
+    if constexpr (PT == TYPE_TINYINT || PT == TYPE_SMALLINT || PT == TYPE_INT ||
+                  PT == TYPE_BIGINT) {
+        std::shared_ptr<BitmapFilterFuncBase> filter_olap;
+        filter_olap.reset(create_bitmap_filter(PT));
+        filter_olap->light_copy(filter.get());
+        return new BitmapFilterColumnPredicate<PT>(column_id, filter, be_exec_version);
+    } else {
+        return nullptr;
+    }
+}
+
+template <PrimitiveType PT>
 inline ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
                                                      const std::shared_ptr<HybridSetBase>& filter,
-                                                     int be_exec_version,
-                                                     const TabletColumn* column = nullptr) {
+                                                     int, const TabletColumn* column = nullptr) {
     return new InListPredicateBase<PT, PredicateType::IN_LIST>(column_id, filter, column->length());
 }
 
