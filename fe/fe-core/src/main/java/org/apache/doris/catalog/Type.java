@@ -30,10 +30,10 @@ import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Longs;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -68,7 +68,7 @@ public abstract class Type {
     public static final ScalarType DATE = new ScalarType(PrimitiveType.DATE);
     public static final ScalarType DATETIME = new ScalarType(PrimitiveType.DATETIME);
     public static final ScalarType TIME = new ScalarType(PrimitiveType.TIME);
-    public static final ScalarType STRING = new ScalarType(PrimitiveType.STRING);
+    public static final ScalarType STRING = ScalarType.createStringType();
     public static final ScalarType DEFAULT_DECIMALV2 = (ScalarType)
             ScalarType.createDecimalV2Type(ScalarType.DEFAULT_PRECISION,
                     ScalarType.DEFAULT_SCALE);

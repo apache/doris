@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
@@ -35,7 +36,6 @@ import org.apache.doris.thrift.TColumnType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,7 +49,7 @@ import java.util.Map;
 /**
  * This class represents the column-related metadata.
  */
-public class Column implements Writable {
+public class Column implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
@@ -664,5 +664,17 @@ public class Column implements Writable {
         sb.append(aggregationType);
         sb.append(defaultValue == null ? "" : defaultValue);
         return sb.toString();
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // This just for bugfix. Because when user upgrade from 0.x to 1.1.x,
+        // the length of String type become 1. The reason is not very clear and maybe fixed by #14275.
+        // Here we try to rectify the error string length, by setting all String' length to MAX_STRING_LENGTH
+        // when replaying edit log.
+        if (type.isScalarType() && type.getPrimitiveType() == PrimitiveType.STRING
+                && type.getLength() != ScalarType.MAX_STRING_LENGTH) {
+            ((ScalarType) type).setLength(ScalarType.MAX_STRING_LENGTH);
+        }
     }
 }
