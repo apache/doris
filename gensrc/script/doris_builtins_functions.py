@@ -2405,6 +2405,18 @@ visible_functions = [
     [['version'], 'VARCHAR', [],
         '_ZN5doris16UtilityFunctions7versionEPN9doris_udf15FunctionContextE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
+    [['field'], 'INT', ['TINYINT', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['SMALLINT', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['INT', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['BIGINT', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['LARGEINT', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['FLOAT', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['DOUBLE', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['DECIMALV2', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['DATEV2', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['DATETIMEV2', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['VARCHAR', '...'], '','', '', 'vec', ''],
+    [['field'], 'INT', ['STRING', '...'], '','', '', 'vec', ''],
 
     # Jsonb functions
     [['jsonb_parse'], 'JSONB', ['VARCHAR'],
