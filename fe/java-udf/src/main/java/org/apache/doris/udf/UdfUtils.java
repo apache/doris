@@ -32,7 +32,6 @@ import com.google.common.collect.Sets;
 import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
 
-import java.io.File;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.BigInteger;

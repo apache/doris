@@ -63,8 +63,8 @@ public class JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
-        init(request.jdbc_driver_url, request.statement, request.batch_size, request.jdbc_driver_class, request.jdbc_url, request.jdbc_user,
-                request.jdbc_password, request.op);
+        init(request.jdbc_driver_url, request.statement, request.batch_size, request.jdbc_driver_class,
+                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op);
     }
 
     public void close() throws Exception {
