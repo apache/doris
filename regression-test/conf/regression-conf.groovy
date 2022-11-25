@@ -23,7 +23,7 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:8030/?useLocalSessionState=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -46,7 +46,7 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
-testDirectories = "tpcds_sf0.1_p1"
+testDirectories = ""
 
 // this groups will not be executed
 excludeGroups = ""
