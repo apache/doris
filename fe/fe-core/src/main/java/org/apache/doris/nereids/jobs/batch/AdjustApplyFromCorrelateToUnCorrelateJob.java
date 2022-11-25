@@ -33,11 +33,11 @@ import com.google.common.collect.ImmutableList;
  * For the project and filter on AGG, try to adjust them to apply.
  * For the project and filter under AGG, bring the filter under AGG and merge it with agg.
  */
-public class AdjustApplyFromCorrelatToUnCorrelatJob extends BatchRulesJob {
+public class AdjustApplyFromCorrelateToUnCorrelateJob extends BatchRulesJob {
     /**
      * Constructor.
      */
-    public AdjustApplyFromCorrelatToUnCorrelatJob(CascadesContext cascadesContext) {
+    public AdjustApplyFromCorrelateToUnCorrelateJob(CascadesContext cascadesContext) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 topDownBatch(ImmutableList.of(

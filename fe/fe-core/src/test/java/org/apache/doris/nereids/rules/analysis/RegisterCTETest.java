@@ -20,8 +20,6 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -37,7 +35,6 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -60,7 +57,6 @@ import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class RegisterCTETest extends TestWithFeService implements PatternMatchSupported {
@@ -111,7 +107,8 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
     private CTEContext getCTEContextAfterRegisterCTE(String sql) {
         return PlanChecker.from(connectContext)
                 .analyze(sql)
-                .getCascadesContext().getStatementContext().getCteContext();
+                .getCascadesContext()
+                .getCteContext();
     }
 
     /* ********************************************************************************************
@@ -145,21 +142,17 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
         Assertions.assertTrue(cteContext.containsCTE("cte1")
                 && cteContext.containsCTE("cte2"));
-
-        LogicalPlan cte2InitialPlan = cteContext.getInitialCTEPlan("cte2");
-        PlanChecker.from(connectContext, cte2InitialPlan).matchesFromRoot(
-                logicalProject(
-                    logicalFilter(
-                        logicalSubQueryAlias(
-                            logicalProject(
-                                logicalFilter(
-                                    unboundRelation()
-                                )
+        LogicalPlan cte2parsedPlan = cteContext.getParsedCtePlan("cte2").get();
+        PlanChecker.from(connectContext, cte2parsedPlan)
+                .matchesFromRoot(
+                    logicalSubQueryAlias(
+                        logicalProject(
+                            logicalFilter(
+                                unboundRelation()
                             )
                         )
                     )
-                )
-        );
+                );
     }
 
     @Test
@@ -169,32 +162,31 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         Assertions.assertTrue(cteContext.containsCTE("cte1")
                 && cteContext.containsCTE("cte2"));
 
-        // check initial plan
-        LogicalPlan cte1InitialPlan = cteContext.getInitialCTEPlan("cte1");
-
-        List<NamedExpression> targetProjects = new ArrayList<>();
-        targetProjects.add(new UnboundAlias(new UnboundSlot("s_suppkey"), "skey"));
-        targetProjects.add(new UnboundSlot("s_nation"));
-
-        PlanChecker.from(connectContext, cte1InitialPlan)
-                .matches(
-                    logicalProject(
-                    ).when(FieldChecker.check("projects", targetProjects))
-                );
-
         // check analyzed plan
-        LogicalPlan cte1AnalyzedPlan = cteContext.getAnalyzedCTEPlan("cte1");
+        LogicalPlan cte1AnalyzedPlan = cteContext.getAnalyzedCTE("cte1").get();
 
-        targetProjects = new ArrayList<>();
-        targetProjects.add(new Alias(new ExprId(7),
-                new SlotReference(new ExprId(0), "s_suppkey", VarcharType.INSTANCE,
-                false, ImmutableList.of("defaulst_cluster:test", "supplier")), "skey"));
-        targetProjects.add(new SlotReference(new ExprId(4), "s_nation", VarcharType.INSTANCE,
-                false, ImmutableList.of("defaulst_cluster:test", "supplier")));
         PlanChecker.from(connectContext, cte1AnalyzedPlan)
-                .matches(
-                    logicalProject(
-                    ).when(FieldChecker.check("projects", targetProjects))
+                .matchesFromRoot(
+                    logicalSubQueryAlias(
+                        logicalProject()
+                        .when(p -> p.getProjects().size() == 2
+                                && p.getProjects().get(0).getName().equals("s_suppkey")
+                                && p.getProjects().get(0).getExprId().asInt() == 14
+                                && p.getProjects().get(0).getQualifier().equals(ImmutableList.of("default_cluster:test", "supplier"))
+                                && p.getProjects().get(1).getName().equals("s_nation")
+                                && p.getProjects().get(1).getExprId().asInt() == 18
+                                && p.getProjects().get(1).getQualifier().equals(ImmutableList.of("default_cluster:test", "supplier"))
+                        )
+                    )
+                    .when(a -> a.getAlias().equals("cte1"))
+                    .when(a -> a.getOutput().size() == 2
+                            && a.getOutput().get(0).getName().equals("skey")
+                            && a.getOutput().get(0).getExprId().asInt() == 14
+                            && a.getOutput().get(0).getQualifier().equals(ImmutableList.of("cte1"))
+                            && a.getOutput().get(1).getName().equals("s_nation")
+                            && a.getOutput().get(1).getExprId().asInt() == 18
+                            && a.getOutput().get(1).getQualifier().equals(ImmutableList.of("cte1"))
+                    )
                 );
     }
 
@@ -230,45 +222,52 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
     @Test
     public void testCTEWithAlias() {
-        SlotReference skInCTE1 = new SlotReference(new ExprId(7), "sk", IntegerType.INSTANCE,
+        SlotReference skInCTE1 = new SlotReference(new ExprId(15), "sk", IntegerType.INSTANCE,
                 false, ImmutableList.of("cte1"));
-        SlotReference skInCTE2 = new SlotReference(new ExprId(15), "sk", IntegerType.INSTANCE,
+        SlotReference skInCTE2 = new SlotReference(new ExprId(7), "sk", IntegerType.INSTANCE,
                 false, ImmutableList.of("cte2"));
-        Alias skAlias = new Alias(new ExprId(7),
-                new SlotReference(new ExprId(0), "s_suppkey", IntegerType.INSTANCE,
-                        false, ImmutableList.of("default_cluster:test", "supplier")), "sk");
+        Alias skAlias = new Alias(new ExprId(15),
+                new SlotReference(new ExprId(8), "sk", IntegerType.INSTANCE,
+                false, ImmutableList.of("default_cluster:test", "supplier")), "sk");
+
         PlanChecker.from(connectContext)
                 .analyze(sql4)
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
                         logicalJoin(
-                            logicalProject().when(FieldChecker.check("projects", ImmutableList.of(skAlias))),
-                            logicalProject().when(FieldChecker.check("projects", ImmutableList.of(skInCTE2)))
+                            logicalSubQueryAlias(
+                                logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skAlias)))
+                            ).when(a -> a.getAlias().equals("cte1")),
+                            logicalSubQueryAlias(
+                                logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skInCTE2)))
+                            ).when(a -> a.getAlias().equals("cte2"))
                         ).when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                            .when(FieldChecker.check("otherJoinConjuncts", ImmutableList.of(
-                                new EqualTo(skInCTE1, skInCTE2)
-                            )))
-                    ).when(FieldChecker.check("projects", ImmutableList.of(skInCTE1, skInCTE2)))
+                            .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
+                    ).when(p -> p.getProjects().equals(ImmutableList.of(skInCTE1, skInCTE2)))
                 );
     }
 
     @Test
     public void testCTEWithAnExistedTableOrViewName() {
-        SlotReference suppkeyInV1 = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
+        SlotReference suppkeyInV1 = new SlotReference(new ExprId(0), "s_suppkey", IntegerType.INSTANCE,
                 false, ImmutableList.of("V1"));
-        SlotReference suppkeyInV2 = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
+        SlotReference suppkeyInV2 = new SlotReference(new ExprId(0), "s_suppkey", IntegerType.INSTANCE,
                 false, ImmutableList.of("V2"));
-        SlotReference suppkeyInSupplier = new SlotReference(new ExprId(7), "s_suppkey", IntegerType.INSTANCE,
+        SlotReference suppkeyInSupplier = new SlotReference(new ExprId(0), "s_suppkey", IntegerType.INSTANCE,
                 false, ImmutableList.of("default_cluster:test", "supplier"));
         PlanChecker.from(connectContext)
                 .analyze(sql5)
-                .matches(
+                .matchesFromRoot(
                     logicalProject(
-                        logicalProject(
-                            logicalProject()
-                                .when(FieldChecker.check("projects", ImmutableList.of(suppkeyInSupplier)))
-                        ).when(FieldChecker.check("projects", ImmutableList.of(suppkeyInV1)))
-                    ).when(FieldChecker.check("projects", ImmutableList.of(suppkeyInV2)))
+                        logicalSubQueryAlias(
+                            logicalProject(
+                                logicalSubQueryAlias(
+                                    logicalProject()
+                                        .when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInSupplier)))
+                                ).when(a -> a.getAlias().equals("V1"))
+                            ).when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInV1)))
+                        ).when(a -> a.getAlias().equals("V2"))
+                    ).when(p -> p.getProjects().equals(ImmutableList.of(suppkeyInV2)))
                 );
 
     }
@@ -336,5 +335,31 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
             PlanChecker.from(connectContext).analyze(sql);
         }, "Not throw expected exception.");
         Assertions.assertTrue(exception.getMessage().contains("[cte1] cannot be used more than once"));
+    }
+
+    @Test
+    public void testDifferenceRelationId() {
+        PlanChecker.from(connectContext)
+                .analyze("with s as (select * from supplier) select * from s as s1, s as s2")
+                .matchesFromRoot(
+                    logicalProject(
+                        logicalJoin(
+                            logicalSubQueryAlias(// as s1
+                                logicalSubQueryAlias(// as s
+                                    logicalProject(// select * from supplier
+                                        logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                                    )
+                                ).when(a -> a.getAlias().equals("s"))
+                            ).when(a -> a.getAlias().equals("s1")),
+                            logicalSubQueryAlias(
+                                logicalSubQueryAlias(
+                                     logicalProject(
+                                         logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
+                                     )
+                                 ).when(a -> a.getAlias().equals("s"))
+                            ).when(a -> a.getAlias().equals("s2"))
+                        )
+                    )
+                );
     }
 }
