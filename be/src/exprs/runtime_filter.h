@@ -47,6 +47,7 @@ class BloomFilterFuncBase;
 namespace vectorized {
 class VExpr;
 class VExprContext;
+struct SharedRuntimeFilterContext;
 } // namespace vectorized
 
 enum class RuntimeFilterType {
@@ -141,7 +142,8 @@ public:
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
                          int node_id, IRuntimeFilter** res);
 
-    Status apply_from_other(IRuntimeFilter* other);
+    void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
+    Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
 
     // insert data to build filter
     // only used for producer

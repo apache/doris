@@ -31,6 +31,12 @@ namespace vectorized {
         }                                                                               \
     } while (false)
 
+VCollectIterator::~VCollectIterator() {
+    for (auto child : _children) {
+        delete child;
+    }
+}
+
 void VCollectIterator::init(TabletReader* reader, bool force_merge, bool is_reverse) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge

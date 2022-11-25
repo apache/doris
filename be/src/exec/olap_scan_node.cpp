@@ -88,7 +88,7 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
                 RuntimeFilterRole::CONSUMER, filter_desc, state->query_options(), id()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
                                                                         &runtime_filter));

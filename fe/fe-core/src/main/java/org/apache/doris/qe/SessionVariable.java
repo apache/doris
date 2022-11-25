@@ -231,6 +231,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
 
+    public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
+            = "enable_share_hash_table_for_broadcast_join";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -606,6 +609,9 @@ public class SessionVariable implements Serializable, Writable {
     // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
     public int partitionedHashJoinRowsThreshold = 0;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
+    public boolean enableShareHashTableForBroadcastJoin = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1227,6 +1233,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
+        tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);

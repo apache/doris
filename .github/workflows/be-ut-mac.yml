@@ -37,14 +37,8 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Ccache ${{ github.ref }}
-        uses: ./.github/actions/ccache-action
-        with:
-          key: BE-UT-macOS
-          max-size: "2G"
-          restore-keys: BE-UT-macOS-
-
-      - name: Paths filter
+      - name: Paths Filter
+        if: ${{ github.event_name != 'schedule' }}
         uses: ./.github/actions/paths-filter
         id: filter
         with:
@@ -54,8 +48,16 @@ jobs:
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
+      - name: Ccache ${{ github.ref }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: BE-UT-macOS
+          max-size: "2G"
+          restore-keys: BE-UT-macOS-
+
       - name: Run UT ${{ github.ref }}
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
         run: |
           cellars=(
             'automake'
@@ -88,6 +90,3 @@ jobs:
 
           ./run-be-ut.sh --run -j "$(nproc)" --clean
 
-      - name: Skip UT ${{ github.ref }}
-        if: ${{ steps.filter.outputs.be_changes == 'false' }}
-        run: echo 'No need to run.'
