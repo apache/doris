@@ -39,6 +39,10 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_position([], NULL)"
     qt_sql "select array_position(NULL, 1)"
     qt_sql "select array_position(NULL, NULL)"
+    qt_sql "select array_position([null], 0)"
+    qt_sql "select array_position([0], null)"
+    qt_sql "select array_position([null, '1'], '')"
+    qt_sql "select array_position([''], null)"
     qt_sql "select array_position([false, NULL, true], true)"
 
     // element_at function

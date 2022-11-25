@@ -217,6 +217,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
 
+    public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
+
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
@@ -567,16 +569,22 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableLocalExchange = true;
 
     /**
-     * For debugg purpose, dont' merge unique key and agg key when reading data.
+     * For debug purpose, don't merge unique key and agg key when reading data.
      */
     @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
     public boolean skipStorageEngineMerge = false;
 
     /**
-     * For debugg purpose, skip delte predicate when reading data.
+     * For debug purpose, skip delete predicate when reading data.
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
     public boolean skipDeletePredicate = false;
+
+    /**
+     * For debug purpose, skip delete sign when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
+    public boolean skipDeleteSign = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -939,6 +947,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean skipStorageEngineMerge() {
         return skipStorageEngineMerge;
+    }
+
+    public boolean skipDeleteSign() {
+        return skipDeleteSign;
     }
 
     public boolean isAllowPartitionColumnNullable() {
