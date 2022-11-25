@@ -37,7 +37,7 @@ under the License.
 ```
 position - value在array中的位置（从1开始计算）；
 0        - 如果value在array中不存在；
-NULL     - 如果数组为NULL，或者value为NULL。
+NULL     - 如果数组为NULL。
 ```
 
 ### notice
@@ -58,6 +58,14 @@ mysql> SELECT id,c_array,array_position(c_array, 5) FROM `array_test`;
 |    3 | []              |                            0 |
 |    4 | NULL            |                         NULL |
 +------+-----------------+------------------------------+
+
+mysql> select array_position([1, null], null);
++--------------------------------------+
+| array_position(ARRAY(1, NULL), NULL) |
++--------------------------------------+
+|                                    2 |
++--------------------------------------+
+1 row in set (0.01 sec)
 ```
 
 ### keywords

@@ -56,7 +56,7 @@ public class PlanToStringTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
         Assertions.assertTrue(plan.toString()
-                .matches("LogicalAggregate \\( phase=LOCAL, outputExpr=\\[a#\\d+], groupByExpr=\\[] \\)"));
+                .matches("LogicalAggregate \\( phase=LOCAL, outputExpr=\\[a#\\d+], groupByExpr=\\[], hasRepeat=false \\)"));
     }
 
     @Test

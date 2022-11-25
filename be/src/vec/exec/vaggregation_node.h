@@ -58,39 +58,49 @@ struct AggregationMethodSerialized {
               _serialized_key_buffer(nullptr),
               _mem_pool(new MemPool) {}
 
-    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped>;
+    using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
 
     template <typename Other>
     explicit AggregationMethodSerialized(const Other& other) : data(other.data) {}
 
-    bool serialize_keys(const ColumnRawPtrs& key_columns, const size_t num_rows) {
+    size_t serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
+        if (keys.size() < num_rows) {
+            keys.resize(num_rows);
+        }
+
         size_t max_one_row_byte_size = 0;
         for (const auto& column : key_columns) {
             max_one_row_byte_size += column->get_max_row_byte_size();
         }
         size_t total_bytes = max_one_row_byte_size * num_rows;
+
         if (total_bytes > SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES) {
             // reach mem limit, don't serialize in batch
-            return false;
-        }
-        if (total_bytes > _serialized_key_buffer_size) {
-            _serialized_key_buffer_size = total_bytes;
-            _mem_pool->clear();
-            _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size, true);
-        }
+            // for simplicity, we just create a new arena here.
+            _arena.reset(new Arena());
+            size_t keys_size = key_columns.size();
+            for (size_t i = 0; i < num_rows; ++i) {
+                keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
+            }
+        } else {
+            _arena.reset();
+            if (total_bytes > _serialized_key_buffer_size) {
+                _serialized_key_buffer_size = total_bytes;
+                _mem_pool->clear();
+                _serialized_key_buffer = _mem_pool->allocate(_serialized_key_buffer_size, true);
+            }
 
-        if (keys.size() < num_rows) keys.resize(num_rows);
+            for (size_t i = 0; i < num_rows; ++i) {
+                keys[i].data =
+                        reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
+                keys[i].size = 0;
+            }
 
-        for (size_t i = 0; i < num_rows; ++i) {
-            keys[i].data =
-                    reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
-            keys[i].size = 0;
+            for (const auto& column : key_columns) {
+                column->serialize_vec(keys, num_rows, max_one_row_byte_size);
+            }
         }
-
-        for (const auto& column : key_columns) {
-            column->serialize_vec(keys, num_rows, max_one_row_byte_size);
-        }
-        return true;
+        return max_one_row_byte_size;
     }
 
     static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
@@ -115,6 +125,7 @@ private:
     size_t _serialized_key_buffer_size;
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<MemPool> _mem_pool;
+    std::unique_ptr<Arena> _arena;
     static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16 * 1024 * 1024; // 16M
 };
 
@@ -806,6 +817,7 @@ private:
     RuntimeProfile::Counter* _streaming_agg_timer;
     RuntimeProfile::Counter* _hash_table_size_counter;
     RuntimeProfile::Counter* _hash_table_input_counter;
+    RuntimeProfile::Counter* _max_row_size_counter;
 
     bool _is_streaming_preagg;
     Block _preagg_block = Block();
@@ -850,18 +862,14 @@ private:
     void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
 
     template <typename AggState, typename AggMethod>
-    bool _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
+    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
                                     const ColumnRawPtrs& key_columns, const size_t num_rows) {
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
             SCOPED_TIMER(_serialize_key_timer);
-            if (agg_method.serialize_keys(key_columns, num_rows)) {
-                state.set_serialized_keys(agg_method.keys.data());
-                return true;
-            } else {
-                return false;
-            }
+            int64_t row_size = (int64_t)(agg_method.serialize_keys(key_columns, num_rows));
+            COUNTER_SET(_max_row_size_counter, std::max(_max_row_size_counter->value(), row_size));
+            state.set_serialized_keys(agg_method.keys.data());
         }
-        return false;
     }
 
     template <bool limit>

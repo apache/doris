@@ -72,17 +72,17 @@ public class PlanEqualsTest {
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                true, false, true, AggPhase.GLOBAL, child);
+                true, false, true, AggPhase.GLOBAL, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, true, true, AggPhase.GLOBAL, child);
+                false, true, true, AggPhase.GLOBAL, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, false, true, AggPhase.LOCAL, child);
+                false, false, true, AggPhase.LOCAL, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

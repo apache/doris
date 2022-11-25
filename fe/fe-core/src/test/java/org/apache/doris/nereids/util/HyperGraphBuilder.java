@@ -17,16 +17,15 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.pattern.GroupExpressionMatching;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.joinreorder.HyperGraphJoinReorderGroupRight;
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.HyperGraph;
-import org.apache.doris.nereids.rules.joinreorder.hypergraph.bitmap.Bitmap;
-import org.apache.doris.nereids.stats.StatsCalculator;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -50,9 +49,49 @@ public class HyperGraphBuilder {
     public HyperGraph build() {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
-        Plan planWithStats = extractJoinCluster(plan);
-        HyperGraph graph = HyperGraph.fromPlan(planWithStats);
-        return graph;
+        return buildHyperGraph(plan);
+    }
+
+    public HyperGraph randomBuildWith(int tableNum, int edgeNum) {
+        Preconditions.checkArgument(edgeNum >= tableNum - 1,
+                String.format("We can't build a connected graph with %d tables %d edges", tableNum, edgeNum));
+        Preconditions.checkArgument(edgeNum <= tableNum * (tableNum - 1) / 2,
+                String.format("The edges are redundant with %d tables %d edges", tableNum, edgeNum));
+
+        int[] tableRowCounts = new int[tableNum];
+        for (int i = 1; i <= tableNum; i++) {
+            tableRowCounts[i - 1] = i;
+        }
+        this.init(tableRowCounts);
+
+        List<Pair<Integer, Integer>> edges = new ArrayList<>();
+        for (int i = 0; i < tableNum; i++) {
+            for (int j = i + 1; j < tableNum; j++) {
+                edges.add(Pair.of(i, j));
+            }
+        }
+
+        while (edges.size() > 0) {
+            int index = (int) (Math.random() * edges.size());
+            Pair<Integer, Integer> edge = edges.get(index);
+            edges.remove(index);
+            this.addEdge(JoinType.INNER_JOIN, edge.first, edge.second);
+            edgeNum -= 1;
+            if (plans.size() - 1 == edgeNum) {
+                // We must keep all tables connected.
+                break;
+            }
+        }
+
+        BitSet[] keys = new BitSet[plans.size()];
+        plans.keySet().toArray(keys);
+        int size = plans.size();
+        for (int i = 1; i < size; i++) {
+            int left = keys[0].nextSetBit(0);
+            int right = keys[i].nextSetBit(0);
+            this.addEdge(JoinType.INNER_JOIN, left, right);
+        }
+        return this.build();
     }
 
     public HyperGraphBuilder init(int... rowCounts) {
@@ -76,7 +115,7 @@ public class HyperGraphBuilder {
 
         BitSet leftBitmap = Bitmap.newBitmap(node1);
         BitSet rightBitmap = Bitmap.newBitmap(node2);
-        BitSet fullBitmap = Bitmap.unionBitmap(leftBitmap, rightBitmap);
+        BitSet fullBitmap = Bitmap.newBitmapUnion(leftBitmap, rightBitmap);
         Optional<BitSet> fullKey = findPlan(fullBitmap);
         if (!fullKey.isPresent()) {
             Optional<BitSet> leftKey = findPlan(leftBitmap);
@@ -122,38 +161,31 @@ public class HyperGraphBuilder {
         return bitSet.equals(bitSet2);
     }
 
-    private Plan extractJoinCluster(Plan plan) {
-        Rule rule = new HyperGraphJoinReorderGroupRight().build();
+    private HyperGraph buildHyperGraph(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
-        GroupExpressionMatching groupExpressionMatching
-                = new GroupExpressionMatching(rule.getPattern(),
-                cascadesContext.getMemo().getRoot().getLogicalExpression());
-        List<Plan> planList = new ArrayList<>();
-        for (Plan matchingPlan : groupExpressionMatching) {
-            planList.add(matchingPlan);
-        }
-        assert planList.size() == 1 : "Now we only support one join cluster";
-        injectRowcount(planList.get(0));
-        return planList.get(0);
+        JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
+                cascadesContext.getCurrentJobContext());
+        cascadesContext.pushJob(
+                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
+                        cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        injectRowcount(cascadesContext.getMemo().getRoot());
+        HyperGraph hyperGraph = new HyperGraph();
+        joinOrderJob.buildGraph(cascadesContext.getMemo().getRoot(), hyperGraph);
+        return hyperGraph;
     }
 
-    private void injectRowcount(Plan plan) {
-        if (plan instanceof GroupPlan) {
-            GroupPlan olapGroupPlan = (GroupPlan) plan;
-            StatsCalculator.estimate(olapGroupPlan.getGroup().getLogicalExpression());
-            LogicalOlapScan scanPlan = (LogicalOlapScan) olapGroupPlan.getGroup().getLogicalExpression().getPlan();
-            StatsDeriveResult stats = olapGroupPlan.getGroup().getStatistics();
-            olapGroupPlan.getGroup()
-                    .setStatistics(stats
-                            .updateRowCount(rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()))));
+    private void injectRowcount(Group group) {
+        if (!group.isJoinGroup()) {
+            StatsDeriveResult stats = group.getStatistics();
+            LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
+            int rowCount = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
+            group.setStatistics(stats.updateRowCount(rowCount));
             return;
         }
-        LogicalJoin join = (LogicalJoin) plan;
-        injectRowcount(join.left());
-        injectRowcount(join.right());
-        // Because the children stats has been changed, so we need to recalculate it
-        StatsCalculator.estimate(join.getGroupExpression().get());
+        injectRowcount(group.getLogicalExpression().child(0));
+        injectRowcount(group.getLogicalExpression().child(1));
     }
 
     private void addCondition(int node1, int node2, BitSet key) {

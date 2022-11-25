@@ -70,3 +70,13 @@ SELECT
             FROM retention_test 
             GROUP BY uid 
             ORDER BY uid ASC;
+
+SELECT SUM(cast(a.r[1] AS int))
+FROM 
+    (SELECT uid,
+         retention( date = '2022-10-14', date = '2022-10-12', date = '2022-11-04', date = '2022-11-07') AS r
+    FROM retention_test
+    WHERE (date >= '2022-10-11')
+            AND (date <= '2022-11-21')
+    GROUP BY  uid ) a;
+

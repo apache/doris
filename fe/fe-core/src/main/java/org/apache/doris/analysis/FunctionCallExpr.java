@@ -599,7 +599,18 @@ public class FunctionCallExpr extends Expr {
 
             return;
         }
-
+        if (fnName.getFunction().equalsIgnoreCase("field")) {
+            if (children.size() < 2) {
+                throw new AnalysisException(fnName.getFunction() + " function parameter size is less than 2.");
+            } else {
+                for (int i = 1; i < children.size(); ++i) {
+                    if (!getChild(i).isConstant()) {
+                        throw new AnalysisException(fnName.getFunction()
+                                + " function except for the first argument, other parameter must be a constant.");
+                    }
+                }
+            }
+        }
         if (fnName.getFunction().equalsIgnoreCase("lag")
                 || fnName.getFunction().equalsIgnoreCase("lead")) {
             if (!isAnalyticFnCall) {

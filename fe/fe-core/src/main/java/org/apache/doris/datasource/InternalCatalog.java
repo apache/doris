@@ -2640,7 +2640,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Partition oldPartition = olapTable.replacePartition(newPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
-                index.getTablets().stream().forEach(t -> {
+                index.getTablets().forEach(t -> {
                     oldTabletIds.add(t.getId());
                 });
             }

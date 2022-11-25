@@ -77,9 +77,8 @@ public class EliminateGroupByConstantTest {
         context.bottomUpRewrite(new CheckAfterRewrite().build());
 
         LogicalAggregate aggregate1 = ((LogicalAggregate) context.getMemo().copyOut());
-        Assertions.assertEquals(aggregate1.getGroupByExpressions().size(), 2);
-        Assertions.assertTrue(aggregate1.getGroupByExpressions().get(0) instanceof Slot
-                && aggregate1.getGroupByExpressions().get(1) instanceof Slot);
+        Assertions.assertEquals(aggregate1.getGroupByExpressions().size(), 1);
+        Assertions.assertTrue(aggregate1.getGroupByExpressions().get(0) instanceof Slot);
     }
 
     @Test
@@ -121,11 +120,10 @@ public class EliminateGroupByConstantTest {
         context.bottomUpRewrite(new CheckAfterRewrite().build());
 
         LogicalAggregate aggregate1 = ((LogicalAggregate) context.getMemo().copyOut());
-        Assertions.assertEquals(aggregate1.getGroupByExpressions().size(), 3);
+        Assertions.assertEquals(aggregate1.getGroupByExpressions().size(), 2);
         List groupByExprs = aggregate1.getGroupByExpressions();
-        Assertions.assertTrue(groupByExprs.get(0) instanceof Add
-                && groupByExprs.get(1) instanceof Slot
-                && groupByExprs.get(2) instanceof Slot);
+        Assertions.assertTrue(groupByExprs.get(0) instanceof Slot
+                && groupByExprs.get(1) instanceof Add);
     }
 
     @Test
@@ -147,7 +145,7 @@ public class EliminateGroupByConstantTest {
         context.bottomUpRewrite(new CheckAfterRewrite().build());
 
         LogicalAggregate aggregate1 = ((LogicalAggregate) context.getMemo().copyOut());
-        Assertions.assertEquals(aggregate1.getGroupByExpressions().size(), 3);
+        Assertions.assertEquals(aggregate1.getGroupByExpressions().size(), 1);
     }
 
     @Test
@@ -167,7 +165,10 @@ public class EliminateGroupByConstantTest {
         );
 
         CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
-        Assertions.assertThrows(RuntimeException.class,
-                () -> context.topDownRewrite(new EliminateGroupByConstant().build()));
+        context.topDownRewrite(new EliminateGroupByConstant().build());
+        context.bottomUpRewrite(new CheckAfterRewrite().build());
+
+        LogicalAggregate aggregate1 = ((LogicalAggregate) context.getMemo().copyOut());
+        Assertions.assertEquals(aggregate1.getGroupByExpressions().size(), 2);
     }
 }

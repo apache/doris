@@ -117,7 +117,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
         if (hmsExternalDatabase != null && hmsExternalDatabase.isInitialized()) {
             List<String> names = Lists.newArrayList();
-            hmsExternalDatabase.getTables().stream().forEach(table -> names.add(table.getName()));
+            hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
             return names;
         } else {
             return client.getAllTables(getRealTableName(dbName));

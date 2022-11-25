@@ -26,55 +26,51 @@ under the License.
 
 # Star Schema Benchmark
 
-[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) is a performance test set in a lightweight data warehouse scenario. Based on [TPC-H](http://www.tpc.org/tpch/), SSB provides a simplified version of the star schema dataset, which is mainly used to test the performance of multi-table association queries under the star schema. . In addition, the industry usually flattens SSB as a wide table model (hereinafter referred to as: SSB flat) to test the performance of the query engine, refer to [Clickhouse](https://clickhouse.com/docs/zh/getting-started /example-datasets/star-schema).
+[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) is a lightweight performance test set in the data warehouse scenario. SSB provides a simplified star schema data based on [TPC-H](http://www.tpc.org/tpch/), which is mainly used to test the performance of multi-table JOIN query under star schema.  In addition, the industry usually flattens SSB into a wide table model (Referred as: SSB flat) to test the performance of the query engine, refer to [Clickhouse](https://clickhouse.com/docs/zh/getting-started).
 
 This document mainly introduces the performance of Doris on the SSB 100G test set.
 
-> Note 1: The standard test set including SSB is usually far from the actual business scenario, and some tests will perform parameter tuning for the test set. Therefore, the test results of the standard test set can only reflect the performance of the database in specific scenarios. Users are advised to conduct further testing with actual business data.
+> Note 1: The standard test set including SSB usually has a large gap with the actual business scenario, and some tests will perform parameter tuning for the test set. Therefore, the test results of the standard test set can only reflect the performance of the database in a specific scenario. It is recommended that users use actual business data for further testing.
 >
-> Note 2: The operations involved in this document are all performed in the Ubuntu Server 20.04 environment, and CentOS 7 can also be tested.
+> Note 2: The operations involved in this document are all performed in the Ubuntu Server 20.04 environment, and CentOS 7 as well.
 
-We conducted pairwise testing on 13 queries on the SSB standard test dataset based on Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions.
+With 13 queries on the SSB standard test data set, we conducted a comparison test based on Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions.
 
-The overall performance improvement on SSB FlAT wide tables was nearly 4x on Apache Doris 1.2.0-rc01 compared to Apache Doris 1.1.3, and nearly 10x on Apache Doris 0.15.0 RC04.
+On the SSB flat wide table, the overall performance of Apache Doris 1.2.0-rc01 has been improved by nearly 4 times compared with Apache Doris 1.1.3, and nearly 10 times compared with Apache Doris 0.15.0 RC04.
 
-![ssb_v11_v015_compare](/images/ssb_flat.png)
-
-On the standard SSB test SQL, Apache Doris 1.2.0-rc01 delivers an overall performance improvement of nearly 2X over Apache Doris 1.1.3 and nearly 31X over Apache Doris 0.15.0 RC04.
-
-![ssb_12_11_015](/images/ssb.png)
+On the SQL test with standard SSB, the overall performance of Apache Doris 1.2.0-rc01 has been improved by nearly 2 times compared with Apache Doris 1.1.3, and nearly 31 times compared with Apache Doris 0.15.0 RC04.
 
 ## 1. Hardware Environment
 
-| Number of machines | 4 Tencent Cloud hosts (1 FE, 3 BE)        |
+| Number of machines | 4 Tencent Cloud Hosts (1 FE, 3 BEs)        |
 | ------------------ | ----------------------------------------- |
-| CPU                | AMD EPYC™ Milan (2.55GHz/3.5GHz) 16 cores |
+| CPU                | AMD EPYC™ Milan (2.55GHz/3.5GHz) 16 Cores |
 | Memory             | 64G                                       |
 | Network Bandwidth  | 7Gbps                                     |
-| Disk               | High-performance cloud disk               |
+| Disk               | High-performance Cloud Disk               |
 
 ## 2. Software Environment
 
-- Doris deploys 3BE 1FE;
+- Doris deployed 3BEs and 1FE;
 - Kernel version: Linux version 5.4.0-96-generic (buildd@lgw01-amd64-051)
-- OS version: Ubuntu Server 20.04 LTS 64 bit
-- Doris software version:  Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 , Apache Doris 0.15.0 RC04
+- OS version: Ubuntu Server 20.04 LTS 64-bit
+- Doris software versions: Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04
 - JDK: openjdk version "11.0.14" 2022-01-18
 
-## 3. Test data volume
+## 3. Test Data Volume
 
-| SSB table name | number of rows | remarks                          |
+| SSB Table Name | Rows | Annotation                          |
 | :------------- | :------------- | :------------------------------- |
-| lineorder      | 600,037,902    | Commodity order list             |
-| customer       | 3,000,000      | Customer Information Sheet       |
-| part           | 1,400,000      | Parts Information Sheet          |
-| supplier       | 200,000        | Supplier Information Sheet       |
-| date           | 2,556          | Date table                       |
-| lineorder_flat | 600,037,902    | Wide table after data flattening |
+| lineorder      | 600,037,902    | Commodity Order Details             |
+| customer       | 3,000,000      | Customer Information        |
+| part           | 1,400,000      | Parts Information          |
+| supplier       | 200,000        | Supplier Information        |
+| date           | 2,556          | Date                        |
+| lineorder_flat | 600,037,902    | Wide Table after Data Flattening |
 
 ## 4. Test Results
 
-Here we use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions for comparative testing, with the following results.
+We use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 for comparative testing. The test results are as follows:
 
 | Query | Apache Doris 1.2.0-rc01(ms) | Apache Doris 1.1.3 (ms) |  Doris 0.15.0 RC04 (ms) |
 | ----- | ------------- | ------------- | ----------------- |
@@ -82,60 +78,64 @@ Here we use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 
 | Q1.2  | 10            | 10            | 30                |
 | Q1.3  | 30            | 70            | 120               |
 | Q2.1  | 90            | 360           | 900               |
-| Q2.2  | 90            | 340           | 1020              |
+| Q2.2  | 90            | 340           | 1,020              |
 | Q2.3  | 60            | 260           | 770               |
-| Q3.1  | 160           | 550           | 1710              |
+| Q3.1  | 160           | 550           | 1,710              |
 | Q3.2  | 80            | 290           | 670               |
 | Q3.3  | 90            | 240           | 550               |
 | Q3.4  | 20            | 20            | 30                |
-| Q4.1  | 140           | 480           | 1250              |
+| Q4.1  | 140           | 480           | 1,250              |
 | Q4.2  | 50            | 240           | 400               |
 | Q4.3  | 30            | 200           | 330               |
-| Total  | 880           | 3150          | 8030              |
+| Total  | 880           | 3,150          | 8,030              |
 
-**Interpretation of results**
+![ssb_v11_v015_compare](/images/ssb_flat.png)
+
+**Interpretation of Results**
 
 - The data set corresponding to the test results is scale 100, about 600 million.
-- The test environment is configured to be commonly used by users, including 4 cloud servers, 16-core 64G SSD, and 1 FE and 3 BE deployment.
-- Use common user configuration tests to reduce user selection and evaluation costs, but will not consume so many hardware resources during the entire test process.
+- The test environment is configured as the user's common configuration, with 4 cloud servers, 16-core 64G SSD, and 1 FE, 3 BEs deployment.
+- We select the user's common configuration test to reduce the cost of user selection and evaluation, but the entire test process will not consume so many hardware resources.
 
 
-## 5. Standard SSB test results
+## 5. Standard SSB Test Results
 
-Here we use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 versions for comparative testing, with the following results.
+Here we use Apache Doris 1.2.0-rc01, Apache Doris 1.1.3 and Apache Doris 0.15.0 RC04 for comparative testing. In the test, we use Query Time（ms） as the main performance indicator. The test results are as follows:
 
 | Query | Apache Doris 1.2.0-rc01 (ms) | Apache Doris 1.1.3 (ms) | Doris 0.15.0 RC04 (ms) |
 | ----- | ------- | ---------------------- | ------------------------------- |
 | Q1.1  | 40      | 18                    | 350                           |
 | Q1.2  | 30      | 100                    | 80                             |
 | Q1.3  | 20      | 70                     | 80                            |
-| Q2.1  | 350     | 940                  | 20680                     |
-| Q2.2  | 320     | 750                  | 18250                    |
-| Q2.3  | 300     | 720                  | 14760                   |
-| Q3.1  | 650     | 2150                 | 22190                   |
-| Q3.2  | 260     | 510                 | 8360                          |
-| Q3.3  | 220     | 450                  | 6200                        |
+| Q2.1  | 350     | 940                  | 20,680                     |
+| Q2.2  | 320     | 750                  | 18,250                    |
+| Q2.3  | 300     | 720                  | 14,760                   |
+| Q3.1  | 650     | 2,150                 | 22,190                   |
+| Q3.2  | 260     | 510                 | 8,360                          |
+| Q3.3  | 220     | 450                  | 6,200                        |
 | Q3.4  | 60      | 70                   | 160                            |
-| Q4.1  | 840     | 1480                   | 24320                      |
-| Q4.2  | 460     | 560                 | 6310                          |
-| Q4.3  | 610     | 660                  | 10170                    |
-| Total  | 4160    | 8478                | 131910 |
+| Q4.1  | 840     | 1,480                   | 24,320                      |
+| Q4.2  | 460     | 560                 | 6,310                          |
+| Q4.3  | 610     | 660                  | 10,170                    |
+| Total  | 4,160    | 8,478                | 131,910 |
 
-**Interpretation of results**
+![ssb_12_11_015](/images/ssb.png)
+
+**Interpretation of Results**
 
 - The data set corresponding to the test results is scale 100, about 600 million.
-- The test environment is configured to be commonly used by users, including 4 cloud servers, 16-core 64G SSD, and 1 FE and 3 BE deployment.
-- Use common user configuration tests to reduce user selection and evaluation costs, but will not consume so many hardware resources during the entire test process.
+- The test environment is configured as the user's common configuration, with 4 cloud servers, 16-core 64G SSD, and 1 FE 3 BEs deployment.
+- We select the user's common configuration test to reduce the cost of user selection and evaluation, but the entire test process will not consume so many hardware resources.
 
 ## 6. Environment Preparation
 
-Please first refer to the [official documentation](. /install/install-deploy.md) for Apache Doris installation and deployment to get a working Doris cluster (at least 1 FE 1 BE, 1 FE 3 BE recommended).
+Please first refer to the [official documentation](. /install/install-deploy.md) to install and deploy Apache Doris first to obtain a Doris cluster which is working well(including at least 1 FE 1 BE, 1 FE 3 BEs is recommended).
 
-The scripts covered in the following documentation are stored in the Apache Doris codebase: [ssb-tools](https://github.com/apache/doris/tree/master/tools/ssb-tools)
+The scripts mentioned in the following documents are stored in the Apache Doris codebase: [ssb-tools](https://github.com/apache/doris/tree/master/tools/ssb-tools)
 
 ## 7. Data Preparation
 
-### 7.1 Download and install the SSB data generation tool.
+### 7.1 Download and Install the SSB Data Generation Tool.
 
 Execute the following script to download and compile the [ssb-dbgen](https://github.com/electrum/ssb-dbgen.git) tool.
 
@@ -143,9 +143,9 @@ Execute the following script to download and compile the [ssb-dbgen](https://git
 sh build-ssb-dbgen.sh
 ````
 
-After successful installation, the `dbgen` binary will be generated in the `ssb-dbgen/` directory.
+After successful installation, the `dbgen` binary will be generated under the `ssb-dbgen/` directory.
 
-### 7.2 Generate SSB test set
+### 7.2 Generate SSB Test Set
 
 Execute the following script to generate the SSB dataset:
 
@@ -153,31 +153,31 @@ Execute the following script to generate the SSB dataset:
 sh gen-ssb-data.sh -s 100 -c 100
 ````
 
-> Note 1: See script help with `sh gen-ssb-data.sh -h`.
+> Note 1: Check the script help via `sh gen-ssb-data.sh -h`.
 >
-> Note 2: The data will be generated in the `ssb-data/` directory with the suffix `.tbl`. The total file size is about 60GB. The generation time may vary from a few minutes to an hour.
+> Note 2: The data will be generated under the `ssb-data/` directory with the suffix `.tbl`. The total file size is about 60GB and may need a few minutes to an hour to generate.
 >
-> Note 3: `-s 100` indicates that the test set size factor is 100, `-c 100` indicates that 100 concurrent threads generate data for the lineorder table. The `-c` parameter also determines the number of files in the final lineorder table. The larger the parameter, the larger the number of files and the smaller each file.
+> Note 3: `-s 100` indicates that the test set size factor is 100, `-c 100` indicates that 100 concurrent threads generate the data of the lineorder table. The `-c` parameter also determines the number of files in the final lineorder table. The larger the parameter, the larger the number of files and the smaller each file.
 
 With the `-s 100` parameter, the resulting dataset size is:
 
 | Table     | Rows             | Size | File Number |
 | --------- | ---------------- | ---- | ----------- |
-| lineorder | 6亿（600037902） | 60GB | 100         |
-| customer  | 300万（3000000） | 277M | 1           |
-| part      | 140万（1400000） | 116M | 1           |
-| supplier  | 20万（200000）   | 17M  | 1           |
-| date      | 2556             | 228K | 1           |
+| lineorder | 600,037,902 | 60GB | 100         |
+| customer  | 3,000,000 | 277M | 1           |
+| part      | 1,400,000 | 116M | 1           |
+| supplier  | 200,000   | 17M  | 1           |
+| date      | 2,556             | 228K | 1           |
 
-### 7.3 Create table
+### 7.3 Create Table
 
-#### 7.3.1 Prepare the `doris-cluster.conf` file.
+#### 7.3.1 Prepare the `doris-cluster.conf` File.
 
-Before calling the import script, you need to write the FE's ip port and other information in the `doris-cluster.conf` file.
+Before import the script, you need to write the FE’s ip port and other information in the `doris-cluster.conf` file.
 
-File location and `load-ssb-dimension-data.sh` level.
+The file location is at the same level as `load-ssb-dimension-data.sh`.
 
-The contents of the file include FE's ip, HTTP port, user name, password and the DB name of the data to be imported:
+The content of the file includes FE's ip, HTTP port, user name, password and the DB name of the data to be imported:
 
 ```shell
 export FE_HOST="xxx"
@@ -188,15 +188,15 @@ export PASSWORD='xxx'
 export DB="ssb"
 ```
 
-#### 7.3.2 Execute the following script to generate and create the SSB table:
+#### 7.3.2 Execute the Following Script to Generate and Create the SSB Table:
 
 ```shell
 sh create-ssb-tables.sh
 ````
 
-Or copy [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) and [ create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) of the The create table statements are executed in the MySQL client.
+Or copy the table creation statements in [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) and [ create-ssb-flat-table.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-flat-table.sql) and then execute them in the MySQL client.
 
-The following is the `lineorder_flat` table build statement. The `lineorder_flat` table is created in the `create-ssb-flat-table.sh` script above with the default number of buckets (48 buckets). You can delete this table and tune this bucketing number according to your cluster size node configuration to get better one test results.
+The following is the `lineorder_flat` table build statement. Create the `lineorder_flat` table in the above `create-ssb-flat-table.sh` script, and perform the default number of buckets (48 buckets). You can delete this table and adjust the number of buckets according to your cluster scale node configuration, so as to obtain a better test result.
 
 ```sql
 CREATE TABLE `lineorder_flat` (
@@ -260,21 +260,21 @@ PROPERTIES (
 
 ### 7.4 Import data
 
-We use the following command to complete the import of all data from SSB test set and SSB FLAT wide table data synthesis and import into the table.
+We use the following command to complete all data import of SSB test set and SSB FLAT wide table data synthesis and then import into the table.
 
 ```shell
  sh bin/load-ssb-data.sh -c 10
 ```
 
-`-c 5` means start 10 concurrent threads for import (default is 5). In the single BE node case, the lineorder data generated by `sh gen-ssb-data.sh -s 100 -c 100` will also generate the data of the ssb-flat table at the end, if more threads are started, it can speed up the import, but it will add extra memory overhead.
+`-c 5` means start 10 concurrent threads to import (5 by default). In the case of a single BE node, the lineorder data generated by `sh gen-ssb-data.sh -s 100 -c 100` will also generate the data of the ssb-flat table in the end. If more threads are enabled, the import speed can be accelerated. But it will cost extra memory.
 
 > Notes.
 >
-> 1. This configuration indicates the number of write threads per data directory, and the default is 2. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, at default is 2, the IO Util during import is about 12%, and when set to 5, the IO Util is about 26%. (In case of SSD disks, it is almost 0).
-> 
-> 2. flat table data using 'INSERT INTO ... SELECT ... ' method to import.
+> 1. To get faster import speed, you can add `flush_thread_num_per_store=5` in be.conf and then restart BE. This configuration indicates the number of disk writing threads for each data directory, 2 by default. Larger data can improve write data throughput, but may increase IO Util. (Reference value: 1 mechanical disk, with 2 by default, the IO Util during the import process is about 12%. When it is set to 5, the IO Util is about 26%. If it is an SSD disk, it is almost 0%) .
+>
+> 2. The flat table data is imported by 'INSERT INTO ... SELECT ... '.
 
-### 7.5 Check imported data
+### 7.5 Checking Imported data
 
 
 ```sql
@@ -286,20 +286,23 @@ select count(*) from lineorder;
 select count(*) from lineorder_flat;
 ```
 
-The amount of data should be the same as the number of rows that generate the data.
+The amount of data should be consistent with the number of rows of generated data.
 
 | Table          | Rows             | Origin Size | Compacted Size(1 Replica) |
 | -------------- | ---------------- | ----------- | ------------------------- |
-| lineorder_flat | 6亿（600037902） |             | 59.709 GB                 |
-| lineorder      | 6亿（600037902） | 60 GB       | 14.514 GB                 |
-| customer       | 300万（3000000） | 277 MB      | 138.247 MB                |
-| part           | 140万（1400000） | 116 MB      | 12.759 MB                 |
-| supplier       | 20万（200000）   | 17 MB       | 9.143 MB                  |
-| date           | 2556             | 228 KB      | 34.276 KB                 |
+| lineorder_flat | 600,037,902 |             | 59.709 GB                 |
+| lineorder      | 600,037,902 | 60 GB       | 14.514 GB                 |
+| customer       | 3,000,000 | 277 MB      | 138.247 MB                |
+| part           | 1,400,000 | 116 MB      | 12.759 MB                 |
+| supplier       | 200,000   | 17 MB       | 9.143 MB                  |
+| date           | 2,556             | 228 KB      | 34.276 KB                 |
 
-### 7.6 Query test
+### 7.6 Query Test
 
-#### 7.6.1 SSB FLAT Test SQL
+- SSB-Flat Query Statement: [ ssb-flat-queries](https://github.com/apache/doris/tree/master/tools/ssb-tools/ssb-flat-queries)
+- Standard SSB Queries: [ ssb-queries](https://github.com/apache/doris/tree/master/tools/ssb-tools/ssb-queries)
+
+#### 7.6.1 SSB FLAT Test for SQL
 
 ```sql
 --Q1.1
@@ -386,7 +389,7 @@ GROUP BY YEAR, S_CITY, P_BRAND
 ORDER BY YEAR ASC, S_CITY ASC, P_BRAND ASC;
 ```
 
-#### 7.6.2 SSB Standard Test SQL
+#### 7.6.2 SSB Standard Test for SQL
 
 ```SQL
 --Q1.1
