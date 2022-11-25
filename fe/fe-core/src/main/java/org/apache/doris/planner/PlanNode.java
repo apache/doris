@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
@@ -952,8 +953,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void convertToVectoriezd() {
-        if (!conjuncts.isEmpty()) {
-            vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
+        List<Expr> conjunctsExcludeBitmapFilter = Lists.newArrayList();
+        for (Expr expr : conjuncts) {
+            if (!(expr instanceof BitmapFilterPredicate)) {
+                conjunctsExcludeBitmapFilter.add(expr);
+            }
+        }
+        if (!conjunctsExcludeBitmapFilter.isEmpty()) {
+            vconjunct = convertConjunctsToAndCompoundPredicate(conjunctsExcludeBitmapFilter);
             initCompoundPredicate(vconjunct);
         }
 
