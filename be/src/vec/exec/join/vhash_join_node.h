@@ -42,12 +42,26 @@ template <typename RowRefListType>
 struct SerializedHashTableContext {
     using Mapped = RowRefListType;
     using HashTable = PartitionedHashMap<StringRef, Mapped>;
-    using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
+    using State =
+            ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped, true>;
     using Iter = typename HashTable::iterator;
 
     HashTable hash_table;
     Iter iter;
     bool inited = false;
+    std::vector<StringRef> keys;
+
+    void serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
+        if (keys.size() < num_rows) {
+            keys.resize(num_rows);
+        }
+
+        _arena.reset(new Arena());
+        size_t keys_size = key_columns.size();
+        for (size_t i = 0; i < num_rows; ++i) {
+            keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
+        }
+    }
 
     void init_once() {
         if (!inited) {
@@ -55,6 +69,9 @@ struct SerializedHashTableContext {
             iter = hash_table.begin();
         }
     }
+
+private:
+    std::unique_ptr<Arena> _arena;
 };
 
 template <typename HashMethod>
@@ -63,7 +80,8 @@ struct IsSerializedHashTableContextTraits {
 };
 
 template <typename Value, typename Mapped>
-struct IsSerializedHashTableContextTraits<ColumnsHashing::HashMethodSerialized<Value, Mapped>> {
+struct IsSerializedHashTableContextTraits<
+        ColumnsHashing::HashMethodSerialized<Value, Mapped, true>> {
     constexpr static bool value = true;
 };
 
