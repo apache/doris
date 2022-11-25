@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_MAX Function",
+    "title": "array_max",
     "language": "en"
 }
 ---
@@ -24,11 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_MAX
-
-### Name
-
-ARRAY_MAX
+## array_max
 
 ### description
 

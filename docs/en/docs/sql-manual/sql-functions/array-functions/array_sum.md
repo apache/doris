@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_SUM Function",
+    "title": "array_sum",
     "language": "en"
 }
 ---
@@ -24,11 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_SUM
-
-### Name
-
-ARRAY_SUM
+## array_sum
 
 ### description
 
