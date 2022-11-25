@@ -1881,7 +1881,9 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, const std::string& me
     size_t bytes_read;
     uint8_t* buf = new uint8_t[file_size];
     Slice slice(buf, file_size);
-    Status st = tablet_meta_reader->read_at(0, slice, &bytes_read);
+    IOContext io_ctx;
+    reader_type;
+    Status st = tablet_meta_reader->read_at(0, slice, io_ctx, &bytes_read);
     if (!st.ok()) {
         tablet_meta_reader->close();
         return st;
