@@ -32,6 +32,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.rules.analysis.Scope;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -50,6 +51,8 @@ import java.util.Optional;
 public class CascadesContext {
     private final Memo memo;
     private final StatementContext statementContext;
+
+    private CTEContext cteContext;
     private RuleSet ruleSet;
     private JobPool jobPool;
     private final JobScheduler jobScheduler;
@@ -58,13 +61,17 @@ public class CascadesContext {
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
 
+    public CascadesContext(Memo memo, StatementContext statementContext) {
+        this(memo, statementContext, new CTEContext());
+    }
+
     /**
      * Constructor of OptimizerContext.
      *
      * @param memo {@link Memo} reference
      * @param statementContext {@link StatementContext} reference
      */
-    public CascadesContext(Memo memo, StatementContext statementContext) {
+    public CascadesContext(Memo memo, StatementContext statementContext, CTEContext cteContext) {
         this.memo = memo;
         this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
@@ -73,6 +80,7 @@ public class CascadesContext {
         this.currentJobContext = new JobContext(this, PhysicalProperties.ANY, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
+        this.cteContext = cteContext;
     }
 
     public static CascadesContext newContext(StatementContext statementContext, Plan initPlan) {
@@ -174,6 +182,14 @@ public class CascadesContext {
 
     public CascadesContext topDownRewrite(List<Rule> rules) {
         return execute(new RewriteTopDownJob(memo.getRoot(), rules, currentJobContext));
+    }
+
+    public CTEContext getCteContext() {
+        return cteContext;
+    }
+
+    public void setCteContext(CTEContext cteContext) {
+        this.cteContext = cteContext;
     }
 
     private CascadesContext execute(Job job) {

@@ -95,8 +95,9 @@ public class RewriteTopDownJob extends Job {
             }
         }
 
-        for (Group childGroup : group.getLogicalExpression().children()) {
-            pushJob(new RewriteTopDownJob(childGroup, rules, context));
+        List<Group> children = group.getLogicalExpression().children();
+        for (int i = children.size() - 1; i >= 0; i--) {
+            pushJob(new RewriteTopDownJob(children.get(i), rules, context));
         }
     }
 }
