@@ -41,7 +41,11 @@ public class EventChannel {
     private Thread thread;
 
     public void add(Event e) {
-        queue.add(e);
+        try {
+            queue.put(e);
+        } catch (InterruptedException exception) {
+            LOG.warn("Exception when put event: ", exception);
+        }
     }
 
     public synchronized EventChannel addConsumers(List<EventConsumer> consumers) {
