@@ -29,7 +29,7 @@ under the License.
 #### Syntax
 
 ` convert_to(VARCHAR column, VARCHAR character)`
-在order by子句中使用，现在仅支持character转为'gbk'.
+在order by子句中使用，例如order by convert(column using gbk), 现在仅支持character转为'gbk'.
 因为当order by column中包含中文时，其排列不是按照汉语拼音的顺序.
 将column的字符编码转为gbk后，可实现按拼音的排列的效果.
 
@@ -50,7 +50,7 @@ mysql> select * from class_test order by class_name;
 |        5 | 我         | [5]         |
 +----------+------------+-------------+
 
-mysql> select * from class_test order by convert_to(class_name,'gbk');
+mysql> select * from class_test order by convert(class_name using gbk);
 +----------+------------+-------------+
 | class_id | class_name | student_ids |
 +----------+------------+-------------+

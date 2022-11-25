@@ -30,7 +30,7 @@ under the License.
 
 ` convert_to(VARCHAR column, VARCHAR character)`
 
-It is used in the order by clause. Now only support character can be converted to 'gbk'.
+It is used in the order by clause. eg: order by convert(column using gbk), Now only support character can be converted to 'gbk'.
 Because when the order by column contains Chinese, it is not arranged in the order of Pinyin
 After the character encoding of column is converted to gbk, it can be arranged according to pinyin
 
@@ -51,7 +51,7 @@ mysql> select * from class_test order by class_name;
 |        5 | 我         | [5]         |
 +----------+------------+-------------+
 
-mysql> select * from class_test order by convert_to(class_name,'gbk');
+mysql> select * from class_test order by convert(class_name using gbk);
 +----------+------------+-------------+
 | class_id | class_name | student_ids |
 +----------+------------+-------------+
