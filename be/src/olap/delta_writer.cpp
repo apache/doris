@@ -347,7 +347,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     }
     // return error if previous flush failed
     auto st = _flush_token->wait();
-    if (OLAP_UNLIKELY(st != OLAP_SUCCESS)) {
+    if (UNLIKELY(!st.ok())) {
         LOG(WARNING) << "previous flush failed tablet " << _tablet->tablet_id();
         return st;
     }
