@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -633,7 +634,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_EVENT_MODE)
     public String nereidsEventMode = "all";
 
-    private Set<Class<? extends Event>> parsedNereidsEventMode = null;
+    private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
 
     public void setEnableNereidsTrace(boolean enableNereidsTrace) {
         this.enableNereidsTrace = enableNereidsTrace;
