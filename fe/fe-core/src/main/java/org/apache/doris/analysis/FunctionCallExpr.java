@@ -1267,7 +1267,7 @@ public class FunctionCallExpr extends Expr {
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateType() && args[ix].isDateType())
                             && (!fn.getReturnType().isDecimalV3()
-                            || (argTypes[i].isValid() && args[ix].isDecimalV3()))) {
+                            || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
                         uncheckedCastChild(args[ix], i);
                     }
                 }
