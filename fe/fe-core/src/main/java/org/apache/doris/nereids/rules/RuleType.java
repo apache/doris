@@ -79,6 +79,7 @@ public enum RuleType {
     ELIMINATE_UNNECESSARY_PROJECT(RuleTypeClass.REWRITE),
     LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT(RuleTypeClass.REWRITE),
     ELIMINATE_GROUP_BY_CONSTANT(RuleTypeClass.REWRITE),
+
     // subquery analyze
     ANALYZE_FILTER_SUBQUERY(RuleTypeClass.REWRITE),
     // subquery rewrite rule
