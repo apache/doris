@@ -433,29 +433,29 @@ IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                             \
     template CLASS<TYPE_TINYINT, int8_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values,      \
-                                  bool opposite);                                                               \
+                                                bool opposite);                                                 \
     template CLASS<TYPE_SMALLINT, int16_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int16_t>&& values,   \
-                                   bool opposite);                                                              \
+                                                  bool opposite);                                               \
     template CLASS<TYPE_INT, int32_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int32_t>&& values,        \
-                                   bool opposite);                                                              \
+                                             bool opposite);                                                    \
     template CLASS<TYPE_BIGINT, int64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int64_t>&& values,     \
-                                   bool opposite);                                                              \
+                                                bool opposite);                                                 \
     template CLASS<TYPE_LARGEINT, int128_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int128_t>&& values, \
-                                    bool opposite);                                                             \
+                                                   bool opposite);                                              \
     template CLASS<TYPE_FLOAT, float>::CLASS(uint32_t column_id, phmap::flat_hash_set<float>&& values,          \
-                                 bool opposite);                                                                \
+                                             bool opposite);                                                    \
     template CLASS<TYPE_DOUBLE, double>::CLASS(uint32_t column_id, phmap::flat_hash_set<double>&& values,       \
-                                  bool opposite);                                                               \
+                                               bool opposite);                                                  \
     template CLASS<TYPE_DECIMALV2, decimal12_t>::CLASS(uint32_t column_id,                                      \
-                                       phmap::flat_hash_set<decimal12_t>&& values, bool opposite);              \
+                                                       phmap::flat_hash_set<decimal12_t>&& values, bool opposite); \
     template CLASS<TYPE_CHAR, StringValue>::CLASS(uint32_t column_id,                                           \
-                                       phmap::flat_hash_set<StringValue>&& values, bool opposite);              \
+                                                  phmap::flat_hash_set<StringValue>&& values, bool opposite);   \
     template CLASS<TYPE_STRING, StringValue>::CLASS(uint32_t column_id,                                         \
-                                       phmap::flat_hash_set<StringValue>&& values, bool opposite);              \
+                                                    phmap::flat_hash_set<StringValue>&& values, bool opposite); \
     template CLASS<TYPE_DATE, uint24_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint24_t>&& values,     \
-                                    bool opposite);                                                             \
+                                               bool opposite);                                                  \
     template CLASS<TYPE_DATETIME, uint64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint64_t>&& values, \
-                                    bool opposite);
+                                                   bool opposite);
 
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
@@ -505,43 +505,52 @@ IN_LIST_PRED_EVALUATE_DECLARATION(NotInListPredicate)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
 
-#define IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(CLASS)                                           \
-    template Status CLASS<TYPE_TINYINT, int8_t>::evaluate(const Schema& schema,                   \
-                                            const std::vector<BitmapIndexIterator*>& iterators,   \
-                                            uint32_t num_rows, roaring::Roaring* bitmap) const;   \
-    template Status CLASS<TYPE_SMALLINT, int16_t>::evaluate(const Schema& schema,                 \
-                                             const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
-    template Status CLASS<TYPE_INT, int32_t>::evaluate(const Schema& schema,                      \
-                                             const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
-    template Status CLASS<TYPE_BIGINT, int64_t>::evaluate(const Schema& schema,                   \
-                                             const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
-    template Status CLASS<TYPE_LARGEINT, int128_t>::evaluate(const Schema& schema,                \
-                                              const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
-    template Status CLASS<TYPE_FLOAT, float>::evaluate(const Schema& schema,                      \
-                                           const std::vector<BitmapIndexIterator*>& iterators,    \
-                                           uint32_t num_rows, roaring::Roaring* bitmap) const;    \
-    template Status CLASS<TYPE_DOUBLE, double>::evaluate(const Schema& schema,                    \
-                                            const std::vector<BitmapIndexIterator*>& iterators,   \
-                                            uint32_t num_rows, roaring::Roaring* bitmap) const;   \
-    template Status CLASS<TYPE_DECIMALV2, decimal12_t>::evaluate(                                 \
-            const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
-            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
-    template Status CLASS<TYPE_CHAR, StringValue>::evaluate(                                      \
-            const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
-            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
-    template Status CLASS<TYPE_STRING, StringValue>::evaluate(                                    \
-            const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
-            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
-    template Status CLASS<TYPE_DATE, uint24_t>::evaluate(const Schema& schema,                    \
-                                              const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
-    template Status CLASS<TYPE_DATETIME, uint64_t>::evaluate(const Schema& schema,                \
-                                              const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, roaring::Roaring* bitmap) const;
+#define IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(CLASS)                               \
+    template Status CLASS<TYPE_TINYINT, int8_t>::evaluate(                            \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_SMALLINT, int16_t>::evaluate(                          \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_INT, int32_t>::evaluate(                               \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_BIGINT, int64_t>::evaluate(                            \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_LARGEINT, int128_t>::evaluate(                         \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_FLOAT, float>::evaluate(                               \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_DOUBLE, double>::evaluate(                             \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_DECIMALV2, decimal12_t>::evaluate(                     \
+            const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_CHAR, StringValue>::evaluate(                          \
+            const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_STRING, StringValue>::evaluate(                        \
+            const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators, \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_DATE, uint24_t>::evaluate(                             \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                       \
+    template Status CLASS<TYPE_DATETIME, uint64_t>::evaluate(                         \
+            const Schema& schema,                                                     \
+            const std::vector<BitmapIndexIterator*>& iterators,                       \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;
 
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(NotInListPredicate)
