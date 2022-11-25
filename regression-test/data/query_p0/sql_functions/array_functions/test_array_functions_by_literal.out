@@ -9,13 +9,13 @@ false
 true
 
 -- !sql --
-\N
+true
 
 -- !sql --
 false
 
 -- !sql --
-\N
+false
 
 -- !sql --
 \N
@@ -39,7 +39,10 @@ false
 2
 
 -- !sql --
-\N
+1
+
+-- !sql --
+0
 
 -- !sql --
 0
@@ -51,7 +54,16 @@ false
 \N
 
 -- !sql --
-\N
+0
+
+-- !sql --
+0
+
+-- !sql --
+0
+
+-- !sql --
+0
 
 -- !sql --
 3
