@@ -29,6 +29,7 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.FileNotFoundException;
 import java.net.MalformedURLException;
 import java.sql.Connection;
 import java.sql.Date;
@@ -52,7 +53,6 @@ public class JdbcExecutor {
     private ResultSetMetaData resultSetMetaData = null;
     // Use HikariDataSource to help us manage the JDBC connections.
     private HikariDataSource dataSource = null;
-    private ClassLoader classLoader = null;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -203,7 +203,7 @@ public class JdbcExecutor {
             String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
         try {
             ClassLoader parent = getClass().getClassLoader();
-            classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+            ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
             Class.forName(driverClass, true, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
@@ -222,6 +222,8 @@ public class JdbcExecutor {
             } else {
                 stmt = conn.createStatement();
             }
+        } catch (FileNotFoundException e) {
+            throw new UdfRuntimeException("Can not find driver file:  " + driverUrl, e);
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
         } catch (ClassNotFoundException e) {
