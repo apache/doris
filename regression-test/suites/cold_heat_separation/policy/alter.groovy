@@ -34,7 +34,8 @@ suite("alter_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
 
@@ -95,7 +96,7 @@ suite("alter_policy") {
     // [[has_resouce_policy_alter, s3, AWS_ACCESS_KEY, 6666],
     // [has_resouce_policy_alter, s3, AWS_BUCKET, test-bucket],
     // [has_resouce_policy_alter, s3, AWS_CONNECTION_TIMEOUT_MS, 2222],
-    // [has_resouce_policy_alter, s3, AWS_ENDPOINT, http://bj.s3.comaaaa],
+    // [has_resouce_policy_alter, s3, AWS_ENDPOINT, bj.s3.comaaaa],
     // [has_resouce_policy_alter, s3, AWS_MAX_CONNECTIONS, 1111],
     // [has_resouce_policy_alter, s3, AWS_REGION, bj],
     // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
@@ -109,7 +110,7 @@ suite("alter_policy") {
     // AWS_CONNECTION_TIMEOUT_MS
     assertEquals(show_alter_result[2][3], "2222")
     // AWS_ENDPOINT
-    assertEquals(show_alter_result[3][3], "http://bj.s3.comaaaa")
+    assertEquals(show_alter_result[3][3], "bj.s3.comaaaa")
     // AWS_MAX_CONNECTIONS
     assertEquals(show_alter_result[4][3], "1111")
     // AWS_REGION
@@ -121,7 +122,7 @@ suite("alter_policy") {
     // AWS_SECRET_KEY
     assertEquals(show_alter_result[8][3], "******")
     // type
-    assertEquals(show_alter_result[9][3], "s3")
+    assertEquals(show_alter_result[10][3], "s3")
 
     def storage_exist = { name ->
         def show_storage_policy = sql """

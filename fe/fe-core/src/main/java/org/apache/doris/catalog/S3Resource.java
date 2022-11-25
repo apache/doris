@@ -70,6 +70,8 @@ public class S3Resource extends Resource {
     public static final String S3_ROOT_PATH = "AWS_ROOT_PATH";
     public static final String S3_BUCKET = "AWS_BUCKET";
 
+    private static final String S3_VALIDITY_CHECK = "s3_validity_check";
+
     // optional
     public static final String S3_TOKEN = "AWS_TOKEN";
     public static final String USE_PATH_STYLE = "use_path_style";
@@ -108,10 +110,17 @@ public class S3Resource extends Resource {
         checkRequiredProperty(S3_SECRET_KEY);
         checkRequiredProperty(S3_BUCKET);
 
-        boolean available = pingS3();
-        if (!available) {
-            throw new DdlException("S3 can't use, please check your properties");
+        // default need check resource conf valid, so need fix ut and regression case
+        boolean needCheck = !properties.containsKey(S3_VALIDITY_CHECK)
+                || Boolean.parseBoolean(properties.get(S3_VALIDITY_CHECK));
+        LOG.debug("s3 info need check validity : {}", needCheck);
+        if (needCheck) {
+            boolean available = pingS3();
+            if (!available) {
+                throw new DdlException("S3 can't use, please check your properties");
+            }
         }
+
         // optional
         checkOptionalProperty(S3_MAX_CONNECTIONS, DEFAULT_S3_MAX_CONNECTIONS);
         checkOptionalProperty(S3_REQUEST_TIMEOUT_MS, DEFAULT_S3_REQUEST_TIMEOUT_MS);
