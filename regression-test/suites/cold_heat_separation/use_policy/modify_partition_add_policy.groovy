@@ -107,12 +107,6 @@ suite("add_table_policy_by_modify_partition") {
     // OK
     assertEquals(alter_table_partition_try_again_result.size(), 1);
 
-    def alter_table_when_table_partition_has_storage_policy_result = try_sql """
-        ALTER TABLE create_table_partition MODIFY PARTITION p1992 SET("storage_policy"="created_create_table_partition_alter_policy");
-    """
-    // errCode = 2, detailMessage = Do not support alter table's partition storage policy , this table [create_table_partition] and partition [p1992] has storage policy created_create_table_partition_alter_policy
-    assertEquals(alter_table_when_table_partition_has_storage_policy_result, null);
-
     sql """
     DROP TABLE IF EXISTS create_table_partition;
     """

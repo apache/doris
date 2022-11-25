@@ -45,7 +45,7 @@ suite("create_policy") {
         def create_sucess = sql """
              SHOW RESOURCES WHERE NAME = "crete_policy_1";
         """
-        assertEquals(create_sucess.size(), 10)
+        assertEquals(create_sucess.size(), 11)
 
         def failed_cannot_create_duplicate_name_resources = try_sql """
             CREATE RESOURCE "crete_policy_1"
