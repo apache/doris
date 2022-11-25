@@ -53,8 +53,11 @@ public class StatisticConstants {
     public static final long STATISTICS_RECORDS_CACHE_SIZE = 100000;
 
     /**
-     * If analysys job execution time exceeds this time, it would be cancelled.
+     * If analysis job execution time exceeds this time, it would be cancelled.
      */
     public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);
+
+
+    public static final int LOAD_TASK_LIMITS = 10;
 
 }

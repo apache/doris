@@ -42,14 +42,14 @@ public class StatisticsCache {
             return ColumnStatistic.DEFAULT;
         }
         StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
-        CompletableFuture<ColumnStatistic> f = cache.get(k);
-        if (f.isDone()) {
-            try {
+        try {
+            CompletableFuture<ColumnStatistic> f = cache.get(k);
+            if (f.isDone()) {
                 return f.get();
-            } catch (Exception e) {
-                LOG.warn("Unexpected exception while returning ColumnStatistic", e);
-                return ColumnStatistic.DEFAULT;
             }
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning ColumnStatistic", e);
+            return ColumnStatistic.DEFAULT;
         }
         return ColumnStatistic.DEFAULT;
     }

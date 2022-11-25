@@ -75,5 +75,27 @@ suite("test_string_function_regexp") {
     qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-z]+[0-9]+[a-z]+\$' order by k1, k2, k3, k4"
     qt_sql"select * from ${tableName} where lower(k7) not regexp'^[a-o]+[0-9]+[a-z]?\$' order by k1, k2, k3, k4"
     qt_sql"select count(*) from ${tableName} where k1<10 and lower(k6) not regexp '^t'"
+
+    def tbName2 = "test_string_function_field"
+    sql "DROP TABLE IF EXISTS ${tbName2}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbName2} (
+                id int,
+                name varchar(32)
+            )
+            DISTRIBUTED BY HASH(name) BUCKETS 5 properties("replication_num" = "1");
+        """
+    sql """
+        INSERT INTO ${tbName2} VALUES 
+            (2,"Suzi"),
+            (9,"Ben"),
+            (7,"Suzi"),
+            (8,"Henry"),
+            (1,"Ben"),
+            (4,"Henry")
+        """
+    qt_sql_field1 "select name from ${tbName2} order by field(name,'Suzi','Ben','Henry');"
+    qt_sql_field2 "select name from ${tbName2} order by field(name,'Ben','Henry');"
+    qt_sql_field3 "select name from ${tbName2} order by field(name,'Henry') desc,id;"
 }
 

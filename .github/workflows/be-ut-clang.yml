@@ -19,6 +19,8 @@ name: BE UT (Clang)
 
 on:
   pull_request:
+  schedule:
+    - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
 
 concurrency:
   group: ${{ github.ref }} (BE UT Clang)
@@ -35,14 +37,8 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Ccache ${{ github.ref }}
-        uses: ./.github/actions/ccache-action
-        with:
-          key: BE-UT-Clang
-          max-size: "2G"
-          restore-keys: BE-UT-Clang-
-
-      - name: Paths filter
+      - name: Paths Filter
+        if: ${{ github.event_name != 'schedule' }}
         uses: ./.github/actions/paths-filter
         id: filter
         with:
@@ -52,8 +48,16 @@ jobs:
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
+      - name: Ccache ${{ github.ref }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: BE-UT-Clang
+          max-size: "2G"
+          restore-keys: BE-UT-Clang-
+
       - name: Run UT ${{ github.ref }}
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
         run: |
           export DEFAULT_DIR='/opt/doris'
 
@@ -79,6 +83,3 @@ jobs:
           export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
           DORIS_TOOLCHAIN=clang ./run-be-ut.sh -j "$(nproc)" --run --clean
 
-      - name: Skip UT ${{ github.ref }}
-        if: ${{ steps.filter.outputs.be_changes == 'false' }}
-        run: echo 'No need to run.'

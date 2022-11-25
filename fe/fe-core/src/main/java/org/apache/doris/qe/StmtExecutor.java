@@ -93,7 +93,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -214,7 +213,6 @@ public class StmtExecutor implements ProfileWriter {
             this.statementContext.setConnectContext(ctx);
             this.statementContext.setOriginStatement(originStmt);
             this.statementContext.setParsedStatement(parsedStmt);
-            this.statementContext.setCteContext(new CTEContext());
         } else {
             this.statementContext = new StatementContext(ctx, originStmt);
             this.statementContext.setParsedStatement(parsedStmt);
@@ -1792,52 +1790,56 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     public List<ResultRow> executeInternalQuery() {
-        analyzer = new Analyzer(context.getEnv(), context);
         try {
-            analyze(context.getSessionVariable().toThrift());
-        } catch (UserException e) {
-            LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
-            return null;
-        }
-        planner.getFragments();
-        RowBatch batch;
-        coord = new Coordinator(context, analyzer, planner);
-        try {
-            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                    new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-        } catch (UserException e) {
-            LOG.warn(e.getMessage(), e);
-        }
-
-        coord.setProfileWriter(this);
-        Span queryScheduleSpan = context.getTracer()
-                .spanBuilder("internal SQL schedule").setParent(Context.current()).startSpan();
-        try (Scope scope = queryScheduleSpan.makeCurrent()) {
-            coord.exec();
-        } catch (Exception e) {
-            queryScheduleSpan.recordException(e);
-            LOG.warn("Unexpected exception when SQL running", e);
-        } finally {
-            queryScheduleSpan.end();
-        }
-        Span fetchResultSpan = context.getTracer().spanBuilder("fetch internal SQL result")
-                .setParent(Context.current()).startSpan();
-        List<ResultRow> resultRows = new ArrayList<>();
-        try (Scope scope = fetchResultSpan.makeCurrent()) {
-            while (true) {
-                batch = coord.getNext();
-                if (batch == null || batch.isEos()) {
-                    return resultRows;
-                } else {
-                    resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
-                }
+            analyzer = new Analyzer(context.getEnv(), context);
+            try {
+                analyze(context.getSessionVariable().toThrift());
+            } catch (UserException e) {
+                LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
+                return null;
             }
-        } catch (Exception e) {
-            LOG.warn("Unexpected exception when SQL running", e);
-            fetchResultSpan.recordException(e);
-            return null;
+            planner.getFragments();
+            RowBatch batch;
+            coord = new Coordinator(context, analyzer, planner);
+            try {
+                QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                        new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+            } catch (UserException e) {
+                LOG.warn(e.getMessage(), e);
+            }
+
+            coord.setProfileWriter(this);
+            Span queryScheduleSpan = context.getTracer()
+                    .spanBuilder("internal SQL schedule").setParent(Context.current()).startSpan();
+            try (Scope scope = queryScheduleSpan.makeCurrent()) {
+                coord.exec();
+            } catch (Exception e) {
+                queryScheduleSpan.recordException(e);
+                LOG.warn("Unexpected exception when SQL running", e);
+            } finally {
+                queryScheduleSpan.end();
+            }
+            Span fetchResultSpan = context.getTracer().spanBuilder("fetch internal SQL result")
+                    .setParent(Context.current()).startSpan();
+            List<ResultRow> resultRows = new ArrayList<>();
+            try (Scope scope = fetchResultSpan.makeCurrent()) {
+                while (true) {
+                    batch = coord.getNext();
+                    if (batch == null || batch.isEos()) {
+                        return resultRows;
+                    } else {
+                        resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Unexpected exception when SQL running", e);
+                fetchResultSpan.recordException(e);
+                return null;
+            } finally {
+                fetchResultSpan.end();
+            }
         } finally {
-            fetchResultSpan.end();
+            QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
     }
 

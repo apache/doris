@@ -39,7 +39,7 @@
 4	[1, 2, 3, 4, 5]	[]
 5	[]	['a', 'b', 'c', 'd']
 6	[1, 2, 3, 4, 5]	['a', 'b', 'c', 'd']
-7	[8, 9, NULL, 10, NULL]	['f', NULL, 'g', NULL, 'h']
+7	[8, 9, NULL, 10]	['f', NULL, 'g', 'h']
 8	[1, 2, 3, 4, NULL]	['a', 'b']
 9	[1, 2, 3]	['a', 'b', '']
 
@@ -146,6 +146,50 @@
 1	true
 2	false
 3	false
+4	true
+5	false
+6	true
+7	false
+8	true
+9	true
+
+-- !select --
+1	true
+2	\N
+3	false
+4	false
+5	true
+6	true
+7	false
+8	true
+9	true
+
+-- !select --
+1	false
+2	\N
+3	false
+4	false
+5	false
+6	false
+7	true
+8	false
+9	false
+
+-- !select --
+1	false
+2	false
+3	\N
+4	false
+5	\N
+6	\N
+7	\N
+8	false
+9	false
+
+-- !select --
+1	true
+2	false
+3	false
 4	\N
 5	\N
 6	\N
@@ -165,15 +209,15 @@
 9	false
 
 -- !select --
-1	\N
+1	false
 2	\N
 3	\N
 4	\N
 5	\N
 6	\N
 7	\N
-8	\N
-9	\N
+8	false
+9	false
 
 -- !select --
 1	[1, 2, 3]
@@ -339,6 +383,83 @@
 7	[NULL, 7]
 8	[NULL, 8]
 9	[NULL, 9]
+
+-- !select --
+1	0
+2	0
+3	0
+4	5
+5	0
+6	5
+7	0
+8	0
+9	0
+
+-- !select --
+1	1
+2	\N
+3	0
+4	0
+5	1
+6	1
+7	0
+8	1
+9	1
+
+-- !select --
+1	0
+2	\N
+3	0
+4	0
+5	0
+6	0
+7	2
+8	0
+9	0
+
+-- !select --
+1	0
+2	0
+3	\N
+4	0
+5	\N
+6	\N
+7	\N
+8	0
+9	0
+
+-- !select --
+1	1
+2	0
+3	0
+4	\N
+5	\N
+6	\N
+7	\N
+8	1
+9	1
+
+-- !select --
+1	0
+2	0
+3	0
+4	\N
+5	\N
+6	\N
+7	\N
+8	0
+9	0
+
+-- !select --
+1	0
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
+8	0
+9	0
 
 -- !select --
 \N	\N

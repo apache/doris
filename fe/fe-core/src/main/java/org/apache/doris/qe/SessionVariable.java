@@ -217,6 +217,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_PREDICATE = "skip_delete_predicate";
 
+    public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
+
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
@@ -228,6 +230,11 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
     public static final String INTERNAL_SESSION = "internal_session";
+
+    public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
+
+    public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
+            = "enable_share_hash_table_for_broadcast_join";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -562,16 +569,22 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableLocalExchange = true;
 
     /**
-     * For debugg purpose, dont' merge unique key and agg key when reading data.
+     * For debug purpose, don't merge unique key and agg key when reading data.
      */
     @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE)
     public boolean skipStorageEngineMerge = false;
 
     /**
-     * For debugg purpose, skip delte predicate when reading data.
+     * For debug purpose, skip delete predicate when reading data.
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE)
     public boolean skipDeletePredicate = false;
+
+    /**
+     * For debug purpose, skip delete sign when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
+    public boolean skipDeleteSign = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -601,6 +614,13 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
 
+    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
+    public int partitionedHashJoinRowsThreshold = 0;
+
+    @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
+    public boolean enableShareHashTableForBroadcastJoin = true;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -609,6 +629,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
+        // this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
     }
 
     public String getBlockEncryptionMode() {
@@ -842,6 +863,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePartitionCache = enablePartitionCache;
     }
 
+    public int getPartitionedHashJoinRowsThreshold() {
+        return partitionedHashJoinRowsThreshold;
+    }
+
+    public void setPartitionedHashJoinRowsThreshold(int threshold) {
+        this.partitionedHashJoinRowsThreshold = threshold;
+    }
+
     // Serialize to thrift object
     public boolean getForwardToMaster() {
         return forwardToMaster;
@@ -918,6 +947,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean skipStorageEngineMerge() {
         return skipStorageEngineMerge;
+    }
+
+    public boolean skipDeleteSign() {
+        return skipDeleteSign;
     }
 
     public boolean isAllowPartitionColumnNullable() {
@@ -1212,6 +1245,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
+        tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
@@ -1243,6 +1277,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 
         tResult.setSkipDeletePredicate(skipDeletePredicate);
+
+        tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
 
         return tResult;
     }

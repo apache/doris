@@ -392,6 +392,7 @@
                                 "sql-manual/sql-functions/string-functions/elt",
                                 "sql-manual/sql-functions/string-functions/instr",
                                 "sql-manual/sql-functions/string-functions/locate",
+                                "sql-manual/sql-functions/string-functions/field",
                                 "sql-manual/sql-functions/string-functions/find_in_set",
                                 "sql-manual/sql-functions/string-functions/replace",
                                 "sql-manual/sql-functions/string-functions/left",
@@ -403,6 +404,9 @@
                                 "sql-manual/sql-functions/string-functions/parse_url",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
+                                "sql-manual/sql-functions/string-functions/space",
+                                "sql-manual/sql-functions/string-functions/sleep",
+                                "sql-manual/sql-functions/string-functions/esquery",
                                 "sql-manual/sql-functions/string-functions/mask/mask",
                                 "sql-manual/sql-functions/string-functions/mask/mask_first_n",
                                 "sql-manual/sql-functions/string-functions/mask/mask_last_n",
@@ -450,6 +454,9 @@
                                 "sql-manual/sql-functions/aggregate-functions/max_by",
                                 "sql-manual/sql-functions/aggregate-functions/bitmap_union",
                                 "sql-manual/sql-functions/aggregate-functions/group_bitmap_xor",
+                                "sql-manual/sql-functions/aggregate-functions/group_bit_and",
+                                "sql-manual/sql-functions/aggregate-functions/group_bit_or",
+                                "sql-manual/sql-functions/aggregate-functions/group_bit_xor",
                                 "sql-manual/sql-functions/aggregate-functions/percentile_approx",
                                 "sql-manual/sql-functions/aggregate-functions/stddev",
                                 "sql-manual/sql-functions/aggregate-functions/group_concat",
@@ -462,7 +469,9 @@
                                 "sql-manual/sql-functions/aggregate-functions/variance",
                                 "sql-manual/sql-functions/aggregate-functions/retention",
                                 "sql-manual/sql-functions/aggregate-functions/sequence_match",
-                                "sql-manual/sql-functions/aggregate-functions/sequence_count"
+                                "sql-manual/sql-functions/aggregate-functions/sequence_count",
+                                "sql-manual/sql-functions/aggregate-functions/grouping",
+                                "sql-manual/sql-functions/aggregate-functions/grouping_id"
                             ]
                         },
                         {

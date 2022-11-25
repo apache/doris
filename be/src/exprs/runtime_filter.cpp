@@ -42,6 +42,7 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 // PrimitiveType->TExprNodeType
@@ -431,23 +432,25 @@ public:
         _max_in_num = params->max_in_num;
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            _hybrid_set.reset(create_set(_column_return_type, _state->enable_vectorized_exec()));
+            _context.hybrid_set.reset(
+                    create_set(_column_return_type, _state->enable_vectorized_exec()));
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
-            _minmax_func.reset(create_minmax_filter(_column_return_type));
+            _context.minmax_func.reset(create_minmax_filter(_column_return_type));
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
             _is_bloomfilter = true;
-            _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
-            _bloomfilter_func->set_length(params->bloom_filter_size);
+            _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
+            _context.bloom_filter_func->set_length(params->bloom_filter_size);
             return Status::OK();
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-            _hybrid_set.reset(create_set(_column_return_type, _state->enable_vectorized_exec()));
-            _bloomfilter_func.reset(create_bloom_filter(_column_return_type));
-            _bloomfilter_func->set_length(params->bloom_filter_size);
+            _context.hybrid_set.reset(
+                    create_set(_column_return_type, _state->enable_vectorized_exec()));
+            _context.bloom_filter_func.reset(create_bloom_filter(_column_return_type));
+            _context.bloom_filter_func->set_length(params->bloom_filter_size);
             return Status::OK();
         }
         default:
@@ -461,14 +464,15 @@ public:
                 << "Can not change to bloom filter because of runtime filter type is "
                 << to_string(_filter_type);
         _is_bloomfilter = true;
-        insert_to_bloom_filter(_bloomfilter_func.get());
+        insert_to_bloom_filter(_context.bloom_filter_func.get());
         // release in filter
-        _hybrid_set.reset(create_set(_column_return_type, _state->enable_vectorized_exec()));
+        _context.hybrid_set.reset(
+                create_set(_column_return_type, _state->enable_vectorized_exec()));
     }
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
-        if (_hybrid_set->size() > 0) {
-            auto it = _hybrid_set->begin();
+        if (_context.hybrid_set->size() > 0) {
+            auto it = _context.hybrid_set->begin();
 
             if (_use_batch) {
                 while (it->has_next()) {
@@ -484,7 +488,7 @@ public:
         }
     }
 
-    BloomFilterFuncBase* get_bloomfilter() const { return _bloomfilter_func.get(); }
+    BloomFilterFuncBase* get_bloomfilter() const { return _context.bloom_filter_func.get(); }
 
     void insert(const void* data) {
         switch (_filter_type) {
@@ -492,22 +496,22 @@ public:
             if (_is_ignored_in_filter) {
                 break;
             }
-            _hybrid_set->insert(data);
+            _context.hybrid_set->insert(data);
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
-            _minmax_func->insert(data);
+            _context.minmax_func->insert(data);
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _bloomfilter_func->insert(data);
+            _context.bloom_filter_func->insert(data);
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
-                _bloomfilter_func->insert(data);
+                _context.bloom_filter_func->insert(data);
             } else {
-                _hybrid_set->insert(data);
+                _context.hybrid_set->insert(data);
             }
             break;
         }
@@ -523,22 +527,22 @@ public:
             if (_is_ignored_in_filter) {
                 break;
             }
-            _hybrid_set->insert_fixed_len(data, offsets, number);
+            _context.hybrid_set->insert_fixed_len(data, offsets, number);
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
-            _minmax_func->insert_fixed_len(data, offsets, number);
+            _context.minmax_func->insert_fixed_len(data, offsets, number);
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _bloomfilter_func->insert_fixed_len(data, offsets, number);
+            _context.bloom_filter_func->insert_fixed_len(data, offsets, number);
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
-                _bloomfilter_func->insert_fixed_len(data, offsets, number);
+                _context.bloom_filter_func->insert_fixed_len(data, offsets, number);
             } else {
-                _hybrid_set->insert_fixed_len(data, offsets, number);
+                _context.hybrid_set->insert_fixed_len(data, offsets, number);
             }
             break;
         }
@@ -618,18 +622,18 @@ public:
                 _is_ignored_in_filter = true;
                 _ignored_in_filter_msg = wrapper->_ignored_in_filter_msg;
                 // release in filter
-                _hybrid_set.reset(
+                _context.hybrid_set.reset(
                         create_set(_column_return_type, _state->enable_vectorized_exec()));
                 break;
             }
             // try insert set
-            _hybrid_set->insert(wrapper->_hybrid_set.get());
-            if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
+            _context.hybrid_set->insert(wrapper->_context.hybrid_set.get());
+            if (_max_in_num >= 0 && _context.hybrid_set->size() >= _max_in_num) {
 #ifdef VLOG_DEBUG_IS_ON
                 std::stringstream msg;
                 msg << "fragment instance " << _fragment_instance_id.to_string()
                     << " ignore merge runtime filter(in filter id " << _filter_id
-                    << ") because: in_num(" << _hybrid_set->size() << ") >= max_in_num("
+                    << ") because: in_num(" << _context.hybrid_set->size() << ") >= max_in_num("
                     << _max_in_num << ")";
                 _ignored_in_filter_msg = _pool->add(new std::string(msg.str()));
 #else
@@ -638,17 +642,17 @@ public:
                 _is_ignored_in_filter = true;
 
                 // release in filter
-                _hybrid_set.reset(
+                _context.hybrid_set.reset(
                         create_set(_column_return_type, _state->enable_vectorized_exec()));
             }
             break;
         }
         case RuntimeFilterType::MINMAX_FILTER: {
-            _minmax_func->merge(wrapper->_minmax_func.get(), _pool);
+            _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool);
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            _bloomfilter_func->merge(wrapper->_bloomfilter_func.get());
+            _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
@@ -661,11 +665,11 @@ public:
                             << " can not ignore merge runtime filter(in filter id "
                             << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
                             << *(wrapper->get_ignored_in_filter_msg());
-                    _hybrid_set->insert(wrapper->_hybrid_set.get());
-                    if (_max_in_num >= 0 && _hybrid_set->size() >= _max_in_num) {
+                    _context.hybrid_set->insert(wrapper->_context.hybrid_set.get());
+                    if (_max_in_num >= 0 && _context.hybrid_set->size() >= _max_in_num) {
                         VLOG_DEBUG << "fragment instance " << _fragment_instance_id.to_string()
                                    << " change runtime filter to bloom filter(id=" << _filter_id
-                                   << ") because: in_num(" << _hybrid_set->size()
+                                   << ") because: in_num(" << _context.hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
                         change_to_bloom_filter();
                     }
@@ -675,7 +679,7 @@ public:
                                << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
                     change_to_bloom_filter();
-                    _bloomfilter_func->merge(wrapper->_bloomfilter_func.get());
+                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
                 }
             } else {
                 if (wrapper->_filter_type ==
@@ -685,10 +689,10 @@ public:
                             << " can not ignore merge runtime filter(in filter id "
                             << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
                             << *(wrapper->get_ignored_in_filter_msg());
-                    wrapper->insert_to_bloom_filter(_bloomfilter_func.get());
+                    wrapper->insert_to_bloom_filter(_context.bloom_filter_func.get());
                     // bloom filter merge bloom filter
                 } else {
-                    _bloomfilter_func->merge(wrapper->_bloomfilter_func.get());
+                    _context.bloom_filter_func->merge(wrapper->_context.bloom_filter_func.get());
                 }
             }
             break;
@@ -709,7 +713,7 @@ public:
             _ignored_in_filter_msg = _pool->add(new std::string(in_filter->ignored_msg()));
             return Status::OK();
         }
-        _hybrid_set.reset(create_set(type, _state->enable_vectorized_exec()));
+        _context.hybrid_set.reset(create_set(type, _state->enable_vectorized_exec()));
         switch (type) {
         case TYPE_BOOLEAN: {
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column,
@@ -880,40 +884,40 @@ public:
         _is_bloomfilter = true;
         // we won't use this class to insert or find any data
         // so any type is ok
-        _bloomfilter_func.reset(create_bloom_filter(PrimitiveType::TYPE_INT));
-        return _bloomfilter_func->assign(data, bloom_filter->filter_length());
+        _context.bloom_filter_func.reset(create_bloom_filter(PrimitiveType::TYPE_INT));
+        return _context.bloom_filter_func->assign(data, bloom_filter->filter_length());
     }
 
     // used by shuffle runtime filter
     // assign this filter by protobuf
     Status assign(const PMinMaxFilter* minmax_filter) {
         PrimitiveType type = to_primitive_type(minmax_filter->column_type());
-        _minmax_func.reset(create_minmax_filter(type));
+        _context.minmax_func.reset(create_minmax_filter(type));
         switch (type) {
         case TYPE_BOOLEAN: {
             bool min_val = minmax_filter->min_val().boolval();
             bool max_val = minmax_filter->max_val().boolval();
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_TINYINT: {
             int8_t min_val = static_cast<int8_t>(minmax_filter->min_val().intval());
             int8_t max_val = static_cast<int8_t>(minmax_filter->max_val().intval());
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_SMALLINT: {
             int16_t min_val = static_cast<int16_t>(minmax_filter->min_val().intval());
             int16_t max_val = static_cast<int16_t>(minmax_filter->max_val().intval());
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_INT: {
             int32_t min_val = minmax_filter->min_val().intval();
             int32_t max_val = minmax_filter->max_val().intval();
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_BIGINT: {
             int64_t min_val = minmax_filter->min_val().longval();
             int64_t max_val = minmax_filter->max_val().longval();
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_LARGEINT: {
             auto min_string_val = minmax_filter->min_val().stringval();
@@ -925,27 +929,27 @@ public:
             int128_t max_val = StringParser::string_to_int<int128_t>(
                     max_string_val.c_str(), max_string_val.length(), &result);
             DCHECK(result == StringParser::PARSE_SUCCESS);
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_FLOAT: {
             float min_val = static_cast<float>(minmax_filter->min_val().doubleval());
             float max_val = static_cast<float>(minmax_filter->max_val().doubleval());
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DOUBLE: {
             double min_val = static_cast<double>(minmax_filter->min_val().doubleval());
             double max_val = static_cast<double>(minmax_filter->max_val().doubleval());
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DATEV2: {
             int32_t min_val = minmax_filter->min_val().intval();
             int32_t max_val = minmax_filter->max_val().intval();
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DATETIMEV2: {
             int64_t min_val = minmax_filter->min_val().longval();
             int64_t max_val = minmax_filter->max_val().longval();
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DATETIME:
         case TYPE_DATE: {
@@ -955,24 +959,24 @@ public:
             DateTimeValue max_val;
             min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
             max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DECIMALV2: {
             auto& min_val_ref = minmax_filter->min_val().stringval();
             auto& max_val_ref = minmax_filter->max_val().stringval();
             DecimalV2Value min_val(min_val_ref);
             DecimalV2Value max_val(max_val_ref);
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DECIMAL32: {
             int32_t min_val = minmax_filter->min_val().intval();
             int32_t max_val = minmax_filter->max_val().intval();
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DECIMAL64: {
             int64_t min_val = minmax_filter->min_val().longval();
             int64_t max_val = minmax_filter->max_val().longval();
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DECIMAL128I: {
             auto min_string_val = minmax_filter->min_val().stringval();
@@ -984,7 +988,7 @@ public:
             int128_t max_val = StringParser::string_to_int<int128_t>(
                     max_string_val.c_str(), max_string_val.length(), &result);
             DCHECK(result == StringParser::PARSE_SUCCESS);
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_VARCHAR:
         case TYPE_CHAR:
@@ -995,7 +999,7 @@ public:
             auto max_val_ptr = _pool->add(new std::string(max_val_ref));
             StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
             StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
-            return _minmax_func->assign(&min_val, &max_val);
+            return _context.minmax_func->assign(&min_val, &max_val);
         }
         default:
             DCHECK(false) << "unknown type";
@@ -1005,17 +1009,17 @@ public:
     }
 
     Status get_in_filter_iterator(HybridSetBase::IteratorBase** it) {
-        *it = _hybrid_set->begin();
+        *it = _context.hybrid_set->begin();
         return Status::OK();
     }
 
     Status get_bloom_filter_desc(char** data, int* filter_length) {
-        return _bloomfilter_func->get_data(data, filter_length);
+        return _context.bloom_filter_func->get_data(data, filter_length);
     }
 
     Status get_minmax_filter_desc(void** min_data, void** max_data) {
-        *min_data = _minmax_func->get_min();
-        *max_data = _minmax_func->get_max();
+        *min_data = _context.minmax_func->get_min();
+        *max_data = _context.minmax_func->get_max();
         return Status::OK();
     }
 
@@ -1027,13 +1031,13 @@ public:
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_STRING: {
-                StringValue* min_value = static_cast<StringValue*>(_minmax_func->get_min());
-                StringValue* max_value = static_cast<StringValue*>(_minmax_func->get_max());
+                StringValue* min_value = static_cast<StringValue*>(_context.minmax_func->get_min());
+                StringValue* max_value = static_cast<StringValue*>(_context.minmax_func->get_max());
                 auto min_val_ptr = _pool->add(new std::string(min_value->ptr));
                 auto max_val_ptr = _pool->add(new std::string(max_value->ptr));
                 StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
                 StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
-                _minmax_func->assign(&min_val, &max_val);
+                _context.minmax_func->assign(&min_val, &max_val);
             }
             default:
                 break;
@@ -1052,11 +1056,11 @@ public:
                                           PColumnValue&, ObjectPool*)) {
         for (int i = 0; i < filter->values_size(); ++i) {
             PColumnValue column = filter->values(i);
-            assign_func(_hybrid_set, column, _pool);
+            assign_func(_context.hybrid_set, column, _pool);
         }
     }
 
-    size_t get_in_filter_size() const { return _hybrid_set->size(); }
+    size_t get_in_filter_size() const { return _context.hybrid_set->size(); }
 
     friend class IRuntimeFilter;
 
@@ -1068,9 +1072,8 @@ private:
     PrimitiveType _column_return_type; // column type
     RuntimeFilterType _filter_type;
     int32_t _max_in_num = -1;
-    std::shared_ptr<MinMaxFuncBase> _minmax_func;
-    std::shared_ptr<HybridSetBase> _hybrid_set;
-    std::shared_ptr<BloomFilterFuncBase> _bloomfilter_func;
+
+    vectorized::SharedRuntimeFilterContext _context;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
@@ -1090,12 +1093,12 @@ Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRunt
     return (*res)->init_with_desc(desc, query_options, fragment_instance_id, node_id);
 }
 
-Status IRuntimeFilter::apply_from_other(IRuntimeFilter* other) {
-    _wrapper->_hybrid_set = other->_wrapper->_hybrid_set;
-    _wrapper->_bloomfilter_func = other->_wrapper->_bloomfilter_func;
-    _wrapper->_minmax_func = other->_wrapper->_minmax_func;
-    _wrapper->_filter_type = other->_wrapper->_filter_type;
-    _runtime_filter_type = other->_runtime_filter_type;
+void IRuntimeFilter::copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context) {
+    context = _wrapper->_context;
+}
+
+Status IRuntimeFilter::copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context) {
+    _wrapper->_context = context;
     return Status::OK();
 }
 
@@ -1736,7 +1739,7 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
             node.__isset.vector_opcode = true;
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
             auto in_pred = _pool->add(new InPredicate(node));
-            RETURN_IF_ERROR(in_pred->prepare(state, _hybrid_set.get()));
+            RETURN_IF_ERROR(in_pred->prepare(state, _context.hybrid_set.get()));
             in_pred->add_child(Expr::copy(_pool, prob_expr->root()));
             ExprContext* ctx = _pool->add(new ExprContext(in_pred));
             container->push_back(ctx);
@@ -1748,7 +1751,8 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
         Expr* max_literal = nullptr;
         auto max_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::LE);
         RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
-                                              _minmax_func->get_max(), (void**)&max_literal));
+                                              _context.minmax_func->get_max(),
+                                              (void**)&max_literal));
         max_pred->add_child(Expr::copy(_pool, prob_expr->root()));
         max_pred->add_child(max_literal);
         container->push_back(_pool->add(new ExprContext(max_pred)));
@@ -1756,7 +1760,8 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
         Expr* min_literal = nullptr;
         auto min_pred = create_bin_predicate(_pool, _column_return_type, TExprOpcode::GE);
         RETURN_IF_ERROR(create_literal<false>(_pool, prob_expr->root()->type(),
-                                              _minmax_func->get_min(), (void**)&min_literal));
+                                              _context.minmax_func->get_min(),
+                                              (void**)&min_literal));
         min_pred->add_child(Expr::copy(_pool, prob_expr->root()));
         min_pred->add_child(min_literal);
         container->push_back(_pool->add(new ExprContext(min_pred)));
@@ -1772,7 +1777,7 @@ Status RuntimePredicateWrapper::get_push_context(T* container, RuntimeState* sta
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         auto bloom_pred = _pool->add(new BloomFilterPredicate(node));
-        RETURN_IF_ERROR(bloom_pred->prepare(state, _bloomfilter_func));
+        RETURN_IF_ERROR(bloom_pred->prepare(state, _context.bloom_filter_func));
         bloom_pred->add_child(Expr::copy(_pool, prob_expr->root()));
         ExprContext* ctx = _pool->add(new ExprContext(bloom_pred));
         container->push_back(ctx);
@@ -1811,7 +1816,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
             node.__set_is_nullable(false);
 
             auto in_pred = _pool->add(new vectorized::VDirectInPredicate(node));
-            in_pred->set_filter(_hybrid_set);
+            in_pred->set_filter(_context.hybrid_set);
             auto cloned_vexpr = vprob_expr->root()->clone(_pool);
             in_pred->add_child(cloned_vexpr);
             auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, in_pred));
@@ -1827,7 +1832,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
                                               &max_pred, &max_pred_node));
         doris::vectorized::VExpr* max_literal = nullptr;
         RETURN_IF_ERROR(create_literal<true>(_pool, vprob_expr->root()->type(),
-                                             _minmax_func->get_max(), (void**)&max_literal));
+                                             _context.minmax_func->get_max(),
+                                             (void**)&max_literal));
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         max_pred->add_child(cloned_vexpr);
         max_pred->add_child(max_literal);
@@ -1841,7 +1847,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
                                               &min_pred, &min_pred_node));
         doris::vectorized::VExpr* min_literal = nullptr;
         RETURN_IF_ERROR(create_literal<true>(_pool, vprob_expr->root()->type(),
-                                             _minmax_func->get_min(), (void**)&min_literal));
+                                             _context.minmax_func->get_min(),
+                                             (void**)&min_literal));
         cloned_vexpr = vprob_expr->root()->clone(_pool);
         min_pred->add_child(cloned_vexpr);
         min_pred->add_child(min_literal);
@@ -1861,7 +1868,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
         auto bloom_pred = _pool->add(new vectorized::VBloomPredicate(node));
-        bloom_pred->set_filter(_bloomfilter_func);
+        bloom_pred->set_filter(_context.bloom_filter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bloom_pred->add_child(cloned_vexpr);
         auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bloom_pred));

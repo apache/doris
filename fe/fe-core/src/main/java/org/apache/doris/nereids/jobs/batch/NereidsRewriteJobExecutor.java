@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressi
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
@@ -53,6 +55,11 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
     public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                // MergeProjects depends on this rule
+                .add(bottomUpBatch(ImmutableList.of(new LogicalSubQueryAliasToLogicalProject())))
+                // AdjustApplyFromCorrelateToUnCorrelateJob and ConvertApplyToJoinJob
+                // and SelectMaterializedIndexWithAggregate depends on this rule
+                .add(topDownBatch(ImmutableList.of(new MergeProjects())))
                 /*
                  * Subquery unnesting.
                  * 1. Adjust the plan in correlated logicalApply
@@ -60,7 +67,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                  * 2. Convert logicalApply to a logicalJoin.
                  *  TODO: group these rules to make sure the result plan is what we expected.
                  */
-                .addAll(new AdjustApplyFromCorrelatToUnCorrelatJob(cascadesContext).rulesJob)
+                .addAll(new AdjustApplyFromCorrelateToUnCorrelateJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
                 .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
