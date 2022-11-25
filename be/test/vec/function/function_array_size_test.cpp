@@ -85,11 +85,11 @@ TEST(function_array_size_test, cardinality) {
     }
 }
 
-TEST(function_array_size_test, size) {
+TEST(function_array_size_test, array_size) {
     std::string func_name = "array_size";
     Array empty_arr;
 
-    // size(Array<Int32>)
+    // array_size(Array<Int32>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
 
@@ -99,7 +99,7 @@ TEST(function_array_size_test, size) {
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     }
 
-    // size(Array<String>)
+    // array_size(Array<String>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
 
