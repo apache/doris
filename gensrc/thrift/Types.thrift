@@ -381,8 +381,8 @@ struct TJdbcExecutorCtorParams {
 
   7: optional TJdbcOperation op
 
-  // "file:///home/user/mysql-connector-java-5.1.47.jar"
-  8: optional string jdbc_driver_url
+  // "/home/user/mysql-connector-java-5.1.47.jar"
+  8: optional string driver_path
 }
 
 struct TJavaUdfExecutorCtorParams {
