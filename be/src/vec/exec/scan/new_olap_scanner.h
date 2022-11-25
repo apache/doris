@@ -18,6 +18,7 @@
 #pragma once
 
 #include "exec/olap_utils.h"
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
@@ -32,6 +33,7 @@ struct OlapScanRange;
 namespace vectorized {
 
 class NewOlapScanNode;
+struct FilterPredicates;
 
 class NewOlapScanner : public VScanner {
 public:
@@ -46,9 +48,7 @@ public:
 public:
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
-                   const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>&
-                           bloom_filters,
-                   const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
+                   const FilterPredicates& filter_predicates,
                    const std::vector<FunctionFilter>& function_filters);
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
@@ -60,12 +60,10 @@ protected:
 private:
     void _update_realtime_counters();
 
-    Status _init_tablet_reader_params(
-            const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-            const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>&
-                    bloom_filters,
-            const std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>>& in_filters,
-            const std::vector<FunctionFilter>& function_filters);
+    Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
+                                      const std::vector<TCondition>& filters,
+                                      const FilterPredicates& filter_predicates,
+                                      const std::vector<FunctionFilter>& function_filters);
 
     Status _init_return_columns();
 
