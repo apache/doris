@@ -176,7 +176,19 @@ public class InPredicate extends Predicate {
             ArrayList<Expr> subqueryExprs = subquery.getStatement().getResultExprs();
             Expr compareExpr = children.get(0);
             Expr subqueryExpr = subqueryExprs.get(0);
-            analyzer.getCompatibleType(compareExpr.getType(), compareExpr, subqueryExpr);
+            if (subqueryExpr.getType().isBitmapType()) {
+                if (!compareExpr.getType().isIntegerType()) {
+                    throw new AnalysisException(
+                            String.format("Incompatible return types '%s' and '%s' of exprs '%s' and '%s'.",
+                                    compareExpr.getType().toSql(), subqueryExpr.getType().toSql(), compareExpr.toSql(),
+                                    subqueryExpr.toSql()));
+                }
+                if (!compareExpr.getType().isBigIntType()) {
+                    children.set(0, compareExpr.castTo(Type.BIGINT));
+                }
+            } else {
+                analyzer.getCompatibleType(compareExpr.getType(), compareExpr, subqueryExpr);
+            }
         } else {
             analyzer.castAllToCompatibleType(children);
             vectorizedAnalyze(analyzer);

@@ -20,6 +20,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/binary_predicate.h"
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/expr.h"
@@ -37,6 +38,7 @@
 #include "util/runtime_profile.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
+#include "vec/columns/column_complex.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
@@ -453,6 +455,11 @@ public:
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             return Status::OK();
         }
+        case RuntimeFilterType::BITMAP_FILTER: {
+            _context._bitmap_filter_func.reset(create_bitmap_filter(_column_return_type));
+            _context._bitmap_filter_func->set_not_in(params->bitmap_filter_not_in);
+            return Status::OK();
+        }
         default:
             return Status::InvalidArgument("Unknown Filter type");
         }
@@ -515,6 +522,10 @@ public:
             }
             break;
         }
+        case RuntimeFilterType::BITMAP_FILTER: {
+            _context._bitmap_filter_func->insert(data);
+            break;
+        }
         default:
             DCHECK(false);
             break;
@@ -557,7 +568,6 @@ public:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
-        case TYPE_OBJECT:
         case TYPE_STRING: {
             // StringRef->StringValue
             StringValue data = StringValue(const_cast<char*>(value.data), value.size);
@@ -572,13 +582,26 @@ public:
     }
 
     void insert_batch(const vectorized::ColumnPtr column, const std::vector<int>& rows) {
-        if (IRuntimeFilter::enable_use_batch(_state->be_exec_version(), _column_return_type)) {
+        if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
+            bitmap_filter_insert_batch(column, rows);
+        } else if (IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
+                                                    _column_return_type)) {
             insert_fixed_len(column->get_raw_data().data, rows.data(), rows.size());
         } else {
             for (int index : rows) {
                 insert(column->get_data_at(index));
             }
         }
+    }
+
+    void bitmap_filter_insert_batch(const vectorized::ColumnPtr column,
+                                    const std::vector<int>& rows) {
+        std::vector<const BitmapValue*> bitmaps;
+        auto* col = assert_cast<const vectorized::ColumnComplexType<BitmapValue>*>(column.get());
+        for (int index : rows) {
+            bitmaps.push_back(&(col->get_data()[index]));
+        }
+        _context._bitmap_filter_func->insert_many(bitmaps);
     }
 
     RuntimeFilterType get_real_type() {
@@ -1252,6 +1275,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         _runtime_filter_type = RuntimeFilterType::IN_FILTER;
     } else if (desc->type == TRuntimeFilterType::IN_OR_BLOOM) {
         _runtime_filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER;
+    } else if (desc->type == TRuntimeFilterType::BITMAP) {
+        _runtime_filter_type = RuntimeFilterType::BITMAP_FILTER;
     } else {
         return Status::InvalidArgument("unknown filter type");
     }
@@ -1273,6 +1298,24 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.max_in_num = options->runtime_filter_max_in_num;
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
+    }
+    if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
+        if (!build_ctx->root()->type().is_bitmap_type()) {
+            return Status::InvalidArgument("Unexpected src expr type:{} for bitmap filter.",
+                                           build_ctx->root()->type().debug_string());
+        }
+        if (!desc->__isset.bitmap_target_expr) {
+            return Status::InvalidArgument("Unknown bitmap filter target expr.");
+        }
+        doris::vectorized::VExprContext* bitmap_target_ctx = nullptr;
+        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, desc->bitmap_target_expr,
+                                                                   &bitmap_target_ctx));
+        auto* target_expr = doris::vectorized::VExpr::expr_without_cast(bitmap_target_ctx->root());
+        params.column_return_type = const_cast<doris::vectorized::VExpr*>(target_expr)->type().type;
+
+        if (desc->__isset.bitmap_filter_not_in) {
+            params.bitmap_filter_not_in = desc->bitmap_filter_not_in;
+        }
     }
 
     if (node_id >= 0) {
@@ -1798,7 +1841,8 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
     DCHECK(_pool != nullptr);
     DCHECK(vprob_expr->root()->type().type == _column_return_type ||
            (is_string_type(vprob_expr->root()->type().type) &&
-            is_string_type(_column_return_type)));
+            is_string_type(_column_return_type)) ||
+           _filter_type == RuntimeFilterType::BITMAP_FILTER);
 
     auto real_filter_type = get_real_type();
     switch (real_filter_type) {
@@ -1872,6 +1916,25 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bloom_pred->add_child(cloned_vexpr);
         auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bloom_pred));
+        container->push_back(wrapper);
+        break;
+    }
+    case RuntimeFilterType::BITMAP_FILTER: {
+        // create a bitmap filter
+        TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_BOOLEAN);
+        type_desc.__set_is_nullable(false);
+        TExprNode node;
+        node.__set_type(type_desc);
+        node.__set_node_type(TExprNodeType::BITMAP_PRED);
+        node.__set_opcode(TExprOpcode::RT_FILTER);
+        node.__isset.vector_opcode = true;
+        node.__set_vector_opcode(to_in_opcode(_column_return_type));
+        node.__set_is_nullable(false);
+        auto bitmap_pred = _pool->add(new doris::vectorized::VBitmapPredicate(node));
+        bitmap_pred->set_filter(_context._bitmap_filter_func);
+        auto cloned_vexpr = vprob_expr->root()->clone(_pool);
+        bitmap_pred->add_child(cloned_vexpr);
+        auto wrapper = _pool->add(new doris::vectorized::VRuntimeFilterWrapper(node, bitmap_pred));
         container->push_back(wrapper);
         break;
     }
