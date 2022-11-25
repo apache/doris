@@ -31,6 +31,14 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
+import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
+import org.apache.doris.nereids.metrics.event.EnforcerEvent;
+import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
+import org.apache.doris.nereids.metrics.event.StatsStateEvent;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -46,6 +54,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,6 +69,18 @@ import java.util.stream.Collectors;
 public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
+    static {
+        EventChannel.getDefaultChannel()
+                .addEnhancers(ImmutableList.of(new AddCounterEventEnhancer()))
+                .addConsumers(ImmutableList.of(
+                        new LogConsumer(CounterEvent.class, LOG),
+                        new LogConsumer(TransformEvent.class, LOG),
+                        new LogConsumer(EnforcerEvent.class, LOG),
+                        new LogConsumer(GroupMergeEvent.class, LOG),
+                        new LogConsumer(CostStateUpdateEvent.class, LOG),
+                        new LogConsumer(StatsStateEvent.class, LOG)));
+    }
+
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private List<ScanNode> scanNodeList = null;
@@ -72,7 +93,6 @@ public class NereidsPlanner extends Planner {
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
-        EventChannel.getDefaultChannel().setConnectContext(statementContext.getConnectContext());
     }
 
     @Override

@@ -15,23 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.metrics;
+package org.apache.doris.nereids.metrics.enhancer;
+
+import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.metrics.EventEnhancer;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
 
 /**
- * consumer
+ * add counter event enhancer
  */
-public abstract class EventConsumer {
-    private final Class<? extends Event> targetClass;
-
-    protected EventConsumer(Class<? extends Event> targetClass) {
-        this.targetClass = targetClass;
+public class AddCounterEventEnhancer extends EventEnhancer {
+    public AddCounterEventEnhancer() {
+        super(CounterEvent.class);
     }
 
-    public abstract void consume(Event event);
-
-    public Class<? extends Event> getTargetClass() {
-        return targetClass;
+    @Override
+    public void enhance(Event e) {
+        CounterEvent.updateCounter(((CounterEvent) e).getCounterType());
     }
-
-    public void close() {}
 }

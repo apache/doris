@@ -37,8 +37,4 @@ public class PrintConsumer extends EventConsumer {
     public void consume(Event event) {
         printStream.println(event.toString());
     }
-
-    @Override
-    public void close() {
-    }
 }

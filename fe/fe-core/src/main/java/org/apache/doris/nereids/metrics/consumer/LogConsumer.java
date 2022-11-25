@@ -15,23 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.metrics;
+package org.apache.doris.nereids.metrics.consumer;
+
+import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.metrics.EventConsumer;
+
+import org.apache.logging.log4j.Logger;
 
 /**
- * consumer
+ * log consumer
  */
-public abstract class EventConsumer {
-    private final Class<? extends Event> targetClass;
+public class LogConsumer extends EventConsumer {
+    private final Logger logger;
 
-    protected EventConsumer(Class<? extends Event> targetClass) {
-        this.targetClass = targetClass;
+    public LogConsumer(Class<? extends Event> targetClass, Logger logger) {
+        super(targetClass);
+        this.logger = logger;
     }
 
-    public abstract void consume(Event event);
-
-    public Class<? extends Event> getTargetClass() {
-        return targetClass;
+    @Override
+    public void consume(Event e) {
+        logger.info(e.toString());
     }
-
-    public void close() {}
 }

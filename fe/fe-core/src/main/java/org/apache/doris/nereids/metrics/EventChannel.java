@@ -17,19 +17,13 @@
 
 package org.apache.doris.nereids.metrics;
 
-import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,7 +34,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class EventChannel {
     private static final Logger LOG = LogManager.getLogger(EventChannel.class);
     private static final EventChannel DEFAULT_CHANNEL = new EventChannel();
-    private Set<Class<? extends Event>> eventSwitch = new HashSet<>();
     private final Map<Class<? extends Event>, List<EventConsumer>> consumers = Maps.newHashMap();
     private final Map<Class<? extends Event>, EventEnhancer> enhancers = Maps.newHashMap();
     private final BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
@@ -62,16 +55,6 @@ public class EventChannel {
         return this;
     }
 
-    public synchronized EventChannel setConnectContext(ConnectContext context) {
-        Preconditions.checkArgument(Objects.nonNull(context));
-        eventSwitch = context.getSessionVariable().getParsedNereidsEventMode();
-        return this;
-    }
-
-    public Set<Class<? extends Event>> getEventSwitch() {
-        return eventSwitch;
-    }
-
     public static EventChannel getDefaultChannel() {
         return DEFAULT_CHANNEL;
     }
@@ -89,7 +72,7 @@ public class EventChannel {
                         if (enhancers.containsKey(e.getClass())) {
                             enhancers.get(e.getClass()).enhance(e);
                         }
-                        consumer.consume(e.clone());
+                        consumer.consume(e);
                     }
                 } catch (Exception exception) {
                     LOG.warn("encounter exception when push event: ", exception);
