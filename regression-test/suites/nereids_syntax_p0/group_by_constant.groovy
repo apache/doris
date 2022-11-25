@@ -27,6 +27,6 @@ suite("group by constant") {
     sql "SET enable_fallback_to_original_planner=false"
 
     qt_select_1 """ 
-        select 'str', sum(lo_tax), lo_orderkey, max(lo_discount), 1 from lineorder, customer group by 3, 5, 'str', 1 order by lo_orderkey, c_custkey;
+        select 'str', sum(lo_tax), lo_orderkey, max(lo_discount), 1 from lineorder, customer group by 3, 5, 'str', 1, lo_orderkey order by lo_orderkey, c_custkey;
     """
 }
