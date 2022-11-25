@@ -268,9 +268,9 @@ Status NodeChannel::open_wait() {
                         }
                     }
                     _add_batches_finished = true;
-                    LOG(INFO) << "node channel " << channel_info()
-                              << "add_batches_finished and handled "
-                              << result.tablet_errors().size() << " tablets errors";
+                    VLOG_PROGRESS << "node channel " << channel_info()
+                                  << "add_batches_finished and handled "
+                                  << result.tablet_errors().size() << " tablets errors";
                 }
             } else {
                 _cancel_with_msg(
