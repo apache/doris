@@ -38,19 +38,19 @@ import java.util.Optional;
  */
 public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
-    private final List<LogicalSubQueryAlias> aliasQueries;
+    private final List<LogicalSubQueryAlias<Plan>> aliasQueries;
 
-    public LogicalCTE(List<LogicalSubQueryAlias> aliasQueries, CHILD_TYPE child) {
+    public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child) {
         this(aliasQueries, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalCTE(List<LogicalSubQueryAlias> aliasQueries, Optional<GroupExpression> groupExpression,
+    public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
         this.aliasQueries = aliasQueries;
     }
 
-    public List<LogicalSubQueryAlias> getAliasQueries() {
+    public List<LogicalSubQueryAlias<Plan>> getAliasQueries() {
         return aliasQueries;
     }
 
@@ -105,12 +105,12 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalCTE<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public LogicalCTE<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child());
     }
 }

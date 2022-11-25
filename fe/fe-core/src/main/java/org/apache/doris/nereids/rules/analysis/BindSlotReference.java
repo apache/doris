@@ -556,7 +556,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
             CascadesContext subqueryContext = new Memo(expr.getQueryPlan())
-                    .newCascadesContext((cascadesContext.getStatementContext()));
+                    .newCascadesContext((cascadesContext.getStatementContext()), cascadesContext.getCteContext());
             Scope subqueryScope = genScopeWithSubquery(expr);
             subqueryContext
                     .newAnalyzer(Optional.of(subqueryScope))
