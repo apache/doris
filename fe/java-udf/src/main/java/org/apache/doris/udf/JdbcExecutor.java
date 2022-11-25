@@ -29,6 +29,7 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.net.MalformedURLException;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.DriverManager;
@@ -52,6 +53,7 @@ public class JdbcExecutor {
     private ResultSetMetaData resultSetMetaData = null;
     // Use HikariDataSource to help us manage the JDBC connections.
     private HikariDataSource dataSource = null;
+    private ClassLoader classLoader = null;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -61,7 +63,7 @@ public class JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
-        init(request.statement, request.batch_size, request.jdbc_driver_class, request.jdbc_url, request.jdbc_user,
+        init(request.jdbc_driver_url, request.statement, request.batch_size, request.jdbc_driver_class, request.jdbc_url, request.jdbc_user,
                 request.jdbc_password, request.op);
     }
 
@@ -198,9 +200,13 @@ public class JdbcExecutor {
         return time;
     }
 
-    private void init(String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
+    private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
         try {
+            ClassLoader parent = getClass().getClassLoader();
+            classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+            Class.forName(driverClass, true, classLoader);
+            Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(driverClass);
             config.setJdbcUrl(jdbcUrl);
@@ -218,6 +224,10 @@ public class JdbcExecutor {
             } else {
                 stmt = conn.createStatement();
             }
+        } catch (MalformedURLException e) {
+            throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
+        } catch (ClassNotFoundException e) {
+            throw new UdfRuntimeException("Loading JDBC class error ClassNotFoundException about " + driverClass, e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         }

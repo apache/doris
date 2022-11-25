@@ -214,7 +214,7 @@ public class UdfUtils {
     }
 
     public static URLClassLoader getClassLoader(String jarPath, ClassLoader parent) throws MalformedURLException {
-        URL url = new File(jarPath).toURI().toURL();
+        URL url = new URL(jarPath);
         return URLClassLoader.newInstance(new URL[] {url}, parent);
     }
 
