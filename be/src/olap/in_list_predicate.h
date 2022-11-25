@@ -27,6 +27,7 @@
 #include "olap/column_predicate.h"
 #include "uint24.h"
 #include "util/murmur_hash3.h"
+#include "runtime/primitive_type.h"
 
 namespace std {
 // for string value
@@ -79,7 +80,7 @@ class VectorizedRowBatch;
 // todo(wb) support evaluate_and,evaluate_or
 
 #define IN_LIST_PRED_CLASS_DEFINE(CLASS, PT)                                                      \
-    template <class T>                                                                            \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                              \
     class CLASS : public ColumnPredicate {                                                        \
     public:                                                                                       \
         CLASS(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool is_opposite = false);    \
@@ -94,8 +95,18 @@ class VectorizedRowBatch;
                                 const std::vector<BitmapIndexIterator*>& iterators,               \
                                 uint32_t num_rows, roaring::Roaring* bitmap) const override;      \
         void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
-        void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
-        void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
+        void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override; \
+        void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override;  \
+    private:                                                                                      \
+        template <typename LeftT, typename RightT>                                                \
+        bool _operator(const LeftT& lhs, const RightT& rhs) const;                                \
+        template <bool is_and>                                                                    \
+        void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size, \
+                           bool* flags) const;                                                    \
+        template <bool is_nullable, bool is_opposite, bool is_and>                                \
+        void _base_evaluate_bit(const vectorized::IColumn* column,                                \
+                                const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,    \
+                                const uint16_t* sel, uint16_t size, bool* flags) const;           \
     private:                                                                                      \
         phmap::flat_hash_set<T> _values;                                                          \
     };

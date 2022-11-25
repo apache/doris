@@ -136,7 +136,7 @@ public:
     std::unique_ptr<Schema> _schema;
 };
 
-#define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE)                                       \
+#define TEST_IN_LIST_PREDICATE(PRIMITIVE_TYPE, TYPE, TYPE_NAME, FIELD_TYPE)                                       \
     TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN) {                                             \
         TabletSchema tablet_schema;                                                               \
         SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, false, true, \
@@ -161,7 +161,7 @@ public:
         values.insert(4);                                                                         \
         values.insert(5);                                                                         \
         values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values));                  \
+        ColumnPredicate* pred = new InListPredicate<PRIMITIVE_TYPE, TYPE>(0, std::move(values));                  \
         pred->evaluate(_vectorized_batch);                                                        \
         EXPECT_EQ(_vectorized_batch->size(), 3);                                                  \
         uint16_t* sel = _vectorized_batch->selected();                                            \
@@ -190,13 +190,13 @@ public:
         delete pred;                                                                              \
     }
 
-TEST_IN_LIST_PREDICATE(int8_t, TINYINT, "TINYINT")
-TEST_IN_LIST_PREDICATE(int16_t, SMALLINT, "SMALLINT")
-TEST_IN_LIST_PREDICATE(int32_t, INT, "INT")
-TEST_IN_LIST_PREDICATE(int64_t, BIGINT, "BIGINT")
-TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
+TEST_IN_LIST_PREDICATE(TYPE_TINYINT, int8_t, TINYINT, "TINYINT")
+TEST_IN_LIST_PREDICATE(TYPE_SMALLINT, int16_t, SMALLINT, "SMALLINT")
+TEST_IN_LIST_PREDICATE(TYPE_INT, int32_t, INT, "INT")
+TEST_IN_LIST_PREDICATE(TYPE_BIGINT, int64_t, BIGINT, "BIGINT")
+TEST_IN_LIST_PREDICATE(TYPE_LARGEINT, int128_t, LARGEINT, "LARGEINT")
 
-#define TEST_IN_LIST_PREDICATE_V2(TYPE, TYPE_NAME, FIELD_TYPE)                                    \
+#define TEST_IN_LIST_PREDICATE_V2(PRIMITIVE_TYPE, TYPE, TYPE_NAME, FIELD_TYPE)                                    \
     TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) {                                          \
         TabletSchema tablet_schema;                                                               \
         SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, "REPLACE", 1, false, true, \
@@ -208,7 +208,7 @@ TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
         values.insert(4);                                                                         \
         values.insert(5);                                                                         \
         values.insert(6);                                                                         \
-        ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values));                  \
+        ColumnPredicate* pred = new InListPredicate<PRIMITIVE_TYPE, TYPE>(0, std::move(values));                  \
         uint16_t sel[10];                                                                         \
         for (int i = 0; i < 10; ++i) {                                                            \
             sel[i] = i;                                                                           \
@@ -255,11 +255,11 @@ TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
         delete pred;                                                                              \
     }
 
-TEST_IN_LIST_PREDICATE_V2(int8_t, TINYINT, "TINYINT")
-TEST_IN_LIST_PREDICATE_V2(int16_t, SMALLINT, "SMALLINT")
-TEST_IN_LIST_PREDICATE_V2(int32_t, INT, "INT")
-TEST_IN_LIST_PREDICATE_V2(int64_t, BIGINT, "BIGINT")
-TEST_IN_LIST_PREDICATE_V2(int128_t, LARGEINT, "LARGEINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_TINYINT, int8_t, TINYINT, "TINYINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_SMALLINT, int16_t, SMALLINT, "SMALLINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_INT, int32_t, INT, "INT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_BIGINT, int64_t, BIGINT, "BIGINT")
+TEST_IN_LIST_PREDICATE_V2(TYPE_LARGEINT, int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     TabletSchema tablet_schema;
@@ -273,7 +273,7 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     values.insert(4.1);
     values.insert(5.1);
     values.insert(6.1);
-    ColumnPredicate* pred = new InListPredicate<float>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<TYPE_FLOAT, float>(0, std::move(values));
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -358,7 +358,7 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     values.insert(5.1);
     values.insert(6.1);
 
-    ColumnPredicate* pred = new InListPredicate<double>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<TYPE_DOUBLE, double>(0, std::move(values));
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -447,7 +447,7 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     decimal12_t value3 = {6, 6};
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<decimal12_t>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<TYPE_DECIMALV2, decimal12_t>(0, std::move(values));
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -550,7 +550,7 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     value3.len = 5;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<TYPE_CHAR, StringValue>(0, std::move(values));
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -678,7 +678,7 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     value3.len = 3;
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<StringValue>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<TYPE_STRING, StringValue>(0, std::move(values));
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -793,7 +793,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
 
     uint24_t value3 = datetime::timestamp_from_date("2017-09-11");
     values.insert(value3);
-    ColumnPredicate* pred = new InListPredicate<uint24_t>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<TYPE_DATE, uint24_t>(0, std::move(values));
 
     // for VectorizedBatch no nulls
     InitVectorizedBatch(&tablet_schema, return_columns, size);
@@ -903,7 +903,7 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     uint64_t value3 = datetime::timestamp_from_datetime("2017-09-11 01:01:00");
     values.insert(value3);
 
-    ColumnPredicate* pred = new InListPredicate<uint64_t>(0, std::move(values));
+    ColumnPredicate* pred = new InListPredicate<TYPE_DATETIME, uint64_t>(0, std::move(values));
 
     // for VectorizedBatch no nulls
     InitVectorizedBatch(&tablet_schema, return_columns, size);

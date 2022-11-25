@@ -26,17 +26,17 @@
 
 namespace doris {
 
-#define IN_LIST_PRED_CONSTRUCTOR(CLASS)                                                        \
-    template <class T>                                                                         \
-    CLASS<T>::CLASS(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool opposite)       \
+#define IN_LIST_PRED_CONSTRUCTOR(CLASS)                                                                   \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                                      \
+    CLASS<PRIMITIVE_TYPE, T>::CLASS(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool opposite)  \
             : ColumnPredicate(column_id, opposite), _values(std::move(values)) {}
 
 IN_LIST_PRED_CONSTRUCTOR(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR(NotInListPredicate)
 
 #define IN_LIST_PRED_EVALUATE(CLASS, OP)                                                       \
-    template <class T>                                                                         \
-    void CLASS<T>::evaluate(VectorizedRowBatch* batch) const {                                 \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                           \
+    void CLASS<PRIMITIVE_TYPE, T>::evaluate(VectorizedRowBatch* batch) const {                 \
         uint16_t n = batch->size();                                                            \
         if (n == 0) {                                                                          \
             return;                                                                            \
@@ -88,9 +88,9 @@ IN_LIST_PRED_CONSTRUCTOR(NotInListPredicate)
 IN_LIST_PRED_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 
-#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP)                                     \
-    template <class T>                                                                    \
-    void CLASS<T>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {    \
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP)                                                  \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                                   \
+    void CLASS<PRIMITIVE_TYPE, T>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const { \
         uint16_t new_size = 0;                                                            \
         if (block->is_nullable()) {                                                       \
             for (uint16_t i = 0; i < *size; ++i) {                                        \
@@ -119,9 +119,9 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 
 // todo(zeno) define interface in IColumn to simplify code
-#define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)                                                    \
-    template <class T>                                                                             \
-    void CLASS<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {    \
+#define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)                                                                 \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                                            \
+    void CLASS<PRIMITIVE_TYPE, T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const { \
         uint16_t new_size = 0;                                                                     \
         if (column.is_nullable()) {                                                                \
             auto* nullable_col =                                                                   \
@@ -188,9 +188,157 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 IN_LIST_PRED_COLUMN_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_EVALUATE(NotInListPredicate, ==)
 
-#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                         \
-    template <class T>                                                                           \
-    void CLASS<T>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags)    \
+#define IN_LIST_EVALUATE_OPERATOR(CLASS, PT)                                                  \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                          \
+    template <typename LeftT, typename RightT>                                                \
+    bool CLASS<PRIMITIVE_TYPE, T>::_operator(const LeftT& lhs, const RightT& rhs) const {     \
+        if constexpr (PRIMITIVE_TYPE == TYPE_BOOLEAN) {                                       \
+            DCHECK(_values.size() == 2);                                                      \
+            return PredicateType::PT == PredicateType::IN_LIST;                               \
+        } else if constexpr (PredicateType::PT == PredicateType::IN_LIST) {                   \
+            return lhs != rhs;                                                                \
+        }                                                                                     \
+        return lhs == rhs;                                                                    \
+    }
+
+IN_LIST_EVALUATE_OPERATOR(InListPredicate, IN_LIST)
+IN_LIST_EVALUATE_OPERATOR(NotInListPredicate, NOT_IN_LIST)
+
+#define IN_LIST_BASE_EVALUATE_BIT(CLASS, PT)                                                    \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                            \
+    template <bool is_nullable, bool is_opposite, bool is_and>                                  \
+    void CLASS<PRIMITIVE_TYPE, T>::_base_evaluate_bit(const vectorized::IColumn* column,        \
+                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,      \
+                            const uint16_t* sel, uint16_t size, bool* flags) const {            \
+        if (column->is_column_dictionary()) {                                                   \
+            if constexpr (std::is_same_v<T, StringValue>) {                                     \
+                auto* nested_col_ptr = vectorized::check_and_get_column<                        \
+                        vectorized::ColumnDictionary<vectorized::Int32>>(column);               \
+                auto& data_array = nested_col_ptr->get_data();                                  \
+                auto dict_codes = nested_col_ptr->find_codes(_values);                          \
+                                                                                                \
+                for (uint16_t i = 0; i < size; i++) {                                           \
+                    if (is_and ^ flags[i]) {                                                    \
+                        continue;                                                               \
+                    }                                                                           \
+                                                                                                \
+                    uint16_t idx = sel[i];                                                      \
+                    if constexpr (is_nullable) {                                                \
+                        if ((*null_map)[idx]) {                                                 \
+                            if (is_and ^ is_opposite) {                                         \
+                                flags[i] = !is_and;                                             \
+                            }                                                                   \
+                            continue;                                                           \
+                        }                                                                       \
+                    }                                                                           \
+                                                                                                \
+                    const auto& cell_value = data_array[idx];                                   \
+                    if constexpr (is_opposite != (PredicateType::PT == PredicateType::IN_LIST)) { \
+                        if (is_and ^ (dict_codes.find(cell_value) != dict_codes.end())) {       \
+                            flags[i] = !is_and;                                                 \
+                        }                                                                       \
+                    } else {                                                                    \
+                        if (is_and ^ (dict_codes.find(cell_value) == dict_codes.end())) {       \
+                            flags[i] = !is_and;                                                 \
+                        }                                                                       \
+                    }                                                                           \
+                }                                                                               \
+            } else {                                                                            \
+                LOG(FATAL) << "column_dictionary must use StringValue predicate.";              \
+            }                                                                                   \
+        } else {                                                                                \
+            auto* nested_col_ptr =                                                              \
+                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(       \
+                            column);                                                            \
+            auto& data_array = nested_col_ptr->get_data();                                      \
+                                                                                                \
+            for (uint16_t i = 0; i < size; i++) {                                               \
+                if (is_and ^ flags[i]) {                                                        \
+                    continue;                                                                   \
+                }                                                                               \
+                uint16_t idx = sel[i];                                                          \
+                if constexpr (is_nullable) {                                                    \
+                    if ((*null_map)[idx]) {                                                     \
+                        if (is_and ^ is_opposite) {                                             \
+                            flags[i] = !is_and;                                                 \
+                        }                                                                       \
+                        continue;                                                               \
+                    }                                                                           \
+                }                                                                               \
+                                                                                                \
+                if constexpr (!is_opposite) {                                                   \
+                    if (is_and ^                                                                \
+                        _operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),    \
+                                  _values.end())) {                                             \
+                        flags[i] = !is_and;                                                     \
+                    }                                                                           \
+                } else {                                                                        \
+                    if (is_and ^                                                                \
+                        !_operator(_values.find(reinterpret_cast<const T&>(data_array[idx])),   \
+                                   _values.end())) {                                            \
+                        flags[i] = !is_and;                                                     \
+                    }                                                                           \
+                }                                                                               \
+            }                                                                                   \
+        }                                                                                       \
+    }
+
+IN_LIST_BASE_EVALUATE_BIT(InListPredicate, IN_LIST)
+IN_LIST_BASE_EVALUATE_BIT(NotInListPredicate, NOT_IN_LIST)
+
+#define IN_LIST_EVALUATE_BIT(CLASS)                                                                 \
+template <PrimitiveType PRIMITIVE_TYPE, class T>                                                    \
+template <bool is_and>                                                                              \
+void CLASS<PRIMITIVE_TYPE, T>::_evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size, \
+                   bool* flags) const {                                                             \
+    if (column.is_nullable()) {                                                                     \
+        auto* nullable_col =                                                                        \
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(column);               \
+        auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(                       \
+                                    nullable_col->get_null_map_column())                            \
+                                    .get_data();                                                    \
+        auto& nested_col = nullable_col->get_nested_column();                                       \
+                                                                                                    \
+        if (_opposite) {                                                                            \
+            return _base_evaluate_bit<true, true, is_and>(&nested_col, &null_bitmap, sel, size,     \
+                                                          flags);                                   \
+        } else {                                                                                    \
+            return _base_evaluate_bit<true, false, is_and>(&nested_col, &null_bitmap, sel, size,    \
+                                                           flags);                                  \
+        }                                                                                           \
+    } else {                                                                                        \
+        if (_opposite) {                                                                            \
+            return _base_evaluate_bit<false, true, is_and>(&column, nullptr, sel, size, flags);     \
+        } else {                                                                                    \
+            return _base_evaluate_bit<false, false, is_and>(&column, nullptr, sel, size, flags);    \
+        }                                                                                           \
+    }                                                                                               \
+}
+
+IN_LIST_EVALUATE_BIT(InListPredicate)
+IN_LIST_EVALUATE_BIT(NotInListPredicate)
+
+#define IN_LIST_PRED_COLUMN_EVALUATE_OR(CLASS, OP)                                                                             \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                                                           \
+    void CLASS<PRIMITIVE_TYPE, T>::evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const { \
+        _evaluate_bit<false>(column, sel, size, flags);                                                                        \
+    }
+
+IN_LIST_PRED_COLUMN_EVALUATE_OR(InListPredicate, !=)
+IN_LIST_PRED_COLUMN_EVALUATE_OR(NotInListPredicate, ==)
+
+#define IN_LIST_PRED_COLUMN_EVALUATE_AND(CLASS, OP)                                                                             \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                                                            \
+    void CLASS<PRIMITIVE_TYPE, T>::evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const { \
+        _evaluate_bit<true>(column, sel, size, flags);                                                                          \
+    }
+
+IN_LIST_PRED_COLUMN_EVALUATE_AND(InListPredicate, !=)
+IN_LIST_PRED_COLUMN_EVALUATE_AND(NotInListPredicate, ==)
+
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                                      \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                                          \
+    void CLASS<PRIMITIVE_TYPE, T>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
             const {                                                                              \
         if (block->is_nullable()) {                                                              \
             for (uint16_t i = 0; i < size; ++i) {                                                \
@@ -217,9 +365,9 @@ IN_LIST_PRED_COLUMN_EVALUATE(NotInListPredicate, ==)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(NotInListPredicate, ==)
 
-#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                         \
-    template <class T>                                                                            \
-    void CLASS<T>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags)    \
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                                      \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                                           \
+    void CLASS<PRIMITIVE_TYPE, T>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
             const {                                                                               \
         if (block->is_nullable()) {                                                               \
             for (uint16_t i = 0; i < size; ++i) {                                                 \
@@ -247,8 +395,8 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(NotInListPredicate, ==)
 
 #define IN_LIST_PRED_BITMAP_EVALUATE(CLASS, OP)                                       \
-    template <class T>                                                                \
-    Status CLASS<T>::evaluate(const Schema& schema,                                   \
+    template <PrimitiveType PRIMITIVE_TYPE, class T>                                  \
+    Status CLASS<PRIMITIVE_TYPE, T>::evaluate(const Schema& schema,                   \
                                  const std::vector<BitmapIndexIterator*>& iterators,  \
                                  uint32_t num_rows, roaring::Roaring* result) const { \
         BitmapIndexIterator* iterator = iterators[_column_id];                        \
@@ -283,107 +431,115 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(NotInListPredicate, ==)
 IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, &=)
 IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
-#define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                \
-    template CLASS<int8_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values,       \
-                                  bool opposite);                                                  \
-    template CLASS<int16_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int16_t>&& values,     \
-                                   bool opposite);                                                 \
-    template CLASS<int32_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int32_t>&& values,     \
-                                   bool opposite);                                                 \
-    template CLASS<int64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int64_t>&& values,     \
-                                   bool opposite);                                                 \
-    template CLASS<int128_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int128_t>&& values,   \
-                                    bool opposite);                                                \
-    template CLASS<float>::CLASS(uint32_t column_id, phmap::flat_hash_set<float>&& values,         \
-                                 bool opposite);                                                   \
-    template CLASS<double>::CLASS(uint32_t column_id, phmap::flat_hash_set<double>&& values,       \
-                                  bool opposite);                                                  \
-    template CLASS<decimal12_t>::CLASS(uint32_t column_id,                                         \
-                                       phmap::flat_hash_set<decimal12_t>&& values, bool opposite); \
-    template CLASS<StringValue>::CLASS(uint32_t column_id,                                         \
-                                       phmap::flat_hash_set<StringValue>&& values, bool opposite); \
-    template CLASS<uint24_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint24_t>&& values,   \
-                                    bool opposite);                                                \
-    template CLASS<uint64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint64_t>&& values,   \
+#define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                             \
+    template CLASS<TYPE_TINYINT, int8_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values,      \
+                                  bool opposite);                                                               \
+    template CLASS<TYPE_SMALLINT, int16_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int16_t>&& values,   \
+                                   bool opposite);                                                              \
+    template CLASS<TYPE_INT, int32_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int32_t>&& values,        \
+                                   bool opposite);                                                              \
+    template CLASS<TYPE_BIGINT, int64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int64_t>&& values,     \
+                                   bool opposite);                                                              \
+    template CLASS<TYPE_LARGEINT, int128_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int128_t>&& values, \
+                                    bool opposite);                                                             \
+    template CLASS<TYPE_FLOAT, float>::CLASS(uint32_t column_id, phmap::flat_hash_set<float>&& values,          \
+                                 bool opposite);                                                                \
+    template CLASS<TYPE_DOUBLE, double>::CLASS(uint32_t column_id, phmap::flat_hash_set<double>&& values,       \
+                                  bool opposite);                                                               \
+    template CLASS<TYPE_DECIMALV2, decimal12_t>::CLASS(uint32_t column_id,                                      \
+                                       phmap::flat_hash_set<decimal12_t>&& values, bool opposite);              \
+    template CLASS<TYPE_CHAR, StringValue>::CLASS(uint32_t column_id,                                           \
+                                       phmap::flat_hash_set<StringValue>&& values, bool opposite);              \
+    template CLASS<TYPE_STRING, StringValue>::CLASS(uint32_t column_id,                                         \
+                                       phmap::flat_hash_set<StringValue>&& values, bool opposite);              \
+    template CLASS<TYPE_DATE, uint24_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint24_t>&& values,     \
+                                    bool opposite);                                                             \
+    template CLASS<TYPE_DATETIME, uint64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint64_t>&& values, \
                                     bool opposite);
 
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
 
-#define IN_LIST_PRED_EVALUATE_DECLARATION(CLASS)                                 \
-    template void CLASS<int8_t>::evaluate(VectorizedRowBatch* batch) const;      \
-    template void CLASS<int16_t>::evaluate(VectorizedRowBatch* batch) const;     \
-    template void CLASS<int32_t>::evaluate(VectorizedRowBatch* batch) const;     \
-    template void CLASS<int64_t>::evaluate(VectorizedRowBatch* batch) const;     \
-    template void CLASS<int128_t>::evaluate(VectorizedRowBatch* batch) const;    \
-    template void CLASS<float>::evaluate(VectorizedRowBatch* batch) const;       \
-    template void CLASS<double>::evaluate(VectorizedRowBatch* batch) const;      \
-    template void CLASS<decimal12_t>::evaluate(VectorizedRowBatch* batch) const; \
-    template void CLASS<StringValue>::evaluate(VectorizedRowBatch* batch) const; \
-    template void CLASS<uint24_t>::evaluate(VectorizedRowBatch* batch) const;    \
-    template void CLASS<uint64_t>::evaluate(VectorizedRowBatch* batch) const;
+#define IN_LIST_PRED_EVALUATE_DECLARATION(CLASS)                                                 \
+    template void CLASS<TYPE_TINYINT, int8_t>::evaluate(VectorizedRowBatch* batch) const;        \
+    template void CLASS<TYPE_SMALLINT, int16_t>::evaluate(VectorizedRowBatch* batch) const;      \
+    template void CLASS<TYPE_INT, int32_t>::evaluate(VectorizedRowBatch* batch) const;           \
+    template void CLASS<TYPE_BIGINT, int64_t>::evaluate(VectorizedRowBatch* batch) const;        \
+    template void CLASS<TYPE_LARGEINT, int128_t>::evaluate(VectorizedRowBatch* batch) const;     \
+    template void CLASS<TYPE_FLOAT, float>::evaluate(VectorizedRowBatch* batch) const;           \
+    template void CLASS<TYPE_DOUBLE, double>::evaluate(VectorizedRowBatch* batch) const;         \
+    template void CLASS<TYPE_DECIMALV2, decimal12_t>::evaluate(VectorizedRowBatch* batch) const; \
+    template void CLASS<TYPE_CHAR, StringValue>::evaluate(VectorizedRowBatch* batch) const;      \
+    template void CLASS<TYPE_STRING, StringValue>::evaluate(VectorizedRowBatch* batch) const;    \
+    template void CLASS<TYPE_DATE, uint24_t>::evaluate(VectorizedRowBatch* batch) const;         \
+    template void CLASS<TYPE_DATETIME, uint64_t>::evaluate(VectorizedRowBatch* batch) const;
 
 IN_LIST_PRED_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_EVALUATE_DECLARATION(NotInListPredicate)
 
-#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(CLASS)                                      \
-    template void CLASS<int8_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)       \
-            const;                                                                                 \
-    template void CLASS<int16_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)      \
-            const;                                                                                 \
-    template void CLASS<int32_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)      \
-            const;                                                                                 \
-    template void CLASS<int64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)      \
-            const;                                                                                 \
-    template void CLASS<int128_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
-            const;                                                                                 \
-    template void CLASS<float>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
-    template void CLASS<double>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)       \
-            const;                                                                                 \
-    template void CLASS<decimal12_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)  \
-            const;                                                                                 \
-    template void CLASS<StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)  \
-            const;                                                                                 \
-    template void CLASS<uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
-            const;                                                                                 \
-    template void CLASS<uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(CLASS)                                                     \
+    template void CLASS<TYPE_TINYINT, int8_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)        \
+            const;                                                                                                \
+    template void CLASS<TYPE_SMALLINT, int16_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)      \
+            const;                                                                                                \
+    template void CLASS<TYPE_INT, int32_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)           \
+            const;                                                                                                \
+    template void CLASS<TYPE_BIGINT, int64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)        \
+            const;                                                                                                \
+    template void CLASS<TYPE_LARGEINT, int128_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
+            const;                                                                                                \
+    template void CLASS<TYPE_FLOAT, float>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const;    \
+    template void CLASS<TYPE_DOUBLE, double>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)         \
+            const;                                                                                                \
+    template void CLASS<TYPE_DECIMALV2, decimal12_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) \
+            const;                                                                                                \
+    template void CLASS<TYPE_CHAR, StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)      \
+            const;                                                                                                \
+    template void CLASS<TYPE_STRING, StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)    \
+            const;                                                                                                \
+    template void CLASS<TYPE_DATE, uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)         \
+            const;                                                                                                \
+    template void CLASS<TYPE_DATETIME, uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
             const;
 
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
 
 #define IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(CLASS)                                           \
-    template Status CLASS<int8_t>::evaluate(const Schema& schema,                                 \
+    template Status CLASS<TYPE_TINYINT, int8_t>::evaluate(const Schema& schema,                   \
                                             const std::vector<BitmapIndexIterator*>& iterators,   \
                                             uint32_t num_rows, roaring::Roaring* bitmap) const;   \
-    template Status CLASS<int16_t>::evaluate(const Schema& schema,                                \
+    template Status CLASS<TYPE_SMALLINT, int16_t>::evaluate(const Schema& schema,                 \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
                                              uint32_t num_rows, roaring::Roaring* bitmap) const;  \
-    template Status CLASS<int32_t>::evaluate(const Schema& schema,                                \
+    template Status CLASS<TYPE_INT, int32_t>::evaluate(const Schema& schema,                      \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
                                              uint32_t num_rows, roaring::Roaring* bitmap) const;  \
-    template Status CLASS<int64_t>::evaluate(const Schema& schema,                                \
+    template Status CLASS<TYPE_BIGINT, int64_t>::evaluate(const Schema& schema,                   \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
                                              uint32_t num_rows, roaring::Roaring* bitmap) const;  \
-    template Status CLASS<int128_t>::evaluate(const Schema& schema,                               \
+    template Status CLASS<TYPE_LARGEINT, int128_t>::evaluate(const Schema& schema,                \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
                                               uint32_t num_rows, roaring::Roaring* bitmap) const; \
-    template Status CLASS<float>::evaluate(const Schema& schema,                                  \
+    template Status CLASS<TYPE_FLOAT, float>::evaluate(const Schema& schema,                      \
                                            const std::vector<BitmapIndexIterator*>& iterators,    \
                                            uint32_t num_rows, roaring::Roaring* bitmap) const;    \
-    template Status CLASS<double>::evaluate(const Schema& schema,                                 \
+    template Status CLASS<TYPE_DOUBLE, double>::evaluate(const Schema& schema,                    \
                                             const std::vector<BitmapIndexIterator*>& iterators,   \
                                             uint32_t num_rows, roaring::Roaring* bitmap) const;   \
-    template Status CLASS<decimal12_t>::evaluate(                                                 \
+    template Status CLASS<TYPE_DECIMALV2, decimal12_t>::evaluate(                                 \
             const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
             uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
-    template Status CLASS<StringValue>::evaluate(                                                 \
+    template Status CLASS<TYPE_CHAR, StringValue>::evaluate(                                      \
             const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
             uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
-    template Status CLASS<uint24_t>::evaluate(const Schema& schema,                               \
+    template Status CLASS<TYPE_STRING, StringValue>::evaluate(                                    \
+            const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
+    template Status CLASS<TYPE_DATE, uint24_t>::evaluate(const Schema& schema,                    \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
                                               uint32_t num_rows, roaring::Roaring* bitmap) const; \
-    template Status CLASS<uint64_t>::evaluate(const Schema& schema,                               \
+    template Status CLASS<TYPE_DATETIME, uint64_t>::evaluate(const Schema& schema,                \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
                                               uint32_t num_rows, roaring::Roaring* bitmap) const;
 
