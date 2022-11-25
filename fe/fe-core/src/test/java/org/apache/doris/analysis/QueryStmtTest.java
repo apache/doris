@@ -246,7 +246,7 @@ public class QueryStmtTest {
         stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
-        Assert.assertEquals(15, exprsMap.size());
+        Assert.assertEquals(17, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
         Assert.assertEquals(4, constMap.size());
