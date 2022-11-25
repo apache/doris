@@ -602,7 +602,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：Cumulative Compaction线程池中线程数量的最大值。
 * 默认值：10
 
-#### `enable_segcompaction`
+#### `enable_segcompaction_during_load`
 
 * 类型：bool
 * 描述：在导入时进行 segment compaction 来减少 segment 数量
@@ -619,6 +619,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int32
 * 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
+
+### `enable_segcompaction_after_load`
+
+* 类型：bool
+* 描述：导入过程中在数据对用户可见前进行最后一遍 segment 级别的 compaction 以减少 segment 文件数量。可用于避免 OLAP_ERR_TOO_MANY_SEGMENTS 失败，但会增加导入完成时间。可独立于 enable_segcompaction_during_load 进行开关。
+* 默认值：false
 
 #### `disable_compaction_trace_log`
 

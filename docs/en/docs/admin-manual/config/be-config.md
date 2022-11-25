@@ -588,7 +588,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The maximum of thread number in cumulative compaction thread pool.
 * Default value: 10
 
-#### `enable_segcompaction`
+#### `enable_segcompaction_during_load`
 
 * Type: bool
 * Description: Enable to use segment compaction during loading
@@ -605,6 +605,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: int32
 * Description: The segment whose row number above the threshold will be compacted during segcompaction
 * Default value: 1048576
+
+### `enable_segcompaction_after_load`
+
+* Type: bool
+* Description: Do final-pass segcompaction before committing txn to reduce segment number. Will increase load time but eliminate OLAP_ERR_TOO_MANY_SEGMENTS failure. Independent with enable_segcompaction_during_load
+* Default value: false
 
 #### `disable_compaction_trace_log`
 

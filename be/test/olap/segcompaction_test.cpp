@@ -57,8 +57,9 @@ public:
     }
 
     void SetUp() {
-        config::enable_segcompaction = true;
+        config::enable_segcompaction_during_load = true;
         config::enable_storage_vectorization = true;
+        config::enable_segcompaction_after_load = false;
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
@@ -92,7 +93,7 @@ public:
             delete l_engine;
             l_engine = nullptr;
         }
-        config::enable_segcompaction = false;
+        config::enable_segcompaction_during_load = false;
     }
 
 protected:
@@ -202,8 +203,10 @@ private:
 };
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
-    config::enable_segcompaction = true;
+    config::enable_segcompaction_during_load = true;
     config::enable_storage_vectorization = true;
+    config::enable_segcompaction_after_load = false;
+
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     create_tablet_schema(tablet_schema);
@@ -345,7 +348,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
 }
 
 TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
-    config::enable_segcompaction = true;
+    config::enable_segcompaction_during_load = true;
     config::enable_storage_vectorization = true;
     Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
@@ -463,6 +466,152 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         ls.push_back("10049_2.dat"); // O
         ls.push_back("10049_3.dat"); // o
         ls.push_back("10049_4.dat"); // O
+        EXPECT_TRUE(check_dir(ls));
+    }
+}
+
+TEST_F(SegCompactionTest, SegCompactionMultiPass) {
+    /* ooooOOoQooooooooO (Q is bigger than O) will be oOOoQooO after 1st-pass segcompaction
+     * finally we get OQO after final-pass segcompaction
+     * */
+    config::enable_segcompaction_during_load = true;
+    config::enable_storage_vectorization = true;
+    config::enable_segcompaction_after_load = true;
+    config::max_segment_num_per_rowset = 5;
+
+    Status s;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    RowsetSharedPtr rowset;
+    config::segcompaction_small_threshold = 6000; // set threshold above
+                                                  // rows_per_segment
+    std::vector<uint32_t> segment_num_rows;
+    { // write `num_segments * rows_per_segment` rows to rowset
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10049, tablet_schema, &writer_context);
+
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        EXPECT_EQ(Status::OK(), s);
+        ((BetaRowsetWriter*)(rowset_writer.get()))->set_final_segcompaction_num_threshold(1);
+
+        RowCursor input_row;
+        input_row.init(tablet_schema);
+
+        // for segment "i", row "rid"
+        // k1 := rid*10 + i
+        // k2 := k1 * 10
+        // k3 := 4096 * i + rid
+        int num_segments = 4;
+        uint32_t rows_per_segment = 96; // still small after compaction
+        for (int i = 0; i < num_segments; ++i) {
+            MemPool mem_pool;
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                s = rowset_writer->add_row(input_row);
+                EXPECT_EQ(Status::OK(), s);
+            }
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 2;
+        rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            MemPool mem_pool;
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                s = rowset_writer->add_row(input_row);
+                EXPECT_EQ(Status::OK(), s);
+            }
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 96;
+        for (int i = 0; i < num_segments; ++i) {
+            MemPool mem_pool;
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                s = rowset_writer->add_row(input_row);
+                EXPECT_EQ(Status::OK(), s);
+            }
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 64000;
+        for (int i = 0; i < num_segments; ++i) {
+            MemPool mem_pool;
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                s = rowset_writer->add_row(input_row);
+                EXPECT_EQ(Status::OK(), s);
+            }
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 8;
+        rows_per_segment = 96;
+        for (int i = 0; i < num_segments; ++i) {
+            MemPool mem_pool;
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                s = rowset_writer->add_row(input_row);
+                EXPECT_EQ(Status::OK(), s);
+            }
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        num_segments = 1;
+        rows_per_segment = 6400;
+        for (int i = 0; i < num_segments; ++i) {
+            MemPool mem_pool;
+            for (int rid = 0; rid < rows_per_segment; ++rid) {
+                uint32_t k1 = rid * 100 + i;
+                uint32_t k2 = i;
+                uint32_t k3 = rid;
+                input_row.set_field_content(0, reinterpret_cast<char*>(&k1), &mem_pool);
+                input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
+                input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
+                s = rowset_writer->add_row(input_row);
+                EXPECT_EQ(Status::OK(), s);
+            }
+            s = rowset_writer->flush();
+            EXPECT_EQ(Status::OK(), s);
+        }
+        rowset = rowset_writer->build();
+        std::vector<std::string> ls;
+        // ooooOOoOooooooooO
+        ls.push_back("10049_0.dat"); // O
+        ls.push_back("10049_1.dat"); // Q
+        ls.push_back("10049_2.dat"); // O
+
         EXPECT_TRUE(check_dir(ls));
     }
 }

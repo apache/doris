@@ -81,7 +81,7 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::max_cumu_compaction_threads)
             .set_max_threads(config::max_cumu_compaction_threads)
             .build(&_cumu_compaction_thread_pool);
-    if (config::enable_segcompaction && config::enable_storage_vectorization) {
+    if (config::enable_segcompaction_during_load && config::enable_storage_vectorization) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
                 .set_min_threads(config::seg_compaction_max_threads)
                 .set_max_threads(config::seg_compaction_max_threads)

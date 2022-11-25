@@ -846,7 +846,7 @@ CONF_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 CONF_Bool(hide_webserver_config_page, "false");
 
-CONF_Bool(enable_segcompaction, "false"); // currently only support vectorized storage
+CONF_Bool(enable_segcompaction_during_load, "false"); // currently only support vectorized storage
 
 // Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
 CONF_Int32(segcompaction_threshold_segment_num, "10");
@@ -854,8 +854,8 @@ CONF_Int32(segcompaction_threshold_segment_num, "10");
 // The segment whose row number above the threshold will be compacted during segcompaction
 CONF_Int32(segcompaction_small_threshold, "1048576");
 
-// Enable multi pass segcompaction, only effective when enable_segcompaction=true
-CONF_Bool(enable_segcompaction_before_publish, "false");
+// Enable final-pass segcompaction before commit txn
+CONF_Bool(enable_segcompaction_after_load, "false");
 
 CONF_String(jvm_max_heap_size, "1024M");
 

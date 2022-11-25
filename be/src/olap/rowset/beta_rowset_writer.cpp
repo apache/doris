@@ -52,8 +52,12 @@ BetaRowsetWriter::BetaRowsetWriter()
           _total_data_size(0),
           _total_index_size(0),
           _raw_num_rows_written(0),
-          _is_doing_segcompaction(false) {
+          _is_doing_segcompaction(false),
+          _final_segcompaction_num_threshold(50),
+          _total_row_num_written(0) {
     _segcompaction_status.store(OK);
+    bthread_mutex_init(&_is_doing_segcompaction_lock, nullptr);
+    bthread_cond_init(&_segcompacting_cond, nullptr);
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -76,6 +80,9 @@ BetaRowsetWriter::~BetaRowsetWriter() {
                           strings::Substitute("Failed to delete file=$0", seg_path));
         }
     }
+
+    bthread_cond_destroy(&_segcompacting_cond);
+    bthread_mutex_destroy(&_is_doing_segcompaction_lock);
 }
 
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -376,14 +383,15 @@ void BetaRowsetWriter::compact_segments(SegCompactionCandidatesSharedPtr segment
     }
     DCHECK_EQ(_is_doing_segcompaction, true);
     {
-        std::lock_guard lk(_is_doing_segcompaction_lock);
+        std::lock_guard<bthread_mutex_t> lk(_is_doing_segcompaction_lock);
         _is_doing_segcompaction = false;
-        _segcompacting_cond.notify_all();
+        bthread_cond_broadcast(&_segcompacting_cond);
     }
 }
 
 Status BetaRowsetWriter::_load_noncompacted_segments(
         std::vector<segment_v2::SegmentSharedPtr>* segments, size_t num) {
+    int segment_num = 0;
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>();
@@ -401,22 +409,29 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
             return Status::Error<ROWSET_LOAD_FAILED>();
         }
         segments->push_back(std::move(segment));
+        if (++segment_num >= FINAL_SEGCOMPACTION_MAX_SEGMENTS) {
+            break;
+        }
     }
     return Status::OK();
 }
 
 /* policy of segcompaction target selection:
- *  1. skip big segments
+ *  1. skip (and rename to keep segment id sequential when necessary) big segments
  *  2. if the consecutive smalls end up with a big, compact the smalls, except
  *     single small
  *  3. if the consecutive smalls end up with small, compact the smalls if the
  *     length is beyond (config::segcompaction_threshold_segment_num / 2)
  */
 Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
-        SegCompactionCandidatesSharedPtr segments) {
+        SegCompactionCandidatesSharedPtr segments, size_t small_threshold, bool is_final) {
     std::vector<segment_v2::SegmentSharedPtr> all_segments;
-    // subtract one to skip last (maybe active) segment
-    RETURN_NOT_OK(_load_noncompacted_segments(&all_segments, _num_segment - 1));
+    if (UNLIKELY(is_final)) {
+        RETURN_NOT_OK(_load_noncompacted_segments(&all_segments, _num_segment));
+    } else {
+        // subtract one to skip last (maybe active) segment except last pass
+        RETURN_NOT_OK(_load_noncompacted_segments(&all_segments, _num_segment - 1));
+    }
 
     if (VLOG_DEBUG_IS_ON) {
         vlog_buffer.clear();
@@ -424,12 +439,12 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
             fmt::format_to(vlog_buffer, "[id:{} num_rows:{}]", segment->id(), segment->num_rows());
         }
         VLOG_DEBUG << "all noncompacted segments num:" << all_segments.size()
+                   << " small_threshold:" << small_threshold
                    << " list of segments:" << fmt::to_string(vlog_buffer);
     }
 
     bool is_terminated_by_big = false;
     bool let_big_terminate = false;
-    size_t small_threshold = config::segcompaction_small_threshold;
     for (int64_t i = 0; i < all_segments.size(); ++i) {
         segment_v2::SegmentSharedPtr seg = all_segments[i];
         if (seg->num_rows() > small_threshold) {
@@ -445,7 +460,8 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         }
     }
     size_t s = segments->size();
-    if (!is_terminated_by_big && s <= (config::segcompaction_threshold_segment_num / 2)) {
+    if (!is_terminated_by_big && !is_final &&
+        s <= (config::segcompaction_threshold_segment_num / 2)) {
         // start with big segments and end with small, better to do it in next
         // round to compact more at once
         segments->clear();
@@ -470,6 +486,7 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
 
 Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments,
                                                        SegCompactionType type) {
+    size_t threshold = 0;
     switch (type) {
     case REMAIN_SEGCOMPACTION_TYPE:
         VLOG_DEBUG << "segcompaction last few segments";
@@ -482,10 +499,13 @@ Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSh
         segments->clear();
         break;
     case NORMAL_SEGCOMPACTION_TYPE:
-        RETURN_NOT_OK(_find_longest_consecutive_small_segment(segments));
+        RETURN_NOT_OK(_find_longest_consecutive_small_segment(
+                segments, config::segcompaction_small_threshold, false));
         break;
     case FINAL_SEGCOMPACTION_TYPE:
-        // TODO:
+        threshold = _total_row_num_written / config::max_segment_num_per_rowset;
+        RETURN_NOT_OK(_find_longest_consecutive_small_segment(segments, threshold, true));
+        break;
     default:
         LOG(ERROR) << "invalid segcompaction type";
         CHECK(false);
@@ -494,7 +514,7 @@ Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSh
 }
 
 bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
-    std::lock_guard<std::mutex> l(_is_doing_segcompaction_lock);
+    std::lock_guard<bthread_mutex_t> l(_is_doing_segcompaction_lock);
     if (!_is_doing_segcompaction) {
         _is_doing_segcompaction = true;
         return true;
@@ -505,7 +525,7 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization ||
+    if (!config::enable_segcompaction_during_load || !config::enable_storage_vectorization ||
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
@@ -514,11 +534,11 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     } else if ((_num_segment - _segcompacted_point) >=
                config::segcompaction_threshold_segment_num) {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
-        status = _get_segcompaction_candidates(segments, false);
+        status = _get_segcompaction_candidates(segments, NORMAL_SEGCOMPACTION_TYPE);
         if (LIKELY(status.ok()) && (segments->size() > 0)) {
             LOG(INFO) << "submit segcompaction task, tablet_id:" << _context.tablet_id
                       << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
-                      << ", segcompacted_point:" << _segcompacted_point;
+                      << " segcompacted_point:" << _segcompacted_point;
             status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
             if (status.ok()) {
                 return status;
@@ -526,9 +546,9 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
         }
     }
     {
-        std::lock_guard lk(_is_doing_segcompaction_lock);
+        std::lock_guard<bthread_mutex_t> lk(_is_doing_segcompaction_lock);
         _is_doing_segcompaction = false;
-        _segcompacting_cond.notify_all();
+        bthread_cond_broadcast(&_segcompacting_cond);
     }
     return status;
 }
@@ -536,7 +556,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
 Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     Status status = Status::OK();
     DCHECK_EQ(_is_doing_segcompaction, false);
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization) {
+    if (!config::enable_segcompaction_during_load || !config::enable_storage_vectorization) {
         return Status::OK();
     }
     if (_segcompaction_status.load() != OK) {
@@ -548,7 +568,7 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     }
     _is_doing_segcompaction = true;
     SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
-    status = _get_segcompaction_candidates(segments, true);
+    status = _get_segcompaction_candidates(segments, REMAIN_SEGCOMPACTION_TYPE);
     if (LIKELY(status.ok()) && (segments->size() > 0)) {
         LOG(INFO) << "submit segcompaction remaining task, tablet_id:" << _context.tablet_id
                   << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
@@ -562,39 +582,55 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     return status;
 }
 
-Status BetaRowsetWriter::_segcompaction_finalpass() {
+Status BetaRowsetWriter::_segcompaction_finalpass_wait() {
     Status status = Status::OK();
     DCHECK_EQ(_is_doing_segcompaction, false);
-    if (!config::enable_segcompaction || !config::enable_storage_vectorization) { //TODO: final pass indep
+    if (!config::enable_storage_vectorization) {
         return Status::OK();
     }
-    if (_segcompaction_status.load() != OLAP_SUCCESS) {
-        return Status::OLAPInternalError(OLAP_ERR_SEGCOMPACTION_FAILED);
+    if (_segcompaction_status.load() != OK) {
+        return Status::Error<SEGCOMPACTION_FAILED>();
     }
 
     int64_t num_seg = _is_segcompacted() ? _num_segcompacted : _num_segment;
-    if (num_seg <= config::max_segment_num_per_rowset) {
+    if (num_seg <= _final_segcompaction_num_threshold) {
+        LOG(INFO) << "skip finalpass segcompaction because num_seg is too small: " << num_seg
+                  << " vs " << _final_segcompaction_num_threshold;
         return Status::OK();
     }
 
-    while (/*TODO*/) {
-        // 1.find
-        // 2.submit
-        // 3.wait
-    }
+    // reset num counters for the final segcompaction
+    _num_segment = num_seg;
+    _num_segcompacted = 0;
+    _segcompacted_point = 0;
 
-    _is_doing_segcompaction = true;
-    SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
-    status = _get_segcompaction_candidates(segments, true);
-    if (LIKELY(status.ok()) && (segments->size() > 0)) {
-        LOG(INFO) << "submit segcompaction remaining task, segment num:" << _num_segment
-                  << ", segcompacted_point:" << _segcompacted_point;
-        status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
-        if (status.ok()) {
-            return status;
+    _total_row_num_written = 0;
+    {
+        std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
+        for (const auto& itr : _segid_statistics_map) {
+            _total_row_num_written += itr.second.row_num;
         }
     }
-    _is_doing_segcompaction = false;
+
+    while (_segcompacted_point != _num_segment) {
+        _is_doing_segcompaction = true;
+        SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
+        status = _get_segcompaction_candidates(segments, FINAL_SEGCOMPACTION_TYPE);
+        if (LIKELY(status.ok()) && (segments->size() > 0)) {
+            LOG(INFO) << "submit segcompaction final task, tablet_id:" << _context.tablet_id
+                      << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
+                      << " segcompacted_point:" << _segcompacted_point;
+            status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
+            if (!status.ok()) {
+                _is_doing_segcompaction = false;
+                return status;
+            }
+            RETURN_NOT_OK(_wait_flying_segcompaction());
+        } else {
+            _is_doing_segcompaction = false;
+        }
+    }
+
     return status;
 }
 
@@ -690,6 +726,13 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
+Status BetaRowsetWriter::flush_by_merger() {
+    if (_segment_writer != nullptr) {
+        RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+    }
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
     int64_t size = 0;
     int64_t sum_size = 0;
@@ -747,11 +790,11 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
 }
 
 Status BetaRowsetWriter::_wait_flying_segcompaction() {
-    std::unique_lock<std::mutex> l(_is_doing_segcompaction_lock);
+    std::unique_lock<bthread_mutex_t> l(_is_doing_segcompaction_lock);
     uint64_t begin_wait = GetCurrentTimeMicros();
     while (_is_doing_segcompaction) {
         // change sync wait to async?
-        _segcompacting_cond.wait(l);
+        bthread_cond_wait(&_segcompacting_cond, &_is_doing_segcompaction_lock);
     }
     uint64_t elapsed = GetCurrentTimeMicros() - begin_wait;
     if (elapsed >= MICROS_PER_SEC) {
@@ -811,16 +854,18 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         return nullptr;
     }
 
-    if (config::enable_segcompaction_before_publish) {
-        status = _segcompaction_finalpass();
+    if (config::enable_segcompaction_after_load) {
+        uint64_t begin = GetCurrentTimeMicros();
+        status = _segcompaction_finalpass_wait();
+        uint64_t interval = GetCurrentTimeMicros() - begin;
         if (!status.ok()) {
-            LOG(WARNING) << "OOXXOO, res=" << status;
+            LOG(WARNING) << "all final segcompaction success. tablet_id:" << _context.tablet_id
+                         << " rowset_id:" << _context.rowset_id << " time:" << interval
+                         << "us, res=" << status;
             return nullptr;
-        }
-        status = _wait_flying_segcompaction();
-        if (!status.ok()) {
-            LOG(WARNING) << "segcompaction failed when build new rowset final wait, res=" << status;
-            return nullptr;
+        } else {
+            LOG(INFO) << "all final segcompaction success. tablet_id:" << _context.tablet_id
+                      << " rowset_id:" << _context.rowset_id << " time:" << interval << "us";
         }
     }
 
@@ -1001,17 +1046,18 @@ Status BetaRowsetWriter::_do_create_segment_writer(
 Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
-    if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
-        LOG(ERROR) << "too many segments in rowset."
-                   << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
-                   << " max:" << config::max_segment_num_per_rowset
-                   << " _num_segment:" << _num_segment
-                   << " _segcompacted_point:" << _segcompacted_point
-                   << " _num_segcompacted:" << _num_segcompacted;
-        return Status::Error<TOO_MANY_SEGMENTS>();
-    } else {
-        return _do_create_segment_writer(writer, false, -1, -1);
+    if (total_segment_num > config::max_segment_num_per_rowset) {
+        LOG(WARNING) << "too many segments in rowset."
+                     << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
+                     << " max:" << config::max_segment_num_per_rowset
+                     << " _num_segment:" << _num_segment
+                     << " _segcompacted_point:" << _segcompacted_point
+                     << " _num_segcompacted:" << _num_segcompacted;
+        if (!config::enable_segcompaction_after_load) {
+            return Status::Error<TOO_MANY_SEGMENTS>();
+        } // else we do not stop loading since we have segcompaction before publish
     }
+    return _do_create_segment_writer(writer, false, -1, -1);
 }
 
 Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(

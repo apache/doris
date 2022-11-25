@@ -32,6 +32,12 @@ class FileWriter;
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 
+/* A load process can be divided into: 1) Loading 2) Build meta
+ * 1. We do NORMAL segcompaction during phase_1
+ * 2. After phase_1 completed and before phase_2, if there are a few segments remained
+ *    uncompacted, we do REMAIN segcompaction
+ * 3. Finally, before phase_2 we do FINAL-pass segcompaction all over the current segments
+ */
 enum SegCompactionType {
     NORMAL_SEGCOMPACTION_TYPE,
     REMAIN_SEGCOMPACTION_TYPE,
@@ -58,6 +64,8 @@ public:
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
     Status flush() override;
+
+    Status flush_by_merger() override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
@@ -90,6 +98,11 @@ public:
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
+    // for ut only
+    void set_final_segcompaction_num_threshold(uint32_t num) {
+        _final_segcompaction_num_threshold = num;
+    }
+
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);
@@ -109,7 +122,7 @@ private:
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
-    Status _segcompaction_finalpass();
+    Status _segcompaction_finalpass_wait();
     vectorized::VMergeIterator* _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                                           std::shared_ptr<Schema> schema,
                                                           OlapReaderStatistics* stat,
@@ -121,7 +134,8 @@ private:
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
                                        size_t num);
-    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
+    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments,
+                                                   size_t small_threshold, bool is_final);
     Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments,
                                          doris::SegCompactionType type);
     Status _wait_flying_segcompaction();
@@ -138,6 +152,9 @@ private:
     bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
 
 protected:
+    // limit the max number of participating segments
+    const int FINAL_SEGCOMPACTION_MAX_SEGMENTS = 30;
+
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
@@ -182,13 +199,18 @@ protected:
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction;
+
     // enforce compare-and-swap on _is_doing_segcompaction
-    std::mutex _is_doing_segcompaction_lock;
-    std::condition_variable _segcompacting_cond;
+    bthread_mutex_t _is_doing_segcompaction_lock;
+    bthread_cond_t _segcompacting_cond; // use bthread condvar to yield cpu
 
     std::atomic<int> _segcompaction_status;
 
+    // segment num below will not trigger final segcompaction
+    uint32_t _final_segcompaction_num_threshold;
+
     fmt::memory_buffer vlog_buffer;
+    uint64_t _total_row_num_written;
 };
 
 } // namespace doris
