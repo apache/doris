@@ -243,9 +243,11 @@ Status NodeChannel::open_wait() {
                         commit_info.tabletId = tablet.tablet_id();
                         commit_info.backendId = _node_id;
                         _tablet_commit_infos.emplace_back(std::move(commit_info));
-                        VLOG_PROGRESS << "node channel " << channel_info()
-                                      << "add_batches_finished and handled "
-                                      << result.tablet_errors().size() << " tablets errors";
+                        VLOG_CRITICAL
+                                << "master replica commit info: tabletId=" << tablet.tablet_id()
+                                << ", backendId=" << _node_id
+                                << ", master node id: " << this->node_id()
+                                << ", host: " << this->host() << ", txn_id=" << _parent->_txn_id;
                     }
 
                     if (_parent->_write_single_replica) {
