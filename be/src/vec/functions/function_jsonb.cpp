@@ -407,10 +407,6 @@ struct JsonbExtractStringImpl {
                 StringOP::push_value_string(std::string_view(writer->getOutput()->getBuffer(),
                                                              writer->getOutput()->getSize()),
                                             i, res_data, res_offsets);
-                // res_data.insert(writer->getOutput()->getBuffer(),
-                //                 writer->getOutput()->getBuffer() + writer->getOutput()->getSize());
-                // res_data.push_back('\0');
-                // res_offsets[i] = res_data.size();
             } else {
                 if (LIKELY(value->isString())) {
                     auto str_value = (JsonbStringVal*)value;

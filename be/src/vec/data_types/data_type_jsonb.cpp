@@ -33,6 +33,7 @@ std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) cons
     const StringRef& s =
             reinterpret_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
+    // size == 0 is for NULL
     return s.size > 0 ? JsonbToJson::jsonb_to_json_string(s.data, s.size) : "";
 }
 
