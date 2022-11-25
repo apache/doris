@@ -32,7 +32,6 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import java.net.MalformedURLException;
 import java.sql.Connection;
 import java.sql.Date;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -216,7 +215,6 @@ public class JdbcExecutor {
 
             dataSource = new HikariDataSource(config);
             conn = dataSource.getConnection();
-            conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
             if (op == TJdbcOperation.READ) {
                 Preconditions.checkArgument(sql != null);
                 stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);

@@ -122,6 +122,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
+        ctor_params.__set_jdbc_driver_url(_conn_param.driver_path);
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
 

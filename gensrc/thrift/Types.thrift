@@ -368,18 +368,21 @@ struct TJdbcExecutorCtorParams {
   // "jdbc:mysql://127.0.0.1:3307/test";
   2: optional string jdbc_url
 
-  //root
+  // root
   3: optional string jdbc_user
 
-  //password
+  // password
   4: optional string jdbc_password
 
-  //"com.mysql.jdbc.Driver"
+  // "com.mysql.jdbc.Driver"
   5: optional string jdbc_driver_class
 
   6: optional i32 batch_size
 
   7: optional TJdbcOperation op
+
+  // "file:///home/user/mysql-connector-java-5.1.47.jar"
+  8: optional string jdbc_driver_url
 }
 
 struct TJavaUdfExecutorCtorParams {
