@@ -188,7 +188,7 @@ public class HyperGraphBuilder {
             int count = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
             for (Slot slot : scanPlan.getOutput()) {
                 slotIdToColumnStats.put(slot.getExprId(),
-                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0, 0, null, null));
+                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0, 0, null, null, true));
             }
             StatsDeriveResult stats = new StatsDeriveResult(count, slotIdToColumnStats);
             group.setStatistics(stats);

@@ -365,7 +365,8 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                             stats.maxValue,
                             stats.selectivity,
                             stats.minExpr,
-                            stats.maxExpr
+                            stats.maxExpr,
+                            stats.isUnKnown
                     ));
                 }).collect(Collectors.toMap(Pair::key, Pair::value));
         return new StatsDeriveResult(rowCount < 0 ? rowCount : rowCount * groupingSetNum, columnStatisticMap);

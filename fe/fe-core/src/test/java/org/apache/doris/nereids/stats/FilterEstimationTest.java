@@ -61,7 +61,7 @@ class FilterEstimationTest {
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).build();
         ColumnStatistic bStats = new ColumnStatisticBuilder().setCount(500).setNdv(500).setAvgSizeByte(4)
                 .setNumNulls(500).setDataSize(0)
-                .setMinValue(0).setMaxValue(1000).setMinExpr(null).setIsNaN(true).build();
+                .setMinValue(0).setMaxValue(1000).setMinExpr(null).setIsUnknown(true).build();
         columnStat.put(a.getExprId(), aStats);
         columnStat.put(b.getExprId(), bStats);
 
@@ -94,7 +94,7 @@ class FilterEstimationTest {
                 .setMinValue(0).setMaxValue(1000).setMinExpr(null).build();
         ColumnStatistic bStats = new ColumnStatisticBuilder().setCount(500).setNdv(500)
                 .setAvgSizeByte(4).setNumNulls(500).setDataSize(0)
-                .setMinValue(0).setMaxValue(1000).setMinExpr(null).setIsNaN(true).build();
+                .setMinValue(0).setMaxValue(1000).setMinExpr(null).setIsUnknown(true).build();
         columnStat.put(a.getExprId(), aStats);
         columnStat.put(b.getExprId(), bStats);
 
@@ -117,7 +117,7 @@ class FilterEstimationTest {
         Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
-                .setIsNaN(true);
+                .setIsUnknown(true);
         slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);
@@ -136,7 +136,7 @@ class FilterEstimationTest {
         Map<Id, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
-                .setIsNaN(true);
+                .setIsUnknown(true);
         slotToColumnStat.put(a.getExprId(), builder.build());
         StatsDeriveResult stat = new StatsDeriveResult(1000, 1, 0, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation(stat);

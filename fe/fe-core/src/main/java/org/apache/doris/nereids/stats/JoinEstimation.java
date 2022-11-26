@@ -55,7 +55,7 @@ public class JoinEstimation {
         double rowCount = 0;
 
         if (rColumnStats.isUnKnown || rColumnStats.ndv == 0) {
-            rowCount = (leftStats.getRowCount() + rightStats.getRowCount()) * 0.5;
+            rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
         } else {
             //TODO range is not considered
             rowCount = (leftStats.getRowCount()

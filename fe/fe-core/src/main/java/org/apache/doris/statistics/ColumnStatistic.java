@@ -40,7 +40,7 @@ public class ColumnStatistic {
 
     public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE)
-            .setSelectivity(1.0).setIsNaN(true)
+            .setSelectivity(1.0).setIsUnknown(true)
             .build();
 
     public static final Set<Type> MAX_MIN_UNSUPPORTED_TYPE = new HashSet<>();
@@ -141,7 +141,7 @@ public class ColumnStatistic {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
                 .setMaxValue(maxValue).setMinExpr(minExpr).setMaxExpr(maxExpr)
-                .setSelectivity(selectivity).setIsNaN(isUnKnown).build();
+                .setSelectivity(selectivity).setIsUnknown(isUnKnown).build();
     }
 
     public ColumnStatistic multiply(double d) {
@@ -156,7 +156,7 @@ public class ColumnStatistic {
                 .setMinExpr(minExpr)
                 .setMaxExpr(maxExpr)
                 .setSelectivity(selectivity)
-                .setIsNaN(isUnKnown)
+                .setIsUnknown(isUnKnown)
                 .build();
     }
 

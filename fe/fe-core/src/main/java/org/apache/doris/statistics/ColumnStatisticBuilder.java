@@ -100,8 +100,8 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
-    public ColumnStatisticBuilder setIsNaN(boolean isNaN) {
-        this.isUnknown = isNaN;
+    public ColumnStatisticBuilder setIsUnknown(boolean isUnknown) {
+        this.isUnknown = isUnknown;
         return this;
     }
 
