@@ -89,7 +89,7 @@ For query options related to Runtime Filter, please refer to the following secti
 
 - The first query option is to adjust the type of Runtime Filter used. In most cases, you only need to adjust this option, and keep the other options as default.
 
-  - `runtime_filter_type`: Including Bloom Filter, MinMax Filter, IN predicate, IN_OR_BLOOM Filter and Bitmap_Filter. By default, only IN_OR_BLOOM Filter will be used. In some cases, the performance will be higher when both Bloom Filter, MinMax Filter and IN predicate are used at the same time.
+  - `runtime_filter_type`: Including Bloom Filter, MinMax Filter, IN predicate, IN_OR_BLOOM Filter and IN_OR_Bitmap_Filter. By default, IN_OR_BLOOM Filter and IN_OR_BITAP Filter will be used. In some cases, the performance will be higher when both Bloom Filter, MinMax Filter and IN predicate are used at the same time.
 
 - Other query options usually only need to be further adjusted in certain specific scenarios to achieve the best results. Usually only after performance testing, optimize for resource-intensive, long enough running time and high enough frequency queries.
 
@@ -112,7 +112,7 @@ The query options are further explained below.
 #### 1.runtime_filter_type
 Type of Runtime Filter used.
 
-**Type**: Number (1, 2, 4, 8, 16) or the corresponding mnemonic string (IN, BLOOM_FILTER, MIN_MAX, IN_OR_BLOOM_FILTER, BITMAP_FILTER), the default is 8 (IN_OR_BLOOM FILTER), use multiple commas to separate, pay attention to the need to add quotation marks , Or add any number of types, for example:
+**Type**: Number (1, 2, 4, 8, 16) or the corresponding mnemonic string (IN, BLOOM_FILTER, MIN_MAX, IN_OR_BLOOM_FILTER, IN_OR_BITMAP_FILTER), the default is 24 (IN_OR_BLOOM FILTER, IN_OR_BITMAP FILTER), use multiple commas to separate, pay attention to the need to add quotation marks , Or add any number of types, for example:
 ```
 set runtime_filter_type="BLOOM_FILTER,IN,MIN_MAX";
 ```
@@ -138,7 +138,8 @@ set runtime_filter_type=7;
     - Currently IN predicate already implement a merge method.
     - When IN predicate and other filters are specified at the same time, and the filtering value of IN predicate does not reach runtime_filter_max_in_num will try to remove other filters. The reason is that IN predicate is an accurate filtering condition. Even if there is no other filter, it can filter efficiently. If it is used at the same time, other filters will do useless work. Currently, only when the producer and consumer of the runtime filter are in the same fragment can there be logic to remove the Non-IN predicate.
 
-- **Bitmap Filter**:
+- **Bitmap Filter**: According to the actual number of rows in the right table during execution, the system automatically determines whether to use IN predicate or Bitmap Filter.
+    - Bitmap Filter can only be converted from in or bitmap filter and cannot be specified manually.
     - Currently, the bitmap filter is used only when the subquery in the [in subquery](../../sql-manual/sql-reference/Operators/in.md) operation returns a bitmap column.
     - Currently, bitmap filter is only supported in vectorization engine.
 

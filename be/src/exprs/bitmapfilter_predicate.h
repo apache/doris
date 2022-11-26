@@ -18,9 +18,11 @@
 #pragma once
 
 #include "common/object_pool.h"
+#include "exprs/hybrid_set.h"
 #include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
+#include "runtime/type_limit.h"
 #include "util/bitmap_value.h"
 
 namespace doris {
@@ -38,7 +40,10 @@ public:
                                                 uint16_t* offsets, int number) = 0;
     virtual void find_batch(const char* data, const uint8* nullmap, int number,
                             uint8* results) const = 0;
+    virtual void insert_to(std::shared_ptr<HybridSetBase>) const = 0;
+    virtual size_t size() const = 0;
     void set_not_in(bool not_in) { _not_in = not_in; }
+    bool is_not_in() const { return _not_in; }
     virtual ~BitmapFilterFuncBase() = default;
 
 protected:
@@ -67,6 +72,8 @@ public:
     void find_batch(const char* data, const uint8* nullmap, int number,
                     uint8* results) const override;
 
+    void insert_to(std::shared_ptr<HybridSetBase>) const override;
+
     bool is_empty() override { return _empty; }
 
     Status assign(BitmapValue* bitmap_value) override {
@@ -75,6 +82,8 @@ public:
     }
 
     void light_copy(BitmapFilterFuncBase* bloomfilter_func) override;
+
+    size_t size() const override { return _bitmap_value->cardinality(); }
 
 private:
     std::shared_ptr<BitmapValue> _bitmap_value;
@@ -138,6 +147,21 @@ void BitmapFilterFunc<type>::light_copy(BitmapFilterFuncBase* bitmapfilter_func)
     auto other_func = reinterpret_cast<BitmapFilterFunc*>(bitmapfilter_func);
     _empty = other_func->_empty;
     _bitmap_value = other_func->_bitmap_value;
+}
+
+template <PrimitiveType type>
+void BitmapFilterFunc<type>::insert_to(std::shared_ptr<HybridSetBase> set) const {
+    if (set == nullptr) {
+        return;
+    }
+    CppType max_value = type_limit<CppType>::max();
+    for (auto item = _bitmap_value->begin(); item != _bitmap_value->end(); ++item) {
+        if (*item > max_value) {
+            continue;
+        }
+        CppType value = *item;
+        set->insert(&value);
+    }
 }
 
 } // namespace doris

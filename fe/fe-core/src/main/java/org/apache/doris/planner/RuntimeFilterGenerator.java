@@ -79,7 +79,7 @@ public final class RuntimeFilterGenerator {
                     TRuntimeFilterType.IN_OR_BLOOM);
 
     private static final List<TRuntimeFilterType> NESTED_LOOP_JOIN_RUNTIME_FILTER_TYPES =
-            Lists.newArrayList(TRuntimeFilterType.BITMAP);
+            Lists.newArrayList(TRuntimeFilterType.IN_OR_BITMAP);
 
     // Map of base table tuple ids to a list of runtime filters that
     // can be applied at the corresponding scan nodes.
@@ -280,7 +280,7 @@ public final class RuntimeFilterGenerator {
                 if ((sessionVariable.getRuntimeFilterType() & type.getValue()) == 0) {
                     continue;
                 }
-                if (type == TRuntimeFilterType.BITMAP) {
+                if (type == TRuntimeFilterType.IN_OR_BITMAP) {
                     for (int i = 0; i < runtimeFilterConjuncts.size(); ++i) {
                         Expr conjunct = runtimeFilterConjuncts.get(i);
                         RuntimeFilter filter =
@@ -458,7 +458,7 @@ public final class RuntimeFilterGenerator {
                 return null;
             }
         }
-        if (filter.getType().equals(TRuntimeFilterType.BITMAP)) {
+        if (filter.getType().equals(TRuntimeFilterType.IN_OR_BITMAP)) {
             return targetExpr;
         }
         Type srcType = filter.getSrcExpr().getType();

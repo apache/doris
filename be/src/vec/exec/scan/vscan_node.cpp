@@ -300,7 +300,9 @@ Status VScanNode::close(RuntimeState* state) {
 
     for (auto& ctx : _runtime_filter_ctxs) {
         IRuntimeFilter* runtime_filter = ctx.runtime_filter;
-        runtime_filter->consumer_close();
+        if (runtime_filter) {
+            runtime_filter->consumer_close();
+        }
     }
 
     for (auto& ctx : _stale_vexpr_ctxs) {

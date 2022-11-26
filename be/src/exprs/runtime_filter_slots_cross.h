@@ -90,6 +90,7 @@ public:
 
     void publish() {
         for (auto& filter : _runtime_filters) {
+            filter->try_change_bitmap_to_in_filter();
             filter->publish();
         }
         for (auto& filter : _runtime_filters) {

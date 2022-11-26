@@ -455,9 +455,11 @@ public:
             _context.bloom_filter_func->set_length(params->bloom_filter_size);
             return Status::OK();
         }
-        case RuntimeFilterType::BITMAP_FILTER: {
-            _context._bitmap_filter_func.reset(create_bitmap_filter(_column_return_type));
-            _context._bitmap_filter_func->set_not_in(params->bitmap_filter_not_in);
+        case RuntimeFilterType::IN_OR_BITMAP_FILTER: {
+            _context.hybrid_set.reset(
+                    create_set(_column_return_type, _state->enable_vectorized_exec()));
+            _context.bitmap_filter_func.reset(create_bitmap_filter(_column_return_type));
+            _context.bitmap_filter_func->set_not_in(params->bitmap_filter_not_in);
             return Status::OK();
         }
         default:
@@ -495,6 +497,18 @@ public:
         }
     }
 
+    bool try_change_bitmap_to_in_filter() {
+        if (_filter_type != RuntimeFilterType::IN_OR_BITMAP_FILTER || _is_in_filter ||
+            _context.bitmap_filter_func->is_not_in() ||
+            _context.bitmap_filter_func->size() > _max_in_num) {
+            return false;
+        }
+        _is_in_filter = true;
+        _context.bitmap_filter_func->insert_to(_context.hybrid_set);
+        _context.bitmap_filter_func.reset();
+        return true;
+    }
+
     BloomFilterFuncBase* get_bloomfilter() const { return _context.bloom_filter_func.get(); }
 
     void insert(const void* data) {
@@ -522,8 +536,8 @@ public:
             }
             break;
         }
-        case RuntimeFilterType::BITMAP_FILTER: {
-            _context._bitmap_filter_func->insert(data);
+        case RuntimeFilterType::IN_OR_BITMAP_FILTER: {
+            _context.bitmap_filter_func->insert(data);
             break;
         }
         default:
@@ -582,7 +596,7 @@ public:
     }
 
     void insert_batch(const vectorized::ColumnPtr column, const std::vector<int>& rows) {
-        if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
+        if (_filter_type == RuntimeFilterType::IN_OR_BITMAP_FILTER) {
             bitmap_filter_insert_batch(column, rows);
         } else if (IRuntimeFilter::enable_use_batch(_state->be_exec_version(),
                                                     _column_return_type)) {
@@ -601,7 +615,7 @@ public:
         for (int index : rows) {
             bitmaps.push_back(&(col->get_data()[index]));
         }
-        _context._bitmap_filter_func->insert_many(bitmaps);
+        _context.bitmap_filter_func->insert_many(bitmaps);
     }
 
     RuntimeFilterType get_real_type() {
@@ -609,6 +623,9 @@ public:
         if (real_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
             real_filter_type = _is_bloomfilter ? RuntimeFilterType::BLOOM_FILTER
                                                : RuntimeFilterType::IN_FILTER;
+        } else if (real_filter_type == RuntimeFilterType::IN_OR_BITMAP_FILTER) {
+            real_filter_type =
+                    _is_in_filter ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BITMAP_FILTER;
         }
         return real_filter_type;
     }
@@ -1070,6 +1087,10 @@ public:
 
     bool is_bloomfilter() const { return _is_bloomfilter; }
 
+    bool is_in_or_bitmap_filter() const {
+        return _filter_type == RuntimeFilterType::IN_OR_BITMAP_FILTER;
+    }
+
     bool is_ignored_in_filter() const { return _is_ignored_in_filter; }
 
     std::string* get_ignored_in_filter_msg() const { return _ignored_in_filter_msg; }
@@ -1099,6 +1120,7 @@ private:
     vectorized::SharedRuntimeFilterContext _context;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
+    bool _is_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
     UniqueId _fragment_instance_id;
     uint32_t _filter_id;
@@ -1275,8 +1297,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         _runtime_filter_type = RuntimeFilterType::IN_FILTER;
     } else if (desc->type == TRuntimeFilterType::IN_OR_BLOOM) {
         _runtime_filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER;
-    } else if (desc->type == TRuntimeFilterType::BITMAP) {
-        _runtime_filter_type = RuntimeFilterType::BITMAP_FILTER;
+    } else if (desc->type == TRuntimeFilterType::IN_OR_BITMAP) {
+        _runtime_filter_type = RuntimeFilterType::IN_OR_BITMAP_FILTER;
     } else {
         return Status::InvalidArgument("unknown filter type");
     }
@@ -1299,7 +1321,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     if (desc->__isset.bloom_filter_size_bytes) {
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
-    if (_runtime_filter_type == RuntimeFilterType::BITMAP_FILTER) {
+    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BITMAP_FILTER) {
         if (!build_ctx->root()->type().is_bitmap_type()) {
             return Status::InvalidArgument("Unexpected src expr type:{} for bitmap filter.",
                                            build_ctx->root()->type().debug_string());
@@ -1311,6 +1333,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, desc->bitmap_target_expr,
                                                                    &bitmap_target_ctx));
         auto* target_expr = doris::vectorized::VExpr::expr_without_cast(bitmap_target_ctx->root());
+        if (target_expr->node_type() != TExprNodeType::SLOT_REF) {
+            target_expr = bitmap_target_ctx->root();
+        }
         params.column_return_type = const_cast<doris::vectorized::VExpr*>(target_expr)->type().type;
 
         if (desc->__isset.bitmap_filter_not_in) {
@@ -1362,6 +1387,14 @@ void IRuntimeFilter::change_to_bloom_filter() {
     }
 }
 
+bool IRuntimeFilter::try_change_bitmap_to_in_filter() {
+    auto result = _wrapper->try_change_bitmap_to_in_filter();
+    if (result) {
+        update_runtime_filter_type_to_profile();
+    }
+    return result;
+}
+
 template <class T>
 Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
@@ -1399,7 +1432,8 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     parent_profile->add_child(_profile.get(), true, nullptr);
     _await_time_cost = ADD_TIMER(_profile, "AWaitTimeCost");
     _profile->add_info_string("Info", _format_status());
-    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+    if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER ||
+        _runtime_filter_type == RuntimeFilterType::IN_OR_BITMAP_FILTER) {
         update_runtime_filter_type_to_profile();
     }
 }
@@ -1736,6 +1770,10 @@ bool IRuntimeFilter::is_bloomfilter() {
     return _wrapper->is_bloomfilter();
 }
 
+bool IRuntimeFilter::is_in_or_bitmap_filter() {
+    return _wrapper->is_in_or_bitmap_filter();
+}
+
 Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
         set_ignored();
@@ -1842,7 +1880,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
     DCHECK(vprob_expr->root()->type().type == _column_return_type ||
            (is_string_type(vprob_expr->root()->type().type) &&
             is_string_type(_column_return_type)) ||
-           _filter_type == RuntimeFilterType::BITMAP_FILTER);
+           _filter_type == RuntimeFilterType::IN_OR_BITMAP_FILTER);
 
     auto real_filter_type = get_real_type();
     switch (real_filter_type) {
@@ -1853,7 +1891,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
             TExprNode node;
             node.__set_type(type_desc);
             node.__set_node_type(TExprNodeType::IN_PRED);
-            node.in_predicate.__set_is_not_in(false);
+            node.in_predicate.__set_is_not_in(true);
             node.__set_opcode(TExprOpcode::FILTER_IN);
             node.__isset.vector_opcode = true;
             node.__set_vector_opcode(to_in_opcode(_column_return_type));
@@ -1931,7 +1969,7 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
         auto bitmap_pred = _pool->add(new doris::vectorized::VBitmapPredicate(node));
-        bitmap_pred->set_filter(_context._bitmap_filter_func);
+        bitmap_pred->set_filter(_context.bitmap_filter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bitmap_pred->add_child(cloned_vexpr);
         auto wrapper = _pool->add(new doris::vectorized::VRuntimeFilterWrapper(node, bitmap_pred));

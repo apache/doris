@@ -194,7 +194,7 @@ public final class RuntimeFilter {
         }
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
-        if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
+        if (runtimeFilterType.equals(TRuntimeFilterType.IN_OR_BITMAP)) {
             tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
@@ -315,7 +315,7 @@ public final class RuntimeFilter {
         Preconditions.checkNotNull(joinPredicate);
         Preconditions.checkNotNull(filterSrcNode);
 
-        if (type.equals(TRuntimeFilterType.BITMAP)) {
+        if (type.equals(TRuntimeFilterType.IN_OR_BITMAP)) {
             if (!(joinPredicate instanceof BitmapFilterPredicate)) {
                 return null;
             }

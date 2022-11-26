@@ -72,7 +72,7 @@ public class BitmapFilterPredicate extends Predicate {
         }
 
         if (ConnectContext.get() == null || (ConnectContext.get().getSessionVariable().getRuntimeFilterType()
-                & TRuntimeFilterType.BITMAP.getValue()) == 0) {
+                & TRuntimeFilterType.IN_OR_BITMAP.getValue()) == 0) {
             throw new AnalysisException("In bitmap syntax requires runtime filter of bitmap_filter to be enabled. "
                     + "Please `set runtime_filter_type = 'xxx, bitmap_filter'` first.");
         }

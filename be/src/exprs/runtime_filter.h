@@ -56,7 +56,8 @@ enum class RuntimeFilterType {
     MINMAX_FILTER = 1,
     BLOOM_FILTER = 2,
     IN_OR_BLOOM_FILTER = 3,
-    BITMAP_FILTER = 4
+    BITMAP_FILTER = 4,
+    IN_OR_BITMAP_FILTER = 5
 };
 
 inline std::string to_string(RuntimeFilterType type) {
@@ -75,6 +76,9 @@ inline std::string to_string(RuntimeFilterType type) {
     }
     case RuntimeFilterType::BITMAP_FILTER: {
         return std::string("bitmapfilter");
+    }
+    case RuntimeFilterType::IN_OR_BITMAP_FILTER: {
+        return std::string("in_or_bitmapfilter");
     }
     default:
         return std::string("UNKNOWN");
@@ -225,6 +229,7 @@ public:
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
+    bool try_change_bitmap_to_in_filter();
     Status update_filter(const UpdateRuntimeFilterParams* param);
 
     void set_ignored() { _is_ignored = true; }
@@ -236,6 +241,8 @@ public:
 
     // for ut
     bool is_bloomfilter();
+
+    bool is_in_or_bitmap_filter();
 
     // consumer should call before released
     Status consumer_close();
