@@ -44,14 +44,14 @@ suite("test_nereids_row_policy") {
 
     def createPolicy = { name, predicate, type ->
         sql """
-            CREATE ROW POLICY ${name} ON ${dbName}.${tableName}
+            CREATE ROW POLICY IF NOT EXISTS ${name} ON ${dbName}.${tableName}
             AS ${type} TO ${user} USING (${predicate})
         """
     }
 
     def dropPolciy = { name ->
         sql """
-            DROP ROW POLICY ${name} ON ${dbName}.${tableName} FOR ${user}
+            DROP ROW POLICY IF EXISTS ${name} ON ${dbName}.${tableName} FOR ${user}
         """
     }
 
