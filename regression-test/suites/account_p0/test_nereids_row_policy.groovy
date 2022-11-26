@@ -69,8 +69,9 @@ suite("test_nereids_row_policy") {
     """
 
     // create view
+    sql "DROP VIEW IF EXISTS ${viewName}"
     sql """
-        create view ${viewName} as select * from ${tableName};
+        CREATE VIEW ${viewName} AS SELECT * FROM ${tableName};
     """
     
     // create user
