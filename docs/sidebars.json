@@ -1019,6 +1019,14 @@
                         "admin-manual/privilege-ldap/ldap"
                     ]
                 },
+                {
+                    "type": "category",
+                    "label": "System Table",
+                    "items": [
+                        "admin-manual/system-table/backends",
+                        "admin-manual/system-table/rowsets"
+                    ]
+                },
                 "admin-manual/multi-tenant",
                 {
                     "type": "category",
