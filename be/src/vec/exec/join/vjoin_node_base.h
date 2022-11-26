@@ -103,6 +103,7 @@ protected:
     RuntimeProfile::Counter* _probe_rows_counter;
     RuntimeProfile::Counter* _push_down_timer;
     RuntimeProfile::Counter* _push_compute_timer;
+    RuntimeProfile::Counter* _join_filter_timer;
 };
 
 } // namespace doris::vectorized

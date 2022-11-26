@@ -103,7 +103,23 @@ suite("test_nestedloop_outer_join", "query_p0") {
         select * from ${tbl1} inner join ${tbl2} on ${tbl1}.user_id < ${tbl2}.user_id order by ${tbl1}.user_id, ${tbl2}.user_id;
     """
 
+    sql """ INSERT INTO ${tbl2} VALUES (2, 1); """
 
+    qt_join """
+        select * from ${tbl1} full outer join ${tbl2} on ${tbl1}.user_id < ${tbl2}.user_id where ${tbl1}.user_id2 = ${tbl2}.user_id2 order by ${tbl1}.user_id, ${tbl2}.user_id;
+    """
+
+    qt_join """
+        select * from ${tbl1} right outer join ${tbl2} on ${tbl1}.user_id < ${tbl2}.user_id where ${tbl1}.user_id2 = ${tbl2}.user_id2 order by ${tbl1}.user_id, ${tbl2}.user_id;
+    """
+
+    qt_join """
+        select * from ${tbl1} left outer join ${tbl2} on ${tbl1}.user_id < ${tbl2}.user_id where ${tbl1}.user_id2 = ${tbl2}.user_id2 order by ${tbl1}.user_id, ${tbl2}.user_id;
+    """
+
+    qt_join """
+        select * from ${tbl1} inner join ${tbl2} on ${tbl1}.user_id < ${tbl2}.user_id where ${tbl1}.user_id2 = ${tbl2}.user_id2 order by ${tbl1}.user_id, ${tbl2}.user_id;
+    """
 
     sql "DROP TABLE IF EXISTS ${tbl1}"
     sql "DROP TABLE IF EXISTS ${tbl2}"

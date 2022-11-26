@@ -115,6 +115,7 @@ private:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::vector<vectorized::VExprContext*> _filter_src_expr_ctxs;
     bool _is_output_left_side_only = false;
+    std::unique_ptr<VExprContext*> _vjoin_conjunct_ptr;
 
     friend struct RuntimeFilterBuild;
 };

@@ -2072,7 +2072,7 @@ public class SingleNodePlanner {
             // TODO If there are eq join predicates then we should construct a hash join
             NestedLoopJoinNode result =
                     new NestedLoopJoinNode(ctx.getNextNodeId(), outer, inner, innerRef);
-            result.addConjuncts(ojConjuncts);
+            result.setJoinConjuncts(ojConjuncts);
             result.init(analyzer);
             return result;
         }

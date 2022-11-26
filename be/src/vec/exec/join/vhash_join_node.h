@@ -251,8 +251,6 @@ private:
     RuntimeProfile::Counter* _build_side_compute_hash_timer;
     RuntimeProfile::Counter* _build_side_merge_block_timer;
 
-    RuntimeProfile::Counter* _join_filter_timer;
-
     RuntimeProfile* _build_phase_profile;
 
     int64_t _mem_used;
