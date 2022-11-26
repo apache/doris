@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_ENUMERATE Function",
+    "title": "array_enumerate",
     "language": "en"
 }
 ---
@@ -24,11 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_ENUMERATE
-
-### Name
-
-ARRAY_ENUMERATE
+## array_enumerate
 
 ### description
 

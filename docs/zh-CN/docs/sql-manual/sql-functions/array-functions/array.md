@@ -1,6 +1,6 @@
 ---
 {
-    "title": "array构造函数",
+    "title": "array",
     "language": "zh-CN"
 }
 ---

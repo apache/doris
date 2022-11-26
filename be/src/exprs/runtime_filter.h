@@ -55,7 +55,8 @@ enum class RuntimeFilterType {
     IN_FILTER = 0,
     MINMAX_FILTER = 1,
     BLOOM_FILTER = 2,
-    IN_OR_BLOOM_FILTER = 3
+    IN_OR_BLOOM_FILTER = 3,
+    BITMAP_FILTER = 4
 };
 
 inline std::string to_string(RuntimeFilterType type) {
@@ -72,6 +73,9 @@ inline std::string to_string(RuntimeFilterType type) {
     case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
         return std::string("in_or_bloomfilter");
     }
+    case RuntimeFilterType::BITMAP_FILTER: {
+        return std::string("bitmapfilter");
+    }
     default:
         return std::string("UNKNOWN");
     }
@@ -85,7 +89,8 @@ struct RuntimeFilterParams {
               bloom_filter_size(-1),
               max_in_num(0),
               filter_id(0),
-              fragment_instance_id(0, 0) {}
+              fragment_instance_id(0, 0),
+              bitmap_filter_not_in(false) {}
 
     RuntimeFilterType filter_type;
     PrimitiveType column_return_type;
@@ -94,6 +99,7 @@ struct RuntimeFilterParams {
     int32_t max_in_num;
     int32_t filter_id;
     UniqueId fragment_instance_id;
+    bool bitmap_filter_not_in;
 };
 
 struct UpdateRuntimeFilterParams {

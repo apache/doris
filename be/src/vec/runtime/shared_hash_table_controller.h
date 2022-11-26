@@ -32,6 +32,7 @@ class TUniqueId;
 class MinMaxFuncBase;
 class HybridSetBase;
 class BloomFilterFuncBase;
+class BitmapFilterFuncBase;
 
 namespace vectorized {
 
@@ -41,6 +42,7 @@ struct SharedRuntimeFilterContext {
     std::shared_ptr<MinMaxFuncBase> minmax_func;
     std::shared_ptr<HybridSetBase> hybrid_set;
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
+    std::shared_ptr<BitmapFilterFuncBase> _bitmap_filter_func;
 };
 
 struct SharedHashTableContext {

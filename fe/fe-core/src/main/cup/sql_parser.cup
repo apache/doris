@@ -412,7 +412,7 @@ terminal String
     KW_INVERTED,
     KW_JOB,
     KW_JOIN,
-    KW_JSON,
+    KW_JSONB,
     KW_KEY,
     KW_KEYS,
     KW_KILL,
@@ -5524,7 +5524,7 @@ type ::=
   {: RESULT = Type.QUANTILE_STATE; :}
   | KW_STRING
   {: RESULT = ScalarType.createStringType(); :}
-  | KW_JSON
+  | KW_JSONB
   {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
@@ -6595,7 +6595,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
-    | KW_JSON:id
+    | KW_JSONB:id
     {: RESULT = id; :}
     | KW_ENCRYPTKEY:id
     {: RESULT = id; :}

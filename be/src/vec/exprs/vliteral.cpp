@@ -129,7 +129,7 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
             DCHECK(node.__isset.json_literal);
             JsonBinaryValue value(node.json_literal.value);
-            field = JsonbField(value.value(), value.size());
+            field = String(value.value(), value.size());
             break;
         }
         case TYPE_DECIMALV2: {
