@@ -24,11 +24,13 @@ under the License.
 
 ## ADMIN-REBALANCE-DISK
 
-<version since="1.2.0">
-
 ### Name
 
+<version since="1.2.0">
+
 ADMIN REBALANCE DISK
+
+</version>
 
 ### Description
 
@@ -65,6 +67,4 @@ ADMIN REBALANCE DISK
     ADMIN,REBALANCE,DISK
 
 ### Best Practice
-
-</version>
 

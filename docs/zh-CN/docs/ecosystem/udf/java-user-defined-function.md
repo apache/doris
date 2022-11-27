@@ -26,6 +26,8 @@ under the License.
 
 # Java UDF
 
+<version since="1.2">
+
 Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言进行自定义函数的执行。相比于 Native 的 UDF 实现，Java UDF 有如下优势和限制：
 1. 优势
 * 兼容性：使用Java UDF可以兼容不同的Doris版本，所以在进行Doris版本升级时，Java UDF不需要进行额外的迁移操作。与此同时，Java UDF同样遵循了和Hive/Spark等引擎同样的编程规范，使得用户可以直接将Hive/Spark的UDF jar包迁移至Doris使用。
@@ -35,6 +37,8 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 2. 使用限制
 * 性能：相比于 Native UDF，Java UDF会带来额外的JNI开销，不过通过批式执行的方式，我们已经尽可能的将JNI开销降到最低。
 * 向量化引擎：Java UDF当前只支持向量化引擎。
+
+</version>
 
 ### 类型对应关系
 

@@ -63,6 +63,8 @@ INTO OUTFILE "file_path"
     ```
 
     指定导出格式. 支持 CSV、PARQUET、CSV_WITH_NAMES、CSV_WITH_NAMES_AND_TYPES、ORC. 默认为 CSV。
+
+    > 注：PARQUET、CSV_WITH_NAMES、CSV_WITH_NAMES_AND_TYPES、ORC 在 1.2 版本开始支持。
     
 3. properties
    

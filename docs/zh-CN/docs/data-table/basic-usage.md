@@ -403,6 +403,8 @@ mysql> SELECT * FROM table1 ORDER BY citycode;
 
 ### SELECT * EXCEPT
 
+<version since="1.2">
+
 `SELECT * EXCEPT` 语句指定要从结果中排除的一个或多个列的名称。输出中将忽略所有匹配的列名称。
 
 ```sql
@@ -418,6 +420,8 @@ MySQL> SELECT * except (username, citycode) FROM table1;
 ```
 
 **注意**：`SELECT * EXCEPT` 不会排除没有名称的列。
+
+</version>
 
 ### Join 查询
 
