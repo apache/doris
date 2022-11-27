@@ -282,6 +282,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 }
 
 Status SegmentIterator::_get_row_ranges_by_column_conditions() {
+    SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_ns);
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }

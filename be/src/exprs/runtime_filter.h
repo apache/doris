@@ -43,6 +43,7 @@ class PMinMaxFilter;
 class HashJoinNode;
 class RuntimeProfile;
 class BloomFilterFuncBase;
+class BitmapFilterFuncBase;
 
 namespace vectorized {
 class VExpr;
@@ -251,6 +252,8 @@ public:
     void set_push_down_profile();
 
     void ready_for_publish();
+
+    std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const;
 
     static bool enable_use_batch(int be_exec_version, PrimitiveType type) {
         return be_exec_version > 0 && (is_int_or_bool(type) || is_float_or_double(type));
