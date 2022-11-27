@@ -142,13 +142,14 @@ public class CostCalculator {
         public CostEstimate visitPhysicalDistribute(
                 PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
+            double buildSize = childStatistics.computeSize();
             DistributionSpec spec = distribute.getDistributionSpec();
             // shuffle
             if (spec instanceof DistributionSpecHash) {
                 return CostEstimate.of(
-                        childStatistics.computeSize(),
+                        buildSize,
                         0,
-                        childStatistics.computeSize());
+                        buildSize);
             }
 
             // replicate
@@ -156,24 +157,31 @@ public class CostCalculator {
                 int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendIds(true).size();
                 int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
                 beNumber = Math.max(1, beNumber);
-
+                double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+                //if build side is big, avoid use broadcast join
+                double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
+                double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+                if (buildSize * instanceNumber > memLimit * brMemlimit
+                        || childStatistics.getRowCount() > rowsLimit) {
+                    return CostEstimate.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
+                }
                 return CostEstimate.of(
-                        childStatistics.computeSize() * beNumber,
-                        childStatistics.computeSize() * beNumber * instanceNumber,
-                        childStatistics.computeSize() * beNumber * instanceNumber);
+                        buildSize * beNumber,
+                        buildSize * beNumber * instanceNumber,
+                        buildSize * beNumber * instanceNumber);
             }
 
             // gather
             if (spec instanceof DistributionSpecGather) {
                 return CostEstimate.of(
-                        childStatistics.computeSize(),
+                        buildSize,
                         0,
-                        childStatistics.computeSize());
+                        buildSize);
             }
 
             // any
             return CostEstimate.of(
-                    childStatistics.computeSize(),
+                    buildSize,
                     0,
                     0);
         }
