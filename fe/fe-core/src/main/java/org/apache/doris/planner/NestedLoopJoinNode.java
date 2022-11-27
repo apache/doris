@@ -202,6 +202,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
+        joinConjuncts = Expr.substituteList(joinConjuncts, combinedChildSmap, analyzer, false);
         computeCrossRuntimeFilterExpr();
 
         // Only for Vec: create new tuple for join result

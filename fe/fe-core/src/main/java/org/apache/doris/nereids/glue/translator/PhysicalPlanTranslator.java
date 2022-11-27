@@ -895,8 +895,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
             connectChildFragment(nestedLoopJoinNode, 1, leftFragment, rightFragment, context);
             leftFragment.setPlanRoot(nestedLoopJoinNode);
-            nestedLoopJoin.getOtherJoinConjuncts().stream()
-                    .map(e -> ExpressionTranslator.translate(e, context)).forEach(nestedLoopJoinNode::addConjunct);
+            List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
+                    .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+            nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
             if (nestedLoopJoin.isShouldTranslateOutput()) {
                 // translate output expr on intermediate tuple

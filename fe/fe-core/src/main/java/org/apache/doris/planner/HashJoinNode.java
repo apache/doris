@@ -285,7 +285,6 @@ public class HashJoinNode extends JoinNodeBase {
         List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
         eqJoinConjuncts =
                 newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
-        assignedConjuncts = analyzer.getAssignedConjuncts();
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
         // Only for Vec: create new tuple for join result
