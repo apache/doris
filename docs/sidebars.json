@@ -28,7 +28,7 @@
                         "install/source-install/compilation-arm"
                     ]
                 },
-                "install/docker",
+                "install/construct-docker",
                 {
                     "type": "category",
                     "label": "Construct Docker",
