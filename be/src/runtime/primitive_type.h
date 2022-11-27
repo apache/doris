@@ -28,7 +28,6 @@ namespace doris {
 
 namespace vectorized {
 class ColumnString;
-class ColumnJsonb;
 } // namespace vectorized
 
 class DateTimeValue;
@@ -232,7 +231,7 @@ struct PrimitiveTypeTraits<TYPE_HLL> {
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
     using CppType = JsonBinaryValue;
-    using ColumnType = vectorized::ColumnJsonb;
+    using ColumnType = vectorized::ColumnString;
 };
 
 // only for adapt get_predicate_column_ptr

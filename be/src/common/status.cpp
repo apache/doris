@@ -63,7 +63,15 @@ Status::Status(const PStatus& s) {
     }
 }
 
-Status Status::ConstructErrorStatus(int16_t precise_code) {
+// A wrapper for ErrorCode
+//      Precise code is for ErrorCode's enum value
+//      All Status Error is treated as Internal Error
+Status Status::OLAPInternalError(int16_t precise_code, std::string_view msg) {
+    return ConstructErrorStatus(TStatusCode::INTERNAL_ERROR, precise_code, msg);
+}
+
+Status Status::ConstructErrorStatus(TStatusCode::type tcode, int16_t precise_code,
+                                    std::string_view msg) {
 // This will print all error status's stack, it maybe too many, but it is just used for debug
 #ifdef PRINT_ALL_ERR_STATUS_STACKTRACE
     LOG(WARNING) << "Error occurred, error code = " << precise_code << ", with message: " << msg
@@ -72,9 +80,17 @@ Status Status::ConstructErrorStatus(int16_t precise_code) {
     if (error_states[abs(precise_code)].stacktrace) {
         // Add stacktrace as part of message, could use LOG(WARN) << "" << status will print both
         // the error message and the stacktrace
-        return Status(TStatusCode::INTERNAL_ERROR, get_stack_trace(), precise_code);
+        if (msg.empty()) {
+            return Status(tcode, get_stack_trace(), precise_code);
+        } else {
+            return Status(tcode, std::string(msg) + "/n" + get_stack_trace(), precise_code);
+        }
     } else {
-        return Status(TStatusCode::INTERNAL_ERROR, std::string_view(), precise_code);
+        if (msg.empty()) {
+            return Status(tcode, std::string_view(), precise_code);
+        } else {
+            return Status(tcode, msg, precise_code);
+        }
     }
 }
 

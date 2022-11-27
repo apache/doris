@@ -65,8 +65,9 @@ public class RewriteBottomUpJob extends Job {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
             pushJob(new RewriteBottomUpJob(group, rules, context, true));
-            for (Group childGroup : logicalExpression.children()) {
-                pushJob(new RewriteBottomUpJob(childGroup, rules, context, false));
+            List<Group> children = logicalExpression.children();
+            for (int i = children.size() - 1; i >= 0; i--) {
+                pushJob(new RewriteBottomUpJob(children.get(i), rules, context, false));
             }
             return;
         }
@@ -77,8 +78,14 @@ public class RewriteBottomUpJob extends Job {
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
                 Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
-                if (copyInResult.isPresent() && copyInResult.get().generateNewExpression) {
-                    pushJob(new RewriteBottomUpJob(group, rules, context, false));
+                if (!copyInResult.isPresent()) {
+                    continue;
+                }
+                Group correspondingGroup = copyInResult.get().correspondingExpression.getOwnerGroup();
+                if (copyInResult.get().generateNewExpression
+                        || correspondingGroup != group
+                        || logicalExpression.getOwnerGroup() == null) {
+                    pushJob(new RewriteBottomUpJob(correspondingGroup, rules, context, false));
                     return;
                 }
             }

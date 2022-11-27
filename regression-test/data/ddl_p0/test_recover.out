@@ -21,13 +21,126 @@ test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` d
 test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
 
 -- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb
+test_recover_tb_2
+
+-- !select --
+test_recover_tb_2
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
 test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
 
 -- !select --
 test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
 
 -- !select --
-test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
 
 -- !select --
 
@@ -35,6 +148,15 @@ test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` d
 test_recover_tb
 
 -- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
 
 -- !select --
 test_recover_tb
@@ -58,6 +180,15 @@ test_recover_db	CREATE DATABASE `test_recover_db`
 test_recover_db	CREATE DATABASE `test_recover_db`
 
 -- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
 test_recover_db_new	CREATE DATABASE `test_recover_db_new`
 
 -- !select --
@@ -67,16 +198,635 @@ test_recover_db	CREATE DATABASE `test_recover_db`
 test_recover_db_new	CREATE DATABASE `test_recover_db_new`
 
 -- !select --
-test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
-
--- !select --
-test_recover_tb_new	CREATE TABLE `test_recover_tb_new` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
 
 -- !select --
 test_recover_tb
-test_recover_tb_1
 test_recover_tb_2
+
+-- !select --
+test_recover_tb_2
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
 test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb
+test_recover_tb_2
+
+-- !select --
+test_recover_tb_2
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb
+test_recover_tb_2
+
+-- !select --
+test_recover_tb_2
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb
+test_recover_tb_2
+
+-- !select --
+test_recover_tb_2
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb
+test_recover_tb_2
+
+-- !select --
+test_recover_tb_2
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb
+test_recover_tb_2
+
+-- !select --
+test_recover_tb_2
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("1000"), ("2000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("2000"), ("3000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("3000"), ("4000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("3000"), ("4000")),\nPARTITION p2000 VALUES [("4000"), ("5000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+test_recover_tb
+
+-- !select --
+
+-- !select --
+test_recover_tb_new
+
+-- !select --
+test_recover_tb
+test_recover_tb_new
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_db	CREATE DATABASE `test_recover_db`
+
+-- !select --
+test_recover_db_new	CREATE DATABASE `test_recover_db_new`
+
+-- !select --
+test_recover_tb	CREATE TABLE `test_recover_tb` (\n  `k1` int(11) NULL,\n  `k2` datetime NULL\n) ENGINE=OLAP\nUNIQUE KEY(`k1`)\nCOMMENT 'OLAP'\nPARTITION BY RANGE(`k1`)\n(PARTITION p111 VALUES [("-1000"), ("111")),\nPARTITION p222 VALUES [("111"), ("222")),\nPARTITION p333 VALUES [("222"), ("333")),\nPARTITION p1000 VALUES [("333"), ("1000")))\nDISTRIBUTED BY HASH(`k1`) BUCKETS 3\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"in_memory" = "false",\n"storage_format" = "V2",\n"disable_auto_compaction" = "false"\n);
+
+-- !select --
+test_recover_tb
+test_recover_tb_2
 
 -- !select --
 test_recover_tb_2

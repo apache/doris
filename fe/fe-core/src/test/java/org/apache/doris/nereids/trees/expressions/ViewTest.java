@@ -23,7 +23,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
+import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -113,7 +113,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
     public void testSimpleViewMergeProjects() {
         PlanChecker.from(connectContext)
                 .analyze("SELECT * FROM V1")
-                .applyTopDown(new EliminateAliasNode())
+                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
                 .matchesFromRoot(
                       logicalProject(
@@ -140,7 +140,7 @@ public class ViewTest extends TestWithFeService implements PatternMatchSupported
                         + ") Y\n"
                         + "ON X.ID1 = Y.ID3"
                 )
-                .applyTopDown(new EliminateAliasNode())
+                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new MergeProjects())
                 .matchesFromRoot(
                         logicalProject(

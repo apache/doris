@@ -80,7 +80,9 @@ public class LimitClauseTest extends ParserTestBase {
         parsePlan("select a from tbl")
                 .matchesFromRoot(
                         logicalProject(
-                                unboundRelation()
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
                         )
                 );
     }

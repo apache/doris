@@ -209,7 +209,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisJobScheduler;
-import org.apache.doris.statistics.StatisticStorageInitializer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.statistics.StatisticsJobScheduler;
@@ -1431,7 +1430,7 @@ public class Env {
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         this.statisticsJobScheduler.start();
         this.statisticsTaskScheduler.start();
-        new StatisticStorageInitializer().start();
+        new InternalSchemaInitializer().start();
     }
 
     // start threads that should running on all FE

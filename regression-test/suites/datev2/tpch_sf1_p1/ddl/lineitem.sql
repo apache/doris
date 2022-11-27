@@ -16,9 +16,10 @@ CREATE TABLE IF NOT EXISTS lineitem (
   L_SHIPMODE     CHAR(10) NOT NULL,
   L_COMMENT      VARCHAR(44) NOT NULL
 )
-UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
+DUPLICATE KEY(L_ORDERKEY)
 DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
-)
+  "replication_num" = "1",
+  "colocate_with" = "lineitem_orders"
+);
 

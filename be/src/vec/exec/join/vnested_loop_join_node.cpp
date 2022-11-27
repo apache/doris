@@ -17,10 +17,13 @@
 
 #include "vec/exec/join/vnested_loop_join_node.h"
 
+#include <glog/logging.h>
+
 #include <sstream>
 
 #include "common/status.h"
 #include "exprs/expr.h"
+#include "exprs/runtime_filter_slots_cross.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -33,6 +36,36 @@
 
 namespace doris::vectorized {
 
+struct RuntimeFilterBuild {
+    RuntimeFilterBuild(VNestedLoopJoinNode* join_node) : _join_node(join_node) {}
+
+    Status operator()(RuntimeState* state) {
+        if (_join_node->_runtime_filter_descs.empty()) {
+            return Status::OK();
+        }
+        VRuntimeFilterSlotsCross runtime_filter_slots(_join_node->_runtime_filter_descs,
+                                                      _join_node->_filter_src_expr_ctxs);
+
+        RETURN_IF_ERROR(runtime_filter_slots.init(state));
+
+        if (!runtime_filter_slots.empty() && !_join_node->_build_blocks.empty()) {
+            SCOPED_TIMER(_join_node->_push_compute_timer);
+            for (auto& build_block : _join_node->_build_blocks) {
+                runtime_filter_slots.insert(&build_block);
+            }
+        }
+        {
+            SCOPED_TIMER(_join_node->_push_down_timer);
+            runtime_filter_slots.publish();
+        }
+
+        return Status::OK();
+    }
+
+private:
+    VNestedLoopJoinNode* _join_node;
+};
+
 VNestedLoopJoinNode::VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnode,
                                          const DescriptorTbl& descs)
         : VJoinNodeBase(pool, tnode, descs),
@@ -40,7 +73,27 @@ VNestedLoopJoinNode::VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnod
           _matched_rows_done(false),
           _left_block_pos(0),
           _left_side_eos(false),
-          _old_version_flag(!tnode.__isset.nested_loop_join_node) {}
+          _old_version_flag(!tnode.__isset.nested_loop_join_node),
+          _runtime_filter_descs(tnode.runtime_filters) {}
+
+Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(VJoinNodeBase::init(tnode, state));
+
+    if (tnode.nested_loop_join_node.__isset.is_output_left_side_only) {
+        _is_output_left_side_only = tnode.nested_loop_join_node.is_output_left_side_only;
+    }
+
+    std::vector<TExpr> filter_src_exprs;
+    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
+        filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
+                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
+    }
+    RETURN_IF_ERROR(
+            vectorized::VExpr::create_expr_trees(_pool, filter_src_exprs, &_filter_src_expr_ctxs));
+    DCHECK(!filter_src_exprs.empty() == _is_output_left_side_only);
+    return Status::OK();
+}
 
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -51,6 +104,8 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     _build_rows_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
     _probe_rows_counter = ADD_COUNTER(runtime_profile(), "ProbeRows", TUnit::UNIT);
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
+    _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
+    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
 
     // pre-compute the tuple index of build tuples in the output row
     int num_build_tuples = child(1)->row_desc().tuple_descriptors().size();
@@ -64,6 +119,8 @@ Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     _num_probe_side_columns = child(0)->row_desc().num_materialized_slots();
     _num_build_side_columns = child(1)->row_desc().num_materialized_slots();
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
+    RETURN_IF_ERROR(VExpr::prepare(_filter_src_expr_ctxs, state, child(1)->row_desc()));
+
     _construct_mutable_join_block();
     return Status::OK();
 }
@@ -74,7 +131,9 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::close");
+    VExpr::close(_filter_src_expr_ctxs, state);
     _release_mem();
+
     return VJoinNodeBase::close(state);
 }
 
@@ -108,6 +167,24 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
     }
 
     COUNTER_UPDATE(_build_rows_counter, _build_rows);
+
+    RuntimeFilterBuild processRuntimeFilterBuild {this};
+    processRuntimeFilterBuild(state);
+
+    return Status::OK();
+}
+
+Status VNestedLoopJoinNode::get_left_side(RuntimeState* state, Block* block) {
+    do {
+        RETURN_IF_ERROR_AND_CHECK_SPAN(
+                child(0)->get_next_after_projects(state, block, &_left_side_eos),
+                child(0)->get_next_span(), _left_side_eos);
+
+    } while (block->rows() == 0 && !_left_side_eos);
+    COUNTER_UPDATE(_probe_rows_counter, block->rows());
+    if (block->rows() == 0) {
+        _matched_rows_done = _left_side_eos;
+    }
     return Status::OK();
 }
 
@@ -118,6 +195,14 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+
+    if (_is_output_left_side_only) {
+        RETURN_IF_ERROR(get_left_side(state, block));
+        *eos = _left_side_eos;
+        reached_limit(block, eos);
+        return Status::OK();
+    }
+
     if ((_match_all_build && _matched_rows_done &&
          _output_null_idx_build_side == _build_blocks.size()) ||
         _matched_rows_done) {
@@ -141,17 +226,8 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                         if (_left_side_eos) {
                             _matched_rows_done = true;
                         } else {
-                            do {
-                                release_block_memory(_left_block);
-                                RETURN_IF_ERROR_AND_CHECK_SPAN(
-                                        child(0)->get_next_after_projects(state, &_left_block,
-                                                                          &_left_side_eos),
-                                        child(0)->get_next_span(), _left_side_eos);
-                            } while (_left_block.rows() == 0 && !_left_side_eos);
-                            COUNTER_UPDATE(_probe_rows_counter, _left_block.rows());
-                            if (_left_block.rows() == 0) {
-                                _matched_rows_done = _left_side_eos;
-                            }
+                            release_block_memory(_left_block);
+                            RETURN_IF_ERROR(get_left_side(state, &_left_block));
                         }
                     }
 
@@ -499,6 +575,7 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(
 Status VNestedLoopJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(VExpr::open(_filter_src_expr_ctxs, state));
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);

@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
@@ -53,6 +54,10 @@ import java.util.stream.Collectors;
  */
 public class NestedLoopJoinNode extends JoinNodeBase {
     private static final Logger LOG = LogManager.getLogger(NestedLoopJoinNode.class);
+
+    private boolean isOutputLeftSideOnly = false;
+
+    private List<Expr> runtimeFilterExpr = Lists.newArrayList();
 
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, outer, inner, innerRef);
@@ -127,6 +132,18 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         vSrcToOutputSMap = new ExprSubstitutionMap(srcToOutputList, Collections.emptyList());
     }
 
+    public void setOutputLeftSideOnly(boolean outputLeftSideOnly) {
+        isOutputLeftSideOnly = outputLeftSideOnly;
+    }
+
+    public List<Expr> getRuntimeFilterExpr() {
+        return runtimeFilterExpr;
+    }
+
+    public void addBitmapFilterExpr(Expr runtimeFilterExpr) {
+        this.runtimeFilterExpr.add(runtimeFilterExpr);
+    }
+
     public TableRef getInnerRef() {
         return innerRef;
     }
@@ -172,16 +189,27 @@ public class NestedLoopJoinNode extends JoinNodeBase {
                 msg.nested_loop_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
+        msg.nested_loop_join_node.setIsOutputLeftSideOnly(isOutputLeftSideOnly);
         msg.node_type = TPlanNodeType.CROSS_JOIN_NODE;
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        computeCrossRuntimeFilterExpr();
 
         // Only for Vec: create new tuple for join result
         if (VectorizedUtil.isVectorized()) {
             computeOutputTuple(analyzer);
+        }
+    }
+
+    private void computeCrossRuntimeFilterExpr() {
+        for (int i = conjuncts.size() - 1; i >= 0; --i) {
+            if (conjuncts.get(i) instanceof BitmapFilterPredicate) {
+                addBitmapFilterExpr(conjuncts.get(i));
+                conjuncts.remove(i);
+            }
         }
     }
 
@@ -199,6 +227,11 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+        }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(detailPrefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(true));
+            output.append("isOutputLeftSideOnly: ").append(isOutputLeftSideOnly).append("\n");
         }
         output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         // todo unify in plan node

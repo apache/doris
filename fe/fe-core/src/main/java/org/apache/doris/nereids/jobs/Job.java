@@ -80,8 +80,7 @@ public abstract class Job {
      * @param candidateRules rules to be applied
      * @return all rules that can be applied on this group expression
      */
-    public List<Rule> getValidRules(GroupExpression groupExpression,
-            List<Rule> candidateRules) {
+    public List<Rule> getValidRules(GroupExpression groupExpression, List<Rule> candidateRules) {
         return candidateRules.stream()
                 .filter(rule -> Objects.nonNull(rule) && rule.getPattern().matchRoot(groupExpression.getPlan())
                         && groupExpression.notApplied(rule)).collect(Collectors.toList());
@@ -101,9 +100,10 @@ public abstract class Job {
         if (after != before) {
             CopyInResult result = context.getCascadesContext()
                     .getMemo()
-                    .copyIn(after, targetGroup, true);
+                    .copyIn(after, targetGroup, rule.isRewrite());
 
-            if (result.generateNewExpression && enableTrace) {
+            if ((result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup)
+                    && enableTrace) {
                 String traceAfter = getPlanTraceLog();
                 printTraceLog(rule, traceBefore, traceAfter);
             }

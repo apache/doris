@@ -213,7 +213,7 @@ public class RuntimeFilterGeneratorTest {
         new Expectations() {
             {
                 ConnectContext.get().getSessionVariable().getRuntimeFilterType();
-                result = 16;
+                result = 32;
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
@@ -563,7 +563,7 @@ public class RuntimeFilterGeneratorTest {
         new Expectations() {
             {
                 ConnectContext.get().getSessionVariable().getRuntimeFilterType();
-                result = 16;
+                result = 32;
             }
         };
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);

@@ -18,14 +18,11 @@
 package org.apache.doris.cluster;
 
 import org.apache.doris.analysis.AlterSystemStmt;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
@@ -90,17 +87,8 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
 
-        Database db = null;
-        long waitLimitMs = 5 * 1000;
-        do {
-            db = Env.getCurrentEnv().getInternalCatalog()
-                    .getDb(SystemInfoService.DEFAULT_CLUSTER + ":" + StatisticConstants.STATISTIC_DB_NAME)
-                    .orElse(null);
-            Thread.sleep(100);
-            waitLimitMs -= 100;
-        } while (db == null && waitLimitMs > 0);
         // For now, we have pre-built internal table: analysis_job and column_statistics
-        Assertions.assertEquals(tabletNum + StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT * 2,
+        Assertions.assertEquals(tabletNum,
                 Env.getCurrentInvertedIndex().getTabletMetaMap().size());
 
         // 6. add backend

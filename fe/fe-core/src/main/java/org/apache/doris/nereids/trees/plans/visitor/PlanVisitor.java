@@ -23,11 +23,13 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -58,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 
@@ -80,6 +84,10 @@ public abstract class PlanVisitor<R, C> {
     }
 
     public R visitExplainCommand(ExplainCommand explain, C context) {
+        return visitCommand(explain, context);
+    }
+
+    public R visitCreatePolicyCommand(CreatePolicyCommand explain, C context) {
         return visitCommand(explain, context);
     }
 
@@ -127,8 +135,16 @@ public abstract class PlanVisitor<R, C> {
         return visit(aggregate, context);
     }
 
+    public R visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, C context) {
+        return visit(repeat, context);
+    }
+
     public R visitLogicalFilter(LogicalFilter<? extends Plan> filter, C context) {
         return visit(filter, context);
+    }
+
+    public R visitLogicalCheckPolicy(LogicalCheckPolicy<? extends Plan> checkPolicy, C context) {
+        return visit(checkPolicy, context);
     }
 
     public R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {
@@ -181,6 +197,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, C context) {
         return visit(agg, context);
+    }
+
+    public R visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, C context) {
+        return visit(repeat, context);
     }
 
     public R visitPhysicalScan(PhysicalRelation scan, C context) {

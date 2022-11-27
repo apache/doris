@@ -17,7 +17,8 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -99,7 +100,7 @@ public class IcebergAnalysisJob extends HMSAnalysisJob {
 
     private void updateStats() throws Exception {
         Map<String, String> params = new HashMap<>();
-        params.put("internalDB", StatisticConstants.STATISTIC_DB_NAME);
+        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
         params.put("id", String.valueOf(tbl.getId()) + "-" + String.valueOf(col.getName()));
         params.put("catalogId", String.valueOf(catalog.getId()));
@@ -115,8 +116,9 @@ public class IcebergAnalysisJob extends HMSAnalysisJob {
         // Update table level stats info of this column.
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(INSERT_TABLE_SQL_TEMPLATE);
-        ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-        this.stmtExecutor = new StmtExecutor(connectContext, sql);
-        this.stmtExecutor.execute();
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            this.stmtExecutor.execute();
+        }
     }
 }

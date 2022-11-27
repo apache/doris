@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.common.Id;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -40,8 +39,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
-
-import java.util.List;
 
 /**
  * Calculate the cost of a plan.
@@ -187,25 +184,22 @@ public class CostCalculator {
 
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult inputStatistics = context.getChildStatistics(0);
-            return CostEstimate.of(inputStatistics.computeSize(), statistics.computeSize(), 0);
+            return CostEstimate.of(inputStatistics.getRowCount(), statistics.computeSize(), 0);
         }
 
         @Override
         public CostEstimate visitPhysicalHashJoin(
                 PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin, PlanContext context) {
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
-            Preconditions.checkState(context.getChildrenStats().size() == 2);
 
             StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
-            double outputRowCount = outputStats.computeSize();
+            double outputRowCount = outputStats.getRowCount();
 
             StatsDeriveResult probeStats = context.getChildStatistics(0);
             StatsDeriveResult buildStats = context.getChildStatistics(1);
-            List<Id> leftIds = context.getChildOutputIds(0);
-            List<Id> rightIds = context.getChildOutputIds(1);
 
-            double leftRowCount = probeStats.computeColumnSize(leftIds);
-            double rightRowCount = buildStats.computeColumnSize(rightIds);
+            double leftRowCount = probeStats.getRowCount();
+            double rightRowCount = buildStats.getRowCount();
             /*
             pattern1: L join1 (Agg1() join2 Agg2())
             result number of join2 may much less than Agg1.
@@ -240,7 +234,6 @@ public class CostCalculator {
                 PlanContext context) {
             // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
-            Preconditions.checkState(context.getChildrenStats().size() == 2);
 
             StatsDeriveResult leftStatistics = context.getChildStatistics(0);
             StatsDeriveResult rightStatistics = context.getChildStatistics(1);
