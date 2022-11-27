@@ -46,7 +46,8 @@ struct ConvertTZImpl {
     static void execute(FunctionContext* context, const ColumnType* date_column,
                         const ColumnString* from_tz_column, const ColumnString* to_tz_column,
                         ReturnColumnType* result_column, NullMap& result_null_map,
-                        size_t input_rows_count) {
+                        size_t input_rows_count,
+                        std::map<StringRef, cctz::time_zone>& time_zone_cache) {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();
@@ -60,14 +61,32 @@ struct ConvertTZImpl {
                     binary_cast<NativeType, DateValueType>(date_column->get_element(i));
             int64_t timestamp;
 
-            if (!ts_value.unix_timestamp(&timestamp, from_tz.to_string())) {
+            if (time_zone_cache.find(from_tz) == time_zone_cache.cend()) {
+                if (!TimezoneUtils::find_cctz_time_zone(from_tz.to_string(),
+                                                        time_zone_cache[from_tz])) {
+                    result_null_map[i] = true;
+                    result_column->insert_default();
+                    continue;
+                }
+            }
+
+            if (time_zone_cache.find(to_tz) == time_zone_cache.cend()) {
+                if (!TimezoneUtils::find_cctz_time_zone(to_tz.to_string(),
+                                                        time_zone_cache[to_tz])) {
+                    result_null_map[i] = true;
+                    result_column->insert_default();
+                    continue;
+                }
+            }
+
+            if (!ts_value.unix_timestamp(&timestamp, time_zone_cache[from_tz])) {
                 result_null_map[i] = true;
                 result_column->insert_default();
                 continue;
             }
 
             ReturnDateType ts_value2;
-            if (!ts_value2.from_unixtime(timestamp, to_tz.to_string())) {
+            if (!ts_value2.from_unixtime(timestamp, time_zone_cache[to_tz])) {
                 result_null_map[i] = true;
                 result_column->insert_default();
                 continue;
@@ -140,7 +159,7 @@ public:
                                assert_cast<const ColumnString*>(argument_columns[2].get()),
                                assert_cast<ColumnDateTime*>(result_column.get()),
                                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                               input_rows_count);
+                               input_rows_count, _time_zone_cache);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
@@ -150,7 +169,7 @@ public:
                                assert_cast<const ColumnString*>(argument_columns[2].get()),
                                assert_cast<ColumnDateTimeV2*>(result_column.get()),
                                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                               input_rows_count);
+                               input_rows_count, _time_zone_cache);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } else {
@@ -161,13 +180,16 @@ public:
                                assert_cast<const ColumnString*>(argument_columns[2].get()),
                                assert_cast<ColumnDateTimeV2*>(result_column.get()),
                                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                               input_rows_count);
+                               input_rows_count, _time_zone_cache);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         }
 
         return Status::OK();
     }
+
+private:
+    std::map<StringRef, cctz::time_zone> _time_zone_cache;
 };
 
 } // namespace doris::vectorized
