@@ -36,6 +36,7 @@
                         "install/docker/construct-docker-image",
                         "install/docker/construct-docker-compose"
                     ]
+                }
             ]
         },
         {
