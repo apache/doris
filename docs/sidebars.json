@@ -33,8 +33,8 @@
                     "type": "category",
                     "label": "Construct Docker",
                     "items": [
-                        "install/docker/construct-docker-image",
-                        "install/docker/construct-docker-compose"
+                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/construct-docker-compose"
                     ]
                 }
             ]
