@@ -90,11 +90,19 @@ public class EventChannel {
         }
     }
 
+    /**
+     * worker thread start.
+     */
     public void start() {
+        isStop.set(false);
         if (thread == null) {
             thread = new Thread(new Worker(), "nereids_event");
             thread.setDaemon(true);
-            thread.start();
+            try {
+                thread.start();
+            } catch (IllegalThreadStateException e) {
+                LOG.warn("start worker failed: ", e);
+            }
         }
     }
 
@@ -107,7 +115,9 @@ public class EventChannel {
             try {
                 thread.join();
             } catch (InterruptedException e) {
-                LOG.warn("join worker join failed.", e);
+                LOG.warn("join worker failed.", e);
+            } finally {
+                thread = null;
             }
         }
     }

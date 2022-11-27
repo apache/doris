@@ -93,7 +93,9 @@ public class NereidsPlanner extends Planner {
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
-        EventChannel.getDefaultChannel().start();
+        if (ConnectContext.get().getSessionVariable().isEnableNereidsTrace()) {
+            EventChannel.getDefaultChannel().start();
+        }
     }
 
     @Override
