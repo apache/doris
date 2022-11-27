@@ -27,7 +27,15 @@
                         "install/source-install/compilation-with-ldb-toolchain",
                         "install/source-install/compilation-arm"
                     ]
-                }
+                },
+                "install/docker",
+                {
+                    "type": "category",
+                    "label": "Docker",
+                    "items": [
+                        "install/docker/construct-docker-image",
+                        "install/docker/construct-docker-compose"
+                    ]
             ]
         },
         {
