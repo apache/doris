@@ -100,8 +100,8 @@ beijing chengdu shanghai
 4
 
 -- !select --
-\N	5
 \N	\N
+\N	5
 1	1
 2	2
 3	3

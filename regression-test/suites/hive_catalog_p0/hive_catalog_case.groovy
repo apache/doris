@@ -27,6 +27,26 @@ suite("hive_catalog_case", "p0") {
         qt_q30 """ select count(card_cnt) from hive01;"""
         qt_q31 """ select * from test2 order by id;"""
         qt_q32 """ select * from test_hive_doris order by id;"""
+
+        order_qt_q33 """ select dt, * from table_with_vertical_line order by dt desc limit 10;"""
+        order_qt_q34 """ select dt, k2 from table_with_vertical_line order by k2 desc limit 10;"""
+        order_qt_q35 """ select dt, k2 from table_with_vertical_line where dt='2022-11-24' order by k2 desc limit 10;"""
+        order_qt_q36 """ select k2, k5 from table_with_vertical_line where dt='2022-11-25' order by k2 desc limit 10;"""
+        order_qt_q37 """ select count(*) from table_with_vertical_line;"""
+        order_qt_q38 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25') order by k2 desc limit 10;"""
+        order_qt_q39 """ select k2, k5 from table_with_vertical_line where dt in ('2022-11-25', '2022-11-24') order by k2 desc limit 10;"""
+        order_qt_q40 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-25') order by k2 desc limit 10;"""
+        order_qt_q41 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') and dt in ('2022-11-24') order by k2 desc limit 10;"""
+        order_qt_q42 """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
+
+        order_qt_q43 """ select dt, * from table_with_x01 order by dt desc limit 10;"""
+        order_qt_q44 """ select dt, k2 from table_with_x01 order by k2 desc limit 10;"""
+        order_qt_q45 """ select dt, k2 from table_with_x01 where dt='2022-11-10' order by k2 desc limit 10;"""
+        order_qt_q46 """ select k2, k5 from table_with_x01 where dt='2022-11-10' order by k2 desc limit 10;"""
+        order_qt_q47 """ select count(*) from table_with_x01;"""
+        order_qt_q48 """ select k2, k5 from table_with_x01 where dt in ('2022-11-25') order by k2 desc limit 10;"""
+        order_qt_q49 """ select k2, k5 from table_with_x01 where dt in ('2022-11-10', '2022-11-10') order by k2 desc limit 10;"""
+        order_qt_q50 """ select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
     }
 
 
@@ -69,9 +89,17 @@ suite("hive_catalog_case", "p0") {
             """
         sql """switch hive"""
         sql """use `default`"""
-        order_qt_show_tables """show tables"""
+        // order_qt_show_tables """show tables"""
 
         q01()
+
+        sql """refresh catalog hive"""
+        q01()
+        sql """refresh database `default`"""
+        // order_qt_show_tables2 """show tables"""
+        q01()
+        sql """refresh table `default`.table_with_vertical_line"""
+        order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""        
     }
 }
 

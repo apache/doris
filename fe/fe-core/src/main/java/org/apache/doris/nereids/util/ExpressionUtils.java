@@ -132,6 +132,14 @@ public class ExpressionUtils {
         return combine(And.class, Lists.newArrayList(expressions));
     }
 
+    public static Optional<Expression> optionalOr(List<Expression> expressions) {
+        if (expressions.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(ExpressionUtils.or(expressions));
+        }
+    }
+
     public static Expression or(Expression... expressions) {
         return combine(Or.class, Lists.newArrayList(expressions));
     }

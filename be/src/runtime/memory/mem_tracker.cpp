@@ -61,8 +61,7 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTra
     if (parent) {
         _parent_label = parent->label();
         _parent_group_num = parent->group_num();
-    } else {
-        DCHECK(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker() != nullptr);
+    } else if (thread_context_ptr.init) {
         _parent_label = thread_context()->thread_mem_tracker()->label();
         _parent_group_num = thread_context()->thread_mem_tracker()->group_num();
     }

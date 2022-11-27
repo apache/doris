@@ -49,7 +49,7 @@ public enum PrimitiveType {
     // 8-byte pointer and 4-byte length indicator (12 bytes total).
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR),
-    JSONB("JSON", 16, TPrimitiveType.JSONB),
+    JSONB("JSONB", 16, TPrimitiveType.JSONB),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32),

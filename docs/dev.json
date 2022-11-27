@@ -155,6 +155,10 @@
     "message": "Hash 函数",
     "description": "The label for category Hash Functions in sidebar docs"
   },
+  "sidebar.docs.category.HLL Functions": {
+    "message": "HLL 函数",
+    "description": "The label for category HLL Functions in sidebar docs"
+  },
   "sidebar.docs.category.Math Functions": {
     "message": "数学函数",
     "description": "The label for category Math Functions in sidebar docs"
