@@ -37,7 +37,7 @@ under the License.
 ### example
 A tutorial for JSONB datatype including create table, load data and query.
 
-### create database and table
+#### create database and table
 
 ```
 CREATE DATABASE testdb;
@@ -53,9 +53,9 @@ DISTRIBUTED BY HASH(id) BUCKETS 10
 PROPERTIES("replication_num" = "1");
 ```
 
-### Load data
+#### Load data
 
-#### stream load test_jsonb.csv test data
+##### stream load test_jsonb.csv test data
 
 - there are 2 columns, the 1st column is id and the 2nd column is json string
 - there are 25 rows, the first 18 rows are valid json and the last 7 rows are invalid
@@ -168,7 +168,7 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-#### write data using insert into
+##### write data using insert into
 
 - total rows increae from 18 to 19 after insert 1 row
 ```
@@ -204,9 +204,9 @@ mysql> SELECT * FROM test_jsonb ORDER BY id;
 
 ```
 
-### Query
+#### Query
 
-#### extract some filed from json by jsonb_extract functions
+##### extract some filed from json by jsonb_extract functions
 
 1. extract the whole json, '$' stands for root in json path
 ```
@@ -662,7 +662,7 @@ mysql> SELECT id, j, jsonb_extract_isnull(j, '$') FROM test_jsonb ORDER BY id;
 
 ```
 
-#### check if a field is existed in json by jsonb_exists_path
+##### check if a field is existed in json by jsonb_exists_path
 
 ```
 mysql> SELECT id, j, jsonb_exists_path(j, '$') FROM test_jsonb ORDER BY id;
@@ -746,7 +746,7 @@ mysql> SELECT id, j, jsonb_exists_path(j, '$[2]') FROM test_jsonb ORDER BY id;
 
 ```
 
-#### get the datatype of a field in json by jsonb_type
+##### get the datatype of a field in json by jsonb_type
 
 - return the data type of the field specified by json path, NULL if not existed.
 ```
