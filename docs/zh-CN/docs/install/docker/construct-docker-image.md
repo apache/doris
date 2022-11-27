@@ -24,8 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2"></version>
-
 # 构建 Docker Image 
 
 该文档主要介绍了如何通过 Dockerfile 来制作 Apache Doris 的运行镜像，以便于在容器化编排工具或者快速测试过程中可迅速拉取一个 Apache Doris Image 来完成集群的创建。

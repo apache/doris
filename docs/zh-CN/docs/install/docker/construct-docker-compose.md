@@ -24,8 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2"></version>
-
 # 构建 Docker Compose 
 
 *Todo*
