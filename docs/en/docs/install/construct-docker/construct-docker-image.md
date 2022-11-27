@@ -24,96 +24,93 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 构建 Docker Image 
+# Construct Docker Image 
 
-该文档主要介绍了如何通过 Dockerfile 来制作 Apache Doris 的运行镜像，以便于在容器化编排工具或者快速测试过程中可迅速拉取一个 Apache Doris Image 来完成集群的创建。
+This document mainly introduces how to make a running image of Apache Doris through Dockerfile, so that an Apache Doris Image can be quickly pulled in a containerized orchestration tool or during a quick test to complete the cluster creation.
 
-## 软硬件要求
+## Software and hardware requirements
 
-### 概述
+### Overview
 
-Docker 镜像在制作前要提前准备好制作机器，该机器的平台架构决定了制作以后的 Docker Image 适用的平台架构，如 X86_64 机器，需要下载 X86_64 的 Doris 二进制程序，制作以后的 Image 仅可在 X86_64 平台上运行。ARM 平台（M1 视同为 ARM）同理。
+Before making a Docker image, the production machine must be prepared in advance. The platform architecture of the machine determines the applicable platform architecture of the Docker Image after production. For example, the X86_64 machine needs to download the Doris binary program of X86_64. The image after production can only be used on the X86_64 platform run on. The ARM platform (M1 is regarded as ARM) is the same.
 
-### 硬件要求
+### Hardware requirements
 
-最低配置：2C 4G
+Minimum configuration: 2C 4G
 
-推荐配置：4C 16G
+Recommended configuration: 4C 16G
 
-### 软件要求
+### Software Requirements
 
-Docker Version：20.10 及以后版本
+Docker Version: 20.10 and later
 
-## Docker Image 构建
+## Docker Image build
 
-Dockerfile 脚本编写需要注意以下几点：
+Dockerfile scripting needs to pay attention to the following points:
+> 1. The base parent image uses the official OpenJDK image certified by Docker-Hub, and the version uses JDK 1.8
+> 2. The application uses the official binary package for download by default, do not use binary packages from unknown sources
+> 3. Embedded scripts are required to complete tasks such as FE startup, multi-FE registration, status check and BE startup, registration of BE to FE, status check, etc.
+> 4. The application should not be started using `--daemon` when starting in Docker, otherwise there will be exceptions during the deployment of orchestration tools such as K8S
 
-> 1. 基础父镜像选用经过 Docker-Hub 认证的 OpenJDK 官方镜像，版本用 JDK 1.8 版本
-> 2. 应用程序默认使用官方提供的二进制包进行下载，勿使用来源不明的二进制包
-> 3. 需要内嵌脚本来完成 FE 的启动、多 FE 注册、状态检查和 BE 的启动、注册 BE 至 FE 、状态检查等任务流程
-> 4. 应用程序在 Docker 内启动时不应使用 `--daemon` 的方式启动，否则在 K8S 等编排工具部署过程中会有异常
+Since Apache Doris 1.2 began to support JavaUDF capability, BE also needs a JDK environment. The recommended mirror is as follows:
 
-由于 Apache Doris 1.2 版本开始，开始支持 JavaUDF 能力，故而 BE 也需要有 JDK 环境，推荐的镜像如下：
-
-| Doris 程序 | 推荐基础父镜像    |
+| Doris Program | Recommended Base Parent Image |
 | ---------- | ----------------- |
-| Frontend   | openjdk:8u342-jdk |
-| Backend    | openjdk:8u342-jdk |
-| Broker     | openjdk:8u342-jdk |
+| Frontend | openjdk:8u342-jdk |
+| Backend | openjdk:8u342-jdk |
+| Broker | openjdk:8u342-jdk |
 
-### 脚本前期准备
+### Script preparation
 
-编译 Docker Image 的 Dockerfile 脚本中，关于 Apache Doris 程序二进制包的加载方式，有两种：
+In the Dockerfile script for compiling the Docker Image, there are two ways to load the binary package of the Apache Doris program:
 
-1. 通过 wget / curl 在编译时执行下载命令，随后完成 docker build 制作过程
-2. 提前下载二进制包至编译目录，然后通过 ADD 或者 COPY 命令加载至 docker build 过程中
+1. Execute the download command at compile time via wget / curl, and then complete the docker build process
+2. Download the binary package to the compilation directory in advance, and then load it into the docker build process through the ADD or COPY command
 
-使用前者会让 Docker Image Size 更小，但是如果构建失败的话可能下载操作会重复进行，导致构建时间过长，而后者更适用于网络环境不是很好的构建环境。后者构建的镜像要略大于前者，但是不会大很多。
+Using the former will make the Docker Image Size smaller, but if the build fails, the download operation may be repeated, resulting in a long build time, while the latter is more suitable for a build environment where the network environment is not very good. The image built by the latter is slightly larger than the former, but not much larger.
 
-**综上，本文档的示例以第二种方式为准，若有第一种诉求，可根据自己需求定制修改即可。**
+**To sum up, the examples in this document are subject to the second method. If you have the first request, you can customize and modify it according to your own needs. **
 
-### 准备二进制包
+### Prepare binary package
 
-需要注意的是，如有定制化开发需求，则需要自己修改源码后进行[编译](../source-install/compilation)打包，然后放置至构建目录即可。
+It should be noted that if there is a need for customized development, you need to modify the source code and then [compile](../source-install/compilation) to package it, and then place it in the build directory.
 
-若无特殊需求，直接[下载](https://doris.apache.org/zh-CN/download)官网提供的二进制包即可。
+If there is no special requirement, just [download](https://doris.apache.org/download) the binary package provided by the official website.
+### Build Steps
 
-### 构建步骤
+#### Build FE
 
-#### 构建 FE
-
-构建环境目录如下：
+The build environment directory is as follows:
 
 ```sql
-└── docker-build                                                // 构建根目录 
-    └── fe                                                      // FE 构建目录
-        ├── dockerfile                                          // dockerfile 脚本
-        └── resource                                            // 资源目录
-            ├── init_fe.sh                                      // 启动及注册脚本
-            └── apache-doris-x.x.x-bin-fe.tar.gz                // 二进制程序包
+└── docker-build                                       // build root directory
+     └── fe                                            // FE build directory
+         ├── dockerfile                                // dockerfile script
+         └── resource                                  // resource directory
+             ├── init_fe.sh                            // startup and registration script
+             └── apache-doris-x.x.x-bin-fe.tar.gz      // binary package
 ```
-
-1. 创建构建环境目录
+1. Create a build environment directory
 
    ```shell
    mkdir -p ./docker-build/fe/resource
    ```
 
-2. 下载[官方二进制包](https://doris.apache.org/zh-CN/download)/编译的二进制包
+2. Download [official binary package](https://doris.apache.org/download)/compiled binary package
 
-   拷贝二进制包至 `./docker-build/fe/resource` 目录下
+   Copy the binary package to the `./docker-build/fe/resource` directory
 
-3. 编写 FE 的 Dockerfile 脚本
+3. Write FE's Dockerfile script
 
    ```powershell
-   # 选择基础镜像
+   # select the base image
    FROM openjdk:8u342-jdk
    
-   # 设置环境变量
+   # Set environment variables
    ENV JAVA_HOME="/usr/local/openjdk-8/" \
        PATH="/opt/apache-doris/fe/bin:$PATH"
    
-   # 下载软件至镜像内，可根据需要替换
+   # Download the software to the mirror and replace it as needed
    ADD ./resource/apache-doris-fe-${x.x.x}-bin.tar.gz /opt/
    
    RUN apt-get update && \
@@ -129,55 +126,53 @@ Dockerfile 脚本编写需要注意以下几点：
    ENTRYPOINT ["/opt/apache-doris/fe/bin/init_fe.sh"]
    ```
 
-   编写后命名为 `Dockerfile` 并保存至 `./docker-build/fe` 目录下
+   After writing, name it `Dockerfile` and save it to the `./docker-build/fe` directory
 
-4. 编写 FE 的执行脚本
+4. Write the execution script of FE
 
-   可参考复制 [init_fe.sh](https://github.com/apache/doris/tree/master/docker/runtime/fe/resource/init_fe.sh) 的内容
+   You can refer to the content of copying [init_fe.sh](https://github.com/apache/doris/tree/master/docker/runtime/fe/resource/init_fe.sh)
 
-   编写后命名为 `init_fe.sh` 并保存至 `./docker-build/fe/resouce` 目录下
+   After writing, name it `init_fe.sh` and save it to the `./docker-build/fe/resouce` directory
 
-5. 执行构建
+5. Execute the build
 
-   需要注意的是，`${tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:1.1.3-fe`
+   It should be noted that `${tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:1.1.3-fe`
 
-   构建 FE：
+   Build FEs:
 
    ```shell
    cd ./docker-build/fe
    docker build . -t ${fe-tagName}
    ```
+#### Build BE
 
-
-#### 构建 BE
-
-1. 创建构建环境目录
+1. Create a build environment directory
 
 ```shell
 mkdir -p ./docker-build/be/resource
 ```
-2. 构建环境目录如下：
+2. The build environment directory is as follows:
 
    ```sql
-   └── docker-build                                                // 构建根目录 
-       └── be                                                      // BE 构建目录
-           ├── dockerfile                                          // dockerfile 脚本
-           └── resource                                            // 资源目录
-               ├── init_be.sh                                      // 启动及注册脚本
-               └── apache-doris-x.x.x-bin-x86_64/arm-be.tar.gz     // 二进制程序包
+   └── docker-build                                            // build root directory
+       └── be                                                  // BE build directory
+           ├── dockerfile                                      // dockerfile script
+           └── resource                                        // resource directory
+               ├── init_be.sh                                  // startup and registration script
+               └── apache-doris-x.x.x-bin-x86_64/arm-be.tar.gz // binary package
    ```
 
-3. 编写 BE 的 Dockerfile 脚本
+3. Write BE's Dockerfile script
 
    ```powershell
-   # 选择基础镜像
+   # select the base image
    FROM openjdk:8u342-jdk
    
-   # 设置环境变量
+   # Set environment variables
    ENV JAVA_HOME="/usr/local/openjdk-8/" \
        PATH="/opt/apache-doris/be/bin:$PATH"
    
-   # 下载软件至镜像内，可根据需要替换
+   # Download the software to the mirror and replace it as needed
    ADD ./resource/apache-doris-be-${x.x.x}-bin-x86_64.tar.gz /opt/
    
    RUN apt-get update && \
@@ -193,61 +188,60 @@ mkdir -p ./docker-build/be/resource
    ENTRYPOINT ["/opt/apache-doris/be/bin/init_be.sh"]
    ```
 
-   编写后命名为 `Dockerfile` 并保存至 `./docker-build/be` 目录下
+   After writing, name it `Dockerfile` and save it to the `./docker-build/be` directory
 
-4. 编写 BE 的执行脚本
+4. Write the execution script of BE
 
-   可参考复制 [init_be.sh](https://github.com/apache/doris/tree/master/docker/runtime/be/resource/init_be.sh) 的内容
+   You can refer to the content of copying [init_be.sh](https://github.com/apache/doris/tree/master/docker/runtime/be/resource/init_be.sh)
 
-   编写后命名为 `init_be.sh` 并保存至 `./docker-build/be/resouce` 目录下
+   After writing, name it `init_be.sh` and save it to the `./docker-build/be/resouce` directory
 
-5. 执行构建
+5. Execute the build
 
-   需要注意的是，`${tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:1.1.3-be`
+   It should be noted that `${tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:1.1.3-be`
 
-   构建 BE：
+   Build BEs:
 
    ```shell
    cd ./docker-build/be
    docker build . -t ${be-tagName}
    ```
 
-   构建完成后，会有 `Success` 字样提示，这时候通过以下命令可查看刚构建完成的 Image 镜像
+   After the construction is complete, there will be a prompt of `Success`. At this time, the following command can be used to view the Image mirror that has just been built
 
    ```shell
    docker images
    ```
+#### Build Broker
 
-#### 构建 Broker
-
-1.  创建构建环境目录
+1. Create a build environment directory
 
 ```shell
 mkdir -p ./docker-build/broker/resource
 ```
 
-2. 构建环境目录如下：
+2. The build environment directory is as follows:
 
    ```sql
-   └── docker-build                                                // 构建根目录 
-       └── broker                                                  // BROKER 构建目录
-           ├── dockerfile                                          // dockerfile 脚本
-           └── resource                                            // 资源目录
-               ├── init_broker.sh                                  // 启动及注册脚本
-               └── apache-doris-x.x.x-bin-broker.tar.gz            // 二进制程序包
+   └── docker-build                                     // build root directory
+       └── broker                                       // BROKER build directory
+           ├── dockerfile                               // dockerfile script
+           └── resource                                 // resource directory
+               ├── init_broker.sh                       // startup and registration script
+               └── apache-doris-x.x.x-bin-broker.tar.gz // binary package
    ```
 
-3. 编写 Broker 的 Dockerfile 脚本
+3. Write Broker's Dockerfile script
 
    ```powershell
-   # 选择基础镜像
+   # select the base image
    FROM openjdk:8u342-jdk
    
-   # 设置环境变量
+   # Set environment variables
    ENV JAVA_HOME="/usr/local/openjdk-8/" \
        PATH="/opt/apache-doris/broker/bin:$PATH"
    
-   # 下载软件至镜像内，此处 broker 目录被同步压缩至 FE 的二进制包，需要自行解压重新打包，可根据需要替换
+   # Download the software to the mirror, where the broker directory is synchronously compressed to the binary package of FE, which needs to be decompressed and repackaged by itself, and can be replaced as needed
    ADD ./resource/apache_hdfs_broker.tar.gz /opt/
    
    RUN apt-get update && \
@@ -263,40 +257,40 @@ mkdir -p ./docker-build/broker/resource
    ENTRYPOINT ["/opt/apache-doris/broker/bin/init_broker.sh"]
    ```
 
-   编写后命名为 `Dockerfile` 并保存至 `./docker-build/broker` 目录下
+   After writing, name it `Dockerfile` and save it to the `./docker-build/broker` directory
 
-4. 编写 BE 的执行脚本
+4. Write the execution script of BE
 
-   可参考复制 [init_broker.sh](https://github.com/apache/doris/tree/master/docker/runtime/broker/resource/init_broker.sh) 的内容
+   You can refer to the content of copying [init_broker.sh](https://github.com/apache/doris/tree/master/docker/runtime/broker/resource/init_broker.sh)
 
-   编写后命名为 `init_broker.sh` 并保存至 `./docker-build/broker/resouce` 目录下
+   After writing, name it `init_broker.sh` and save it to the `./docker-build/broker/resouce` directory
 
-5. 执行构建
+5. Execute the build
 
-   需要注意的是，`${tagName}` 需替换为你想要打包命名的 tag 名称，如：`apache-doris:1.1.3-broker`
+   It should be noted that `${tagName}` needs to be replaced with the tag name you want to package and name, such as: `apache-doris:1.1.3-broker`
 
-   构建 Broker：
+   Build Broker:
 
    ```shell
    cd ./docker-build/broker
    docker build . -t ${broker-tagName}
    ```
 
-   构建完成后，会有 `Success` 字样提示，这时候通过以下命令可查看刚构建完成的 Image 镜像
+   After the construction is complete, there will be a prompt of `Success`. At this time, the following command can be used to view the Image mirror that has just been built
 
    ```shell
    docker images
    ```
 
-## 推送镜像至 DockerHub 或私有仓库
+## Push the image to DockerHub or private warehouse
 
-登录 DockerHub 账号
+Log in to your DockerHub account
 
 ```
 docker login
 ```
 
-登录成功会提示 `Success` 相关提示，随后推送至仓库即可
+A successful login will prompt `Success` related prompts, and then push them to the warehouse
 
 ```shell
 docker push ${tagName}
