@@ -944,7 +944,7 @@ public class OlapScanNode extends ScanNode {
         output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
-            output.append("\n").append(prefix).append(String.format("cardinality=%s", cardinality));
+            output.append("\n").append(prefix).append(String.format("cardinality=%,d", cardinality));
             if (!runtimeFilters.isEmpty()) {
                 output.append("\n").append(prefix).append("Apply RFs: ");
                 output.append(getRuntimeFilterExplainString(false, true));

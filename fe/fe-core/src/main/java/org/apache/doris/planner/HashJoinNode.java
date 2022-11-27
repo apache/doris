@@ -783,7 +783,8 @@ public class HashJoinNode extends JoinNodeBase {
                         .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
-            output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            output.append(detailPrefix).append(
+                    String.format("cardinality=%,d", cardinality)).append("\n");
             if (!runtimeFilters.isEmpty()) {
                 output.append(detailPrefix).append("Build RFs: ");
                 output.append(getRuntimeFilterExplainString(true, true));
@@ -805,7 +806,7 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(true));
         }
-        output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+        output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         // todo unify in plan node
         if (vOutputTupleDesc != null) {
             output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId()).append("\n");
