@@ -104,6 +104,9 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
     case TYPE_BOOLEAN: {
         return Creator::template create<TYPE_BOOLEAN>();
     }
+    case TYPE_DECIMALV2: {
+        return Creator::template create<TYPE_DECIMALV2>();
+    }
 #define M(NAME)                                  \
     case NAME: {                                 \
         return Creator::template create<NAME>(); \
