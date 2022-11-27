@@ -47,11 +47,11 @@ public class ExpressionColumnFilterConverter
     private final Map<String, PartitionColumnFilter> columnFilterMap;
 
     private static class FilterParam {
-        public static LiteralExpr lowerBound;
-        public static boolean lowerBoundInclusive;
-        public static LiteralExpr upperBound;
-        public static boolean upperBoundInclusive;
-        public static org.apache.doris.analysis.InPredicate inPredicate;
+        public static LiteralExpr lowerBound = null;
+        public static boolean lowerBoundInclusive = false;
+        public static LiteralExpr upperBound = null;
+        public static boolean upperBoundInclusive = false;
+        public static org.apache.doris.analysis.InPredicate inPredicate = null;
 
         public static void setValues(LiteralExpr lowerBound, boolean lowerInclusive,
                 LiteralExpr upperBound, boolean upperInclusive) {
