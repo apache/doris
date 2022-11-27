@@ -15,26 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.EliminateAliasNode;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.nereids.analyzer.Relation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
-import com.google.common.collect.ImmutableList;
+/** CatalogRelation */
+public interface CatalogRelation extends Relation {
+    Table getTable();
 
-/**
- * Job to eliminate the logical node of sub query and alias
- */
-public class FinalizeAnalyzeJob extends BatchRulesJob {
-
-    /**
-     * constructor
-     * @param cascadesContext ctx
-     */
-    public FinalizeAnalyzeJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new EliminateAliasNode()))
-        ));
-    }
+    Database getDatabase() throws AnalysisException;
 }

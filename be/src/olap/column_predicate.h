@@ -44,7 +44,8 @@ enum class PredicateType {
     NOT_IN_LIST = 8,
     IS_NULL = 9,
     IS_NOT_NULL = 10,
-    BF = 11, // BloomFilter
+    BF = 11,            // BloomFilter
+    BITMAP_FILTER = 12, // BitmapFilter
 };
 
 inline std::string type_to_string(PredicateType type) {

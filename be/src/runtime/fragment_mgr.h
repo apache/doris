@@ -107,10 +107,6 @@ private:
 
     bool _is_scan_node(const TPlanNodeType::type& type);
 
-    void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
-                                                    RuntimeState* state,
-                                                    QueryFragmentsCtx* fragments_ctx);
-
     // This is input params
     ExecEnv* _exec_env;
 

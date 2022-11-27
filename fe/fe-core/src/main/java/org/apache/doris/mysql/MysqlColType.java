@@ -42,6 +42,7 @@ public enum MysqlColType {
     MYSQL_TYPE_TIMESTAMP2(17, "TIMESTAMP2"),
     MYSQL_TYPE_DATETIME2(18, "DATETIME2"),
     MYSQL_TYPE_TIME2(19, "TIME2"),
+    MYSQL_TYPE_JSON(245, "JSON"),
     MYSQL_TYPE_NEWDECIMAL(246, "NEW DECIMAL"),
     MYSQL_TYPE_ENUM(247, "ENUM"),
     MYSQL_TYPE_SET(248, "SET"),
@@ -51,8 +52,7 @@ public enum MysqlColType {
     MYSQL_TYPE_BLOB(252, "BLOB"),
     MYSQL_TYPE_VARSTRING(253, "VAR STRING"),
     MYSQL_TYPE_STRING(254, "STRING"),
-    MYSQL_TYPE_GEOMETRY(255, "GEOMETRY"),
-    MYSQL_TYPE_JSON(256, "JSON");
+    MYSQL_TYPE_GEOMETRY(255, "GEOMETRY");
 
     private MysqlColType(int code, String desc) {
         this.code = code;

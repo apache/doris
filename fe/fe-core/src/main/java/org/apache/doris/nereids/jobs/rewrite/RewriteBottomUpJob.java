@@ -73,8 +73,9 @@ public class RewriteBottomUpJob extends Job {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
             pushJob(new RewriteBottomUpJob(group, rules, context, true));
-            for (Group childGroup : logicalExpression.children()) {
-                pushJob(new RewriteBottomUpJob(childGroup, rules, context, false));
+            List<Group> children = logicalExpression.children();
+            for (int i = children.size() - 1; i >= 0; i--) {
+                pushJob(new RewriteBottomUpJob(children.get(i), rules, context, false));
             }
             return;
         }

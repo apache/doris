@@ -26,7 +26,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -182,10 +181,7 @@ public class AnalysisJob {
             this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
             this.stmtExecutor.execute();
             Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), col.getName());
-        } finally {
-            ConnectContext.remove();
         }
-
     }
 
     public int getLastExecTime() {

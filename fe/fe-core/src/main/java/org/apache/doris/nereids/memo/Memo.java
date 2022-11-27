@@ -24,6 +24,7 @@ import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -192,6 +193,10 @@ public class Memo {
      */
     public CascadesContext newCascadesContext(StatementContext statementContext) {
         return new CascadesContext(this, statementContext);
+    }
+
+    public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
+        return new CascadesContext(this, statementContext, cteContext);
     }
 
     /**

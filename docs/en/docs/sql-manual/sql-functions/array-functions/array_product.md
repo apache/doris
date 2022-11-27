@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_PRODUCT Function",
+    "title": "array_product",
     "language": "en"
 }
 ---
@@ -24,11 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_PRODUCT
-
-### Name
-
-ARRAY_PRODUCT
+## array_product
 
 ### description
 

@@ -23,11 +23,13 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -85,6 +87,10 @@ public abstract class PlanVisitor<R, C> {
         return visitCommand(explain, context);
     }
 
+    public R visitCreatePolicyCommand(CreatePolicyCommand explain, C context) {
+        return visitCommand(explain, context);
+    }
+
     // *******************************
     // Logical plans
     // *******************************
@@ -135,6 +141,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalFilter(LogicalFilter<? extends Plan> filter, C context) {
         return visit(filter, context);
+    }
+
+    public R visitLogicalCheckPolicy(LogicalCheckPolicy<? extends Plan> checkPolicy, C context) {
+        return visit(checkPolicy, context);
     }
 
     public R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {

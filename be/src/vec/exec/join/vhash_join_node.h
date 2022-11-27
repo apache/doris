@@ -24,7 +24,9 @@
 #include "join_op.h"
 #include "process_hash_table_probe.h"
 #include "vec/common/columns_hashing.h"
+#include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 #include "vjoin_node_base.h"
 
 namespace doris {
@@ -40,13 +42,26 @@ template <typename RowRefListType>
 struct SerializedHashTableContext {
     using Mapped = RowRefListType;
     using HashTable = PartitionedHashMap<StringRef, Mapped>;
-    using State = ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped>;
+    using State =
+            ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped, true>;
     using Iter = typename HashTable::iterator;
 
     HashTable hash_table;
-    HashTable* hash_table_ptr = &hash_table;
     Iter iter;
     bool inited = false;
+    std::vector<StringRef> keys;
+
+    void serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
+        if (keys.size() < num_rows) {
+            keys.resize(num_rows);
+        }
+
+        _arena.reset(new Arena());
+        size_t keys_size = key_columns.size();
+        for (size_t i = 0; i < num_rows; ++i) {
+            keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
+        }
+    }
 
     void init_once() {
         if (!inited) {
@@ -54,6 +69,9 @@ struct SerializedHashTableContext {
             iter = hash_table.begin();
         }
     }
+
+private:
+    std::unique_ptr<Arena> _arena;
 };
 
 template <typename HashMethod>
@@ -62,7 +80,8 @@ struct IsSerializedHashTableContextTraits {
 };
 
 template <typename Value, typename Mapped>
-struct IsSerializedHashTableContextTraits<ColumnsHashing::HashMethodSerialized<Value, Mapped>> {
+struct IsSerializedHashTableContextTraits<
+        ColumnsHashing::HashMethodSerialized<Value, Mapped, true>> {
     constexpr static bool value = true;
 };
 
@@ -76,7 +95,6 @@ struct PrimaryTypeHashTableContext {
     using Iter = typename HashTable::iterator;
 
     HashTable hash_table;
-    HashTable* hash_table_ptr = &hash_table;
     Iter iter;
     bool inited = false;
 
@@ -111,7 +129,6 @@ struct FixedKeyHashTableContext {
     using Iter = typename HashTable::iterator;
 
     HashTable hash_table;
-    HashTable* hash_table_ptr = &hash_table;
     Iter iter;
     bool inited = false;
 
@@ -185,6 +202,7 @@ public:
     static constexpr int PREFETCH_STEP = 64;
 
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ~HashJoinNode();
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
@@ -235,14 +253,18 @@ private:
 
     RuntimeProfile::Counter* _join_filter_timer;
 
+    RuntimeProfile* _build_phase_profile;
+
     int64_t _mem_used;
 
-    std::unique_ptr<Arena> _arena;
-    std::unique_ptr<HashTableVariants> _hash_table_variants;
+    std::shared_ptr<Arena> _arena;
+
+    // maybe share hash table with other fragment instances
+    std::shared_ptr<HashTableVariants> _hash_table_variants;
 
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
-    std::vector<Block> _build_blocks;
+    std::shared_ptr<std::vector<Block>> _build_blocks;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
@@ -259,8 +281,9 @@ private:
     Sizes _build_key_sz;
 
     bool _is_broadcast_join = false;
-    SharedHashTableController* _shared_hashtable_controller = nullptr;
-    VRuntimeFilterSlots* _runtime_filter_slots;
+    bool _should_build_hash_table = true;
+    std::shared_ptr<SharedHashTableController> _shared_hashtable_controller = nullptr;
+    VRuntimeFilterSlots* _runtime_filter_slots = nullptr;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
@@ -268,6 +291,8 @@ private:
 
     MutableColumnPtr _tuple_is_null_left_flag_column;
     MutableColumnPtr _tuple_is_null_right_flag_column;
+
+    SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
 private:
     Status _materialize_build_side(RuntimeState* state) override;

@@ -115,6 +115,11 @@ struct ProcessHashTableBuild {
         auto& arena = *(_join_node->_arena);
         {
             SCOPED_TIMER(_build_side_compute_hash_timer);
+            if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+                hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
+                key_getter.set_serialized_keys(hash_table_ctx.keys.data());
+            }
+
             for (size_t k = 0; k < _rows; ++k) {
                 if constexpr (ignore_null) {
                     if ((*null_map)[k]) {
@@ -221,7 +226,7 @@ struct ProcessRuntimeFilterBuild {
                                         _join_node->_runtime_filter_descs));
 
         RETURN_IF_ERROR(_join_node->_runtime_filter_slots->init(
-                state, hash_table_ctx.hash_table_ptr->get_size()));
+                state, hash_table_ctx.hash_table.get_size()));
 
         if (!_join_node->_runtime_filter_slots->empty() && !_join_node->_inserted_rows.empty()) {
             {
@@ -250,14 +255,15 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}) {
     _runtime_filter_descs = tnode.runtime_filters;
-    _arena = std::make_unique<Arena>();
-    _hash_table_variants = std::make_unique<HashTableVariants>();
+    _arena = std::make_shared<Arena>();
+    _hash_table_variants = std::make_shared<HashTableVariants>();
     _process_hashtable_ctx_variants = std::make_unique<HashTableCtxVariants>();
+    _build_blocks.reset(new std::vector<Block>());
 
     // avoid vector expand change block address.
     // one block can store 4g data, _build_blocks can store 128*4g data.
     // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
-    _build_blocks.reserve(_MAX_BUILD_BLOCK_COUNT);
+    _build_blocks->reserve(_MAX_BUILD_BLOCK_COUNT);
 }
 
 Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -313,7 +319,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
                 RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
@@ -349,18 +355,18 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // Build phase
-    auto build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
-    runtime_profile()->add_child(build_phase_profile, false, nullptr);
-    _build_timer = ADD_TIMER(build_phase_profile, "BuildTime");
-    _build_table_timer = ADD_TIMER(build_phase_profile, "BuildTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(build_phase_profile, "BuildSideMergeBlockTime");
-    _build_table_insert_timer = ADD_TIMER(build_phase_profile, "BuildTableInsertTime");
-    _build_expr_call_timer = ADD_TIMER(build_phase_profile, "BuildExprCallTime");
-    _build_table_expanse_timer = ADD_TIMER(build_phase_profile, "BuildTableExpanseTime");
+    _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
+    runtime_profile()->add_child(_build_phase_profile, false, nullptr);
+    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
+    _build_table_timer = ADD_TIMER(_build_phase_profile, "BuildTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime");
+    _build_table_insert_timer = ADD_TIMER(_build_phase_profile, "BuildTableInsertTime");
+    _build_expr_call_timer = ADD_TIMER(_build_phase_profile, "BuildExprCallTime");
+    _build_table_expanse_timer = ADD_TIMER(_build_phase_profile, "BuildTableExpanseTime");
     _build_table_convert_timer =
-            ADD_TIMER(build_phase_profile, "BuildTableConvertToPartitionedTime");
-    _build_rows_counter = ADD_COUNTER(build_phase_profile, "BuildRows", TUnit::UNIT);
-    _build_side_compute_hash_timer = ADD_TIMER(build_phase_profile, "BuildSideHashComputingTime");
+            ADD_TIMER(_build_phase_profile, "BuildTableConvertToPartitionedTime");
+    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
+    _build_side_compute_hash_timer = ADD_TIMER(_build_phase_profile, "BuildSideHashComputingTime");
 
     // Probe phase
     auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
@@ -379,8 +385,19 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
 
+    _should_build_hash_table = true;
     if (_is_broadcast_join) {
         runtime_profile()->add_info_string("BroadcastJoin", "true");
+        if (state->enable_share_hash_table_for_broadcast_join()) {
+            runtime_profile()->add_info_string("ShareHashTableEnabled", "true");
+            _shared_hashtable_controller =
+                    state->get_query_fragments_ctx()->get_shared_hash_table_controller();
+            _shared_hash_table_context = _shared_hashtable_controller->get_context(id());
+            _should_build_hash_table = _shared_hashtable_controller->should_build_hash_table(
+                    state->fragment_instance_id(), id());
+        } else {
+            runtime_profile()->add_info_string("ShareHashTableEnabled", "false");
+        }
     }
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
@@ -398,7 +415,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     // Hash Table Init
     _hash_table_init(state);
-    _process_hashtable_ctx_variants_init(state);
     _construct_mutable_join_block();
 
     return Status::OK();
@@ -415,11 +431,6 @@ void HashJoinNode::add_hash_buckets_filled_info(const std::string& info) {
 Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
-    }
-
-    if (_shared_hashtable_controller) {
-        _shared_hashtable_controller->release_ref_count(state, id());
-        _shared_hashtable_controller->wait_for_closable(state, id());
     }
 
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::close");
@@ -610,6 +621,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
+
     SCOPED_TIMER(_build_timer);
     MutableBlock mutable_block(child(1)->row_desc().tuple_descriptors());
 
@@ -620,111 +632,128 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     // make one block for each 4 gigabytes
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
-    auto should_build_hash_table = true;
-    if (_is_broadcast_join) {
-        _shared_hashtable_controller =
-                state->get_query_fragments_ctx()->get_shared_hash_table_controller();
-        should_build_hash_table =
-                _shared_hashtable_controller->should_build_hash_table(state, id());
-    }
+    if (_should_build_hash_table) {
+        Block block;
+        // If eos or have already met a null value using short-circuit strategy, we do not need to pull
+        // data from data.
+        while (!eos && !_short_circuit_for_null_in_probe_side) {
+            block.clear_column_data();
+            RETURN_IF_CANCELLED(state);
 
-    Block block;
-    // If eos or have already met a null value using short-circuit strategy, we do not need to pull
-    // data from data.
-    while (!eos && !_short_circuit_for_null_in_probe_side) {
-        block.clear_column_data();
-        RETURN_IF_CANCELLED(state);
+            RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
+                                           child(1)->get_next_span(), eos);
 
-        RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
-                                       child(1)->get_next_span(), eos);
-        if (!should_build_hash_table) {
-            continue;
+            _mem_used += block.allocated_bytes();
+
+            if (block.rows() != 0) {
+                SCOPED_TIMER(_build_side_merge_block_timer);
+                RETURN_IF_CATCH_BAD_ALLOC(mutable_block.merge(block));
+            }
+
+            if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
+                if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
+                    return Status::NotSupported(
+                            strings::Substitute("data size of right table in hash join > $0",
+                                                BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
+                }
+                _build_blocks->emplace_back(mutable_block.to_block());
+                // TODO:: Rethink may we should do the process after we receive all build blocks ?
+                // which is better.
+                RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[index], index));
+
+                mutable_block = MutableBlock();
+                ++index;
+                last_mem_used = _mem_used;
+            }
         }
 
-        _mem_used += block.allocated_bytes();
-
-        if (block.rows() != 0) {
-            SCOPED_TIMER(_build_side_merge_block_timer);
-            RETURN_IF_CATCH_BAD_ALLOC(mutable_block.merge(block));
-        }
-
-        if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
-            if (_build_blocks.size() == _MAX_BUILD_BLOCK_COUNT) {
+        if (!mutable_block.empty() && !_short_circuit_for_null_in_probe_side) {
+            if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
                 return Status::NotSupported(
                         strings::Substitute("data size of right table in hash join > $0",
                                             BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
             }
-            _build_blocks.emplace_back(mutable_block.to_block());
-            // TODO:: Rethink may we should do the process after we receive all build blocks ?
-            // which is better.
-            RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
-
-            mutable_block = MutableBlock();
-            ++index;
-            last_mem_used = _mem_used;
+            _build_blocks->emplace_back(mutable_block.to_block());
+            RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[index], index));
         }
-    }
-
-    if (should_build_hash_table && !mutable_block.empty() &&
-        !_short_circuit_for_null_in_probe_side) {
-        if (_build_blocks.size() == _MAX_BUILD_BLOCK_COUNT) {
-            return Status::NotSupported(
-                    strings::Substitute("data size of right table in hash join > $0",
-                                        BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
-        }
-        _build_blocks.emplace_back(mutable_block.to_block());
-        RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
     }
     child(1)->close(state);
 
-    return std::visit(
-            Overload {[&](std::monostate& arg) -> Status {
-                          LOG(FATAL) << "FATAL: uninited hash table";
-                          __builtin_unreachable();
-                      },
-                      [&](auto&& arg) -> Status {
-                          using HashTableCtxType = std::decay_t<decltype(arg)>;
-                          using HashTableType = typename HashTableCtxType::HashTable;
-                          if (!should_build_hash_table) {
-                              auto& ret = _shared_hashtable_controller->wait_for_hash_table(id());
-                              if (!ret.status.ok()) {
-                                  return ret.status;
-                              }
-                              _short_circuit_for_null_in_probe_side =
-                                      _shared_hashtable_controller
-                                              ->short_circuit_for_null_in_probe_side();
-                              arg.hash_table_ptr =
-                                      reinterpret_cast<HashTableType*>(ret.hash_table_ptr);
-                              _build_blocks = *ret.blocks;
-                              _runtime_filter_slots = _pool->add(new VRuntimeFilterSlots(
-                                      _probe_expr_ctxs, _build_expr_ctxs, _runtime_filter_descs));
-                              RETURN_IF_ERROR(_runtime_filter_slots->init(
-                                      state, arg.hash_table_ptr->get_size()));
-                              RETURN_IF_ERROR(_runtime_filter_slots->apply_from_other(
-                                      ret.runtime_filter_slots));
-                              {
-                                  SCOPED_TIMER(_push_down_timer);
-                                  _runtime_filter_slots->publish();
-                              }
-                              return Status::OK();
-                          } else {
-                              arg.hash_table_ptr = &arg.hash_table;
-                              ProcessRuntimeFilterBuild<HashTableCtxType>
-                                      runtime_filter_build_process(this);
-                              auto ret = runtime_filter_build_process(state, arg);
-                              if (_shared_hashtable_controller) {
-                                  _shared_hashtable_controller
-                                          ->set_short_circuit_for_null_in_probe_side(
-                                                  _short_circuit_for_null_in_probe_side);
-                                  SharedHashTableEntry entry(ret, arg.hash_table_ptr,
-                                                             &_build_blocks, _runtime_filter_slots);
-                                  _shared_hashtable_controller->put_hash_table(std::move(entry),
-                                                                               id());
-                              }
-                              return ret;
-                          }
-                      }},
-            *_hash_table_variants);
+    if (_should_build_hash_table) {
+        auto ret = std::visit(Overload {[&](std::monostate&) -> Status {
+                                            LOG(FATAL) << "FATAL: uninited hash table";
+                                            __builtin_unreachable();
+                                        },
+                                        [&](auto&& arg) -> Status {
+                                            using HashTableCtxType = std::decay_t<decltype(arg)>;
+                                            ProcessRuntimeFilterBuild<HashTableCtxType>
+                                                    runtime_filter_build_process(this);
+                                            return runtime_filter_build_process(state, arg);
+                                        }},
+                              *_hash_table_variants);
+        if (!ret.ok()) {
+            if (_shared_hashtable_controller) {
+                _shared_hash_table_context->status = ret;
+                _shared_hashtable_controller->signal(id());
+            }
+            return ret;
+        }
+        if (_shared_hashtable_controller) {
+            _shared_hash_table_context->status = Status::OK();
+            // arena will be shared with other instances.
+            _shared_hash_table_context->arena = _arena;
+            _shared_hash_table_context->blocks = _build_blocks;
+            _shared_hash_table_context->hash_table_variants = _hash_table_variants;
+            _shared_hash_table_context->short_circuit_for_null_in_probe_side =
+                    _short_circuit_for_null_in_probe_side;
+            if (_runtime_filter_slots) {
+                _runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
+            }
+            _shared_hashtable_controller->signal(id());
+        }
+    } else {
+        DCHECK(_shared_hashtable_controller != nullptr);
+        DCHECK(_shared_hash_table_context != nullptr);
+        auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
+        SCOPED_TIMER(wait_timer);
+        RETURN_IF_ERROR(
+                _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
+
+        _build_phase_profile->add_info_string(
+                "SharedHashTableFrom",
+                print_id(_shared_hashtable_controller->get_builder_fragment_instance_id(id())));
+        _short_circuit_for_null_in_probe_side =
+                _shared_hash_table_context->short_circuit_for_null_in_probe_side;
+        _hash_table_variants = std::static_pointer_cast<HashTableVariants>(
+                _shared_hash_table_context->hash_table_variants);
+        _build_blocks = _shared_hash_table_context->blocks;
+
+        if (!_shared_hash_table_context->runtime_filters.empty()) {
+            auto ret = std::visit(
+                    Overload {[&](std::monostate&) -> Status {
+                                  LOG(FATAL) << "FATAL: uninited hash table";
+                                  __builtin_unreachable();
+                              },
+                              [&](auto&& arg) -> Status {
+                                  if (_runtime_filter_descs.empty()) {
+                                      return Status::OK();
+                                  }
+                                  _runtime_filter_slots = _pool->add(new VRuntimeFilterSlots(
+                                          _probe_expr_ctxs, _build_expr_ctxs,
+                                          _runtime_filter_descs));
+
+                                  RETURN_IF_ERROR(_runtime_filter_slots->init(
+                                          state, arg.hash_table.get_size()));
+                                  return _runtime_filter_slots->copy_from_shared_context(
+                                          _shared_hash_table_context);
+                              }},
+                    *_hash_table_variants);
+            RETURN_IF_ERROR(ret);
+        }
+    }
+
+    _process_hashtable_ctx_variants_init(state);
+    return Status::OK();
 }
 
 template <bool BuildSide>
@@ -993,7 +1022,7 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                              __builtin_unreachable();
                          },
                          [&](auto&& arg) {
-                             arg.hash_table_ptr->set_partitioned_threshold(
+                             arg.hash_table.set_partitioned_threshold(
                                      state->partitioned_hash_join_rows_threshold());
                          }},
                *_hash_table_variants);
@@ -1054,6 +1083,12 @@ void HashJoinNode::_reset_tuple_is_null_column() {
     }
 }
 
+HashJoinNode::~HashJoinNode() {
+    if (_shared_hashtable_controller && _should_build_hash_table) {
+        _shared_hashtable_controller->signal(id());
+    }
+}
+
 void HashJoinNode::_release_mem() {
     _arena = nullptr;
     _hash_table_variants = nullptr;
@@ -1061,10 +1096,8 @@ void HashJoinNode::_release_mem() {
     _null_map_column = nullptr;
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
+    _shared_hash_table_context = nullptr;
     _probe_block.clear();
-
-    std::vector<Block> tmp_build_blocks;
-    _build_blocks.swap(tmp_build_blocks);
 }
 
 } // namespace doris::vectorized

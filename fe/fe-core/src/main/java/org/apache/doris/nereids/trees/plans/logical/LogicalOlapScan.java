@@ -17,14 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -40,7 +44,7 @@ import java.util.Optional;
 /**
  * Logical OlapScan.
  */
-public class LogicalOlapScan extends LogicalRelation {
+public class LogicalOlapScan extends LogicalRelation implements CatalogRelation {
 
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletId;
@@ -91,6 +95,13 @@ public class LogicalOlapScan extends LogicalRelation {
     public OlapTable getTable() {
         Preconditions.checkArgument(table instanceof OlapTable);
         return (OlapTable) table;
+    }
+
+    @Override
+    public Database getDatabase() throws AnalysisException {
+        Preconditions.checkArgument(!qualifier.isEmpty());
+        return Env.getCurrentInternalCatalog().getDbOrException(qualifier.get(0),
+                s -> new AnalysisException("Database [" + qualifier.get(0) + "] does not exist."));
     }
 
     @Override

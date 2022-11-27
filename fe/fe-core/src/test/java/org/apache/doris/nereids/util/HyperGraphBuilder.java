@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
@@ -26,11 +27,13 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -38,8 +41,10 @@ import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public class HyperGraphBuilder {
     private List<Integer> rowCounts = new ArrayList<>();
@@ -141,7 +146,7 @@ public class HyperGraphBuilder {
             fullKey = Optional.of(key);
         }
         assert fullKey.isPresent();
-        addCondition(node1, node2, fullKey.get());
+        constructJoin(node1, node2, fullKey.get());
         return this;
     }
 
@@ -178,22 +183,42 @@ public class HyperGraphBuilder {
 
     private void injectRowcount(Group group) {
         if (!group.isJoinGroup()) {
-            StatsDeriveResult stats = group.getStatistics();
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
-            int rowCount = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
-            group.setStatistics(stats.updateRowCount(rowCount));
+            HashMap<Id, ColumnStatistic> slotIdToColumnStats = new HashMap<Id, ColumnStatistic>();
+            int count = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
+            for (Slot slot : scanPlan.getOutput()) {
+                slotIdToColumnStats.put(slot.getExprId(),
+                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0, 0, null, null));
+            }
+            StatsDeriveResult stats = new StatsDeriveResult(count, slotIdToColumnStats);
+            group.setStatistics(stats);
             return;
         }
         injectRowcount(group.getLogicalExpression().child(0));
         injectRowcount(group.getLogicalExpression().child(1));
     }
 
-    private void addCondition(int node1, int node2, BitSet key) {
+    private void constructJoin(int node1, int node2, BitSet key) {
         LogicalJoin join = (LogicalJoin) plans.get(key);
+        Expression condition = makeCondition(node1, node2, key);
+        plans.put(key, attachCondition(condition, join));
+    }
+
+    private LogicalJoin attachCondition(Expression condition, LogicalJoin join) {
+        Plan left = join.left();
+        Set<Slot> leftSlots = new HashSet<>(left.getOutput());
+        Plan right = join.right();
+        Set<Slot> rightSlots = new HashSet<>(right.getOutput());
         List<Expression> conditions = new ArrayList<>(join.getExpressions());
-        conditions.add(makeCondition(node1, node2, key));
-        LogicalJoin newJoin = new LogicalJoin<>(join.getJoinType(), conditions, join.left(), join.right());
-        plans.put(key, newJoin);
+        Set<Slot> inputs = condition.getInputSlots();
+        if (leftSlots.containsAll(inputs)) {
+            left = (LogicalJoin) attachCondition(condition, (LogicalJoin) left);
+        } else if (rightSlots.containsAll(inputs)) {
+            right = (LogicalJoin) attachCondition(condition, (LogicalJoin) right);
+        } else {
+            conditions.add(condition);
+        }
+        return new LogicalJoin<>(join.getJoinType(), conditions, left, right);
     }
 
     private Expression makeCondition(int node1, int node2, BitSet bitSet) {

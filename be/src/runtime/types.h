@@ -191,6 +191,8 @@ struct TypeDescriptor {
 
     bool is_array_type() const { return type == TYPE_ARRAY; }
 
+    bool is_bitmap_type() const { return type == TYPE_OBJECT; }
+
     /// Returns the byte size of this type.  Returns 0 for variable length types.
     int get_byte_size() const { return ::doris::get_byte_size(type); }
 

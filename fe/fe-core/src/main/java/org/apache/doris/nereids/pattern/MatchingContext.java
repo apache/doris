@@ -19,6 +19,7 @@ package org.apache.doris.nereids.pattern;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -31,6 +32,7 @@ public class MatchingContext<TYPE extends Plan> {
     public final CascadesContext cascadesContext;
     public final StatementContext statementContext;
     public final ConnectContext connectContext;
+    public final CTEContext cteContext;
 
     /**
      * the MatchingContext is the param pass through the MatchedAction.
@@ -45,5 +47,6 @@ public class MatchingContext<TYPE extends Plan> {
         this.cascadesContext = cascadesContext;
         this.statementContext = cascadesContext.getStatementContext();
         this.connectContext = cascadesContext.getConnectContext();
+        this.cteContext = cascadesContext.getCteContext();
     }
 }

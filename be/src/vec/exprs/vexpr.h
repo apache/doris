@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
@@ -169,6 +170,13 @@ public:
     }
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
+
+    // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
+    virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
+        LOG(FATAL) << "Method 'get_bitmap_filter_func()' is not supported in expression: "
+                   << this->debug_string();
+        return nullptr;
+    }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information

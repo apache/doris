@@ -240,13 +240,7 @@ Status FragmentExecState::execute() {
     }
 #ifndef BE_TEST
     if (_executor.runtime_state()->is_cancelled()) {
-        Status status = Status::Cancelled("cancelled before execution");
-        _executor.runtime_state()
-                ->get_query_fragments_ctx()
-                ->get_shared_hash_table_controller()
-                ->release_ref_count_if_need(_executor.runtime_state()->fragment_instance_id(),
-                                            status);
-        return status;
+        return Status::Cancelled("cancelled before execution");
     }
 #endif
     int64_t duration_ns = 0;
@@ -254,19 +248,11 @@ Status FragmentExecState::execute() {
         SCOPED_RAW_TIMER(&duration_ns);
         CgroupsMgr::apply_system_cgroup();
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
-        Status status = _executor.open();
-        WARN_IF_ERROR(status,
+        WARN_IF_ERROR(_executor.open(),
                       strings::Substitute("Got error while opening fragment $0, query id: $1",
                                           print_id(_fragment_instance_id), print_id(_query_id)));
 
         _executor.close();
-        if (!status.ok()) {
-            _executor.runtime_state()
-                    ->get_query_fragments_ctx()
-                    ->get_shared_hash_table_controller()
-                    ->release_ref_count_if_need(_executor.runtime_state()->fragment_instance_id(),
-                                                status);
-        }
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
     DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
@@ -673,6 +659,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
                     MemTrackerLimiter::Type::LOAD,
                     fmt::format("Load#Id={}", print_id(fragments_ctx->query_id)), bytes_limit);
+        } else { // EXTERNAL
+            fragments_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
+                    MemTrackerLimiter::Type::LOAD,
+                    fmt::format("External#Id={}", print_id(fragments_ctx->query_id)), bytes_limit);
         }
         if (params.query_options.__isset.is_report_success &&
             params.query_options.is_report_success) {
@@ -711,9 +701,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         RETURN_IF_ERROR(exec_state->prepare(params));
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
-
-    _setup_shared_hashtable_for_broadcast_join(params, exec_state->executor()->runtime_state(),
-                                               fragments_ctx.get());
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     _runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state());
@@ -782,26 +769,6 @@ void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
     }
     fragments_ctx->set_thread_token(concurrency, is_serial);
 #endif
-}
-
-void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
-                                                             RuntimeState* state,
-                                                             QueryFragmentsCtx* fragments_ctx) {
-    if (!params.__isset.fragment || !params.fragment.__isset.plan ||
-        params.fragment.plan.nodes.empty()) {
-        return;
-    }
-
-    for (auto& node : params.fragment.plan.nodes) {
-        if (node.node_type != TPlanNodeType::HASH_JOIN_NODE ||
-            !node.hash_join_node.__isset.is_broadcast_join ||
-            !node.hash_join_node.is_broadcast_join) {
-            continue;
-        }
-
-        std::lock_guard<std::mutex> lock(_lock_for_shared_hash_table);
-        fragments_ctx->get_shared_hash_table_controller()->acquire_ref_count(state, node.node_id);
-    }
 }
 
 bool FragmentMgr::_is_scan_node(const TPlanNodeType::type& type) {
