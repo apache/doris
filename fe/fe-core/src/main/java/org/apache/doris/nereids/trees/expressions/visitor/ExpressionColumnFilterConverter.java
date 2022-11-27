@@ -46,25 +46,27 @@ public class ExpressionColumnFilterConverter
         extends DefaultExpressionVisitor<Expression, Void> {
     private final Map<String, PartitionColumnFilter> columnFilterMap;
 
-    private static class FilterParam {
-        public static LiteralExpr lowerBound = null;
-        public static boolean lowerBoundInclusive = false;
-        public static LiteralExpr upperBound = null;
-        public static boolean upperBoundInclusive = false;
-        public static org.apache.doris.analysis.InPredicate inPredicate = null;
+    private class FilterParam {
+        public LiteralExpr lowerBound = null;
+        public boolean lowerBoundInclusive = false;
+        public LiteralExpr upperBound = null;
+        public boolean upperBoundInclusive = false;
+        public org.apache.doris.analysis.InPredicate inPredicate = null;
 
-        public static void setValues(LiteralExpr lowerBound, boolean lowerInclusive,
+        public void setValues(LiteralExpr lowerBound, boolean lowerInclusive,
                 LiteralExpr upperBound, boolean upperInclusive) {
-            FilterParam.lowerBound = lowerBound;
-            FilterParam.lowerBoundInclusive = lowerInclusive;
-            FilterParam.upperBound = upperBound;
-            FilterParam.upperBoundInclusive = upperInclusive;
+            this.lowerBound = lowerBound;
+            this.lowerBoundInclusive = lowerInclusive;
+            this.upperBound = upperBound;
+            this.upperBoundInclusive = upperInclusive;
         }
 
-        public static void setInPredicate(org.apache.doris.analysis.InPredicate inPredicate) {
-            FilterParam.inPredicate = inPredicate;
+        public void setInPredicate(org.apache.doris.analysis.InPredicate inPredicate) {
+            this.inPredicate = inPredicate;
         }
     }
+
+    private final FilterParam param = new FilterParam();
 
     public ExpressionColumnFilterConverter(Map<String, PartitionColumnFilter> filterMap) {
         this.columnFilterMap = filterMap;
@@ -81,15 +83,15 @@ public class ExpressionColumnFilterConverter
         }
         LiteralExpr literal = ((Literal) predicate.right()).toLegacyLiteral();
         if (predicate instanceof EqualTo) {
-            FilterParam.setValues(literal, true, literal, true);
+            param.setValues(literal, true, literal, true);
         } else if (predicate instanceof GreaterThan) {
-            FilterParam.setValues(literal, false, null, false);
+            param.setValues(literal, false, null, false);
         } else if (predicate instanceof GreaterThanEqual) {
-            FilterParam.setValues(literal, true, null, false);
+            param.setValues(literal, true, null, false);
         } else if (predicate instanceof LessThan) {
-            FilterParam.setValues(null, false, literal, false);
+            param.setValues(null, false, literal, false);
         } else if (predicate instanceof LessThanEqual) {
-            FilterParam.setValues(null, false, literal, true);
+            param.setValues(null, false, literal, true);
         }
         setOrUpdateFilter(((Slot) predicate.left()).getName());
         return null;
@@ -100,14 +102,14 @@ public class ExpressionColumnFilterConverter
         List<Expr> literals = predicate.getOptions().stream()
                 .map(expr -> ((Expr) ((Literal) expr).toLegacyLiteral()))
                 .collect(Collectors.toList());
-        FilterParam.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, ""), literals, false));
+        param.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, ""), literals, false));
         setOrUpdateFilter(((Slot) predicate.getCompareExpr()).getName());
         return null;
     }
 
     @Override
     public Expression visitIsNull(IsNull predicate, Void unused) {
-        FilterParam.setValues(new NullLiteral(), true, new NullLiteral(), true);
+        param.setValues(new NullLiteral(), true, new NullLiteral(), true);
         setOrUpdateFilter(((Slot) predicate.child()).getName());
         return null;
     }
@@ -115,17 +117,17 @@ public class ExpressionColumnFilterConverter
     private void setOrUpdateFilter(String columnName) {
         PartitionColumnFilter filter = columnFilterMap.computeIfAbsent(columnName,
                 k -> new PartitionColumnFilter());
-        if (FilterParam.lowerBound != null) {
-            filter.setLowerBound(FilterParam.lowerBound, FilterParam.lowerBoundInclusive);
+        if (param.lowerBound != null) {
+            filter.setLowerBound(param.lowerBound, param.lowerBoundInclusive);
         }
-        if (FilterParam.upperBound != null) {
-            filter.setUpperBound(FilterParam.upperBound, FilterParam.upperBoundInclusive);
+        if (param.upperBound != null) {
+            filter.setUpperBound(param.upperBound, param.upperBoundInclusive);
         }
-        if (FilterParam.inPredicate != null) {
+        if (param.inPredicate != null) {
             if (filter.getInPredicate() == null) {
-                filter.setInPredicate(FilterParam.inPredicate);
+                filter.setInPredicate(param.inPredicate);
             } else {
-                filter.getInPredicate().getChildren().addAll(FilterParam.inPredicate.getListChildren());
+                filter.getInPredicate().getChildren().addAll(param.inPredicate.getListChildren());
             }
         }
     }
