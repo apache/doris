@@ -25,6 +25,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Lists;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.commons.codec.binary.Hex;
@@ -33,14 +35,14 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
-import java.sql.Driver;
-import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -50,12 +52,9 @@ import java.util.List;
 public class JdbcClient {
     private static final Logger LOG = LogManager.getLogger(JdbcClient.class);
     private static final String MYSQL = "MYSQL";
-    private static final String ORACLE = "ORACLE";
-    private static final String HANA = "HANA";
-    private static final String SQLSERVER = "SQLSERVER";
-    private static final String H2 = "H2";
-    private static final String POSTGRESQL = "POSTGRESQL";
-    private static final String ZENITH = "ZENITH";
+    // private static final String ORACLE = "ORACLE";
+    // private static final String SQLSERVER = "SQLSERVER";
+    // private static final String POSTGRESQL = "POSTGRESQL";
     private static final int HTTP_TIMEOUT_MS = 10000;
 
     private String dbType;
@@ -66,8 +65,9 @@ public class JdbcClient {
     private String driverClass;
     private String checkSum;
 
+    private HikariDataSource dataSource = null;
 
-    private URLClassLoader classLoader;
+    private URLClassLoader classLoader = null;
 
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
@@ -80,41 +80,50 @@ public class JdbcClient {
         this.checkSum = computeObjectChecksum();
 
         try {
+            // TODO(ftw): The problem here is that the jar package is handled by FE
+            //  and URLClassLoader may load the jar package directly into memory
             URL[] urls = {new URL(driverUrl)};
             // set parent ClassLoader to null, we can achieve class loading isolation.
             classLoader = URLClassLoader.newInstance(urls, null);
-        } catch (Exception e) {
-            throw new JdbcClientException("failed to load jar");
+        } catch (MalformedURLException e) {
+            throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         }
     }
 
     public String parseDbType(String url) {
-        if (url.startsWith("jdbc:h2")) {
-            return H2;
-        } else if (url.startsWith("jdbc:oracle")) {
-            return ORACLE;
-        } else if (url.startsWith("jdbc:mysql")) {
+        if (url.startsWith("jdbc:mysql")) {
             return MYSQL;
-        } else if (url.startsWith("jdbc:sqlserver")) {
-            return SQLSERVER;
-        } else if (url.startsWith("jdbc:sap")) {
-            return HANA;
-        } else if (url.startsWith("jdbc:postgresql")) {
-            return POSTGRESQL;
-        } else if (url.startsWith("jdbc:zenith")) {
-            return ZENITH;
         }
-        return "UNKNOWN";
+        // else if (url.startsWith("jdbc:oracle")) {
+        //     return ORACLE;
+        // }
+        // else if (url.startsWith("jdbc:sqlserver")) {
+        //     return SQLSERVER;
+        // } else if (url.startsWith("jdbc:postgresql")) {
+        //     return POSTGRESQL;
+        // }
+        throw new JdbcClientException("Unsupported jdbc database type, please check jdbcUrl: " + jdbcUrl);
     }
 
     public Connection getConnection() throws JdbcClientException {
         Connection conn = null;
         try {
-            Driver driver = (Driver) Class.forName(driverClass, true, classLoader).newInstance();
-            DriverManager.registerDriver(new JdbcDriverShim(driver));
-            conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPasswd);
-            conn.setAutoCommit(true);
-            DriverManager.deregisterDriver(driver);
+            Class.forName(driverClass, true, classLoader);
+            Thread.currentThread().setContextClassLoader(classLoader);
+            HikariConfig config = new HikariConfig();
+            config.setDriverClassName(driverClass);
+            config.setJdbcUrl(jdbcUrl);
+            config.setUsername(jdbcUser);
+            config.setPassword(jdbcPasswd);
+            config.setMaximumPoolSize(1);
+            dataSource = new HikariDataSource(config);
+            conn = dataSource.getConnection();
+
+            // Driver driver = (Driver) Class.forName(driverClass, true, classLoader).newInstance();
+            // DriverManager.registerDriver(new JdbcDriverShim(driver));
+            // conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPasswd);
+            // conn.setAutoCommit(true);
+            // DriverManager.deregisterDriver(driver);
         } catch (Exception e) {
             throw new JdbcClientException("Can not connect to jdbc", e);
         }
@@ -315,9 +324,28 @@ public class JdbcClient {
     }
 
     public Type mysqlTypeToDoris(JdbcFieldSchema fieldSchema) {
-        // For mysql type: "INT UNSIGNED", we use split(" ")[0] to get "INT"
+        // For mysql type: "INT UNSIGNED":
+        // fieldSchema.getDataTypeName().split(" ")[0] == "INT"
+        // fieldSchema.getDataTypeName().split(" ")[1] == "UNSIGNED"
         String[] typeFields = fieldSchema.getDataTypeName().split(" ");
         String mysqlType = typeFields[0];
+        // For unsigned int, should extend the type.
+        if ("UNSIGNED".equals(typeFields[1])) {
+            switch (mysqlType) {
+                case "TINYINT":
+                    return Type.SMALLINT;
+                case "SMALLINT":
+                    return Type.INT;
+                case "MEDIUMINT":
+                    return Type.INT;
+                case "INT":
+                    return Type.BIGINT;
+                case "BIGINT":
+                    return Type.LARGEINT;
+                default:
+                    throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
+            }
+        }
         switch (mysqlType) {
             case "BOOLEAN":
                 return Type.BOOLEAN;
@@ -335,28 +363,24 @@ public class JdbcClient {
             case "TIMESTAMP":
                 return ScalarType.getDefaultDateType(Type.DATETIME);
             case "DATETIME":
-                return ScalarType.createCharType(8);
+                return ScalarType.getDefaultDateType(Type.DATETIME);
             case "TIME":
-                return ScalarType.createCharType(3);
             case "YEAR":
-                return ScalarType.createCharType(1);
+                return ScalarType.INT;
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL":
                 int precision = fieldSchema.getColumnSize();
-                // TODO(ftw): check
                 int scale = fieldSchema.getDecimalDigits();
                 return ScalarType.createDecimalType(precision, scale);
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
+                ScalarType.createStringType();
                 return charType;
             case "VARCHAR":
-                ScalarType varcharType = ScalarType.createType(PrimitiveType.VARCHAR);
-                varcharType.setLength(fieldSchema.getColumnSize());
-                return varcharType;
             case "TINYTEXT":
             case "TEXT":
             case "MEDIUMTEXT":
@@ -374,9 +398,10 @@ public class JdbcClient {
             case "BIT":
             case "BINARY":
             case "VARBINARY":
-                return ScalarType.createVarcharType(65533);
+                return ScalarType.createStringType();
             default:
-                return Type.INVALID;
+                throw new JdbcClientException("Can not convert mysql data type to doris data type for type ["
+                                                + mysqlType + "]");
         }
     }
 

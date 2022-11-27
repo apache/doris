@@ -137,7 +137,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         setProperties(this.catalogProperty.getProperties());
     }
 
-    // TODO(ftw): 每次调用getSchema都会建立jdbc conn，会不会性能差？
     @Override
     public List<Column> getSchema(String dbName, String tblName) {
         makeSureInitialized();

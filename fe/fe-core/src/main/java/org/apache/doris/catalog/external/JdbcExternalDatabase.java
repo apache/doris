@@ -115,7 +115,7 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         initialized = true;
     }
 
-    // TODO(ftw): brew
+    // TODO(ftw): drew
     @Override
     public Set<String> getTableNamesWithLock() {
         makeSureInitialized();
@@ -128,7 +128,7 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> im
         return Lists.newArrayList(idToTbl.values());
     }
 
-    // TODO(ftw): brew
+    // TODO(ftw): drew
     @Override
     public JdbcExternalTable getTableNullable(String tableName) {
         makeSureInitialized();
