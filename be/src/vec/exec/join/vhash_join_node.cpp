@@ -115,6 +115,11 @@ struct ProcessHashTableBuild {
         auto& arena = *(_join_node->_arena);
         {
             SCOPED_TIMER(_build_side_compute_hash_timer);
+            if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+                hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
+                key_getter.set_serialized_keys(hash_table_ctx.keys.data());
+            }
+
             for (size_t k = 0; k < _rows; ++k) {
                 if constexpr (ignore_null) {
                     if ((*null_map)[k]) {
