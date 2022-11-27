@@ -1,6 +1,6 @@
 ---
 {
-"title": "构建 Docker Image",
+"title": "Construct Docker Image",
 "language": "zh-CN"
 }
 ---
