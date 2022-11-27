@@ -422,27 +422,26 @@ struct JsonbExtractStringImpl {
                 } else if (value->isFalse()) {
                     StringOP::push_value_string("false", i, res_data, res_offsets);
                 } else if (value->isInt8()) {
-                    StringOP::push_value_string(
-                        std::to_string(((const JsonbInt8Val*)value)->val()),
-                        i, res_data, res_offsets);
+                    StringOP::push_value_string(std::to_string(((const JsonbInt8Val*)value)->val()),
+                                                i, res_data, res_offsets);
                 } else if (value->isInt16()) {
                     StringOP::push_value_string(
-                        std::to_string(((const JsonbInt16Val*)value)->val()),
-                        i, res_data, res_offsets);
+                            std::to_string(((const JsonbInt16Val*)value)->val()), i, res_data,
+                            res_offsets);
                 } else if (value->isInt32()) {
                     StringOP::push_value_string(
-                        std::to_string(((const JsonbInt32Val*)value)->val()),
-                        i, res_data, res_offsets);
+                            std::to_string(((const JsonbInt32Val*)value)->val()), i, res_data,
+                            res_offsets);
                 } else if (value->isInt64()) {
                     StringOP::push_value_string(
-                        std::to_string(((const JsonbInt64Val*)value)->val()),
-                        i, res_data, res_offsets);
+                            std::to_string(((const JsonbInt64Val*)value)->val()), i, res_data,
+                            res_offsets);
                 } else {
                     if (!formater) {
                         formater.reset(new JsonbToJson());
                     }
-                    StringOP::push_value_string(formater->to_json_string(value),
-                                                i, res_data, res_offsets);
+                    StringOP::push_value_string(formater->to_json_string(value), i, res_data,
+                                                res_offsets);
                 }
             }
         }
