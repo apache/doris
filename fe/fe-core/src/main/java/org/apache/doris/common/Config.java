@@ -1933,6 +1933,5 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_fqdn_mode = false;
-    
 }
 
