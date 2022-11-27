@@ -122,7 +122,6 @@ public class NereidsPlanner extends Planner {
             System.out.println(memo);
             LOG.info(memo);
             CounterEvent.clearCounter();
-            EventChannel.getDefaultChannel().stop();
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan, planTranslatorContext);
 
