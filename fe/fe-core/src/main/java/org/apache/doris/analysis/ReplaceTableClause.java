@@ -20,8 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-
-import org.apache.parquet.Strings;
+import org.apache.doris.common.util.Util;
 
 import java.util.Map;
 
@@ -29,8 +28,8 @@ import java.util.Map;
 // eg:
 // ALTER TABLE tbl REPLACE WITH TABLE tbl2;
 public class ReplaceTableClause extends AlterTableClause {
-    private String tblName;
-    private Map<String, String> properties;
+    private final TableName tableName;
+    private final Map<String, String> properties;
 
     // parsed from properties.
     // if false, after replace, there will be only one table exist with.
@@ -38,14 +37,14 @@ public class ReplaceTableClause extends AlterTableClause {
     // default is true.
     private boolean swapTable;
 
-    public ReplaceTableClause(String tblName, Map<String, String> properties) {
+    public ReplaceTableClause(TableName tableName, Map<String, String> properties) {
         super(AlterOpType.REPLACE_TABLE);
-        this.tblName = tblName;
+        this.tableName = tableName;
         this.properties = properties;
     }
 
-    public String getTblName() {
-        return tblName;
+    public TableName getTblName() {
+        return tableName;
     }
 
     public boolean isSwapTable() {
@@ -54,9 +53,12 @@ public class ReplaceTableClause extends AlterTableClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(tblName)) {
+        if (tableName == null || tableName.isEmpty()) {
             throw new AnalysisException("No table specified");
         }
+        tableName.analyze(analyzer);
+        // disallow external catalog
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         this.swapTable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_SWAP_TABLE, true);
 
@@ -73,7 +75,7 @@ public class ReplaceTableClause extends AlterTableClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("REPLACE WITH TABLE ").append(tblName);
+        sb.append("REPLACE WITH TABLE ").append(tableName.toString());
         return sb.toString();
     }
 

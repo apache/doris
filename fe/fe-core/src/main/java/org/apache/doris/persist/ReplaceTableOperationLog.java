@@ -28,28 +28,35 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class ReplaceTableOperationLog implements Writable {
-    @SerializedName(value = "dbId")
-    private long dbId;
+    @SerializedName(value = "origDbId")
+    private long origDbId;
     @SerializedName(value = "origTblId")
     private long origTblId;
+    @SerializedName(value = "newDbId")
+    private long newDbId;
     @SerializedName(value = "newTblName")
     private long newTblId;
     @SerializedName(value = "swapTable")
     private boolean swapTable;
 
-    public ReplaceTableOperationLog(long dbId, long origTblId, long newTblId, boolean swapTable) {
-        this.dbId = dbId;
+    public ReplaceTableOperationLog(long origDbId, long origTblId, long newDbId, long newTblId, boolean swapTable) {
+        this.origDbId = origDbId;
         this.origTblId = origTblId;
+        this.newDbId = newDbId;
         this.newTblId = newTblId;
         this.swapTable = swapTable;
     }
 
-    public long getDbId() {
-        return dbId;
+    public long getOrigDbId() {
+        return origDbId;
     }
 
     public long getOrigTblId() {
         return origTblId;
+    }
+
+    public long getNewDbId() {
+        return newDbId;
     }
 
     public long getNewTblId() {

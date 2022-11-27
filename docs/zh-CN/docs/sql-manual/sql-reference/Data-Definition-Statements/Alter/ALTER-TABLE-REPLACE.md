@@ -32,10 +32,10 @@ ALTER TABLE REPLACE
 
 ### Description
 
-对两个表进行原子的替换操作。 该操作仅适用于 OLAP 表。
+对两个表进行原子的替换操作。 该操作仅适用于 OLAP 表。支持不同库间的表进行替换。
 
 ```sql
-ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
+ALTER TABLE [db1.]tbl1 REPLACE WITH TABLE [db2.]tbl2
 [PROPERTIES('swap' = 'true')];
 ```
 

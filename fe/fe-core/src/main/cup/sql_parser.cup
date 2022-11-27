@@ -1478,9 +1478,9 @@ alter_table_clause ::=
     {:
         RESULT = new ReplacePartitionClause(partitions, tempPartitions, properties);
     :}
-    | KW_REPLACE KW_WITH KW_TABLE ident:tblName opt_properties:properties
+    | KW_REPLACE KW_WITH KW_TABLE table_name:dbTblName opt_properties:properties
     {:
-        RESULT = new ReplaceTableClause(tblName, properties);
+        RESULT = new ReplaceTableClause(dbTblName, properties);
     :}
     | KW_RENAME ident:newTableName
     {:

@@ -67,7 +67,7 @@ import java.util.UUID;
 
 public class AlterTest {
 
-    private static String runningDir = "fe/mocked/AlterTest/" + UUID.randomUUID().toString() + "/";
+    private static final String runningDir = "fe/mocked/AlterTest/" + UUID.randomUUID() + "/";
 
     private static ConnectContext connectContext;
     private static Backend be;
@@ -87,6 +87,9 @@ public class AlterTest {
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Env.getCurrentEnv().createDb(createDbStmt);
+        createDbStmtStr = "create database db1;";
+        createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Env.getCurrentEnv().createDb(createDbStmt);
 
         createTable("CREATE TABLE test.tbl1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n" + ")\n"
@@ -238,10 +241,12 @@ public class AlterTest {
 
     @Test
     public void alterTableWithEnableFeature() throws Exception {
-        String stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"int\") ";
+        String stmt
+                = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"int\") ";
         alterTable(stmt, false);
 
-        stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
+        stmt
+                = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
         alterTable(stmt, true);
     }
 
@@ -292,7 +297,8 @@ public class AlterTest {
 
     @Test
     public void testConflictAlterOperations() throws Exception {
-        String stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
+        String stmt
+                = "alter table test.tbl1 add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
         alterTable(stmt, true);
 
         stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01'), drop partition p4";
@@ -333,11 +339,13 @@ public class AlterTest {
         Assert.assertEquals(4, tbl.getIndexIdToSchema().size());
 
         // add partition when dynamic partition is enable
-        stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01') distributed by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
+        stmt
+                = "alter table test.tbl1 add partition p3 values less than('2020-04-01') distributed by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
         alterTable(stmt, true);
 
         // add temp partition when dynamic partition is enable
-        stmt = "alter table test.tbl1 add temporary partition tp3 values less than('2020-04-01') distributed by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
+        stmt
+                = "alter table test.tbl1 add temporary partition tp3 values less than('2020-04-01') distributed by hash(k2) buckets 4 PROPERTIES ('replication_num' = '1')";
         alterTable(stmt, false);
         Assert.assertEquals(1, tbl.getTempPartitions().size());
 
@@ -347,7 +355,8 @@ public class AlterTest {
         Assert.assertFalse(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
 
         // add partition when dynamic partition is disable
-        stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01') distributed by hash(k2) buckets 4";
+        stmt
+                = "alter table test.tbl1 add partition p3 values less than('2020-04-01') distributed by hash(k2) buckets 4";
         alterTable(stmt, false);
 
         // set table's default replication num
@@ -487,13 +496,16 @@ public class AlterTest {
         String stmt = "alter table test.tbl4 modify partition (p1, p2, p4) set ('replication_num' = '1')";
         List<Partition> partitionList = Lists.newArrayList(p1, p2, p4);
         for (Partition partition : partitionList) {
-            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(
+                    tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         }
         alterTable(stmt, false);
         for (Partition partition : partitionList) {
-            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(
+                    tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         }
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(p3.getId()).getTotalReplicaNum()));
+        Assert.assertEquals(Short.valueOf("1"),
+                Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(p3.getId()).getTotalReplicaNum()));
 
         // batch update in_memory property
         stmt = "alter table test.tbl4 modify partition (p1, p2, p3) set ('in_memory' = 'true')";
@@ -544,7 +556,8 @@ public class AlterTest {
         partitionList = Lists.newArrayList(p1, p2, p3, p4);
         alterTable(stmt, false);
         for (Partition partition : partitionList) {
-            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(
+                    tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         }
     }
 
@@ -566,7 +579,8 @@ public class AlterTest {
         }
 
         // alter cooldown_time
-        String stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_cooldown_time' = '2100-04-01 22:22:22')";
+        String stmt
+                = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_cooldown_time' = '2100-04-01 22:22:22')";
         alterTable(stmt, false);
         DateLiteral newDateLiteral = new DateLiteral("2100-04-01 22:22:22", Type.DATETIME);
         long newCooldownTimeMs = newDateLiteral.unixTimestamp(TimeUtils.getTimeZone());
@@ -587,7 +601,8 @@ public class AlterTest {
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
         // alter remote_storage
-        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('remote_storage_policy' = 'testPolicy3')";
+        stmt
+                = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('remote_storage_policy' = 'testPolicy3')";
         alterTable(stmt, true);
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
@@ -632,10 +647,12 @@ public class AlterTest {
         }
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
-                System.out.println("alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                System.out.println(
+                        "alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(1000);
             }
-            System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
+            System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: "
+                    + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
             Database db =
                     Env.getCurrentInternalCatalog().getDbOrMetaException(alterJobV2.getDbId());
@@ -670,8 +687,9 @@ public class AlterTest {
                 + ");";
         createTable(createOlapTblStmt);
         String alterStmt = "alter table test." + tableName + " set (\"dynamic_partition.enable\" = \"true\");";
-        String errorMsg = "errCode = 2, detailMessage = Table default_cluster:test.no_dynamic_table is not a dynamic partition table. "
-                + "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.";
+        String errorMsg =
+                "errCode = 2, detailMessage = Table default_cluster:test.no_dynamic_table is not a dynamic partition table. "
+                        + "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.";
         alterTableWithExceptionMsg(alterStmt, errorMsg);
         // test set dynamic properties in a no dynamic partition table
         String stmt = "alter table test." + tableName + " set (\n"
@@ -743,7 +761,6 @@ public class AlterTest {
                 + ")\n"
                 + "PROPERTIES(\"replication_num\" = \"1\");";
 
-
         String stmt2 = "CREATE TABLE test.r1\n"
                 + "(\n"
                 + "    k1 int, k2 int\n"
@@ -774,11 +791,33 @@ public class AlterTest {
                 + ")\n"
                 + "PROPERTIES(\"replication_num\" = \"1\");";
 
+        String stmt5 = "CREATE TABLE db1.replace4\n"
+                + "(\n"
+                + "    k1 int, k2 int, k3 int sum\n"
+                + ")\n"
+                + "AGGREGATE KEY(k1, k2)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 10\n"
+                + "rollup (\n"
+                + "r5(k1),\n"
+                + "r6(k2, k3)\n"
+                + ")\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String stmt6 = "CREATE TABLE db1.r2\n"
+                + "(\n"
+                + "    k1 int, k2 int\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 11\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+
         createTable(stmt1);
         createTable(stmt2);
         createTable(stmt3);
         createTable(stmt4);
+        createTable(stmt5);
+        createTable(stmt6);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database secondDb = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
 
         // table name -> tabletIds
         Map<String, List<Long>> tblNameToTabletIds = Maps.newHashMap();
@@ -786,6 +825,8 @@ public class AlterTest {
         OlapTable r1Tbl = (OlapTable) db.getTableOrMetaException("r1");
         OlapTable replace2Tbl = (OlapTable) db.getTableOrMetaException("replace2");
         OlapTable replace3Tbl = (OlapTable) db.getTableOrMetaException("replace3");
+        OlapTable replace4Tbl = (OlapTable) secondDb.getTableOrMetaException("replace4");
+        OlapTable r2Tbl = (OlapTable) secondDb.getTableOrMetaException("r2");
 
         tblNameToTabletIds.put("replace1", Lists.newArrayList());
         for (Partition partition : replace1Tbl.getAllPartitions()) {
@@ -823,16 +864,38 @@ public class AlterTest {
             }
         }
 
+        tblNameToTabletIds.put("replace4", Lists.newArrayList());
+        for (Partition partition : replace4Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("replace4").add(tablet.getId());
+                }
+            }
+        }
+
+        tblNameToTabletIds.put("r2", Lists.newArrayList());
+        for (Partition partition : r2Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("r2").add(tablet.getId());
+                }
+            }
+        }
+
         // name conflict
         String replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE r1";
         alterTable(replaceStmt, true);
 
         // replace1 with replace2
-        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2";
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE test.replace2";
         OlapTable replace1 = (OlapTable) db.getTableOrMetaException("replace1");
         OlapTable replace2 = (OlapTable) db.getTableOrMetaException("replace2");
-        Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
-        Assert.assertEquals(1, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3,
+                replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)
+                        .size());
+        Assert.assertEquals(1,
+                replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)
+                        .size());
 
         alterTable(replaceStmt, false);
         Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
@@ -840,37 +903,84 @@ public class AlterTest {
 
         replace1 = (OlapTable) db.getTableOrMetaException("replace1");
         replace2 = (OlapTable) db.getTableOrMetaException("replace2");
-        Assert.assertEquals(1, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
-        Assert.assertEquals(3, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(1,
+                replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)
+                        .size());
+        Assert.assertEquals(3,
+                replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)
+                        .size());
         Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
         Assert.assertEquals("replace2", replace2.getIndexNameById(replace2.getBaseIndexId()));
 
         // replace with no swap
-        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2 properties('swap' = 'false')";
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE test.replace2 properties('swap' = 'false')";
         alterTable(replaceStmt, false);
         replace1 = (OlapTable) db.getTableNullable("replace1");
         replace2 = (OlapTable) db.getTableNullable("replace2");
         Assert.assertNull(replace2);
-        Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3,
+                replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)
+                        .size());
         Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
         Assert.assertTrue(checkAllTabletsNotExists(tblNameToTabletIds.get("replace2")));
         Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
 
-        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace3 properties('swap' = 'true')";
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE test.replace3 properties('swap' = 'true')";
         alterTable(replaceStmt, false);
         replace1 = (OlapTable) db.getTableOrMetaException("replace1");
         OlapTable replace3 = (OlapTable) db.getTableOrMetaException("replace3");
-        Assert.assertEquals(3, replace1.getPartition("p1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
-        Assert.assertEquals(3, replace1.getPartition("p2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3,
+                replace1.getPartition("p1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3,
+                replace1.getPartition("p2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
         Assert.assertNotNull(replace1.getIndexIdByName("r3"));
         Assert.assertNotNull(replace1.getIndexIdByName("r4"));
 
         Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
         Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace3")));
 
-        Assert.assertEquals(3, replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3,
+                replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)
+                        .size());
         Assert.assertNotNull(replace3.getIndexIdByName("r1"));
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
+
+        //swap between two differents databases
+        //name conflict
+        replaceStmt = "ALTER TABLE test.replace3 REPLACE WITH TABLE db1.r2 properties('swap' = 'true')";
+        alterTable(replaceStmt, true);
+
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE db1.replace4 properties('swap' = 'true')";
+        alterTable(replaceStmt, false);
+        replace1 = (OlapTable) db.getTableOrMetaException("replace1");
+        OlapTable replace4 = (OlapTable) secondDb.getTableOrMetaException("replace4");
+        Assert.assertEquals(3,
+                replace4.getPartition("p1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3,
+                replace4.getPartition("p2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertNotNull(replace4.getIndexIdByName("r3"));
+        Assert.assertNotNull(replace4.getIndexIdByName("r4"));
+        Assert.assertNotNull(replace1.getIndexIdByName("r5"));
+        Assert.assertNotNull(replace1.getIndexIdByName("r6"));
+
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace4")));
+
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE db1.replace4 properties('swap' = 'false')";
+        alterTable(replaceStmt, false);
+        replace1 = (OlapTable) db.getTableNullable("replace1");
+        replace4 = (OlapTable) secondDb.getTableNullable("replace4");
+        Assert.assertNull(replace4);
+
+        Assert.assertEquals(3,
+                replace1.getPartition("p1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertEquals(3,
+                replace1.getPartition("p2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
+        Assert.assertNotNull(replace1.getIndexIdByName("r3"));
+        Assert.assertNotNull(replace1.getIndexIdByName("r4"));
+
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
+        Assert.assertTrue(checkAllTabletsNotExists(tblNameToTabletIds.get("replace4")));
     }
 
     @Test
@@ -948,9 +1058,12 @@ public class AlterTest {
     @Test
     public void testAlterDateV2Schema() throws Exception {
         createTable("CREATE TABLE test.unique_partition_datev2\n" + "(\n" + "    k1 date,\n" + "    k2 datetime(3),\n"
-                + "    k3 datetime,\n" + "    v1 date,\n" + "    v2 datetime(3),\n" + "    v3 datetime,\n" + "    v4 int\n"
-                + ")\n" + "UNIQUE KEY(k1, k2, k3)\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1');");
+                + "    k3 datetime,\n" + "    v1 date,\n" + "    v2 datetime(3),\n" + "    v3 datetime,\n"
+                + "    v4 int\n"
+                + ")\n" + "UNIQUE KEY(k1, k2, k3)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
         // partition key can not be changed.
         String changeOrderStmt = "ALTER TABLE test.unique_partition_datev2 modify column k1 int key null";
@@ -1003,7 +1116,8 @@ public class AlterTest {
     @Test
     public void testExternalTableAlterOperations() throws Exception {
         // external table do not support partition operation
-        String stmt = "alter table test.odbc_table add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
+        String stmt
+                = "alter table test.odbc_table add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
         alterTable(stmt, true);
 
         // external table do not support rollup

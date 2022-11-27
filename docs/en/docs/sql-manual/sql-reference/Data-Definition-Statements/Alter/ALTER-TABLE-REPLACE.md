@@ -32,10 +32,10 @@ ALTER TABLE REPLACE
 
 ### Description
 
-Atomic substitution of two tables. This operation applies only to OLAP tables.
+Atomic substitution of two tables. This operation applies only to OLAP tables. It can be used between tables from two different databases.
 
 ```sql
-ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
+ALTER TABLE [db1.]tbl1 REPLACE WITH TABLE [db2.]tbl2
 [PROPERTIES('swap' = 'true')];
 ```
 

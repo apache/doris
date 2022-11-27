@@ -488,14 +488,18 @@ public class Alter {
     }
 
     // entry of processing replace table
-    private void processReplaceTable(Database db, OlapTable origTable, List<AlterClause> alterClauses)
+    private void processReplaceTable(Database origDb, OlapTable origTable, List<AlterClause> alterClauses)
             throws UserException {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
-        String newTblName = clause.getTblName();
+        String newTblName = clause.getTblName().getTbl();
+        String newDbName = clause.getTblName().getDb();
+        Database newDb = Env.getCurrentInternalCatalog().getDbOrDdlException(newDbName);
+
         boolean swapTable = clause.isSwapTable();
-        db.writeLockOrDdlException();
+        origDb.writeLockOrDdlException();
+        newDb.writeLockOrDdlException();
         try {
-            Table newTbl = db.getTableOrMetaException(newTblName, TableType.OLAP);
+            Table newTbl = newDb.getTableOrMetaException(newTblName, TableType.OLAP);
             OlapTable olapNewTbl = (OlapTable) newTbl;
             List<Table> tableList = Lists.newArrayList(origTable, newTbl);
             tableList.sort((Comparator.comparing(Table::getId)));
@@ -507,33 +511,36 @@ public class Alter {
                 if (swapTable) {
                     origTable.checkAndSetName(newTblName, true);
                 }
-                replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
+                replaceTableInternal(origDb, origTable, newDb, olapNewTbl, swapTable, false);
                 // write edit log
-                ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(),
-                        origTable.getId(), olapNewTbl.getId(), swapTable);
+                ReplaceTableOperationLog log = new ReplaceTableOperationLog(origDb.getId(),
+                        origTable.getId(), newDb.getId(), olapNewTbl.getId(), swapTable);
                 Env.getCurrentEnv().getEditLog().logReplaceTable(log);
                 LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
             } finally {
                 MetaLockUtils.writeUnlockTables(tableList);
             }
         } finally {
-            db.writeUnlock();
+            origDb.writeUnlock();
+            newDb.writeUnlock();
         }
     }
 
     public void replayReplaceTable(ReplaceTableOperationLog log) throws MetaNotFoundException {
-        long dbId = log.getDbId();
+        long origDbId = log.getOrigDbId();
         long origTblId = log.getOrigTblId();
+        long newDbId = log.getNewDbId();
         long newTblId = log.getNewTblId();
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        OlapTable origTable = (OlapTable) db.getTableOrMetaException(origTblId, TableType.OLAP);
-        OlapTable newTbl = (OlapTable) db.getTableOrMetaException(newTblId, TableType.OLAP);
+        Database origDb = Env.getCurrentInternalCatalog().getDbOrMetaException(origDbId);
+        OlapTable origTable = (OlapTable) origDb.getTableOrMetaException(origTblId, TableType.OLAP);
+        Database newDb = Env.getCurrentInternalCatalog().getDbOrMetaException(newDbId);
+        OlapTable newTbl = (OlapTable) newDb.getTableOrMetaException(newTblId, TableType.OLAP);
         List<Table> tableList = Lists.newArrayList(origTable, newTbl);
         tableList.sort((Comparator.comparing(Table::getId)));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
-            replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true);
+            replaceTableInternal(origDb, origTable, newDb, newTbl, log.isSwapTable(), true);
         } catch (DdlException e) {
             LOG.warn("should not happen", e);
         } finally {
@@ -556,24 +563,25 @@ public class Alter {
      * 1.1 check if B can be renamed to A (checking name conflict, etc...)
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
-    private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
+    private void replaceTableInternal(Database origDb, OlapTable origTable, Database newDb, OlapTable newTbl,
+                                      boolean swapTable,
                                       boolean isReplay)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
 
         // drop origin table and new table
-        db.dropTable(oldTblName);
-        db.dropTable(newTblName);
+        origDb.dropTable(oldTblName);
+        newDb.dropTable(newTblName);
 
         // rename new table name to origin table name and add it to database
         newTbl.checkAndSetName(oldTblName, false);
-        db.createTable(newTbl);
+        origDb.createTable(newTbl);
 
         if (swapTable) {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
-            db.createTable(origTable);
+            newDb.createTable(origTable);
         } else {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             Env.getCurrentEnv().onEraseOlapTable(origTable, isReplay);

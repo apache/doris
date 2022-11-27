@@ -34,7 +34,7 @@ public class ReplaceTableOperationLogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, 3, true);
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, 3, 4, true);
         log.write(dos);
 
         dos.flush();
@@ -44,7 +44,8 @@ public class ReplaceTableOperationLogTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         ReplaceTableOperationLog readLog = ReplaceTableOperationLog.read(dis);
-        Assert.assertTrue(readLog.getDbId() == log.getDbId());
+        Assert.assertTrue(readLog.getOrigDbId() == log.getOrigDbId());
+        Assert.assertTrue(readLog.getNewDbId() == log.getNewDbId());
         Assert.assertTrue(readLog.getNewTblId() == log.getNewTblId());
         Assert.assertTrue(readLog.getOrigTblId() == log.getOrigTblId());
         Assert.assertTrue(readLog.isSwapTable() == log.isSwapTable());
