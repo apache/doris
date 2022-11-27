@@ -15,6 +15,10 @@
     "message": "安装部署",
     "description": "The label for category Install And Deploy in sidebar docs"
   },
+  "sidebar.docs.category.Construct Docker": {
+    "message": "构建 Docker 集群",
+    "description": "Make docker image and quickly start Doris's Docker cluster"
+  },
   "sidebar.docs.category.Compile": {
     "message": "源码编译",
     "description": "The label for category Compile in sidebar docs"
