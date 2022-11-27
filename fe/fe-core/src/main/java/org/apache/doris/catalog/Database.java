@@ -663,6 +663,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
+        function.checkWritable();
         addFunctionImpl(function, ifNotExists, false);
         Env.getCurrentEnv().getEditLog().logAddFunction(function);
     }
