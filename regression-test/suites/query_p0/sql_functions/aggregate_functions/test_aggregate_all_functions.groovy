@@ -262,7 +262,7 @@ suite("test_aggregate_all_functions") {
     sql "INSERT INTO ${tableName_11} values(1,1),(2,2),(3,3),(4,null),(null,5)"
 
     qt_select "select * from (select k1 from ${tableName_11} union select null) t order by k1"
-    qt_select "select * from (select k1,a1 from ${tableName_11} union select null,null) t order by k1"
+    qt_select "select * from (select k1,a1 from ${tableName_11} union select null,null) t order by k1, a1"
 
     qt_select "select min(k1) from (select k1 from ${tableName_11} union select null) t"
     qt_select "select min(k1) from (select k1,a1 from ${tableName_11} union select null,null) t"
