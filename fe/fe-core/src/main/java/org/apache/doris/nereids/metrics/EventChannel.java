@@ -38,7 +38,7 @@ public class EventChannel {
     private final Map<Class<? extends Event>, EventEnhancer> enhancers = Maps.newHashMap();
     private final BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
     private final AtomicBoolean isStop = new AtomicBoolean(false);
-    private Thread thread;
+    private Thread thread = null;
 
     public void add(Event e) {
         try {
@@ -91,9 +91,11 @@ public class EventChannel {
     }
 
     public void start() {
-        thread = new Thread(new Worker(), "nereids_event");
-        thread.setDaemon(true);
-        thread.start();
+        if (thread == null) {
+            thread = new Thread(new Worker(), "nereids_event");
+            thread.setDaemon(true);
+            thread.start();
+        }
     }
 
     /**
