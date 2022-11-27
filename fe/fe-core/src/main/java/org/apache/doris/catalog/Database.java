@@ -662,27 +662,31 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
-    public synchronized void addFunction(Function function) throws UserException {
-        addFunctionImpl(function, false);
+    public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
+        addFunctionImpl(function, ifNotExists, false);
         Env.getCurrentEnv().getEditLog().logAddFunction(function);
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
-            addFunctionImpl(function, true);
+            addFunctionImpl(function, false, true);
         } catch (UserException e) {
             Preconditions.checkArgument(false);
         }
     }
 
     // return true if add success, false
-    private void addFunctionImpl(Function function, boolean isReplay) throws UserException {
+    private void addFunctionImpl(Function function, boolean ifNotExists, boolean isReplay) throws UserException {
         String functionName = function.getFunctionName().getFunction();
         List<Function> existFuncs = name2Function.get(functionName);
         if (!isReplay) {
             if (existFuncs != null) {
                 for (Function existFunc : existFuncs) {
                     if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
+                        if (ifNotExists) {
+                            LOG.debug("function already exists");
+                            return;
+                        }
                         throw new UserException("function already exists");
                     }
                 }
@@ -701,24 +705,28 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         name2Function.put(functionName, builder.build());
     }
 
-    public synchronized void dropFunction(FunctionSearchDesc function) throws UserException {
-        dropFunctionImpl(function);
+    public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
+        dropFunctionImpl(function, ifExists);
         Env.getCurrentEnv().getEditLog().logDropFunction(function);
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            dropFunctionImpl(functionSearchDesc);
+            dropFunctionImpl(functionSearchDesc, false);
         } catch (UserException e) {
             Preconditions.checkArgument(false);
         }
     }
 
-    private void dropFunctionImpl(FunctionSearchDesc function) throws UserException {
+    private void dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
         String functionName = function.getName().getFunction();
         List<Function> existFuncs = name2Function.get(functionName);
         if (existFuncs == null) {
-            throw new UserException("Unknown function, function=" + function.toString());
+            if (ifExists) {
+                LOG.debug("function name does not exist: " + functionName);
+                return;
+            }
+            throw new UserException("function name does not exist: " + functionName);
         }
         boolean isFound = false;
         ImmutableList.Builder<Function> builder = ImmutableList.builder();
@@ -730,7 +738,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             }
         }
         if (!isFound) {
-            throw new UserException("Unknown function, function=" + function.toString());
+            if (ifExists) {
+                LOG.debug("function does not exist: " + function);
+                return;
+            }
+            throw new UserException("function does not exist: " + function);
         }
         ImmutableList<Function> newFunctions = builder.build();
         if (newFunctions.isEmpty()) {

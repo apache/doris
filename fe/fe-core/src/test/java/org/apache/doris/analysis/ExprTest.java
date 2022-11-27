@@ -245,7 +245,6 @@ public class ExprTest {
         dos.close();
 
         // 2. Read objects from file
-
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Expr readExpr = Expr.readIn(dis);
         Assert.assertTrue(readExpr instanceof ArithmeticExpr);
