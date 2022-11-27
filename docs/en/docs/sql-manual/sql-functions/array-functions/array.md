@@ -1,6 +1,6 @@
 ---
 {
-    "title": "array constructor",
+    "title": "array",
     "language": "en"
 }
 ---

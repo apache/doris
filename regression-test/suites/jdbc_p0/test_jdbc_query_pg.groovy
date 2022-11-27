@@ -29,6 +29,7 @@ suite("test_jdbc_query_pg", "p0") {
         String dorisInTable3 = "doris_in_table3";
         String dorisInTable4 = "doris_in_table4";
         String dorisViewName = "doris_view_name";
+        String exMysqlTypeTable = "doris_type_tb";
 
         sql """drop resource if exists $jdbcResourcePg14;"""
         sql """
@@ -562,7 +563,57 @@ suite("test_jdbc_query_pg", "p0") {
         order_qt_sql84 """ SELECT NULL, NULL INTERSECT SELECT NULL, NULL FROM $jdbcPg14Table1 """
         order_qt_sql85 """ SELECT COUNT(*) FROM $jdbcPg14Table1 INTERSECT SELECT COUNT(k8) FROM $jdbcPg14Table1 HAVING SUM(k7) IS NOT NULL """
         order_qt_sql86 """ SELECT k8 FROM $jdbcPg14Table1 WHERE k8 < 7 EXCEPT SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 21 """
+        order_qt_sql87 """ SELECT row_number() OVER (PARTITION BY k7) rn, k8 FROM $jdbcPg14Table1 LIMIT 3 """
+        order_qt_sql88 """ SELECT row_number() OVER (PARTITION BY k7 ORDER BY k8) rn FROM $jdbcPg14Table1 LIMIT 3 """
+        order_qt_sql89 """ SELECT row_number() OVER (ORDER BY k8) rn FROM $jdbcPg14Table1 LIMIT 3 """
+        order_qt_sql90 """ SELECT row_number() OVER () FROM $jdbcPg14Table1 as a JOIN ${dorisExTable1} as b ON a.k8 = b.id WHERE a.k8 > 111 LIMIT 2 """
+        order_qt_sql91 """ SELECT k7, k8, SUM(rn) OVER (PARTITION BY k8) c
+                            FROM ( SELECT k7, k8, row_number() OVER (PARTITION BY k8) rn
+                             FROM (SELECT * FROM $jdbcPg14Table1 ORDER BY k8 desc LIMIT 10) as t1) as t2 limit 3 """
 
+
+        // test for create external table use different type with original type
+        sql  """ drop table if exists ${exMysqlTypeTable} """
+        sql  """
+            CREATE EXTERNAL TABLE `$exMysqlTypeTable` (
+                `id` int NULL COMMENT "",
+                `name` varchar(120) NULL COMMENT ""
+            ) ENGINE=JDBC
+            PROPERTIES (
+            "resource" = "$jdbcResourcePg14",
+            "table" = "test3", 
+            "table_type"="postgresql"
+            );
+        """
+        order_qt_sql """ select * from ${exMysqlTypeTable} order by id """
+
+
+        order_qt_sql92 """ WITH a AS (SELECT k8 from $jdbcPg14Table1), b AS (WITH a AS (SELECT k8 from $jdbcPg14Table1) SELECT * FROM a) 
+                            SELECT * FROM b order by k8 desc limit 5 """
+        order_qt_sql93 """ SELECT CASE k8 WHEN 1 THEN CAST(1 AS decimal(4,1)) WHEN 2 THEN CAST(1 AS decimal(4,2)) 
+                            ELSE CAST(1 AS decimal(4,3)) END FROM $jdbcPg14Table1 limit 3"""
+        order_qt_sql95 """ SELECT * from (SELECT k8 FROM $jdbcPg14Table1 UNION (SELECT id as k8 FROM ${dorisExTable1}  UNION SELECT k7 as k8 FROM $jdbcPg14Table1) 
+                            UNION ALL SELECT id as k8 FROM $exMysqlTypeTable ORDER BY id limit 3) as a  limit 3"""
+        order_qt_sql100 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE EXISTS(SELECT max(id) FROM ${dorisExTable1}) """
+        order_qt_sql103 """ SELECT count(*) FROM $jdbcPg14Table1 n WHERE (SELECT count(*) FROM ${dorisExTable1} r WHERE n.k8 = r.id) > 1 """
+        order_qt_sql105 """ SELECT count(*) AS numwait FROM $jdbcPg14Table1 l1 WHERE
+                            EXISTS(SELECT * FROM $jdbcPg14Table1 l2 WHERE l2.k8 = l1.k8 )
+                            AND NOT EXISTS(SELECT * FROM $jdbcPg14Table1 l3 WHERE l3.k8= l1.k8) """
+        order_qt_sql106 """ SELECT AVG(x) FROM (SELECT 1 AS x, k7 FROM $jdbcPg14Table1) as a GROUP BY x, k7 """
+        order_qt_sql107 """ WITH lineitem_ex AS (
+                                SELECT k8,CAST(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CONCAT(CAST((k8 % 255) AS VARCHAR), '.'),
+                                    CAST((k8 % 255) AS VARCHAR)), '.'),CAST(k8 AS VARCHAR)), '.' ),
+                                    CAST(k8 AS VARCHAR)) as varchar) AS ip FROM $jdbcPg14Table1)
+                            SELECT SUM(length(l.ip)) FROM lineitem_ex l, ${dorisExTable1} p WHERE l.k8 = p.id """
+        order_qt_sql108 """ SELECT RANK() OVER (PARTITION BY k7 ORDER BY COUNT(DISTINCT k8)) rnk
+                            FROM $jdbcPg14Table1 GROUP BY k7, k8 ORDER BY rnk limit 3"""
+        order_qt_sql109 """ SELECT sum(k7) OVER(PARTITION BY k7 ORDER BY k8), count(k7) OVER(PARTITION BY k7 ORDER BY k7),
+                            min(k8) OVER(PARTITION BY k9, k10 ORDER BY k8) FROM $jdbcPg14Table1 ORDER BY 1, 2  limit 3 """
+        order_qt_sql110 """ WITH t1 AS (SELECT k8 FROM $jdbcPg14Table1 ORDER BY k7, k8 desc LIMIT 2),
+                                    t2 AS (SELECT k8, sum(k8) OVER() AS x FROM t1),
+                                    t3 AS (SELECT max(x) OVER() FROM t2) SELECT * FROM t3 limit 3"""
+        order_qt_sql111 """ SELECT rank() OVER () FROM (SELECT k8 FROM $jdbcPg14Table1 LIMIT 10) as t1 LIMIT 3 """
+        order_qt_sql112 """ SELECT k7, count(DISTINCT k8) FROM $jdbcPg14Table1 WHERE k8 > 110 GROUP BY GROUPING SETS ((), (k7)) """
 
     }
 }

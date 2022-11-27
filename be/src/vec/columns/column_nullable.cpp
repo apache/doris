@@ -69,7 +69,7 @@ void ColumnNullable::update_hashes_with_value(std::vector<SipHash>& hashes,
     auto s = hashes.size();
     DCHECK(s == size());
     auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (!_has_null) {
+    if (!has_null()) {
         nested_column->update_hashes_with_value(hashes, nullptr);
     } else {
         for (int i = 0; i < s; ++i) {
@@ -103,7 +103,7 @@ void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
     DCHECK(null_data == nullptr);
     auto s = size();
     auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (!_has_null) {
+    if (!has_null()) {
         nested_column->update_hashes_with_value(hashes, nullptr);
     } else {
         for (int i = 0; i < s; ++i) {

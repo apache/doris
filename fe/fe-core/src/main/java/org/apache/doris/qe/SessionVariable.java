@@ -624,12 +624,14 @@ public class SessionVariable implements Serializable, Writable {
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
-        Random random = new Random();
+        Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.enableLocalExchange = random.nextBoolean();
-        this.disableJoinReorder = random.nextBoolean();
+        // This will cause be dead loop, disable it first
+        // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
-        // this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
+        this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
+        this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
     }
 
     public String getBlockEncryptionMode() {

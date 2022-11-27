@@ -223,7 +223,7 @@ visible_functions = [
     [['array_position'], 'BIGINT', ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
-    [['cardinality', 'size'], 'BIGINT', ['ARRAY'], '', '', '', 'vec', ''],
+    [['cardinality', 'size', 'array_size'], 'BIGINT', ['ARRAY'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], '', '', '', 'vec', ''],
     [['array_distinct'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], '', '', '', 'vec', ''],

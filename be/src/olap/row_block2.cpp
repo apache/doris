@@ -26,7 +26,6 @@
 #include "util/bitmap.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
@@ -328,7 +327,7 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         break;
     }
     case OLAP_FIELD_TYPE_JSONB: {
-        auto json_string = assert_cast<vectorized::ColumnJsonb*>(column);
+        auto json_string = assert_cast<vectorized::ColumnString*>(column);
         size_t limit = config::jsonb_type_length_soft_limit_bytes;
         for (uint16_t j = 0; j < _selected_size; ++j) {
             if (!nullable_mark_array[j]) {
@@ -341,6 +340,7 @@ Status RowBlockV2::_copy_data_to_column(int cid,
                             fmt::format("Not support json len over than {} in vec engine.", limit));
                 }
             } else {
+                // TODO
                 json_string->insert_default();
             }
         }

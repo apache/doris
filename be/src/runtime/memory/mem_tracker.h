@@ -94,8 +94,8 @@ protected:
     std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _consumption; // in bytes
 
     // Tracker is located in group num in mem_tracker_pool
-    int64_t _parent_group_num;
-    std::string _parent_label;
+    int64_t _parent_group_num = 0;
+    std::string _parent_label = "-";
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;

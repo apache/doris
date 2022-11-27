@@ -28,7 +28,6 @@ public class AutoCloseConnectContext implements AutoCloseable {
 
     @Override
     public void close() {
-        connectContext.kill(false);
         ConnectContext.remove();
     }
 }

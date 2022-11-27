@@ -1,6 +1,6 @@
 ---
 {
-    "title": "size",
+    "title": "array_size",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## size (cardinality)
+## array_size (size, cardinality)
 
 ### description
 
@@ -32,6 +32,7 @@ under the License.
 
 ```
 BIGINT size(ARRAY<T> arr) 
+BIGINT array_size(ARRAY<T> arr) 
 BIGINT cardinality(ARRAY<T> arr)
 ```
 
@@ -55,6 +56,15 @@ mysql> select k1,k2,size(k2) from array_test;
 |    3 | NULL      |       NULL |
 +------+-----------+------------+
 
+mysql> select k1,k2,array_size(k2) from array_test;
++------+-----------+------------------+
+| k1   | k2        | array_size(`k2`) |
++------+-----------+------------------+
+|    1 | [1, 2, 3] |                3 |
+|    2 | []        |                0 |
+|    3 | NULL      |             NULL |
++------+-----------+------------------+
+
 mysql> select k1,k2,cardinality(k2) from array_test;
 +------+-----------+-------------------+
 | k1   | k2        | cardinality(`k2`) |
@@ -63,8 +73,9 @@ mysql> select k1,k2,cardinality(k2) from array_test;
 |    2 | []        |                 0 |
 |    3 | NULL      |              NULL |
 +------+-----------+-------------------+
+
 ```
 
 ### keywords
 
-SIZE, CARDINALITY
+ARRAY_SIZE, SIZE, CARDINALITY

@@ -148,7 +148,9 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                     logicalSubQueryAlias(
                         logicalProject(
                             logicalFilter(
-                                unboundRelation()
+                                logicalCheckPolicy(
+                                    unboundRelation()
+                                )
                             )
                         )
                     )

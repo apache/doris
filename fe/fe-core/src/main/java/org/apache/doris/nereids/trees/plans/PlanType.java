@@ -47,6 +47,7 @@ public enum PlanType {
     LOGICAL_ASSERT_NUM_ROWS,
     LOGICAL_HAVING,
     LOGICAL_MULTI_JOIN,
+    LOGICAL_CHECK_POLICY,
     GROUP_PLAN,
 
     // physical plan
