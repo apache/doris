@@ -101,6 +101,9 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
     using Creator = PredicateFunctionCreator<Traits>;
 
     switch (type) {
+    case TYPE_BOOLEAN: {
+        return Creator::template create<TYPE_BOOLEAN>();
+    }
 #define M(NAME)                                  \
     case NAME: {                                 \
         return Creator::template create<NAME>(); \
