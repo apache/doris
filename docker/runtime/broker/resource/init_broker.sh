@@ -97,7 +97,6 @@ for ((i = 0; i <= 20; i++)); do
     if [[ "${broker_join_status}" == 0 ]]; then
         ## broker registe successfully
         echo "BROKER START SUCCESS!!!"
-        "${is_success}"=1
         break
     else
         ## broker doesn't registe
