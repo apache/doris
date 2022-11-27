@@ -36,6 +36,11 @@ Status EngineChecksumTask::execute() {
     return _compute_checksum();
 } // execute
 
+void EngineChecksumTask::execute_async() {
+    StorageEngine::instance()->tablet_manual_checksum_thread_pool()->submit_func(
+            [=]() { _compute_checksum(); });
+}
+
 Status EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
               << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
@@ -54,6 +59,7 @@ Status EngineChecksumTask::_compute_checksum() {
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = READER_CHECKSUM;
+    reader_params.tablet_schema = tablet->tablet_schema();
     reader_params.version = Version(0, _version);
 
     {
@@ -97,7 +103,8 @@ Status EngineChecksumTask::_compute_checksum() {
         agg_object_pool.reset(new ObjectPool());
     }
 
-    LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
+    LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum
+              << ", tablet_id=" << _tablet_id << ", version=" << _version;
     *_checksum = row_checksum;
     return Status::OK();
 }

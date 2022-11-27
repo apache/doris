@@ -167,6 +167,11 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(config::tablet_publish_txn_max_thread)
             .set_max_threads(config::tablet_publish_txn_max_thread)
             .build(&_tablet_publish_txn_thread_pool);
+    // add tablet manual checksum thread pool
+    ThreadPoolBuilder("TabletManualChecksumThreadPool")
+            .set_min_threads(8)
+            .set_max_threads(8)
+            .build(&_tablet_manual_checksum_thread_pool);
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();

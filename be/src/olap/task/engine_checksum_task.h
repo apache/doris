@@ -30,6 +30,8 @@ class EngineChecksumTask : public EngineTask {
 public:
     virtual Status execute();
 
+    void execute_async();
+
 public:
     EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version,
                        uint32_t* checksum);

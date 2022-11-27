@@ -193,6 +193,9 @@ public:
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
     }
+    std::unique_ptr<ThreadPool>& tablet_manual_checksum_thread_pool() {
+        return _tablet_manual_checksum_thread_pool;
+    }
 
 private:
     // Instance should be inited from `static open()`
@@ -372,6 +375,7 @@ private:
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
+    std::unique_ptr<ThreadPool> _tablet_manual_checksum_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
 

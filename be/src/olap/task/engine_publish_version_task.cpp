@@ -24,6 +24,7 @@
 #include "olap/data_dir.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/tablet_manager.h"
+#include "olap/task/engine_checksum_task.h"
 
 namespace doris {
 
@@ -230,6 +231,13 @@ void TabletPublishTxnTask::handle() {
     VLOG_NOTICE << "publish version successfully on tablet. tablet=" << _tablet->full_name()
                 << ", transaction_id=" << _transaction_id << ", version=" << _version.first
                 << ", res=" << publish_status;
+    // build check consistency task and add to pool
+    if (config::enable_checksum_in_load) {
+        uint32_t checksum;
+        EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
+                                         _version.first, &checksum);
+        checksum_task.execute_async();
+    }
 
     return;
 }
