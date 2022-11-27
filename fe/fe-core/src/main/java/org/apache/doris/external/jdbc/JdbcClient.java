@@ -329,7 +329,7 @@ public class JdbcClient {
         String[] typeFields = fieldSchema.getDataTypeName().split(" ");
         String mysqlType = typeFields[0];
         // For unsigned int, should extend the type.
-        if ("UNSIGNED".equals(typeFields[1])) {
+        if (typeFields.length > 1 && "UNSIGNED".equals(typeFields[1])) {
             switch (mysqlType) {
                 case "TINYINT":
                     return Type.SMALLINT;
