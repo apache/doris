@@ -17,9 +17,9 @@
 # under the License.
 
 FE_SERVERS=""
-BE_ADDR=""
+BROKER_ADDR=""
 
-ARGS=$(getopt -o -h: --long fe_servers:,be_addr: -n "$0" -- "$@")
+ARGS=$(getopt -o -h: --long fe_servers:,broker_addr: -n "$0" -- "$@")
 
 eval set -- "${ARGS}"
 
@@ -29,8 +29,8 @@ while [[ -n "$1" ]]; do
         FE_SERVERS=$2
         shift
         ;;
-    --be_addr)
-        BE_ADDR=$2
+    --broker_addr)
+        BROKER_ADDR=$2
         shift
         ;;
     --) ;;
@@ -45,7 +45,7 @@ done
 
 #echo FE_SERVERS = $FE_SERVERS
 echo "DEBUG >>>>>> FE_SERVERS=[${FE_SERVERS}]"
-echo "DEBUG >>>>>> BE_ADDR=[${BE_ADDR}]"
+echo "DEBUG >>>>>> BROKER_ADDR=[${BROKER_ADDR}]"
 
 feIpArray=()
 feEditLogPortArray=()
@@ -64,42 +64,51 @@ for i in "${!feServerArray[@]}"; do
     feEditLogPortArray[tmpFeId]=${tmpFeEditLogPort}
 done
 
-be_ip=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
-be_heartbeat_port=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+broker_name=$(echo "${BROKER_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
+broker_ip=$(echo "${BROKER_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+broker_ipc_port=$(echo "${BROKER_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$3}')
 
 echo "DEBUG >>>>>> feIpArray = ${feIpArray[*]}"
 echo "DEBUG >>>>>> feEditLogPortArray = ${feEditLogPortArray[*]}"
 echo "DEBUG >>>>>> masterFe = ${feIpArray[1]}:${feEditLogPortArray[1]}"
-echo "DEBUG >>>>>> be_addr = ${be_ip}:${be_heartbeat_port}"
+echo "DEBUG >>>>>> broker_addr = ${broker_ip}:${broker_ipc_port}"
 
-priority_networks=$(echo "${be_ip}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
-echo "DEBUG >>>>>> Append the configuration [priority_networks = ${priority_networks}] to /opt/apache-doris/be/conf/fe.conf"
-echo "priority_networks = ${priority_networks}" >>/opt/apache-doris/be/conf/be.conf
+dropMySQL="/usr/bin/mysql -uroot -P9030 -h${feIpArray[1]} -e \"alter system drop broker ${broker_name} '${broker_ip}:${broker_ipc_port}'\""
+echo "DEBUG >>>>>> dropMySQL = ${dropMySQL}"
+eval "${dropMySQL}" && echo "DEBUG >>>>>> drop history registe SUCCESS!" || echo "DEBUG >>>>>> drop history registe FAILED!"
 
-registerMySQL="mysql -uroot -P9030 -h${feIpArray[1]} -e \"alter system add backend '${be_ip}:${be_heartbeat_port}'\""
+# register broker to FE through mysql
+registerMySQL="/usr/bin/mysql -uroot -P9030 -h${feIpArray[1]} -e \"alter system add broker ${broker_name} '${broker_ip}:${broker_ipc_port}'\""
 echo "DEBUG >>>>>> registerMySQL = ${registerMySQL}"
+eval "${registerMySQL}" && echo "DEBUG >>>>>> mysql register is SUCCESS!" || echo "DEBUG >>>>>> mysql register is FAILED!"
 
-registerShell="/opt/apache-doris/be/bin/start_be.sh &"
+# start broker
+registerShell="/opt/apache-doris/broker/bin/start_broker.sh &"
 echo "DEBUG >>>>>> registerShell = ${registerShell}"
+eval "${registerShell}" && echo "DEBUG >>>>>> start_broker SUCCESS！" || echo "DEBUG >>>>>> start_broker FAILED!"
 
 for ((i = 0; i <= 20; i++)); do
-
-    ## check be register status
-    echo "mysql -uroot -P9030 -h${feIpArray[1]} -e \"show backends\" | grep \" ${be_ip} \" | grep \" ${be_heartbeat_port} \""
-    mysql -uroot -P9030 -h"${feIpArray[1]}" -e "show backends" | grep "[[:space:]]${be_ip}[[:space:]]" | grep "[[:space:]]${be_heartbeat_port}[[:space:]]"
-    be_join_status=$?
-    echo "DEBUG >>>>>> The " "${i}" "time to register BE node, be_join_status=${be_join_status}"
-    if [[ "${be_join_status}" == 0 ]]; then
-        ## be registe successfully
-        echo "DEBUG >>>>>> run command ${registerShell}"
-        eval "${registerShell}"
+    sleep 10
+    ## check broker register status
+    echo "DEBUG >>>>>> run commnad mysql -uroot -P9030 -h${feIpArray[1]} -e \"show proc '/brokers'\" | grep \" ${broker_ip} \" | grep \" ${broker_ipc_port} \" | grep \" true \""
+    mysql -uroot -P9030 -h"${feIpArray[1]}" -e "show proc '/brokers'" | grep "[[:space:]]${broker_ip}[[:space:]]" | grep "[[:space:]]${broker_ipc_port}[[:space:]]" | grep "[[:space:]]true[[:space:]]"
+    broker_join_status=$?
+    echo "DEBUG >>>>>> The " "${i}" "time to register Broker node, broker_join_status=${broker_join_status}"
+    if [[ "${broker_join_status}" == 0 ]]; then
+        ## broker registe successfully
+        echo "BROKER START SUCCESS!!!"
+        "${is_success}"=1
+        break
     else
-        ## be doesn't registe
+        ## broker doesn't registe
         echo "DEBUG >>>>>> run commnad ${registerMySQL}"
         eval "${registerMySQL}"
         if [[ "${i}" == 20 ]]; then
-            echo "DEBUG >>>>>> BE Start Or Register FAILED!"
+            echo "DEBUG >>>>>> Broker Start Or Register FAILED!"
         fi
-        sleep 5
+        sleep 3
     fi
 done
+
+
+
