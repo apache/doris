@@ -638,24 +638,26 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
     // jsonb_extract root
     DataSet data_set = {
             {{Null(), STRING("$")}, Null()},
-            {{STRING("null"), STRING("$")}, Null()},
-            {{STRING("true"), STRING("$")}, Null()},
-            {{STRING("false"), STRING("$")}, Null()},
-            {{STRING("100"), STRING("$")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$")}, Null()},                 // int32
-            {{STRING("1152921504606846976"), STRING("$")}, Null()},        // int64
-            {{STRING("6.18"), STRING("$")}, Null()},                       // double
-            {{STRING(R"("abcd")"), STRING("$")}, STRING("abcd")},          // string
-            {{STRING("{}"), STRING("$")}, Null()},                         // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$")}, Null()}, // object
-            {{STRING("[]"), STRING("$")}, Null()},                         // empty array
-            {{STRING("[123, 456]"), STRING("$")}, Null()},                 // int array
-            {{STRING(R"(["abc", "def"])"), STRING("$")}, Null()},          // string array
+            {{STRING("null"), STRING("$")}, STRING("null")},
+            {{STRING("true"), STRING("$")}, STRING("true")},
+            {{STRING("false"), STRING("$")}, STRING("false")},
+            {{STRING("100"), STRING("$")}, STRING("100")},                                 //int8
+            {{STRING("10000"), STRING("$")}, STRING("10000")},                             // int16
+            {{STRING("1000000000"), STRING("$")}, STRING("1000000000")},                   // int32
+            {{STRING("1152921504606846976"), STRING("$")}, STRING("1152921504606846976")}, // int64
+            {{STRING("6.18"), STRING("$")}, STRING("6.18")},                               // double
+            {{STRING(R"("abcd")"), STRING("$")}, STRING("abcd")},                          // string
+            {{STRING("{}"), STRING("$")}, STRING("{}")}, // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$")},
+             STRING(R"({"k1":"v31","k2":300})")},                       // object
+            {{STRING("[]"), STRING("$")}, STRING("[]")},                // empty array
+            {{STRING("[123, 456]"), STRING("$")}, STRING("[123,456]")}, // int array
+            {{STRING(R"(["abc", "def"])"), STRING("$")},
+             STRING(R"(["abc","def"])")}, // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$")},
-             Null()}, // multi type array
+             STRING(R"([null,true,false,100,6.18,"abc"])")}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$")},
-             Null()}, // complex array
+             STRING(R"([{"k1":"v41","k2":400},1,"a",3.14])")}, // complex array
     };
 
     check_function<DataTypeString, true>(func_name, input_types, data_set);
@@ -666,17 +668,17 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
             {{STRING("null"), STRING("$.k1")}, Null()},
             {{STRING("true"), STRING("$.k1")}, Null()},
             {{STRING("false"), STRING("$.k1")}, Null()},
-            {{STRING("100"), STRING("$.k1")}, Null()},                               //int8
-            {{STRING("10000"), STRING("$.k1")}, Null()},                             // int16
-            {{STRING("1000000000"), STRING("$.k1")}, Null()},                        // int32
-            {{STRING("1152921504606846976"), STRING("$.k1")}, Null()},               // int64
-            {{STRING("6.18"), STRING("$.k1")}, Null()},                              // double
-            {{STRING(R"("abcd")"), STRING("$.k1")}, Null()},                         // string
-            {{STRING("{}"), STRING("$.k1")}, Null()},                                // empty object
+            {{STRING("100"), STRING("$.k1")}, Null()},                 //int8
+            {{STRING("10000"), STRING("$.k1")}, Null()},               // int16
+            {{STRING("1000000000"), STRING("$.k1")}, Null()},          // int32
+            {{STRING("1152921504606846976"), STRING("$.k1")}, Null()}, // int64
+            {{STRING("6.18"), STRING("$.k1")}, Null()},                // double
+            {{STRING(R"("abcd")"), STRING("$.k1")}, Null()},           // string
+            {{STRING("{}"), STRING("$.k1")}, Null()},                  // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$.k1")}, STRING("v31")}, // object
-            {{STRING("[]"), STRING("$.k1")}, Null()},                                // empty array
-            {{STRING("[123, 456]"), STRING("$.k1")}, Null()},                        // int array
-            {{STRING(R"(["abc", "def"])"), STRING("$.k1")}, Null()},                 // string array
+            {{STRING("[]"), STRING("$.k1")}, Null()},                // empty array
+            {{STRING("[123, 456]"), STRING("$.k1")}, Null()},        // int array
+            {{STRING(R"(["abc", "def"])"), STRING("$.k1")}, Null()}, // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$.k1")},
              Null()}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$.k1")},
@@ -703,43 +705,43 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
             {{STRING("null"), STRING("$[1]")}, Null()},
             {{STRING("true"), STRING("$[1]")}, Null()},
             {{STRING("false"), STRING("$[1]")}, Null()},
-            {{STRING("100"), STRING("$[1]")}, Null()},                        //int8
-            {{STRING("10000"), STRING("$[1]")}, Null()},                      // int16
-            {{STRING("1000000000"), STRING("$[1]")}, Null()},                 // int32
-            {{STRING("1152921504606846976"), STRING("$[1]")}, Null()},        // int64
-            {{STRING("6.18"), STRING("$[1]")}, Null()},                       // double
-            {{STRING(R"("abcd")"), STRING("$[1]")}, Null()},                  // string
-            {{STRING("{}"), STRING("$[1]")}, Null()},                         // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[1]")}, Null()}, // object
-            {{STRING("[]"), STRING("$[1]")}, Null()},                         // empty array
-            {{STRING("[123, 456]"), STRING("$[0]")}, Null()},                 // int array
-            {{STRING("[123, 456]"), STRING("$[1]")}, Null()},                 // int array
-            {{STRING("[123, 456]"), STRING("$[2]")}, Null()},                 // int array
-            {{STRING(R"(["abc", "def"])"), STRING("$[0]")}, STRING("abc")},   // string array
-            {{STRING(R"(["abc", "def"])"), STRING("$[1]")}, STRING("def")},   // string array
-            {{STRING(R"(["abc", "def"])"), STRING("$[2]")}, Null()},          // string array
+            {{STRING("100"), STRING("$[1]")}, Null()},                           //int8
+            {{STRING("10000"), STRING("$[1]")}, Null()},                         // int16
+            {{STRING("1000000000"), STRING("$[1]")}, Null()},                    // int32
+            {{STRING("1152921504606846976"), STRING("$[1]")}, Null()},           // int64
+            {{STRING("6.18"), STRING("$[1]")}, Null()},                          // double
+            {{STRING(R"("abcd")"), STRING("$[1]")}, Null()},                     // string
+            {{STRING("{}"), STRING("$[1]")}, Null()},                            // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("$[1]")}, Null()},    // object
+            {{STRING("[]"), STRING("$[1]")}, Null()},                            // empty array
+            {{STRING("[123, 456]"), STRING("$[0]")}, STRING("123")},             // int array
+            {{STRING("[123, 456]"), STRING("$[1]")}, STRING("456")},             // int array
+            {{STRING("[123, 456]"), STRING("$[2]")}, Null()},                    // int array
+            {{STRING(R"(["abc", "def"])"), STRING("$[0]")}, STRING("abc")}, // string array
+            {{STRING(R"(["abc", "def"])"), STRING("$[1]")}, STRING("def")}, // string array
+            {{STRING(R"(["abc", "def"])"), STRING("$[2]")}, Null()},             // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[0]")},
-             Null()}, // multi type array
+             STRING("null")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[1]")},
-             Null()}, // multi type array
+             STRING("true")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[2]")},
-             Null()}, // multi type array
+             STRING("false")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[3]")},
-             Null()}, // multi type array
+             STRING("100")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[4]")},
-             Null()}, // multi type array
+             STRING("6.18")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[5]")},
              STRING("abc")}, // multi type array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"), STRING("$[6]")},
              Null()}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$[0]")},
-             Null()}, // complex array
+             STRING(R"({"k1":"v41","k2":400})")}, // complex array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$[1]")},
-             Null()}, // complex array
+             STRING("1")}, // complex array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$[2]")},
              STRING("a")}, // complex array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$[3]")},
-             Null()}, // complex array
+             STRING("3.14")}, // complex array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"), STRING("$[4]")},
              Null()}, // complex array
     };
