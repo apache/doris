@@ -213,7 +213,7 @@ suite("test_broker_load", "p0") {
         sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         set_be_config.call('true')
         try {
-            i = 0
+            def i = 0
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
                 sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
@@ -227,7 +227,7 @@ suite("test_broker_load", "p0") {
 
             i = 0
             for (String label in uuids) {
-                max_try_milli_secs = 600000
+                def max_try_milli_secs = 600000
                 while (max_try_milli_secs > 0) {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     if (result[0][2].equals("FINISHED")) {

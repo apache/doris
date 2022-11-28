@@ -82,11 +82,11 @@ suite("test_hdfs_json_load", "p0") {
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 30000
+        def max_try_milli_secs = 30000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
-                log.info("LOAD FINISHED!")
+                log.info("LOAD FINISHED: ${checklabel}")
                 break
             } else {
                 sleep(1000) // wait 1 second every time
