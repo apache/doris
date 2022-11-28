@@ -104,9 +104,8 @@ void Daemon::tcmalloc_gc_thread() {
 #endif
 }
 
-void Daemon::memory_maintenance_thread() {
-    while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::memory_maintenance_sleep_time_s))) {
+void Daemon::buffer_pool_gc_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
@@ -119,8 +118,8 @@ void Daemon::memory_maintenance_thread() {
     }
 }
 
-void Daemon::memory_proc_refresh_thread() {
-    int64_t interval_milliseconds = 500;
+void Daemon::memory_maintenance_thread() {
+    int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
         // Refresh process memory metrics.
@@ -152,7 +151,7 @@ void Daemon::memory_proc_refresh_thread() {
                            doris::MemInfo::soft_mem_limit()) {
             interval_milliseconds = 200;
         } else {
-            interval_milliseconds = 500;
+            interval_milliseconds = config::memory_maintenance_sleep_time_ms;
         }
     }
 }
@@ -331,12 +330,12 @@ void Daemon::start() {
             &_tcmalloc_gc_thread);
     CHECK(st.ok()) << st.to_string();
     st = Thread::create(
-            "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
-            &_memory_maintenance_thread);
+            "Daemon", "buffer_pool_gc_thread", [this]() { this->buffer_pool_gc_thread(); },
+            &_buffer_pool_gc_thread);
     CHECK(st.ok()) << st.to_string();
     st = Thread::create(
-            "Daemon", "memory_proc_refresh_thread",
-            [this]() { this->memory_proc_refresh_thread(); }, &_memory_proc_refresh_thread);
+            "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
+            &_memory_maintenance_thread);
     CHECK(st.ok()) << st.to_string();
     st = Thread::create(
             "Daemon", "load_channel_tracker_refresh_thread",
@@ -364,11 +363,11 @@ void Daemon::stop() {
     if (_tcmalloc_gc_thread) {
         _tcmalloc_gc_thread->join();
     }
+    if (_buffer_pool_gc_thread) {
+        _buffer_pool_gc_thread->join();
+    }
     if (_memory_maintenance_thread) {
         _memory_maintenance_thread->join();
-    }
-    if (_memory_proc_refresh_thread) {
-        _memory_proc_refresh_thread->join();
     }
     if (_load_channel_tracker_refresh_thread) {
         _load_channel_tracker_refresh_thread->join();

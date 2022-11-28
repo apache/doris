@@ -177,8 +177,7 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     if (_enable_print_log_usage) {
         _enable_print_log_usage = false;
         std::string detail = msg;
-        detail += "\nMemory Tracker Print Log Usage:\n    " +
-                  MemTrackerLimiter::process_mem_log_str();
+        detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
         detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
         detail += "\nMemory Tracker Summary:    " + log_usage();
         std::string child_trackers_usage;

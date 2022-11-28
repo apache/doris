@@ -290,6 +290,8 @@ private:
 // For the memory that cannot be counted by mem hook, manually count it into the mem tracker, such as mmap.
 #define CONSUME_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->thread_mem_tracker_mgr->consume(size)
+#define TRY_CONSUME_THREAD_MEM_TRACKER(size) \
+    doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->thread_mem_tracker_mgr->consume(-size)
 
@@ -345,19 +347,19 @@ private:
     } while (0)
 // NOTE, The LOG cannot be printed in the mem hook. If the LOG statement triggers the mem hook LOG,
 // the nested LOG may cause an unknown crash.
-#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                        \
-    do {                                                                               \
-        if (doris::thread_context_ptr.init) {                                          \
-            if (doris::enable_thread_catch_bad_alloc) {                                \
-                if (!doris::thread_context()->thread_mem_tracker_mgr->consume(size)) { \
-                    return fail_ret;                                                   \
-                }                                                                      \
-            } else {                                                                   \
-                doris::thread_context()->thread_mem_tracker_mgr->consume(size);        \
-            }                                                                          \
-        } else {                                                                       \
-            doris::ThreadMemTrackerMgr::consume_no_attach(size);                       \
-        }                                                                              \
+#define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                            \
+    do {                                                                                   \
+        if (doris::thread_context_ptr.init) {                                              \
+            if (doris::enable_thread_catch_bad_alloc) {                                    \
+                if (!doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)) { \
+                    return fail_ret;                                                       \
+                }                                                                          \
+            } else {                                                                       \
+                doris::thread_context()->thread_mem_tracker_mgr->consume(size);            \
+            }                                                                              \
+        } else {                                                                           \
+            doris::ThreadMemTrackerMgr::consume_no_attach(size);                           \
+        }                                                                                  \
     } while (0)
 #define RELEASE_MEM_TRACKER(size)                                            \
     do {                                                                     \
@@ -367,25 +369,15 @@ private:
             doris::ThreadMemTrackerMgr::consume_no_attach(-size);            \
         }                                                                    \
     } while (0)
-#define TRY_RELEASE_MEM_TRACKER(size)                                            \
-    do {                                                                         \
-        if (doris::thread_context_ptr.init) {                                    \
-            if (!doris::enable_thread_catch_bad_alloc) {                         \
-                doris::thread_context()->thread_mem_tracker_mgr->consume(-size); \
-            }                                                                    \
-        } else {                                                                 \
-            doris::ThreadMemTrackerMgr::consume_no_attach(-size);                \
-        }                                                                        \
-    } while (0)
 #else
-#define CONSUME_THREAD_MEM_TRACKER(size) true
-#define RELEASE_THREAD_MEM_TRACKER(size) true
+#define CONSUME_THREAD_MEM_TRACKER(size) (void)0
+#define TRY_CONSUME_THREAD_MEM_TRACKER(size) true
+#define RELEASE_THREAD_MEM_TRACKER(size) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
 #define CONSUME_MEM_TRACKER(size) (void)0
 #define TRY_CONSUME_MEM_TRACKER(size, fail_ret) (void)0
 #define RELEASE_MEM_TRACKER(size) (void)0
-#define TRY_RELEASE_MEM_TRACKER(size) (void)0
 #define RETURN_IF_CATCH_BAD_ALLOC(stmt) (stmt)
 #endif
 } // namespace doris

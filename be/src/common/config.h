@@ -471,8 +471,8 @@ CONF_String(buffer_pool_limit, "20%");
 // This is the percentage of buffer_pool_limit
 CONF_String(buffer_pool_clean_pages_limit, "50%");
 
-// Sleep time in seconds between memory maintenance iterations
-CONF_mInt64(memory_maintenance_sleep_time_s, "10");
+// Sleep time in milliseconds between memory maintenance iterations
+CONF_mInt64(memory_maintenance_sleep_time_ms, "500");
 
 // Alignment
 CONF_Int32(memory_max_alignment, "16");

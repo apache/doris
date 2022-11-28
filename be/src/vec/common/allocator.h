@@ -145,9 +145,12 @@ public:
                                 alignment, size),
                         doris::TStatusCode::VEC_BAD_ARGUMENTS);
 
-            if (!CONSUME_THREAD_MEM_TRACKER(size)) {
+            if (!TRY_CONSUME_THREAD_MEM_TRACKER(size)) {
                 RETURN_BAD_ALLOC_IF_PRE_CATCH(
                         fmt::format("Allocator Pre Catch: Cannot mmap {}.", size));
+                // memory exceeds the limit, consume mem tracker fails, but there is no external catch bad_alloc,
+                // alloc will continue to execute, so the consume memtracker is forced.
+                CONSUME_THREAD_MEM_TRACKER(size);
             }
             buf = mmap(get_mmap_hint(), size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
@@ -232,10 +235,11 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
         } else if (old_size >= MMAP_THRESHOLD && new_size >= MMAP_THRESHOLD) {
             /// Resize mmap'd memory region.
-            if (!CONSUME_THREAD_MEM_TRACKER(new_size - old_size)) {
+            if (!TRY_CONSUME_THREAD_MEM_TRACKER(new_size - old_size)) {
                 RETURN_BAD_ALLOC_IF_PRE_CATCH(fmt::format(
                         "Allocator Pre Catch: Cannot mremap memory chunk from {} to {}.", old_size,
                         new_size));
+                CONSUME_THREAD_MEM_TRACKER(new_size - old_size);
             }
 
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
