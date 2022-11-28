@@ -47,4 +47,9 @@ public class MatchingPolicy {
         return userPattern.matcher(userIdentity.getQualifiedUser()).matches() && ipPattern.matcher(
                 userIdentity.getHost()).matches();
     }
+
+    @Override
+    public String toString() {
+        return String.format("user = \"%s\", ip = \"%s\"", user, ip);
+    }
 }

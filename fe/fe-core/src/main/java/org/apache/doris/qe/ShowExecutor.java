@@ -71,6 +71,7 @@ import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
+import org.apache.doris.analysis.ShowResourceQueueStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
@@ -165,6 +166,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
+import org.apache.doris.job.ResourceQueueMgr;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -388,6 +390,8 @@ public class ShowExecutor {
             handleMTMVJobs();
         } else if (stmt instanceof ShowMTMVTaskStmt) {
             handleMTMVTasks();
+        } else if (stmt instanceof ShowResourceQueueStmt) {
+            handleShowResourceQueue();
         } else {
             handleEmtpy();
         }
@@ -2310,6 +2314,11 @@ public class ShowExecutor {
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt);
+    }
+
+    public void handleShowResourceQueue() throws AnalysisException {
+        ShowResourceQueueStmt showStmt = (ShowResourceQueueStmt) stmt;
+        resultSet = ResourceQueueMgr.get().showResourceQueue(showStmt);
     }
 
     private void handleShowAnalyze() throws AnalysisException {

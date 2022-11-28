@@ -26,7 +26,7 @@ import java.util.Map;
 public abstract class AsyncJob {
 
     public enum JobStatus {
-        INIT, PENDING, RUNNING, FINISHED, CANCELED
+        PENDING, RUNNING, FINISHED, CANCELED
     }
 
     public static final String RESOURCE_QUEUE = "resource_queue";
@@ -37,7 +37,7 @@ public abstract class AsyncJob {
     // job user
     protected final UserIdentity userIdentity;
     protected final Map<String, String> properties;
-    protected JobStatus jobStatus = JobStatus.INIT;
+    protected JobStatus jobStatus = JobStatus.PENDING;
 
     public AsyncJob(String label, UserIdentity userIdentity, Map<String, String> properties) {
         id = Env.getCurrentEnv().getNextId();

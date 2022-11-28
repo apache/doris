@@ -21,7 +21,12 @@ import org.apache.doris.analysis.AlterResourceQueueNameStmt;
 import org.apache.doris.analysis.AlterResourceQueueStmt;
 import org.apache.doris.analysis.CreateResourceQueueStmt;
 import org.apache.doris.analysis.DropResourceQueueStmt;
+import org.apache.doris.analysis.ShowResourceQueueStmt;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ShowResultSet;
+
+import com.google.common.collect.Lists;
 
 import java.util.HashMap;
 import java.util.List;
@@ -102,7 +107,7 @@ public class ResourceQueueMgr {
     }
 
     public void addQueue(CreateResourceQueueStmt stmt) throws UserException {
-        addQueue(new ResourceQueue(stmt.getName(), AsyncJobManager.get(), new ResourceQueueConfig(stmt.getConfig()),
+        addQueue(new ResourceQueue(stmt.getName(), new ResourceQueueConfig(stmt.getConfig()),
                 new MatchingPolicy(stmt.getPolicy())), stmt.isIfNotExists());
     }
 
@@ -140,7 +145,7 @@ public class ResourceQueueMgr {
         try {
             ResourceQueue queue = id2Queue.remove(queueId);
             if (queue == null) {
-                throw new UserException(String.format("Can't drop the nonexistent queue(queueId=%d)", queueId));
+                throw new UserException("No resource queue found with id: " + queueId);
             } else {
                 name2id.remove(queue.getName());
             }
@@ -157,7 +162,7 @@ public class ResourceQueueMgr {
                 if (ifExists) {
                     return;
                 }
-                throw new UserException(String.format("Can't drop the nonexistent queue(queueName=%s)", name));
+                throw new UserException("No resource queue found with name: " + name);
             } else {
                 id2Queue.remove(queueId);
             }
@@ -192,7 +197,24 @@ public class ResourceQueueMgr {
         }
     }
 
-    public List<List<String>> showQueueInfo() {
-        return null;
+    public ShowResultSet showResourceQueue(ShowResourceQueueStmt stmt) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        rlock.lock();
+        try {
+            if (stmt.getQueueName() == null) {
+                for (ResourceQueue queue : id2Queue.values()) {
+                    rows.add(queue.showQueueInfo());
+                }
+            } else {
+                Long queueId = name2id.get(stmt.getQueueName());
+                if (queueId == null) {
+                    throw new AnalysisException("No resource queue found with name: " + stmt.getQueueName());
+                }
+                rows.add(id2Queue.get(queueId).showQueueInfo());
+            }
+            return new ShowResultSet(stmt.getMetaData(), rows);
+        } finally {
+            rlock.unlock();
+        }
     }
 }

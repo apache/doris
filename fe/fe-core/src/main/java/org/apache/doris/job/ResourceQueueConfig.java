@@ -19,27 +19,43 @@ package org.apache.doris.job;
 
 import org.apache.doris.common.io.Writable;
 
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class ResourceQueueConfig implements Writable {
     public static final String MAX_CONCURRENCY = "max_concurrency";
     public static final String MAX_QUEUE_SIZE = "max_queue_size";
 
-    private final int maxConcurrency;
-    private final int maxQueueSize;
+    private int maxConcurrency;
+    private int maxQueueSize;
 
     @SerializedName(value = "properties")
-    private Map<String, String> properties = Maps.newHashMap();
+    private final Map<String, String> properties;
 
     public ResourceQueueConfig(Map<String, String> properties) {
         this.properties = properties;
-        maxConcurrency = Math.max(Integer.parseInt(properties.getOrDefault(MAX_CONCURRENCY, "1")), 1);
-        maxQueueSize = Math.max(Integer.parseInt(properties.getOrDefault(MAX_QUEUE_SIZE, "10")), 1);
+        try {
+            maxConcurrency = Integer.parseInt(properties.get(MAX_CONCURRENCY));
+        } catch (Exception e) {
+            maxConcurrency = 0;
+        }
+        if (maxConcurrency < 1) {
+            properties.put(MAX_CONCURRENCY, "1");
+            maxConcurrency = 1;
+        }
+        try {
+            maxQueueSize = Integer.parseInt(properties.get(MAX_QUEUE_SIZE));
+        } catch (Exception e) {
+            maxQueueSize = 0;
+        }
+        if (maxQueueSize < 1) {
+            properties.put(MAX_QUEUE_SIZE, "1");
+            maxQueueSize = 1;
+        }
     }
 
     public String getOrDefault(String key, String defaultVal) {
@@ -60,5 +76,12 @@ public class ResourceQueueConfig implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
+    }
+
+    @Override
+    public String toString() {
+        return properties.entrySet().stream().map(
+                        kv -> String.format("\"%s\" = \"%s\"", kv.getKey(), kv.getValue()))
+                .collect(Collectors.joining(", "));
     }
 }

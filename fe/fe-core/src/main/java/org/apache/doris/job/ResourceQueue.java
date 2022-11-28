@@ -21,7 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.job.AsyncJob.JobStatus;
 
+import com.google.common.collect.Lists;
+
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -35,7 +38,6 @@ public class ResourceQueue {
     private String name;
     private ResourceQueueConfig config;
     private MatchingPolicy policy;
-    private final AsyncJobManager jobMgr;
 
     // jobId -> job
     private final Map<Long, AsyncJob> allJobs;
@@ -48,10 +50,9 @@ public class ResourceQueue {
     private final Lock wlock = rwlock.writeLock();
 
 
-    public ResourceQueue(String name, AsyncJobManager jobMgr, ResourceQueueConfig config, MatchingPolicy policy) {
+    public ResourceQueue(String name, ResourceQueueConfig config, MatchingPolicy policy) {
         this.id = Env.getCurrentEnv().getNextId();
         this.name = name;
-        this.jobMgr = jobMgr;
         this.config = config;
         this.policy = policy;
 
@@ -71,7 +72,7 @@ public class ResourceQueue {
         }
     }
 
-    public synchronized boolean addJob(AsyncJob job) throws UserException {
+    public boolean addJob(AsyncJob job) throws UserException {
         wlock.lock();
         try {
             if (allJobs.containsKey(job.jobId())) {
@@ -109,19 +110,39 @@ public class ResourceQueue {
     }
 
     public ResourceQueueConfig getConfig() {
-        return config;
+        rlock.lock();
+        try {
+            return config;
+        } finally {
+            rlock.unlock();
+        }
     }
 
     public MatchingPolicy getPolicy() {
-        return policy;
+        rlock.lock();
+        try {
+            return policy;
+        } finally {
+            rlock.unlock();
+        }
     }
 
     public String getName() {
-        return name;
+        rlock.lock();
+        try {
+            return name;
+        } finally {
+            rlock.unlock();
+        }
     }
 
     public void setName(String name) {
-        this.name = name;
+        wlock.lock();
+        try {
+            this.name = name;
+        } finally {
+            wlock.unlock();
+        }
     }
 
     public void alterQueue(ResourceQueueConfig config, MatchingPolicy policy) throws UserException {
@@ -129,7 +150,7 @@ public class ResourceQueue {
         try {
             if (pendingQueue.size() != 0 && runningJobs.size() != 0) {
                 throw new UserException(
-                        String.format("Should alter queue resource when empty(numPendingJobs=%d, numRunningJobs=%d)",
+                        String.format("Should alter resource queue when empty(numPendingJobs=%d, numRunningJobs=%d)",
                                 pendingQueue.size(), runningJobs.size()));
             }
             this.config = config;
@@ -171,25 +192,45 @@ public class ResourceQueue {
         return id;
     }
 
-    public void run() {
-        while (true) {
-            try {
-                AsyncJob job = pendingQueue.take();
-                runningSemaphore.acquire();
-                wlock.lock();
-                try {
-                    // job may be canceled before adding to runningJobs.
-                    if (!finishedJobs.containsKey(job.jobId())) {
-                        runningJobs.put(job.jobId(), job);
-                    }
-                } finally {
-                    wlock.unlock();
-                }
-                // run should be Idempotent
-                job.run();
-            } catch (InterruptedException e) {
-                // do nothing
-            }
+    public List<String> showQueueInfo() {
+        rlock.lock();
+        try {
+            List<String> row = Lists.newArrayList();
+            row.add(String.valueOf(id));
+            row.add(name);
+            row.add(String.valueOf(pendingQueue.size()));
+            row.add(String.valueOf(runningJobs.size()));
+            row.add(config.toString());
+            row.add(policy.toString());
+            return row;
+        } finally {
+            rlock.unlock();
         }
+    }
+
+    public void run() {
+        Thread thread = new Thread(() -> {
+            while (true) {
+                try {
+                    AsyncJob job = pendingQueue.take();
+                    runningSemaphore.acquire();
+                    wlock.lock();
+                    try {
+                        // job may be canceled before adding to runningJobs.
+                        if (!finishedJobs.containsKey(job.jobId())) {
+                            runningJobs.put(job.jobId(), job);
+                        }
+                    } finally {
+                        wlock.unlock();
+                    }
+                    // run should be Idempotent
+                    job.run();
+                } catch (InterruptedException e) {
+                    // do nothing
+                }
+            }
+        }, "resource-queue-" + name);
+        thread.setDaemon(true);
+        thread.start();
     }
 }

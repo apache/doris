@@ -31,7 +31,6 @@ public class ShowResourceQueueStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder().addColumn(new Column("QueueId", ScalarType.BIGINT))
                     .addColumn(new Column("QueueName", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Type", ScalarType.createStringType()))
                     .addColumn(new Column("PendingJobs", ScalarType.INT))
                     .addColumn(new Column("RunningJobs", ScalarType.INT))
                     .addColumn(new Column("QueueConfig", ScalarType.createStringType()))
