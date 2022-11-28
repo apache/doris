@@ -302,9 +302,7 @@ struct Decimal {
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
     constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
 
-    operator T() const {
-        return value;
-    }
+    operator T() const { return value; }
 
     const Decimal<T>& operator+=(const T& x) {
         value += x;
