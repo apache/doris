@@ -89,7 +89,7 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
                     partitionInfo.getPartitionColumns(), columnNameToRange);
             Collection<Long> selectedPartitionId = Utils.execWithReturnVal(partitionPruner::prune);
             LogicalOlapScan rewrittenScan =
-                    scan.withSelectedPartitionId(new ArrayList<>(selectedPartitionId));
+                    scan.withSelectedPartitionIds(new ArrayList<>(selectedPartitionId));
             return new LogicalFilter<>(filter.getPredicates(), rewrittenScan);
         }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
     }
