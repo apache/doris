@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
@@ -44,6 +45,8 @@ import com.google.common.base.Preconditions;
  * Calculate the cost of a plan.
  * Inspired by Presto.
  */
+@Developing
+//TODO: memory cost and network cost should be estimated by byte size.
 public class CostCalculator {
     static final double CPU_WEIGHT = 1;
     static final double MEMORY_WEIGHT = 1;
@@ -92,7 +95,7 @@ public class CostCalculator {
         @Override
         public CostEstimate visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
-            return CostEstimate.ofCpu(statistics.computeSize());
+            return CostEstimate.ofCpu(statistics.getRowCount());
         }
 
         @Override
@@ -108,9 +111,9 @@ public class CostCalculator {
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
 
             return CostEstimate.of(
-                    childStatistics.computeSize(),
-                    statistics.computeSize(),
-                    childStatistics.computeSize());
+                    childStatistics.getRowCount(),
+                    statistics.getRowCount(),
+                    childStatistics.getRowCount());
         }
 
         @Override
@@ -120,9 +123,9 @@ public class CostCalculator {
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
 
             return CostEstimate.of(
-                    childStatistics.computeSize(),
-                    statistics.computeSize(),
-                    childStatistics.computeSize());
+                    childStatistics.getRowCount(),
+                    statistics.getRowCount(),
+                    childStatistics.getRowCount());
         }
 
         @Override
@@ -133,8 +136,8 @@ public class CostCalculator {
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
 
             return CostEstimate.of(
-                    childStatistics.computeSize(),
-                    statistics.computeSize(),
+                    childStatistics.getRowCount(),
+                    statistics.getRowCount(),
                     0);
         }
 
@@ -142,14 +145,13 @@ public class CostCalculator {
         public CostEstimate visitPhysicalDistribute(
                 PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
-            double buildSize = childStatistics.computeSize();
             DistributionSpec spec = distribute.getDistributionSpec();
             // shuffle
             if (spec instanceof DistributionSpecHash) {
                 return CostEstimate.of(
-                        buildSize,
+                        childStatistics.getRowCount(),
                         0,
-                        buildSize);
+                        childStatistics.getRowCount());
             }
 
             // replicate
@@ -157,31 +159,24 @@ public class CostCalculator {
                 int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendIds(true).size();
                 int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
                 beNumber = Math.max(1, beNumber);
-                double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
-                //if build side is big, avoid use broadcast join
-                double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
-                double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
-                if (buildSize * instanceNumber > memLimit * brMemlimit
-                        || childStatistics.getRowCount() > rowsLimit) {
-                    return CostEstimate.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
-                }
+
                 return CostEstimate.of(
-                        buildSize * beNumber,
-                        buildSize * beNumber * instanceNumber,
-                        buildSize * beNumber * instanceNumber);
+                        childStatistics.getRowCount() * beNumber,
+                        childStatistics.getRowCount() * beNumber * instanceNumber,
+                        childStatistics.getRowCount() * beNumber * instanceNumber);
             }
 
             // gather
             if (spec instanceof DistributionSpecGather) {
                 return CostEstimate.of(
-                        buildSize,
+                        childStatistics.getRowCount(),
                         0,
-                        buildSize);
+                        childStatistics.getRowCount());
             }
 
             // any
             return CostEstimate.of(
-                    buildSize,
+                    childStatistics.getRowCount(),
                     0,
                     0);
         }
@@ -192,14 +187,13 @@ public class CostCalculator {
 
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult inputStatistics = context.getChildStatistics(0);
-            return CostEstimate.of(inputStatistics.getRowCount(), statistics.computeSize(), 0);
+            return CostEstimate.of(inputStatistics.getRowCount(), statistics.getRowCount(), 0);
         }
 
         @Override
         public CostEstimate visitPhysicalHashJoin(
                 PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin, PlanContext context) {
             Preconditions.checkState(context.getGroupExpression().arity() == 2);
-
             StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
             double outputRowCount = outputStats.getRowCount();
 
@@ -247,8 +241,8 @@ public class CostCalculator {
             StatsDeriveResult rightStatistics = context.getChildStatistics(1);
 
             return CostEstimate.of(
-                    leftStatistics.computeSize() * rightStatistics.computeSize(),
-                    rightStatistics.computeSize(),
+                    leftStatistics.getRowCount() * rightStatistics.getRowCount(),
+                    rightStatistics.getRowCount(),
                     0);
         }
 
