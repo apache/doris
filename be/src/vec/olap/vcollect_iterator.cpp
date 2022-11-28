@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/olap/vcollect_iterator.h"
+
 #include <memory>
 
 #include "olap/rowset/beta_rowset_reader.h"
@@ -23,19 +24,20 @@
 namespace doris {
 namespace vectorized {
 
-VCollectIterator::VCollectIterator() {
-}
+VCollectIterator::VCollectIterator() {}
 
 VCollectIterator::~VCollectIterator() {
-    DCHECK(_children.empty());
+    for (auto child : _children) {
+        delete child;
+    }
 }
 
-#define RETURN_IF_NOT_EOF_AND_OK(stmt)                                                  \
-    do {                                                                                \
-        OLAPStatus _status_ = (stmt);                                                   \
-        if (UNLIKELY(_status_ != OLAP_SUCCESS && _status_ != OLAP_ERR_DATA_EOF)) {      \
-            return _status_;                                                            \
-        }                                                                               \
+#define RETURN_IF_NOT_EOF_AND_OK(stmt)                                             \
+    do {                                                                           \
+        OLAPStatus _status_ = (stmt);                                              \
+        if (UNLIKELY(_status_ != OLAP_SUCCESS && _status_ != OLAP_ERR_DATA_EOF)) { \
+            return _status_;                                                       \
+        }                                                                          \
     } while (false)
 
 void VCollectIterator::init(TabletReader* reader) {
@@ -105,8 +107,8 @@ OLAPStatus VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_r
                 }
                 ++i;
             }
-            std::unique_ptr<Level1Iterator> cumu_iter(new Level1Iterator(cumu_children, _reader,
-                                                         cumu_children.size() > 1, _skip_same));
+            std::unique_ptr<Level1Iterator> cumu_iter(new Level1Iterator(
+                    cumu_children, _reader, cumu_children.size() > 1, _skip_same));
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
@@ -180,10 +182,12 @@ OLAPStatus VCollectIterator::next(Block* block) {
     }
 }
 
-VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
+VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
+                                                 TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
-    _block = std::make_shared<Block>(_schema.create_block(_reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+    _block = std::make_shared<Block>(_schema.create_block(
+            _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
     _ref.block = _block;
     _ref.row_pos = 0;
     _ref.is_same = false;
@@ -244,8 +248,8 @@ OLAPStatus VCollectIterator::Level0Iterator::next(Block* block) {
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader, bool merge,
-        bool skip_same)
+        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader,
+        bool merge, bool skip_same)
         : LevelIterator(reader),
           _children(children),
           _reader(reader),
