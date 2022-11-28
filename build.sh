@@ -331,9 +331,10 @@ function build_ui() {
     if [[ ! -z ${CUSTOM_UI_DIST} ]]; then
         ui_dist=${CUSTOM_UI_DIST}
     else
-        cd ${DORIS_HOME}/ui
-        ${NPM} install
-        ${NPM} run build
+        cd "${DORIS_HOME}/ui"
+        "${NPM}" cache clean --force
+        "${NPM}" install --legacy-peer-deps
+        "${NPM}" run build
     fi
     echo "ui dist: ${ui_dist}"
     rm -rf ${DORIS_HOME}/fe/fe-core/src/main/resources/static/
