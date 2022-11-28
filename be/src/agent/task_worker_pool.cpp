@@ -1714,8 +1714,7 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             _tasks.pop_front();
         }
         int64_t tablet_id = push_cooldown_conf_req.tablet_id;
-        TabletSharedPtr tablet =
-                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
         if (tablet.get() == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet. tablet_id=" << tablet_id;
