@@ -67,6 +67,9 @@ public:
 
 public:
     static bool sys_mem_exceed_limit_check(int64_t bytes) {
+        if (!_oom_avoidance) {
+            return false;
+        }
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
@@ -115,6 +118,8 @@ public:
 
     // Returns the lowest limit for this tracker limiter and its ancestors. Returns -1 if there is no limit.
     int64_t get_lowest_limit() const;
+
+    static void disable_oom_avoidance() { _oom_avoidance = false; }
 
 public:
     // up to (but not including) end_tracker.
@@ -263,6 +268,7 @@ private:
     // In some cases, in order to avoid the cumulative error of the upper global tracker,
     // the consumption of the current tracker is reset to zero.
     bool _reset_zero = false;
+    static bool _oom_avoidance;
 };
 
 inline void MemTrackerLimiter::consume(int64_t bytes) {
