@@ -66,7 +66,7 @@ RENAME ROLLUP old_rollup_name new_rollup_name;
 RENAME PARTITION old_partition_name new_partition_name;    
 ```
 
-4.修改 column 名称
+4. <version since="1.2" type="inline"> 修改 column 名称 </version>
 
 语法：
 
