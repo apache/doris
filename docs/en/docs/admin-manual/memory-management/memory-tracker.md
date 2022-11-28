@@ -24,6 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+<version since="1.2.0">
+
 # Memory Tracker
 
 The Memory Tracker records the memory usage of the Doris BE process, including the memory used in the life cycle of tasks such as query, import, Compaction, and Schema Change, as well as various caches for memory control and analysis.
