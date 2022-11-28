@@ -315,6 +315,9 @@ private:
 
     void _release_mem();
 
+    // add tuple is null flag column to Block for filter conjunct and output expr
+    void _add_tuple_is_null_column(Block* block) override;
+
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 

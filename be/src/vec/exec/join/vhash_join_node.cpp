@@ -560,7 +560,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
         return Status::OK();
     }
 
-    _add_tuple_is_null_column(&temp_block);
+    if (_is_outer_join) {
+        _add_tuple_is_null_column(&temp_block);
+    }
     {
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(
@@ -571,6 +573,30 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     reached_limit(output_block, eos);
 
     return st;
+}
+
+void HashJoinNode::_add_tuple_is_null_column(Block* block) {
+    DCHECK(_is_outer_join);
+    auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
+    auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+    auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
+    auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
+    auto left_size = left_null_map.size();
+    auto right_size = right_null_map.size();
+
+    if (left_size == 0) {
+        DCHECK_EQ(right_size, block->rows());
+        left_null_map.get_data().resize_fill(right_size, 0);
+    }
+    if (right_size == 0) {
+        DCHECK_EQ(left_size, block->rows());
+        right_null_map.get_data().resize_fill(left_size, 0);
+    }
+
+    block->insert(
+            {std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(), "left_tuples_is_null"});
+    block->insert(
+            {std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(), "right_tuples_is_null"});
 }
 
 void HashJoinNode::_prepare_probe_block() {

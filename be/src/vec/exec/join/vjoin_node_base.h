@@ -68,8 +68,7 @@ protected:
     // Initialize the join operation.
     void _init_join_op();
 
-    // add tuple is null flag column to Block for filter conjunct and output expr
-    void _add_tuple_is_null_column(Block* block);
+    virtual void _add_tuple_is_null_column(Block* block) = 0;
 
     // reset the tuple is null flag column for the next call
     void _reset_tuple_is_null_column();

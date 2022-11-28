@@ -83,6 +83,11 @@ private:
 
     Status get_left_side(RuntimeState* state, Block* block);
 
+    // add tuple is null flag column to Block for filter conjunct and output expr
+    void _update_tuple_is_null_column(Block* block);
+
+    void _add_tuple_is_null_column(Block* block) override;
+
     // List of build blocks, constructed in prepare()
     Blocks _build_blocks;
     // Visited flags for each row in build side.

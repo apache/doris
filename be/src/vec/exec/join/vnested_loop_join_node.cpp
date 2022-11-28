@@ -260,6 +260,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                         Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
                                                                                set_probe_side_flag>(
                                 &tmp_block, offset_stack, !_is_left_semi_anti);
+                        _update_tuple_is_null_column(&tmp_block);
                         if (!status.OK()) {
                             return status;
                         }
@@ -288,6 +289,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                     Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
                                                                            set_probe_side_flag>(
                             &tmp_block, offset_stack, !_is_right_semi_anti);
+                    _update_tuple_is_null_column(&tmp_block);
                     mutable_join_block = MutableBlock(std::move(tmp_block));
                     if (!status.OK()) {
                         return status;
@@ -311,7 +313,9 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                    : _matched_rows_done;
 
     Block tmp_block = mutable_join_block.to_block(0);
-    _add_tuple_is_null_column(&tmp_block);
+    if (_is_outer_join) {
+        _add_tuple_is_null_column(&tmp_block);
+    }
     {
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(
@@ -360,6 +364,34 @@ void VNestedLoopJoinNode::_process_left_child_block(MutableColumns& dst_columns,
                                                                         max_added_rows);
         }
     }
+}
+
+void VNestedLoopJoinNode::_update_tuple_is_null_column(Block* block) {
+    if (_is_outer_join) {
+        auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
+        auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+        auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
+        auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
+        auto left_size = left_null_map.size();
+        auto right_size = right_null_map.size();
+
+        if (left_size < block->rows()) {
+            left_null_map.get_data().resize_fill(block->rows(), 0);
+        }
+        if (right_size < block->rows()) {
+            right_null_map.get_data().resize_fill(block->rows(), 0);
+        }
+    }
+}
+
+void VNestedLoopJoinNode::_add_tuple_is_null_column(Block* block) {
+    DCHECK(_is_outer_join);
+    auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
+    auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
+    block->insert(
+            {std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(), "left_tuples_is_null"});
+    block->insert(
+            {std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(), "right_tuples_is_null"});
 }
 
 template <bool BuildSide, bool IsSemi>
@@ -442,14 +474,6 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
             }
         } else {
             if (_cur_probe_row_visited_flags) {
-                if (_is_outer_join) {
-                    reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
-                            ->get_data()
-                            .resize_fill(pre_size + 1, 0);
-                    reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
-                            ->get_data()
-                            .resize_fill(pre_size + 1, 0);
-                }
                 return;
             }
         }

@@ -178,31 +178,6 @@ Status VJoinNodeBase::open(RuntimeState* state) {
     return status;
 }
 
-void VJoinNodeBase::_add_tuple_is_null_column(Block* block) {
-    if (_is_outer_join) {
-        auto p0 = _tuple_is_null_left_flag_column->assume_mutable();
-        auto p1 = _tuple_is_null_right_flag_column->assume_mutable();
-        auto& left_null_map = reinterpret_cast<ColumnUInt8&>(*p0);
-        auto& right_null_map = reinterpret_cast<ColumnUInt8&>(*p1);
-        auto left_size = left_null_map.size();
-        auto right_size = right_null_map.size();
-
-        if (left_size == 0) {
-            DCHECK_EQ(right_size, block->rows());
-            left_null_map.get_data().resize_fill(right_size, 0);
-        }
-        if (right_size == 0) {
-            DCHECK_EQ(left_size, block->rows());
-            right_null_map.get_data().resize_fill(left_size, 0);
-        }
-
-        block->insert({std::move(p0), std::make_shared<vectorized::DataTypeUInt8>(),
-                       "left_tuples_is_null"});
-        block->insert({std::move(p1), std::make_shared<vectorized::DataTypeUInt8>(),
-                       "right_tuples_is_null"});
-    }
-}
-
 void VJoinNodeBase::_reset_tuple_is_null_column() {
     if (_is_outer_join) {
         reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
