@@ -25,6 +25,15 @@ under the License.
 -->
 
 ## DATEV2
+
+### name
+
+<version since="1.2">
+
+DATAV2
+
+</version>
+
 ### description
     DATEV2类型
         日期类型，目前的取值范围是['0000-01-01', '9999-12-31'], 默认的打印形式是'YYYY-MM-DD'

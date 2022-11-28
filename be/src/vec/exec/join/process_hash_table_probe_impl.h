@@ -171,6 +171,25 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     int right_col_len = _join_node->_right_table_data_types.size();
 
     KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
+
+    if (probe_index == 0) {
+        _arena.reset(new Arena());
+        if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+            if (_probe_keys.size() < probe_rows) {
+                _probe_keys.resize(probe_rows);
+            }
+            size_t keys_size = probe_raw_ptrs.size();
+            for (size_t i = 0; i < probe_rows; ++i) {
+                _probe_keys[i] =
+                        serialize_keys_to_pool_contiguous(i, keys_size, probe_raw_ptrs, *_arena);
+            }
+        }
+    }
+
+    if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+        key_getter.set_serialized_keys(_probe_keys.data());
+    }
+
     auto& mcol = mutable_block.mutable_columns();
     int current_offset = 0;
 
@@ -208,14 +227,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
             int last_offset = current_offset;
             auto find_result =
                     !need_null_map_for_probe
-                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena)
+                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena)
                     : (*null_map)[probe_index]
                             ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                           _arena)) {nullptr, false}
-                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena);
+                                                           *_arena)) {nullptr, false}
+                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
             if (probe_index + PREFETCH_STEP < probe_rows)
                 key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                   probe_index + PREFETCH_STEP, _arena);
+                                                   probe_index + PREFETCH_STEP, *_arena);
 
             if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                           JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -328,6 +347,24 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
         KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
+        if (probe_index == 0) {
+            _arena.reset(new Arena());
+            if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+                if (_probe_keys.size() < probe_rows) {
+                    _probe_keys.resize(probe_rows);
+                }
+                size_t keys_size = probe_raw_ptrs.size();
+                for (size_t i = 0; i < probe_rows; ++i) {
+                    _probe_keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, probe_raw_ptrs,
+                                                                       *_arena);
+                }
+            }
+        }
+
+        if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+            key_getter.set_serialized_keys(_probe_keys.data());
+        }
+
         int right_col_idx = _join_node->_left_table_data_types.size();
         int right_col_len = _join_node->_right_table_data_types.size();
 
@@ -372,14 +409,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             auto last_offset = current_offset;
             auto find_result =
                     !need_null_map_for_probe
-                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena)
+                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena)
                     : (*null_map)[probe_index]
                             ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                           _arena)) {nullptr, false}
-                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, _arena);
+                                                           *_arena)) {nullptr, false}
+                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
             if (probe_index + PREFETCH_STEP < probe_rows)
                 key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                   probe_index + PREFETCH_STEP, _arena);
+                                                   probe_index + PREFETCH_STEP, *_arena);
             if (find_result.is_found()) {
                 auto& mapped = find_result.get_mapped();
                 auto origin_offset = current_offset;

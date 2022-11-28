@@ -89,14 +89,14 @@ suite("hive_catalog_case", "p0") {
             """
         sql """switch hive"""
         sql """use `default`"""
-        order_qt_show_tables """show tables"""
+        // order_qt_show_tables """show tables"""
 
         q01()
 
         sql """refresh catalog hive"""
         q01()
         sql """refresh database `default`"""
-        order_qt_show_tables2 """show tables"""
+        // order_qt_show_tables2 """show tables"""
         q01()
         sql """refresh table `default`.table_with_vertical_line"""
         order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""        

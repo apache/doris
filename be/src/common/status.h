@@ -98,7 +98,7 @@ class PStatus;
     M(OLAP_ERR_TABLE_INDEX_FIND_ERROR, -403, "", true)                   \
     M(OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR, -404, "", true)           \
     M(OLAP_ERR_TABLE_CREATE_META_ERROR, -405, "", true)                  \
-    M(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR, -406, "", true)              \
+    M(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR, -406, "", false)             \
     M(OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE, -500, "", true)               \
     M(OLAP_ERR_ENGINE_DROP_NOEXISTS_TABLE, -501, "", true)               \
     M(OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR, -502, "", true)            \

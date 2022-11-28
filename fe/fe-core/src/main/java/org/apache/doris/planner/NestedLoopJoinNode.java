@@ -221,7 +221,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
                         .append(distrModeStr).append(")\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
-            output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            output.append(detailPrefix).append(
+                    String.format("cardinality=%,d", cardinality)).append("\n");
             return output.toString();
         }
 
@@ -233,7 +234,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
             output.append(getRuntimeFilterExplainString(true));
             output.append("isOutputLeftSideOnly: ").append(isOutputLeftSideOnly).append("\n");
         }
-        output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+        output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         // todo unify in plan node
         if (vOutputTupleDesc != null) {
             output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId()).append("\n");

@@ -306,9 +306,9 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 >
 > [https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 
-<version since="1.2">
-
 **访问 Kerberos 认证的 Kafka 集群**
+
+<version since="1.2">
 
 访问开启kerberos认证的Kafka集群，需要增加以下配置：
 
