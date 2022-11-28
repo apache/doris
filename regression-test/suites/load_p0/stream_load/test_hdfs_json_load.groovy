@@ -82,7 +82,7 @@ suite("test_hdfs_json_load", "p0") {
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        max_try_milli_secs = 30000
         while(max_try_milli_secs) {
             result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
@@ -93,7 +93,7 @@ suite("test_hdfs_json_load", "p0") {
                 max_try_milli_secs -= 1000
                 if(max_try_milli_secs <= 0) {
                     log.info("Broker load result: ${result}".toString())
-                    assertEquals(1, 2)
+                    assertEquals(1 == 2, "load timeout: ${checklabel}")
                 }
             }
         }

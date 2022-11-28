@@ -242,7 +242,7 @@ suite("test_broker_load", "p0") {
                     Thread.sleep(1000)
                     max_try_milli_secs -= 1000
                     if(max_try_milli_secs <= 0) {
-                        assertTrue(1 == 2, "Load Timeout.")
+                        assertTrue(1 == 2, "load Timeout: $label")
                     }
                 }
                 i++
