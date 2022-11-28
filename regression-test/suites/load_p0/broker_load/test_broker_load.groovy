@@ -184,7 +184,10 @@ suite("test_broker_load", "p0") {
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-hongkong.myqcloud.com",
                 "AWS_REGION" = "ap-hongkong"
-            );
+            )
+            properties(
+                "use_new_load_scan_node" = "true"
+            )
             """
         logger.info("Submit load with lable: $uuid, table: $table, path: $path")
     }
@@ -210,7 +213,6 @@ suite("test_broker_load", "p0") {
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def uuids = []
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         set_be_config.call('true')
         try {
             def i = 0
@@ -232,11 +234,11 @@ suite("test_broker_load", "p0") {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5])
+                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7])
+                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
                         break;
                     }
                     Thread.sleep(1000)
@@ -256,7 +258,6 @@ suite("test_broker_load", "p0") {
             order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
 
         } finally {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
             set_be_config.call('false')
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
