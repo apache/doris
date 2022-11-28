@@ -547,7 +547,6 @@
                             "type": "category",
                             "label": "JSON Functions",
                             "items": [
-                                "sql-manual/sql-functions/json-functions/jsonb_tutorial",
                                 "sql-manual/sql-functions/json-functions/jsonb_parse",
                                 "sql-manual/sql-functions/json-functions/jsonb_extract",
                                 "sql-manual/sql-functions/json-functions/get_json_double",
