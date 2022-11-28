@@ -79,6 +79,9 @@ public:
     ~MemTrackerLimiter();
 
     static bool sys_mem_exceed_limit_check(int64_t bytes) {
+        if (!_oom_avoidance) {
+            return false;
+        }
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
@@ -108,6 +111,8 @@ public:
     // Returns the maximum consumption that can be made without exceeding the limit on
     // this tracker limiter.
     int64_t spare_capacity() const { return _limit - consumption(); }
+
+    static void disable_oom_avoidance() { _oom_avoidance = false; }
 
 public:
     // If need to consume the tracker frequently, use it
@@ -208,6 +213,7 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
+    static bool _oom_avoidance;
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;
