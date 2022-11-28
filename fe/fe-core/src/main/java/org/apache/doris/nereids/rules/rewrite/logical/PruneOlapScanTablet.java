@@ -50,6 +50,7 @@ public class PruneOlapScanTablet extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(logicalOlapScan())
+                .when(filter -> !filter.child().isTabletPruned())
                 .then(filter -> {
                     LogicalOlapScan olapScan = filter.child();
                     OlapTable table = olapScan.getTable();

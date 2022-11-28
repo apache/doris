@@ -177,6 +177,10 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
         return partitionPruned;
     }
 
+    public boolean isTabletPruned() {
+        return tabletPruned;
+    }
+
     public List<Long> getSelectedTabletId() {
         return selectedTabletId;
     }

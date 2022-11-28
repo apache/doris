@@ -30,10 +30,11 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -109,19 +110,19 @@ public class PruneOlapScanTabletTest {
         SlotReference k3 = new SlotReference("k3", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
         SlotReference k4 = new SlotReference("k4", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
 
-        GreaterThan greaterThan = new GreaterThan(k0, new DateLiteral("2019-09-01"));
-        LessThan lessThan = new LessThan(k0, new DateLiteral("2019-09-03"));
+        GreaterThanEqual greaterThanEqual = new GreaterThanEqual(k0, new DateLiteral("2019-08-22"));
+        LessThanEqual lessThanEqual = new LessThanEqual(k0, new DateLiteral("2019-08-22"));
 
-        InPredicate inPredicate1 = new InPredicate(k1, ImmutableList.of(new IntegerLiteral(100),
-                new IntegerLiteral(200),
-                new IntegerLiteral(300),
-                new IntegerLiteral(400),
+        InPredicate inPredicate1 = new InPredicate(k1, ImmutableList.of(new IntegerLiteral(101),
+                new IntegerLiteral(201),
+                new IntegerLiteral(301),
+                new IntegerLiteral(401),
                 new IntegerLiteral(500)));
-        InPredicate inPredicate2 = new InPredicate(k2, ImmutableList.of(new IntegerLiteral(900),
-                new IntegerLiteral(1100)));
+        InPredicate inPredicate2 = new InPredicate(k2, ImmutableList.of(new IntegerLiteral(901),
+                new IntegerLiteral(1101)));
         InPredicate inPredicate3 = new InPredicate(k3, ImmutableList.of(new IntegerLiteral(1),
                 new IntegerLiteral(3)));
-        InPredicate inPredicate4 = new InPredicate(k4, ImmutableList.of(new IntegerLiteral(2)));
+        EqualTo equalTo = new EqualTo(k4, new IntegerLiteral(10));
 
         new Expectations() {
             {
@@ -147,7 +148,7 @@ public class PruneOlapScanTabletTest {
             }
         };
 
-        Expression expr = ExpressionUtils.and(greaterThan, lessThan, inPredicate1, inPredicate2, inPredicate3, inPredicate4);
+        Expression expr = ExpressionUtils.and(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo);
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(expr,
                 new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable));
 
@@ -158,6 +159,6 @@ public class PruneOlapScanTabletTest {
 
         LogicalFilter<LogicalOlapScan> filter1 = ((LogicalFilter<LogicalOlapScan>) context.getMemo().copyOut());
         LogicalOlapScan olapScan = filter1.child();
-        Assertions.assertEquals(20, olapScan.getSelectedTabletId().size());
+        Assertions.assertEquals(19, olapScan.getSelectedTabletId().size());
     }
 }
