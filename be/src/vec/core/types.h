@@ -302,7 +302,9 @@ struct Decimal {
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
     constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
 
-    operator T() const { return value; }
+    operator T() const {
+        return value;
+    }
 
     const Decimal<T>& operator+=(const T& x) {
         value += x;
@@ -412,6 +414,10 @@ inline constexpr bool IsDecimal128I<Decimal128I> = true;
 
 template <typename T>
 constexpr bool IsDecimalV2 = IsDecimal128<T> && !IsDecimal128I<T>;
+
+template <typename T, typename U>
+using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128,
+                                          std::conditional_t<IsDecimalNumber<T>, Decimal128I, U>>;
 
 template <typename T>
 constexpr bool IsFloatNumber = false;
