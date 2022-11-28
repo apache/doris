@@ -1234,7 +1234,10 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*
 bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
     SCOPED_TIMER(_await_time_cost);
-    int64_t wait_times_ms = _state->runtime_filter_wait_time_ms();
+    // bitmap filter is precise filter and only filter once, so it must be applied.
+    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
+                                    ? _state->query_options().query_timeout
+                                    : _state->runtime_filter_wait_time_ms();
     std::unique_lock<std::mutex> lock(_inner_mutex);
     if (!_is_ready) {
         int64_t ms_since_registration = MonotonicMillis() - registration_time_;
