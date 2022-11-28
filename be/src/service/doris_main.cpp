@@ -320,6 +320,11 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    if (doris::config::enable_fuzzy_mode) {
+        LOG(INFO) << "enable_fuzzy_mode is true, set fuzzy configs";
+        doris::config::set_fuzzy_configs();
+    }
+
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     // Change the total TCMalloc thread cache size if necessary.
