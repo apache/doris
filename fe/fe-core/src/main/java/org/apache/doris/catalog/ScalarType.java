@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -625,7 +626,8 @@ public class ScalarType extends Type {
     @Override
     public void toThrift(TTypeDesc container) {
         if (type.isDecimalV3Type() || type.isDateV2Type()) {
-            Preconditions.checkArgument(Config.enable_vectorized_load && VectorizedUtil.isVectorized(),
+            Preconditions.checkArgument((Config.enable_vectorized_load && ConnectContext.get() == null)
+                            || (VectorizedUtil.isVectorized() && ConnectContext.get() != null),
                     "Please make sure vectorized load and vectorized query engine are enabled to use data type: "
                             + type);
         }
