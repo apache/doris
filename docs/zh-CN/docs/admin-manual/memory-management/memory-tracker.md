@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -49,7 +49,7 @@ https://shimo.im/docs/DT6JXDRkdTvdyV3G
 - global: 生命周期和进程相同的全局 Memory Tracker，例如各个Cache、Tablet Manager、Storage Engine等。
 - query: 所有查询的内存总和。
 - load: 所有导入的内存总和。
-- tc/jemalloc_cache: 通用内存分配器 TCMalloc 或 Jemalloc 的缓存。
+- tc/jemalloc_cache: 通用内存分配器 TCMalloc 或 Jemalloc 的缓存，在 http://ip:http_port/memz 可以实时查看到内存分配器原始的profile。
 - compaction、schema_change、consistency、batch_load、clone: 分别对应所有Compaction、Schema Change、Consistency、Batch Load、Clone任务的内存总和。
 
 2. Current Consumption(Bytes): 当前内存值，单位B。
@@ -67,8 +67,8 @@ https://shimo.im/docs/DT6JXDRkdTvdyV3G
   - LoadChannelMgr: 所有导入的 Load Channel 阶段内存总和，用于将 Scan 后的数据写入到磁盘的 Segment 文件中，Orphan的子集。
   - StorageEngine:，存储引擎加载数据目录过程中消耗的内存，Orphan的子集。
   - SegCompaction: 所有 SegCompaction 任务的内存总和，Orphan的子集。
-  - SegmentMeta: memory use by segment meta data such as footer or index page，Orphan的子集。 
-  - TabletManager: 存储引擎 get、add、delte Tablet 过程中消耗的内存，Orphan的子集。 
+  - SegmentMeta: memory use by segment meta data such as footer or index page，Orphan的子集。
+  - TabletManager: 存储引擎 get、add、delte Tablet 过程中消耗的内存，Orphan的子集。
   - BufferAllocator: 仅用于非向量化Partitioned Agg过程中的内存复用，Orphan的子集。
 
 - DataPageCache: 用于缓存数据 Page，用于加速 Scan。
