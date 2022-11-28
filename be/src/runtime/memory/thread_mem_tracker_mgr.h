@@ -77,8 +77,7 @@ public:
     // Note that, If call the memory allocation operation in Memory Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
-    void consume(int64_t size);
-    bool try_consume(int64_t size);
+    bool consume(int64_t size);
 
     template <bool CheckLimit>
     void flush_untracked_mem();
@@ -112,14 +111,12 @@ public:
     }
 
 private:
-    // If tryConsume fails due to task mem tracker exceeding the limit, the task must be canceled
-    void exceeded_cancel_task(const std::string& cancel_details);
-
+    void cancel_fragment();
     void exceeded();
 
     void save_exceed_mem_limit_msg() {
         _exceed_mem_limit_msg = _limiter_tracker_raw->mem_limit_exceeded(
-                fmt::format("execute:<{}>", last_consumer_tracker()), _bad_consume_msg);
+                fmt::format("execute:<{}>", last_consumer_tracker()), _failed_consume_msg);
     }
 
 private:
@@ -132,7 +129,8 @@ private:
     bool _count_scope_mem = false;
     int64_t _scope_mem = 0;
 
-    std::string _bad_consume_msg = std::string();
+    std::string _failed_consume_msg = std::string();
+    bool _flush_no_exceed = true;
     std::string _exceed_mem_limit_msg = std::string();
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
@@ -171,7 +169,7 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     _consumer_tracker_stack.pop_back();
 }
 
-inline void ThreadMemTrackerMgr::consume(int64_t size) {
+inline bool ThreadMemTrackerMgr::consume(int64_t size) {
     _untracked_mem += size;
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
@@ -185,7 +183,9 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
         } else {
             flush_untracked_mem<false>();
         }
+        return _flush_no_exceed;
     }
+    return true;
 }
 
 template <bool CheckLimit>
@@ -193,18 +193,19 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
     _stop_consume = true;
+    _flush_no_exceed = true;
     if (!_init) init(); // ExecEnv not initialized when thread is created.
     DCHECK(_limiter_tracker_raw);
     old_untracked_mem = _untracked_mem;
     if (_count_scope_mem) _scope_mem += _untracked_mem;
     if (CheckLimit) {
-        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, _bad_consume_msg)) {
+        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, _failed_consume_msg)) {
             // The memory has been allocated, so when TryConsume fails, need to continue to complete
             // the consume to ensure the accuracy of the statistics.
             _limiter_tracker_raw->consume(old_untracked_mem);
             save_exceed_mem_limit_msg();
-            _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
             exceeded();
+            _flush_no_exceed = false;
         }
     } else {
         _limiter_tracker_raw->consume(old_untracked_mem);
@@ -214,24 +215,6 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     }
     _untracked_mem -= old_untracked_mem;
     _stop_consume = false;
-}
-
-inline bool ThreadMemTrackerMgr::try_consume(int64_t size) {
-    if (!_stop_consume) {
-        // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
-        // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
-        _stop_consume = true;
-        if (!_limiter_tracker_raw->try_consume(size, _bad_consume_msg)) {
-            save_exceed_mem_limit_msg();
-            _stop_consume = false;
-            return false;
-        }
-        _stop_consume = false;
-        return true;
-    } else {
-        _untracked_mem += size;
-        return true;
-    }
 }
 
 } // namespace doris

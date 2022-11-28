@@ -58,6 +58,16 @@ CONF_String(memory_mode, "performance");
 // it will be set to physical memory size.
 CONF_String(mem_limit, "80%");
 
+// Soft memory limit as a fraction of hard memory limit.
+CONF_Double(soft_mem_limit_frac, "0.9");
+
+// The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
+// actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
+// with large memory larger than 16G.
+// Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC.
+// Turn down max. will use as much memory as possible.
+CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
+
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
@@ -593,9 +603,6 @@ CONF_Bool(ignore_load_tablet_failure, "false");
 
 // Whether to continue to start be when load tablet from header failed.
 CONF_mBool(ignore_rowset_stale_unconsistent_delete, "false");
-
-// Soft memory limit as a fraction of hard memory limit.
-CONF_Double(soft_mem_limit_frac, "0.9");
 
 // Set max cache's size of query results, the unit is M byte
 CONF_Int32(query_cache_max_size_mb, "256");
