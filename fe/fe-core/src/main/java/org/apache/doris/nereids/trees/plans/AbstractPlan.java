@@ -23,6 +23,8 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.metrics.CounterType;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -44,8 +46,10 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete plan node.
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
-    private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(
-            CounterEvent.class, EventChannel.getDefaultChannel());
+    private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(CounterEvent.class,
+            EventChannel.getDefaultChannel()
+                    .addEnhancers(new AddCounterEventEnhancer())
+                    .addConsumers(new LogConsumer(CounterEvent.class, EventChannel.LOG)));
     protected final StatsDeriveResult statsDeriveResult;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;

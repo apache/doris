@@ -25,6 +25,8 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.metrics.CounterType;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.rules.Rule;
@@ -45,7 +47,9 @@ import java.util.stream.Collectors;
  */
 public abstract class Job {
     protected static final EventProducer COUNTER_TRACER = new EventProducer(CounterEvent.class,
-            EventChannel.getDefaultChannel());
+            EventChannel.getDefaultChannel()
+                    .addEnhancers(new AddCounterEventEnhancer())
+                    .addConsumers(new LogConsumer(CounterEvent.class, EventChannel.LOG)));
     public final Logger logger = LogManager.getLogger(getClass());
 
     protected JobType type;

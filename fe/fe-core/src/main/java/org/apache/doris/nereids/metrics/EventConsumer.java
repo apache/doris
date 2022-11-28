@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.metrics;
 
+import java.util.Objects;
+
 /**
  * consumer
  */
@@ -34,4 +36,21 @@ public abstract class EventConsumer {
     }
 
     public void close() {}
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        EventConsumer consumer = (EventConsumer) o;
+        return Objects.equals(targetClass, consumer.targetClass);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(targetClass);
+    }
 }

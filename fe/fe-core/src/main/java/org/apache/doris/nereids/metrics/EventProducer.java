@@ -19,7 +19,7 @@ package org.apache.doris.nereids.metrics;
 
 import com.google.common.base.Preconditions;
 
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -38,15 +38,11 @@ public class EventProducer {
      *        the filters are AND in logic, see checkAndLog for detail.
      * @param channel the channel to transport event to consumer.
      */
-    public EventProducer(Class<? extends Event> eventClass, List<EventFilter> filters, EventChannel channel) {
+    public EventProducer(Class<? extends Event> eventClass, EventChannel channel, EventFilter ...filters) {
         this.channel = channel;
-        Preconditions.checkArgument(filters.stream().allMatch(f -> f.getTargetClass().equals(eventClass)));
-        this.filters = filters;
+        Preconditions.checkArgument(Arrays.stream(filters).allMatch(f -> f.getTargetClass().equals(eventClass)));
+        this.filters = Arrays.asList(filters);
         this.eventClass = eventClass;
-    }
-
-    public EventProducer(Class<? extends Event> eventClass, EventChannel channel) {
-        this(eventClass, Collections.emptyList(), channel);
     }
 
     private void checkAndLog(Event event) {
@@ -60,7 +56,7 @@ public class EventProducer {
     }
 
     public void log(Event event) {
-        if (event == null) {
+        if (event == null || channel == null) {
             return;
         }
         Preconditions.checkArgument(event.getClass().equals(eventClass));

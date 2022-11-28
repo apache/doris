@@ -25,23 +25,21 @@ import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
  * Job to apply rule on {@link GroupExpression}.
  */
 public class ApplyRuleJob extends Job {
-    private static final EventProducer APPLY_RULE_TRACER = new EventProducer(
-            TransformEvent.class,
-            Collections.emptyList(),
-            EventChannel.getDefaultChannel());
+    private static final EventProducer APPLY_RULE_TRACER = new EventProducer(TransformEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, EventChannel.LOG)));
     private final GroupExpression groupExpression;
     private final Rule rule;
 

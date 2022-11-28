@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * event channel
  */
 public class EventChannel {
-    private static final Logger LOG = LogManager.getLogger(EventChannel.class);
+    public static final Logger LOG = LogManager.getLogger(EventChannel.class);
     private static final EventChannel DEFAULT_CHANNEL = new EventChannel();
     private final Map<Class<? extends Event>, List<EventConsumer>> consumers = Maps.newHashMap();
     private final Map<Class<? extends Event>, EventEnhancer> enhancers = Maps.newHashMap();
@@ -48,14 +48,17 @@ public class EventChannel {
         }
     }
 
-    public synchronized EventChannel addConsumers(List<EventConsumer> consumers) {
-        consumers.forEach(consumer -> this.consumers
-                .computeIfAbsent(consumer.getTargetClass(), k -> Lists.newArrayList()).add(consumer));
+    public synchronized EventChannel addConsumers(EventConsumer ...consumers) {
+        for (EventConsumer consumer : consumers) {
+            this.consumers.computeIfAbsent(consumer.getTargetClass(), k -> Lists.newArrayList()).add(consumer);
+        }
         return this;
     }
 
-    public synchronized EventChannel addEnhancers(List<EventEnhancer> enhancers) {
-        enhancers.forEach(enhancer -> this.enhancers.putIfAbsent(enhancer.getTargetClass(), enhancer));
+    public synchronized EventChannel addEnhancers(EventEnhancer ...enhancers) {
+        for (EventEnhancer enhancer : enhancers) {
+            this.enhancers.putIfAbsent(enhancer.getTargetClass(), enhancer);
+        }
         return this;
     }
 
@@ -93,7 +96,7 @@ public class EventChannel {
     /**
      * worker thread start.
      */
-    public void start() {
+    public EventChannel start() {
         isStop.set(false);
         if (thread == null) {
             thread = new Thread(new Worker(), "nereids_event");
@@ -104,6 +107,7 @@ public class EventChannel {
                 LOG.warn("start worker failed: ", e);
             }
         }
+        return this;
     }
 
     /**

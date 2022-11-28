@@ -50,31 +50,30 @@ public class EventTest extends TestWithFeService {
         connectContext.getSessionVariable().setEnableNereidsTrace(true);
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         channel = new EventChannel()
-                .addConsumers(ImmutableList.of(
+                .addConsumers(
                         new PrintConsumer(CounterEvent.class, printStream),
                         new PrintConsumer(TransformEvent.class, printStream),
                         new PrintConsumer(EnforcerEvent.class, printStream),
-                        new PrintConsumer(GroupMergeEvent.class, printStream)))
-                .addEnhancers(ImmutableList.of(
+                        new PrintConsumer(GroupMergeEvent.class, printStream))
+                .addEnhancers(
                         new EventEnhancer(CounterEvent.class) {
                             @Override
                             public void enhance(Event e) {
                                 CounterEvent.updateCounter(((CounterEvent) e).getCounterType());
                             }
                         }
-                ));
+                );
         producers = ImmutableList.of(
-                new EventProducer(CounterEvent.class, ImmutableList.of(
+                new EventProducer(CounterEvent.class, channel,
                         new EventFilter(CounterEvent.class) { },
                         new EventFilter(CounterEvent.class) { }),
-                        channel),
-                new EventProducer(TransformEvent.class, ImmutableList.of(
+                new EventProducer(TransformEvent.class, channel,
                         new EventFilter(TransformEvent.class) {
                             @Override
                             public Event checkEvent(Event event) {
                                 return ((TransformEvent) event).getGroupExpression() == null ? event : null;
                             }
-                        }), channel)
+                        })
         );
         channel.start();
     }

@@ -26,13 +26,13 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -44,8 +44,7 @@ import java.util.stream.Collectors;
 public class RewriteBottomUpJob extends Job {
     private static final EventProducer REWRITE_BOTTOM_UP_JOB_TRACER = new EventProducer(
             TransformEvent.class,
-            Collections.emptyList(),
-            EventChannel.getDefaultChannel());
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, EventChannel.LOG)));
     private final Group group;
     private final List<Rule> rules;
     private final boolean childrenOptimized;

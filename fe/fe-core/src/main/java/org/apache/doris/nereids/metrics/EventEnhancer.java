@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.metrics;
 
+import java.util.Objects;
+
 /**
  * event enhancer
  */
@@ -32,4 +34,21 @@ public abstract class EventEnhancer {
     }
 
     public abstract void enhance(Event e);
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        EventEnhancer enhancer = (EventEnhancer) o;
+        return Objects.equals(targetClass, enhancer.targetClass);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(targetClass);
+    }
 }

@@ -24,10 +24,9 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.stats.StatsCalculator;
-
-import java.util.Collections;
 
 /**
  * Job to derive stats for {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
@@ -35,8 +34,7 @@ import java.util.Collections;
 public class DeriveStatsJob extends Job {
     private static final EventProducer STATS_STATE_TRACER = new EventProducer(
             StatsStateEvent.class,
-            Collections.emptyList(),
-            EventChannel.getDefaultChannel());
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(StatsStateEvent.class, EventChannel.LOG)));
     private final GroupExpression groupExpression;
     private boolean deriveChildren;
 

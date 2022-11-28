@@ -22,23 +22,20 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import com.google.common.collect.Lists;
 
-import java.util.Collections;
-
 /**
  * When parent node request some properties but children don't have.
  * Enforce add missing properties for child.
  */
 public class EnforceMissingPropertiesHelper {
-    private static final EventProducer ENFORCER_TRACER = new EventProducer(
-            EnforcerEvent.class,
-            Collections.emptyList(),
-            EventChannel.getDefaultChannel());
+    private static final EventProducer ENFORCER_TRACER = new EventProducer(EnforcerEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(EnforcerEvent.class, EventChannel.LOG)));
     private final JobContext context;
     private final GroupExpression groupExpression;
     private double curTotalCost;
