@@ -202,9 +202,9 @@ Status VNestedLoopJoinNode::get_left_side(RuntimeState* state, Block* block) {
 Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
                                  "VNestedLoopJoinNode::get_next");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
     RETURN_IF_CANCELLED(state);
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     if (_is_output_left_side_only) {
@@ -311,12 +311,14 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                    : _matched_rows_done;
 
     Block tmp_block = mutable_join_block.to_block(0);
+    _add_tuple_is_null_column(&tmp_block);
     {
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(
                 VExprContext::filter_block(_vconjunct_ctx_ptr, &tmp_block, tmp_block.columns()));
     }
     RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
+    _reset_tuple_is_null_column();
     reached_limit(block, eos);
     return Status::OK();
 }
@@ -362,6 +364,8 @@ void VNestedLoopJoinNode::_process_left_child_block(MutableColumns& dst_columns,
 
 template <bool BuildSide, bool IsSemi>
 void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, size_t batch_size) {
+    DCHECK_GT(dst_columns.size(), 0);
+    auto pre_size = dst_columns[0]->size();
     if constexpr (BuildSide) {
         auto build_block_sz = _build_blocks.size();
         size_t i = _output_null_idx_build_side;
@@ -394,6 +398,15 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
                 dst_columns[j]->insert_many_defaults(selector_idx);
             }
 
+            if (_is_outer_join) {
+                reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                        ->get_data()
+                        .resize_fill(pre_size + selector_idx, 1);
+                reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                        ->get_data()
+                        .resize_fill(pre_size + selector_idx, 0);
+            }
+
             for (size_t j = 0; j < _num_build_side_columns; ++j) {
                 auto src_column = cur_block.get_by_position(j);
                 if (!src_column.column->is_nullable() &&
@@ -419,6 +432,7 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
                 i++;
                 break;
             }
+            pre_size = dst_columns[0]->size();
         }
         _output_null_idx_build_side = i;
     } else {
@@ -428,6 +442,14 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
             }
         } else {
             if (_cur_probe_row_visited_flags) {
+                if (_is_outer_join) {
+                    reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                            ->get_data()
+                            .resize_fill(pre_size + 1, 0);
+                    reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                            ->get_data()
+                            .resize_fill(pre_size + 1, 0);
+                }
                 return;
             }
         }
@@ -452,6 +474,14 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableColumns& dst_columns, s
         }
         for (size_t i = 0; i < _num_build_side_columns; ++i) {
             dst_columns[_num_probe_side_columns + i]->insert_default();
+        }
+        if (_is_outer_join) {
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_left_flag_column.get())
+                    ->get_data()
+                    .resize_fill(pre_size + 1, 0);
+            reinterpret_cast<ColumnUInt8*>(_tuple_is_null_right_flag_column.get())
+                    ->get_data()
+                    .resize_fill(pre_size + 1, 1);
         }
     }
 }
@@ -622,6 +652,9 @@ void VNestedLoopJoinNode::_release_mem() {
 
     MutableColumns tmp_build_side_visited_flags;
     _build_side_visited_flags.swap(tmp_build_side_visited_flags);
+
+    _tuple_is_null_left_flag_column = nullptr;
+    _tuple_is_null_right_flag_column = nullptr;
 }
 
 } // namespace doris::vectorized

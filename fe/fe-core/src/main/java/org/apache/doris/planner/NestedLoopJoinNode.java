@@ -213,10 +213,10 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     }
 
     private void computeCrossRuntimeFilterExpr() {
-        for (int i = joinConjuncts.size() - 1; i >= 0; --i) {
-            if (joinConjuncts.get(i) instanceof BitmapFilterPredicate) {
-                addBitmapFilterExpr(joinConjuncts.get(i));
-                joinConjuncts.remove(i);
+        for (int i = conjuncts.size() - 1; i >= 0; --i) {
+            if (conjuncts.get(i) instanceof BitmapFilterPredicate) {
+                addBitmapFilterExpr(conjuncts.get(i));
+                conjuncts.remove(i);
             }
         }
     }

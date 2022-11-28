@@ -68,6 +68,12 @@ protected:
     // Initialize the join operation.
     void _init_join_op();
 
+    // add tuple is null flag column to Block for filter conjunct and output expr
+    void _add_tuple_is_null_column(Block* block);
+
+    // reset the tuple is null flag column for the next call
+    void _reset_tuple_is_null_column();
+
     // Materialize build relation. For HashJoin, it will build a hash table while a list of build blocks for NLJoin.
     virtual Status _materialize_build_side(RuntimeState* state) = 0;
 
@@ -96,6 +102,9 @@ protected:
     std::vector<VExprContext*> _output_expr_ctxs;
 
     Block _join_block;
+
+    MutableColumnPtr _tuple_is_null_left_flag_column;
+    MutableColumnPtr _tuple_is_null_right_flag_column;
 
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _probe_timer;
