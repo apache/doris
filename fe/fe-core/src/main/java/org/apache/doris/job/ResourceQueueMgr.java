@@ -92,14 +92,15 @@ public class ResourceQueueMgr {
                 if (ifNotExists) {
                     return;
                 }
-                throw new UserException(String.format("Add the same resource queue(queueName=%s)", queue.getName()));
+                throw new UserException("Add the same resource queue with name: " + queue.getName());
             }
             if (id2Queue.putIfAbsent(queue.queueId(), queue) != null) {
                 throw new UserException(
-                        String.format("Add the same resource queue(queueName=%s, queueId=%d)", queue.getName(),
+                        String.format("Add the same resource queue with name: %s, queueId: %d", queue.getName(),
                                 queue.queueId()));
             } else {
                 name2id.put(queue.getName(), queue.queueId());
+                queue.run();
             }
         } finally {
             wlock.unlock();
@@ -164,6 +165,8 @@ public class ResourceQueueMgr {
                 }
                 throw new UserException("No resource queue found with name: " + name);
             } else {
+                id2Queue.get(queueId).dropQueue();
+                name2id.remove(name);
                 id2Queue.remove(queueId);
             }
         } finally {

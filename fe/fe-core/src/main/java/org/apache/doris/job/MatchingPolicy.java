@@ -50,6 +50,6 @@ public class MatchingPolicy {
 
     @Override
     public String toString() {
-        return String.format("user = \"%s\", ip = \"%s\"", user, ip);
+        return String.format("\"user\"=\"%s\", \"ip\"=\"%s\"", user, ip);
     }
 }

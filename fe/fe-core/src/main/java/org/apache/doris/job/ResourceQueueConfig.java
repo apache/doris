@@ -81,7 +81,7 @@ public class ResourceQueueConfig implements Writable {
     @Override
     public String toString() {
         return properties.entrySet().stream().map(
-                        kv -> String.format("\"%s\" = \"%s\"", kv.getKey(), kv.getValue()))
+                        kv -> String.format("\"%s\"=\"%s\"", kv.getKey(), kv.getValue()))
                 .collect(Collectors.joining(", "));
     }
 }

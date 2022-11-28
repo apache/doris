@@ -39,6 +39,7 @@ public class ResourceQueue {
     private ResourceQueueConfig config;
     private MatchingPolicy policy;
 
+    private Thread scheduleThread = null;
     // jobId -> job
     private final Map<Long, AsyncJob> allJobs;
     private final BlockingQueue<AsyncJob> pendingQueue;
@@ -82,6 +83,7 @@ public class ResourceQueue {
             job.setJobStatus(JobStatus.PENDING);
             if (pendingQueue.size() < config.maxQueueSize() && pendingQueue.offer(job)) {
                 allJobs.put(job.jobId(), job);
+                return true;
             }
             job.setJobStatus(JobStatus.CANCELED);
             return false;
@@ -161,6 +163,22 @@ public class ResourceQueue {
         }
     }
 
+    public void dropQueue() throws UserException {
+        wlock.lock();
+        try {
+            if (pendingQueue.size() != 0 && runningJobs.size() != 0) {
+                throw new UserException(
+                        String.format("Should drop resource queue when empty(numPendingJobs=%d, numRunningJobs=%d)",
+                                pendingQueue.size(), runningJobs.size()));
+            }
+            if (scheduleThread != null) {
+                scheduleThread.interrupt();
+            }
+        } finally {
+            wlock.unlock();
+        }
+    }
+
     public boolean canAddJob() {
         rlock.lock();
         try {
@@ -209,7 +227,7 @@ public class ResourceQueue {
     }
 
     public void run() {
-        Thread thread = new Thread(() -> {
+        scheduleThread = new Thread(() -> {
             while (true) {
                 try {
                     AsyncJob job = pendingQueue.take();
@@ -230,7 +248,7 @@ public class ResourceQueue {
                 }
             }
         }, "resource-queue-" + name);
-        thread.setDaemon(true);
-        thread.start();
+        scheduleThread.setDaemon(true);
+        scheduleThread.start();
     }
 }
