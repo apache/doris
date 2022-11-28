@@ -33,7 +33,7 @@ suite("test_broker_load", "p0") {
                   "parquet_s3_case1", // col1 not in file but in table, will load default value for it.
                   "parquet_s3_case2", // x1 not in file, not in table, will throw "col not found" error.
                   "parquet_s3_case3", // p_comment not in table but in file, load normally.
-                  "parquet_s3_case4", // all tables are in table but not in file, will throw "no column found" error.
+                  "parquet_s3_case4", // all columns are in table but not in file, will fill default values.
                   "parquet_s3_case5", // x1 not in file, not in table, will throw "col not found" error.
                   "parquet_s3_case6", // normal
                   "parquet_s3_case7", // col5 will be ignored, load normally
@@ -129,7 +129,7 @@ suite("test_broker_load", "p0") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "\\N",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "\\N",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "\\N",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
@@ -153,7 +153,7 @@ suite("test_broker_load", "p0") {
                     "",
                     "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to init reader for file s3://doris-build-hk-1308700295/regression/load/data/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet, err: No columns found in parquet file",
+                    "",
                     "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
                     "",
                     "",
