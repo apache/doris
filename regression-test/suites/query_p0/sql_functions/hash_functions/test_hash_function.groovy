@@ -14,25 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+suite("test_hash_function") {
+    sql "set enable_vectorized_engine = true;"
+    sql "set batch_size = 4096;"
 
-#pragma once
+    qt_sql "SELECT murmur_hash3_32(null);"
+    qt_sql "SELECT murmur_hash3_32(\"hello\");"
+    qt_sql "SELECT murmur_hash3_32(\"hello\", \"world\");"
 
-namespace doris_udf {
-class FunctionContext;
-struct IntVal;
-struct BigIntVal;
-struct StringVal;
-} // namespace doris_udf
-
-namespace doris {
-
-class HashFunctions {
-public:
-    static void init();
-    static doris_udf::IntVal murmur_hash3_32(doris_udf::FunctionContext* ctx, int num_children,
-                                             const doris_udf::StringVal* inputs);
-    static doris_udf::BigIntVal murmur_hash3_64(doris_udf::FunctionContext* ctx, int num_children,
-                                                const doris_udf::StringVal* inputs);
-};
-
-} // namespace doris
+    qt_sql "SELECT murmur_hash3_64(null);"
+    qt_sql "SELECT murmur_hash3_64(\"hello\");"
+    qt_sql "SELECT murmur_hash3_64(\"hello\", \"world\");"
+}

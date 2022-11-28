@@ -15,24 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include <gtest/gtest.h>
 
-namespace doris_udf {
-class FunctionContext;
-struct IntVal;
-struct BigIntVal;
-struct StringVal;
-} // namespace doris_udf
+#include <iostream>
+#include <string>
+
+#include "exprs/anyval_util.h"
+#include "exprs/hash_functions.h"
+#include "testutil/function_utils.h"
+#include "testutil/test_util.h"
 
 namespace doris {
 
-class HashFunctions {
+class HashFunctionsTest : public testing::Test {
 public:
-    static void init();
-    static doris_udf::IntVal murmur_hash3_32(doris_udf::FunctionContext* ctx, int num_children,
-                                             const doris_udf::StringVal* inputs);
-    static doris_udf::BigIntVal murmur_hash3_64(doris_udf::FunctionContext* ctx, int num_children,
-                                                const doris_udf::StringVal* inputs);
+    HashFunctionsTest() = default;
+
+    void SetUp() {
+        utils = new FunctionUtils();
+        ctx = utils->get_fn_ctx();
+    }
+    void TearDown() { delete utils; }
+
+private:
+    FunctionUtils* utils;
+    FunctionContext* ctx;
 };
 
+TEST_F(HashFunctionsTest, murmur_hash3_64) {
+    StringVal input = AnyValUtil::from_string_temp(ctx, std::string("hello"));
+    BigIntVal result = HashFunctions::murmur_hash3_64(ctx, 1, &input);
+    BigIntVal expected((int64_t)-3215607508166160593);
+
+    EXPECT_EQ(expected, result);
+}
 } // namespace doris
