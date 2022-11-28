@@ -26,12 +26,16 @@ under the License.
 
 # Iceberg External Table of Doris
 
+<version deprecated="1.2" comment="请使用 Multi-Catalog 功能访问 Iceberg">
+
 Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表的能力，外部表省去了繁琐的数据导入工作，并借助 Doris 本身的 OLAP 的能力来解决 Iceberg 表的数据分析问题：
 
 1. 支持 Iceberg 数据源接入Doris
 2. 支持 Doris 与 Iceberg 数据源中的表联合查询，进行更加复杂的分析操作
 
 本文档主要介绍该功能的使用方式和注意事项等。
+
+</version>
 
 ## 名词解释
 
