@@ -233,3 +233,4 @@ else
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
 fi
+
