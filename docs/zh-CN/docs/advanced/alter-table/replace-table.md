@@ -26,18 +26,18 @@ under the License.
 
 # 替换表
 
-在 0.14 版本中，Doris 支持对两个表进行原子的替换操作。 该操作仅适用于 OLAP 表。
+自 0.14 版本起，Doris 支持对两个表进行原子的替换操作。 该操作仅适用于 OLAP 表。
 
 分区级别的替换操作，请参阅 [临时分区文档](../../partition/table-temp-partition)
 
 ## 语法说明
 
 ```text
-ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
+ALTER TABLE [db1.]tbl1 REPLACE WITH TABLE [db2.]tbl2
 [PROPERTIES('swap' = 'true')];
 ```
 
-将表 tbl1 替换为表 tbl2。
+将表 tbl1 替换为表 tbl2。tbl1 和 tbl2 可来自相同的数据库或不同的库。
 
 如果 `swap` 参数为 `true`，则替换后，名称为 `tbl1` 表中的数据为原 `tbl2` 表中的数据。而名称为 `tbl2` 表中的数据为原 `tbl1` 表中的数据。即两张表数据发生了互换。
 

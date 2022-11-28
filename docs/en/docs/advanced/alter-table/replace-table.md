@@ -26,7 +26,7 @@ under the License.
 
 # Replace Table
 
-In version 0.14, Doris supports atomic replacement of two tables.
+From version 0.14, Doris supports atomic replacement of two tables.
 This operation only applies to OLAP tables.
 
 For partition level replacement operations, please refer to [Temporary Partition Document](../../partition/table-temp-partition)
@@ -34,11 +34,11 @@ For partition level replacement operations, please refer to [Temporary Partition
 ## Syntax
 
 ```
-ALTER TABLE [db.]tbl1 REPLACE WITH tbl2
+ALTER TABLE [db1.]tbl1 REPLACE WITH [db2.]tbl2
 [PROPERTIES('swap' = 'true')];
 ```
 
-Replace table `tbl1` with table `tbl2`.
+Replace table `tbl1` with table `tbl2`, no matter they come from same database or not.
 
 If the `swap` parameter is `true`, after replacement, the data in the table named `tbl1` is the data in the original `tbl2` table. The data in the table named `tbl2` is the data in the original table `tbl1`. That is, the data of the two tables are interchanged.
 

@@ -883,7 +883,7 @@ public class AlterTest {
         }
 
         // name conflict
-        String replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE r1";
+        String replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE test.r1";
         alterTable(replaceStmt, true);
 
         // replace1 with replace2
