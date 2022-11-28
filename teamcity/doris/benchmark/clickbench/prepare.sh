@@ -23,3 +23,8 @@ fi
 qa_home="${pipeline_home}/selectdb-qa"
 cd "${qa_home}" && git stash && git checkout main && git pull && cd -
 
+
+
+
+
+
