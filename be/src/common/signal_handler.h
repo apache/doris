@@ -50,6 +50,9 @@ namespace doris::signal {
 
 namespace {
 
+inline thread_local uint64 query_id_hi;
+inline thread_local uint64 query_id_lo;
+
 // We'll install the failure signal handler for these signals.  We could
 // use strsignal() to get signal names, but we don't use it to avoid
 // introducing yet another #ifdef complication.
@@ -254,6 +257,11 @@ void DumpTimeInfo() {
   time_t time_in_sec = time(NULL);
   char buf[256];  // Big enough for time info.
   MinimalFormatter formatter(buf, sizeof(buf));
+  formatter.AppendString("*** Query id: ");
+  formatter.AppendUint64(query_id_hi, 16);
+  formatter.AppendString("-");
+  formatter.AppendUint64(query_id_lo, 16);
+  formatter.AppendString(" ***\n");
   formatter.AppendString("*** Aborted at ");
   formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
   formatter.AppendString(" (unix time)");
@@ -429,7 +437,7 @@ void FailureSignalHandler(int signal_number,
 
 }  // namespace
 
-void InstallFailureSignalHandler() {
+inline void InstallFailureSignalHandler() {
   // Build the sigaction struct.
   struct sigaction sig_action;
   memset(&sig_action, 0, sizeof(sig_action));
