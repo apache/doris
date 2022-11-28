@@ -77,6 +77,19 @@ public class RangePartitionInfo extends PartitionInfo {
         return itemEntryList;
     }
 
+    public List<Map.Entry<Long, PartitionItem>> getAllPartitionItemEntryList(boolean isSorted) {
+        Map<Long, PartitionItem> tmpMap = Maps.newHashMap();
+
+        tmpMap.putAll(idToItem);
+        tmpMap.putAll(idToTempItem);
+
+        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+        if (isSorted) {
+            Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        }
+        return itemEntryList;
+    }
+
     // create a new range and check it.
     private Range<PartitionKey> createAndCheckNewRange(PartitionKeyDesc partKeyDesc, boolean isTemp)
             throws AnalysisException, DdlException {
