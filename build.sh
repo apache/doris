@@ -442,6 +442,7 @@ function build_ui() {
         ui_dist="${CUSTOM_UI_DIST}"
     else
         cd "${DORIS_HOME}/ui"
+        "${NPM}" cache clean --force
         "${NPM}" install --legacy-peer-deps
         "${NPM}" run build
     fi
