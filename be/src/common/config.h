@@ -474,6 +474,9 @@ CONF_String(buffer_pool_clean_pages_limit, "50%");
 // Sleep time in milliseconds between memory maintenance iterations
 CONF_mInt64(memory_maintenance_sleep_time_ms, "500");
 
+// Sleep time in milliseconds between load channel memory refresh iterations
+CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
+
 // Alignment
 CONF_Int32(memory_max_alignment, "16");
 

@@ -159,8 +159,8 @@ void Daemon::memory_maintenance_thread() {
 void Daemon::load_channel_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
-    int64_t interval_milliseconds = 100;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval_milliseconds))) {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::load_channel_memory_refresh_sleep_time_ms))) {
         doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
     }
 }
