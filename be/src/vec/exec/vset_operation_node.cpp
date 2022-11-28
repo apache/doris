@@ -45,6 +45,11 @@ struct HashTableBuild {
 
         KeyGetter key_getter(_build_raw_ptrs, _operation_node->_build_key_sz, nullptr);
 
+        if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+            hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
+            key_getter.set_serialized_keys(hash_table_ctx.keys.data());
+        }
+
         for (size_t k = 0; k < _rows; ++k) {
             auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table, k,
                                                          *(_operation_node->_arena));

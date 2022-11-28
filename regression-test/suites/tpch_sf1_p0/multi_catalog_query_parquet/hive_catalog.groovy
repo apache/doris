@@ -836,7 +836,7 @@ order by
             """
         sql """switch hive"""
         sql """use `default`"""
-        order_qt_show_tables """show tables"""
+        // order_qt_show_tables """show tables"""
 
         q01()
         q02()

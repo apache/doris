@@ -41,6 +41,7 @@ struct TrackerLimiterGroup {
 static std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool(1000);
 
 std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
+bool MemTrackerLimiter::_oom_avoidance {true};
 
 MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit,
                                      RuntimeProfile* profile) {
