@@ -467,8 +467,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
         keywordMap.put("submit", new Integer(SqlParserSymbols.KW_SUBMIT));
         keywordMap.put("sql", new Integer(SqlParserSymbols.KW_SQL));
-        keywordMap.put("queue", new Integer(SqlParserSymbols.KW_QUEUE));
-        keywordMap.put("queues", new Integer(SqlParserSymbols.KW_QUEUES));
+        keywordMap.put("resource_queue", new Integer(SqlParserSymbols.KW_RESOURCE_QUEUE));
         keywordMap.put("matching", new Integer(SqlParserSymbols.KW_MATCHING));
    }
     

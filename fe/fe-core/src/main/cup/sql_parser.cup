@@ -605,8 +605,7 @@ terminal String
     KW_MTMV,
     KW_SUBMIT,
     KW_SQL,
-    KW_QUEUE,
-    KW_QUEUES,
+    KW_RESOURCE_QUEUE,
     KW_MATCHING;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
@@ -764,7 +763,7 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
 
-nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties,
+nonterminal Map<String, String> key_value_map, paren_key_value_map, opt_key_value_map, opt_properties,
             opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
@@ -920,7 +919,6 @@ precedence left KW_PARTITIONS;
 precedence right KW_TEMPORARY;
 precedence right LBRACKET;
 precedence left KW_ENGINE;
-precedence right KW_RESOURCE, KW_QUEUE;
 
 // unused
 // nonterminal Expr where_clause_without_null, List<String> col_list, opt_charset_name, AlterClause alter_cluster_clause;
@@ -1258,11 +1256,11 @@ alter_stmt ::=
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
     :}
     /* Resource Queue */
-    | KW_ALTER KW_RESOURCE KW_QUEUE ident:queueName KW_RENAME ident:newQueueName
+    | KW_ALTER KW_RESOURCE_QUEUE ident:queueName KW_RENAME ident:newQueueName
     {:
         RESULT = new AlterResourceQueueNameStmt(queueName, newQueueName);
     :}
-    | KW_ALTER KW_RESOURCE KW_QUEUE ident:queueName KW_SET KW_RESOURCE LPAREN key_value_map:configProperties RPAREN KW_SET KW_MATCHING KW_POLICY LPAREN key_value_map:policyProperties RPAREN
+    | KW_ALTER KW_RESOURCE_QUEUE ident:queueName KW_SET KW_RESOURCE paren_key_value_map:configProperties KW_SET KW_MATCHING KW_POLICY paren_key_value_map:policyProperties
     {:
         RESULT = new AlterResourceQueueStmt(queueName, configProperties, policyProperties);
     :}
@@ -1862,7 +1860,7 @@ create_stmt ::=
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, ifNotExists, cols, indexType, properties, comment), false)));
     :}
     /* resource queue */
-    | KW_CREATE KW_RESOURCE KW_QUEUE opt_if_not_exists:ifNotExists ident:queueName KW_WITH KW_RESOURCE LPAREN key_value_map:configProperties RPAREN KW_WITH KW_MATCHING KW_POLICY LPAREN key_value_map:policyProperties RPAREN
+    | KW_CREATE KW_RESOURCE_QUEUE opt_if_not_exists:ifNotExists ident:queueName KW_WITH KW_RESOURCE paren_key_value_map:configProperties KW_WITH KW_MATCHING KW_POLICY paren_key_value_map:policyProperties
     {:
         RESULT = new CreateResourceQueueStmt(ifNotExists, queueName, configProperties, policyProperties);
     :}
@@ -2740,7 +2738,7 @@ drop_stmt ::=
         RESULT = new DropDbStmt(ifExists, db, force);
     :}
     /* Resource Queue */
-    | KW_DROP KW_RESOURCE KW_QUEUE opt_if_exists:ifExists ident:queueName
+    | KW_DROP KW_RESOURCE_QUEUE opt_if_exists:ifExists ident:queueName
     {:
         RESULT = new DropResourceQueueStmt(ifExists, queueName);
     :}
@@ -3143,6 +3141,17 @@ opt_key_value_map ::=
     :}
     ;
 
+paren_key_value_map ::=
+    | LPAREN RPAREN
+    {:
+        RESULT = Maps.newHashMap();
+    :}
+    | LPAREN key_value_map:map RPAREN
+    {:
+        RESULT = map;
+    :}
+    ;
+
 key_value_map ::=
     STRING_LITERAL:name EQUAL STRING_LITERAL:value
     {:
@@ -3487,11 +3496,11 @@ show_param ::=
         RESULT = new ShowDbStmt(null, null, catalogName);
     :}
     /* Resource Queue */
-    | KW_RESOURCE KW_QUEUES
+    | KW_ALL KW_RESOURCE_QUEUE
     {:
         RESULT = new ShowResourceQueueStmt();
     :}
-    | KW_RESOURCE KW_QUEUE ident:queueName
+    | KW_RESOURCE_QUEUE ident:queueName
     {:
         RESULT = new ShowResourceQueueStmt(queueName);
     :}
@@ -6880,9 +6889,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_SQL:id
     {: RESULT = id; :}
-    | KW_QUEUE:id
-    {: RESULT = id; :}
-    | KW_QUEUES:id
+    | KW_RESOURCE_QUEUE:id
     {: RESULT = id; :}
     | KW_MATCHING:id
     {: RESULT = id; :}
