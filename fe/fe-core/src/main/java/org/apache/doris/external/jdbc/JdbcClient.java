@@ -117,12 +117,6 @@ public class JdbcClient {
             config.setMaximumPoolSize(1);
             dataSource = new HikariDataSource(config);
             conn = dataSource.getConnection();
-
-            // Driver driver = (Driver) Class.forName(driverClass, true, classLoader).newInstance();
-            // DriverManager.registerDriver(new JdbcDriverShim(driver));
-            // conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPasswd);
-            // conn.setAutoCommit(true);
-            // DriverManager.deregisterDriver(driver);
         } catch (Exception e) {
             throw new JdbcClientException("Can not connect to jdbc", e);
         }
