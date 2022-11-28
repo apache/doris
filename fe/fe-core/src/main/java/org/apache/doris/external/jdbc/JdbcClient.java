@@ -363,9 +363,6 @@ public class JdbcClient {
                 return ScalarType.getDefaultDateType(Type.DATETIME);
             case "DATETIME":
                 return ScalarType.getDefaultDateType(Type.DATETIME);
-            case "TIME":
-            case "YEAR":
-                return ScalarType.INT;
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
@@ -377,8 +374,9 @@ public class JdbcClient {
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
-                ScalarType.createStringType();
                 return charType;
+            case "TIME":
+            case "YEAR":
             case "VARCHAR":
             case "TINYTEXT":
             case "TEXT":
