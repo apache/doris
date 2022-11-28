@@ -39,6 +39,7 @@
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
@@ -1233,7 +1234,10 @@ Status IRuntimeFilter::get_prepared_vexprs(std::vector<doris::vectorized::VExpr*
 bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
     SCOPED_TIMER(_await_time_cost);
-    int64_t wait_times_ms = _state->runtime_filter_wait_time_ms();
+    // bitmap filter is precise filter and only filter once, so it must be applied.
+    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
+                                    ? _state->query_options().query_timeout
+                                    : _state->runtime_filter_wait_time_ms();
     std::unique_lock<std::mutex> lock(_inner_mutex);
     if (!_is_ready) {
         int64_t ms_since_registration = MonotonicMillis() - registration_time_;
@@ -1930,11 +1934,11 @@ Status RuntimePredicateWrapper::get_push_vexprs(std::vector<doris::vectorized::V
         node.__isset.vector_opcode = true;
         node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
-        auto bitmap_pred = _pool->add(new doris::vectorized::VBitmapPredicate(node));
+        auto bitmap_pred = _pool->add(new vectorized::VBitmapPredicate(node));
         bitmap_pred->set_filter(_context._bitmap_filter_func);
         auto cloned_vexpr = vprob_expr->root()->clone(_pool);
         bitmap_pred->add_child(cloned_vexpr);
-        auto wrapper = _pool->add(new doris::vectorized::VRuntimeFilterWrapper(node, bitmap_pred));
+        auto wrapper = _pool->add(new vectorized::VRuntimeFilterWrapper(node, bitmap_pred));
         container->push_back(wrapper);
         break;
     }

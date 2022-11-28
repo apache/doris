@@ -24,11 +24,13 @@ under the License.
 
 ## ADMIN-CANCEL-REBALANCE-DISK
 
-<version since="1.2.0">
-
 ### Name
 
+<version since="1.2.0">
+
 ADMIN CANCEL REBALANCE DISK
+
+</version>
 
 ### Description
 
@@ -58,4 +60,3 @@ ADMIN CANCEL REBALANCE DISK
 
 ### Best Practice
 
-</version>

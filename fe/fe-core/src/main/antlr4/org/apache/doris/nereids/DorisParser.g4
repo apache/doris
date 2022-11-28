@@ -50,6 +50,11 @@ singleStatement
 
 statement
     : explain? cte? query                           #statementDefault
+    | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
+        ON table=multipartIdentifier
+        AS type=(RESTRICTIVE | PERMISSIVE)
+        TO user=identifier
+        USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     ;
 
 explain
@@ -335,8 +340,6 @@ number
     : MINUS? INTEGER_VALUE            #integerLiteral
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
-
-
 
 // When `SQL_standard_keyword_behavior=true`, there are 2 kinds of keywords in Spark SQL.
 // - Reserved keywords:
@@ -764,6 +767,7 @@ nonReserved
     | PIVOT
     | PLACING
     | PLAN
+    | POLICY
     | POSITION
     | PRECEDING
     | PRIMARY

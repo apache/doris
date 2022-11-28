@@ -227,9 +227,7 @@ distribution_desc
         )
         ```
     
-<version since="1.2.0">
-    
-    3. MULTI RANGE：批量创建RANGE分区，定义分区的左闭右开区间，设定时间单位和步长，时间单位支持年、月、日、周和小时。
+    3. <version since="1.2" type="inline"> MULTI RANGE：批量创建RANGE分区，定义分区的左闭右开区间，设定时间单位和步长，时间单位支持年、月、日、周和小时。</version>
 
         ```
         PARTITION BY RANGE(col)
@@ -240,8 +238,6 @@ distribution_desc
            FROM ("2023-01-03") TO ("2023-01-14") INTERVAL 1 DAY
         )
         ```
-    
-</version>
     
 * `distribution_desc`
   
@@ -348,7 +344,7 @@ distribution_desc
     
     * `light_schema_change`
 
-        是否使用light schema change优化。
+        <version since="1.2" type="inline"> 是否使用light schema change优化。</version>
 
         如果设置成 `true`, 对于值列的加减操作，可以更快地，同步地完成。
     

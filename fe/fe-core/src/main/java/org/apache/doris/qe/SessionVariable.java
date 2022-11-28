@@ -191,6 +191,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
+    public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
+    public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
+
+    //percentage of EXEC_MEM_LIMIT
+    public static final String BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE = "broadcast_hashtable_mem_limit_percentage";
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
@@ -545,6 +550,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
     private boolean enableNereidsRuntimeFilter = true;
 
+    @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
+    private double broadcastRightTableScaleFactor = 10.0;
+
+    @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT)
+    private double broadcastRowCountLimit = 15000000;
+
+    @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE)
+    private double broadcastHashtableMemLimitPercentage = 0.2;
+
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
     private boolean enableNereidsReorderToEliminateCrossJoin = true;
 
@@ -624,12 +638,14 @@ public class SessionVariable implements Serializable, Writable {
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
-        Random random = new Random();
+        Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.enableLocalExchange = random.nextBoolean();
-        this.disableJoinReorder = random.nextBoolean();
+        // This will cause be dead loop, disable it first
+        // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
-        // this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
+        this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
+        this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
     }
 
     public String getBlockEncryptionMode() {
@@ -935,6 +951,30 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setMaxPushdownConditionsPerColumn(int maxPushdownConditionsPerColumn) {
         this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
+    }
+
+    public double getBroadcastRightTableScaleFactor() {
+        return broadcastRightTableScaleFactor;
+    }
+
+    public void setBroadcastRightTableScaleFactor(double broadcastRightTableScaleFactor) {
+        this.broadcastRightTableScaleFactor = broadcastRightTableScaleFactor;
+    }
+
+    public double getBroadcastRowCountLimit() {
+        return broadcastRowCountLimit;
+    }
+
+    public void setBroadcastRowCountLimit(double broadcastRowCountLimit) {
+        this.broadcastRowCountLimit = broadcastRowCountLimit;
+    }
+
+    public double getBroadcastHashtableMemLimitPercentage() {
+        return broadcastHashtableMemLimitPercentage;
+    }
+
+    public void setBroadcastHashtableMemLimitPercentage(double broadcastHashtableMemLimitPercentage) {
+        this.broadcastHashtableMemLimitPercentage = broadcastHashtableMemLimitPercentage;
     }
 
     public boolean showHiddenColumns() {
