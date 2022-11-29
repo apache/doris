@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -247,7 +248,7 @@ public class PlanEqualsTest {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
 
-        RelationId id = RelationId.createGenerator().getNextId();
+        RelationId id = RelationUtil.newRelationId();
 
         PhysicalOlapScan actual = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
                 olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,

@@ -23,11 +23,11 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -48,8 +48,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 class LimitPushDownTest extends TestWithFeService implements PatternMatchSupported {
-    private Plan scanScore = new LogicalOlapScan(new RelationId(0), PlanConstructor.score);
-    private Plan scanStudent = new LogicalOlapScan(new RelationId(1), PlanConstructor.student);
+    private Plan scanScore = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score);
+    private Plan scanStudent = new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -212,8 +212,8 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(new RelationId(0), PlanConstructor.score),
-                new LogicalOlapScan(new RelationId(1), PlanConstructor.student)
+                new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score),
+                new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student)
         );
 
         if (hasProject) {
