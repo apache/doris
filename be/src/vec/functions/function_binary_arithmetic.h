@@ -295,7 +295,7 @@ struct DecimalBinaryOperation {
             for (size_t i = 0; i < size; ++i) {
                 c[i] = apply_scaled_div(a, b[i]);
             }
-        } else if constexpr (IsDecimalNumber<A> || IsDecimalNumber<B>) {
+        } else if constexpr (IsDecimalV2<A> || IsDecimalV2<B>) {
             DecimalV2Value da(a);
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Op::template apply(da, DecimalV2Value(b[i])).value();
