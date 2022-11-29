@@ -1722,15 +1722,15 @@ create_stmt ::=
         RESULT = new CreateClusterStmt(name, properties, password);
     :}*/
     /* Function */
-    | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_RETURNS type_def:returnType opt_intermediate_type:intermediateType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, returnType, intermediateType, properties);
+        RESULT = new CreateFunctionStmt(ifNotExists, isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
-    | KW_CREATE KW_ALIAS KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_CREATE KW_ALIAS KW_FUNCTION opt_if_not_exists:ifNotExists function_name:functionName LPAREN func_args_def:args RPAREN
             KW_WITH KW_PARAMETER LPAREN ident_list:parameters RPAREN KW_AS expr:func
     {:
-        RESULT = new CreateFunctionStmt(functionName, args, parameters, func);
+        RESULT = new CreateFunctionStmt(ifNotExists, functionName, args, parameters, func);
     :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP LPAREN ident_list:rollupNames RPAREN
@@ -2724,9 +2724,9 @@ drop_stmt ::=
         RESULT = new DropClusterStmt(ifExists, cluster);
     :}
     /* Function */
-    | KW_DROP KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+    | KW_DROP KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
     {:
-        RESULT = new DropFunctionStmt(functionName, args);
+        RESULT = new DropFunctionStmt(ifExists, functionName, args);
     :}
     /* Table */
     | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
@@ -5861,6 +5861,13 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
+  {: 
+    ArrayList<Expr> exprs = new ArrayList<>();
+    exprs.add(e);
+    exprs.add(new StringLiteral(character));
+    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
+  :}
   ;
 
 expr_pipe_list ::=

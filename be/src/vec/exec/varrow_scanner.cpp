@@ -154,10 +154,10 @@ Status VArrowScanner::_init_src_block() {
     size_t batch_pos = 0;
     _src_block.clear();
     if (_batch->num_columns() < _num_of_columns_from_file) {
-        LOG(WARNING) << "some cloumns not found in the file, num_columns_obtained: "
+        LOG(WARNING) << "some columns not found in the file, num_columns_obtained: "
                      << _batch->num_columns()
                      << " num_columns_required: " << _num_of_columns_from_file;
-        return Status::InvalidArgument("some cloumns not found in the file");
+        return Status::InvalidArgument("some columns not found in the file");
     }
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];

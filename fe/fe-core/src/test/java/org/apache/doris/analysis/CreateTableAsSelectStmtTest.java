@@ -93,7 +93,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 "create table `test`.`select_decimal_table_1` PROPERTIES(\"replication_num\" = \"1\") "
                         + "as select sum(amount_decimal) from `test`.`decimal_table`";
         createTableAsSelect(selectFromDecimal1);
-        if (Config.enable_decimal_conversion && Config.enable_decimalv3) {
+        if (Config.enable_decimal_conversion) {
             Assertions.assertEquals(
                     "CREATE TABLE `select_decimal_table_1` (\n" + "  `_col0` decimal(38, 2) NULL\n" + ") ENGINE=OLAP\n"
                             + "DUPLICATE KEY(`_col0`)\n" + "COMMENT 'OLAP'\n"

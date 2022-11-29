@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Compile from Source（macOS x86_64/arm64）",
+    "title": "Compilation on macOS",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compile from Source（macOS x86_64/arm64）
+# Compilation on macOS
 
 This post introduces how to compile from source on macOS (both x86_64 and arm64).
 
@@ -42,7 +42,7 @@ This post introduces how to compile from source on macOS (both x86_64 and arm64)
         python cmake ninja ccache bison byacc gettext wget pcre maven openjdk@11 npm
     ```
 
-2. Compile from srouce
+2. Compile from source
     ```shell
     bash build.sh
     ```

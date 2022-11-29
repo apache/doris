@@ -31,7 +31,7 @@ void* doris_malloc(size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(je_nallocx(size, 0), nullptr);
     void* ptr = je_malloc(size);
     if (UNLIKELY(ptr == nullptr)) {
-        TRY_RELEASE_MEM_TRACKER(je_nallocx(size, 0));
+        RELEASE_MEM_TRACKER(je_nallocx(size, 0));
     }
     return ptr;
 }
@@ -53,7 +53,7 @@ void* doris_realloc(void* p, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(je_nallocx(size, 0) - old_size, nullptr);
     void* ptr = je_realloc(p, size);
     if (UNLIKELY(ptr == nullptr)) {
-        TRY_RELEASE_MEM_TRACKER(je_nallocx(size, 0) - old_size);
+        RELEASE_MEM_TRACKER(je_nallocx(size, 0) - old_size);
     }
     return ptr;
 }
@@ -66,7 +66,7 @@ void* doris_calloc(size_t n, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(n * size, nullptr);
     void* ptr = je_calloc(n, size);
     if (UNLIKELY(ptr == nullptr)) {
-        TRY_RELEASE_MEM_TRACKER(n * size);
+        RELEASE_MEM_TRACKER(n * size);
     } else {
         CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - n * size);
     }
@@ -82,7 +82,7 @@ void* doris_memalign(size_t align, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
     void* ptr = je_aligned_alloc(align, size);
     if (UNLIKELY(ptr == nullptr)) {
-        TRY_RELEASE_MEM_TRACKER(size);
+        RELEASE_MEM_TRACKER(size);
     } else {
         CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
     }
@@ -93,7 +93,7 @@ void* doris_aligned_alloc(size_t align, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
     void* ptr = je_aligned_alloc(align, size);
     if (UNLIKELY(ptr == nullptr)) {
-        TRY_RELEASE_MEM_TRACKER(size);
+        RELEASE_MEM_TRACKER(size);
     } else {
         CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
     }
@@ -104,7 +104,7 @@ void* doris_valloc(size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
     void* ptr = je_valloc(size);
     if (UNLIKELY(ptr == nullptr)) {
-        TRY_RELEASE_MEM_TRACKER(size);
+        RELEASE_MEM_TRACKER(size);
     } else {
         CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
     }
@@ -115,7 +115,7 @@ void* doris_pvalloc(size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, nullptr);
     void* ptr = je_valloc(size);
     if (UNLIKELY(ptr == nullptr)) {
-        TRY_RELEASE_MEM_TRACKER(size);
+        RELEASE_MEM_TRACKER(size);
     } else {
         CONSUME_MEM_TRACKER(je_malloc_usable_size(ptr) - size);
     }
@@ -126,7 +126,7 @@ int doris_posix_memalign(void** r, size_t align, size_t size) __THROW {
     TRY_CONSUME_MEM_TRACKER(size, ENOMEM);
     int ret = je_posix_memalign(r, align, size);
     if (UNLIKELY(ret != 0)) {
-        TRY_RELEASE_MEM_TRACKER(size);
+        RELEASE_MEM_TRACKER(size);
     } else {
         CONSUME_MEM_TRACKER(je_malloc_usable_size(*r) - size);
     }

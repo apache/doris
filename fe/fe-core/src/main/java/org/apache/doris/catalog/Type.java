@@ -142,6 +142,9 @@ public abstract class Type {
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
+        trivialTypes.add(DECIMAL32);
+        trivialTypes.add(DECIMAL64);
+        trivialTypes.add(DECIMAL128);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
