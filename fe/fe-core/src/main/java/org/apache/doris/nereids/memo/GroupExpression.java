@@ -253,8 +253,9 @@ public class GroupExpression {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-
-        if (ownerGroup != null) {
+        if (ownerGroup == null) {
+            builder.append("OWNER GROUP IS NULL[]");
+        } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
 

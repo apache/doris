@@ -37,9 +37,6 @@ public class StatsDeriveResult {
     // TODO: Should we use immutable type for this field?
     private final Map<Id, ColumnStatistic> slotIdToColumnStats;
 
-    //TODO: isReduced to be removed after remove StatsCalculatorV1
-    public boolean isReduced = false;
-
     public StatsDeriveResult(double rowCount, int width, double penalty,
             Map<Id, ColumnStatistic> slotIdToColumnStats) {
         this.rowCount = rowCount;
@@ -73,7 +70,6 @@ public class StatsDeriveResult {
     public StatsDeriveResult(StatsDeriveResult another) {
         this.rowCount = another.rowCount;
         slotIdToColumnStats = new HashMap<>(another.slotIdToColumnStats);
-        this.isReduced = another.isReduced;
         this.width = another.width;
         this.penalty = another.penalty;
     }
@@ -117,7 +113,7 @@ public class StatsDeriveResult {
         return slotIdToColumnStats;
     }
 
-    public StatsDeriveResult updateBySelectivity(double selectivity) {
+    public StatsDeriveResult withSelectivity(double selectivity) {
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(rowCount * selectivity, width, penalty);
         for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
             statsDeriveResult.addColumnStats(entry.getKey(),
@@ -152,7 +148,6 @@ public class StatsDeriveResult {
     public String toString() {
         StringBuilder builder = new StringBuilder();
         builder.append("(rows=").append((long) Math.ceil(rowCount))
-                .append(", isReduced=").append(isReduced)
                 .append(", width=").append(width)
                 .append(", penalty=").append(penalty).append(")");
         return builder.toString();

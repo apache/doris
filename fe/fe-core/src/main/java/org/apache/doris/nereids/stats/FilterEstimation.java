@@ -75,7 +75,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
     @Override
     public StatsDeriveResult visit(Expression expr, EstimationContext context) {
-        return inputStats.updateBySelectivity(DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY);
+        return inputStats.withSelectivity(DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY);
     }
 
     @Override
@@ -133,7 +133,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
                     statsForRight.maxValue,
                     isNot);
         }
-        StatsDeriveResult outputStats = inputStats.updateBySelectivity(selectivity);
+        StatsDeriveResult outputStats = inputStats.withSelectivity(selectivity);
 
         //assumptions
         // 1. func(A) and A have the same stats.
@@ -349,7 +349,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         Expression compareExpr = inPredicate.getCompareExpr();
         ColumnStatistic compareExprStats = ExpressionEstimation.estimate(compareExpr, inputStats);
         if (compareExprStats.isUnKnown) {
-            return inputStats.updateBySelectivity(DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY);
+            return inputStats.withSelectivity(DEFAULT_INEQUALITY_COMPARISON_SELECTIVITY);
         }
         List<Expression> options = inPredicate.getOptions();
         double maxOption = 0;
@@ -415,7 +415,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
         StatsDeriveResult estimated = new StatsDeriveResult(inputStats);
 
-        estimated = estimated.updateBySelectivity(selectivity);
+        estimated = estimated.withSelectivity(selectivity);
         if (compareExpr instanceof SlotReference) {
             estimated.addColumnStats(((SlotReference) compareExpr).getExprId(),
                     compareExprStatsBuilder.build());
