@@ -15,9 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
 suite("add_table_policy_by_modify_partition") {
     sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
 
+    SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    Date date = new Date(System.currentTimeMillis() + 3600000)
+    def cooldownTime = format.format(date)
+
+    sql """DROP TABLE IF EXISTS create_table_partition"""
     def create_table_partition_not_have_policy_result = try_sql """
         CREATE TABLE IF NOT EXISTS `create_table_partition` (
         `lo_orderkey` bigint(20) NOT NULL COMMENT "",
@@ -70,28 +78,27 @@ suite("add_table_policy_by_modify_partition") {
         return false;
     }
 
-    if (!storage_exist.call("created_create_table_partition_alter_policy")) {
-        def create_s3_resource = try_sql """
-            CREATE RESOURCE "test_modify_partition_table_use_resource"
-            PROPERTIES(
-                "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
-            );
-        """
-        def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY created_create_table_partition_alter_policy
-            PROPERTIES(
-            "storage_resource" = "test_modify_partition_table_use_resource",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
-            );
-        """
-        assertEquals(storage_exist.call("created_create_table_partition_alter_policy"), true)
-    }
+    def create_s3_resource = try_sql """
+        CREATE RESOURCE IF NOT EXISTS "test_modify_partition_table_use_resource"
+        PROPERTIES(
+            "type"="s3",
+            "s3_region" = "bj",
+            "s3_endpoint" = "http://bj.s3.comaaaa",
+            "s3_root_path" = "path/to/rootaaaa",
+            "s3_secret_key" = "aaaa",
+            "s3_access_key" = "bbba",
+            "s3_bucket" = "test-bucket"
+        );
+    """
+    def create_succ_1 = try_sql """
+        CREATE STORAGE POLICY IF NOT EXISTS created_create_table_partition_alter_policy
+        PROPERTIES(
+        "storage_resource" = "test_modify_partition_table_use_resource",
+        "cooldown_datetime" = "$cooldownTime"
+        );
+    """
+    sql """ALTER STORAGE POLICY created_create_table_partition_alter_policy PROPERTIES("cooldown_datetime" = "$cooldownTime")"""
+    assertEquals(storage_exist.call("created_create_table_partition_alter_policy"), true)
 
     def alter_table_partition_try_again_result = try_sql """
         ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy");
@@ -105,7 +112,7 @@ suite("add_table_policy_by_modify_partition") {
     // errCode = 2, detailMessage = Do not support alter table's partition storage policy , this table [create_table_partition] and partition [p1992] has storage policy created_create_table_partition_alter_policy
     assertEquals(alter_table_when_table_partition_has_storage_policy_result, null);
 
-    sql """
-    DROP TABLE create_table_partition;
-    """
+    // sql """
+    // DROP TABLE IF EXISTS create_table_partition;
+    // """
 }

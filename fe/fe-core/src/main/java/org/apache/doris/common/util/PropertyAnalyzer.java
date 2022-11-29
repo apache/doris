@@ -186,7 +186,8 @@ public class PropertyAnalyzer {
         long currentTimeMs = System.currentTimeMillis();
         if (storageMedium == TStorageMedium.SSD && hasCooldown) {
             if (cooldownTimestamp <= currentTimeMs) {
-                throw new AnalysisException("Cool down time should later than now");
+                throw new AnalysisException(
+                        "Cool down time: " + cooldownTimestamp + " should later than now: " + currentTimeMs);
             }
         }
 
@@ -207,11 +208,14 @@ public class PropertyAnalyzer {
             // check remote storage cool down timestamp
             if (storagePolicy.getCooldownTimestampMs() != -1) {
                 if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {
-                    throw new AnalysisException("remote storage cool down time should later than now");
+                    throw new AnalysisException(
+                            "remote storage cool down time: " + storagePolicy.getCooldownTimestampMs()
+                                    + " should later than now: " + currentTimeMs);
                 }
                 if (hasCooldown && storagePolicy.getCooldownTimestampMs() <= cooldownTimestamp) {
                     throw new AnalysisException(
-                            "`remote_storage_cooldown_time`" + " should later than `storage_cooldown_time`.");
+                            "remote storage cool down time: " + storagePolicy.getCooldownTimestampMs()
+                                    + " should later than storage cool down time: " + cooldownTimestamp);
                 }
             }
         }
@@ -794,3 +798,5 @@ public class PropertyAnalyzer {
         }
     }
 }
+
+
