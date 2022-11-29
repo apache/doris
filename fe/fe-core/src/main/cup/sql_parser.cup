@@ -1268,10 +1268,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
     :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
-    {:
-        RESULT = new AlterTableStatsStmt(tbl, map, partitionNames);
-    :}
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
@@ -3671,11 +3667,6 @@ show_param ::=
     | KW_SYNC KW_JOB opt_db:dbName
     {:
         RESULT = new ShowSyncJobStmt(dbName);
-    :}
-    /* show table stats */
-    | KW_TABLE KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
     | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames
