@@ -1730,8 +1730,7 @@ protected:
         need_to_be_nullable |= arguments[0].type->is_nullable();
         // 2. from_type is string, to_type is not string
         need_to_be_nullable |= (arguments[0].type->get_type_id() == TypeIndex::String) &&
-                               (type->get_type_id() != TypeIndex::String) &&
-                               (type->get_type_id() != TypeIndex::JSONB);
+                               (type->get_type_id() != TypeIndex::String);
         // 3. from_type is not DateTime/Date, to_type is DateTime/Date
         need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::Date &&
                                 arguments[0].type->get_type_id() != TypeIndex::DateTime) &&
