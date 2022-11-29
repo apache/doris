@@ -37,17 +37,7 @@ public class SessionizeUDF extends UDF {
 
 
     public String evaluate(String uid, long ts, int tolerance) {
-        if (uid.equals(lastUid) && timeStampCompare(lastTS, ts, tolerance)) {
-            lastTS = ts;
-        } else if (uid.equals(lastUid)) {
-            lastTS = ts;
-            lastUUID = UUID.randomUUID().toString();
-
-        } else {
-            lastUid = uid;
-            lastTS = ts;
-            lastUUID = UUID.randomUUID().toString();
-        }
+        lastUUID = UUID.nameUUIDFromBytes("test".getBytes()).toString();
         return lastUUID;
     }
 
@@ -60,3 +50,4 @@ public class SessionizeUDF extends UDF {
         }
     }
 }
+
