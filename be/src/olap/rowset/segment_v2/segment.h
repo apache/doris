@@ -71,7 +71,7 @@ public:
     Status new_iterator(const Schema& schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
-    uint64_t id() const { return _segment_id; }
+    uint32_t id() const { return _segment_id; }
 
     RowsetId rowset_id() const { return _rowset_id; }
 
