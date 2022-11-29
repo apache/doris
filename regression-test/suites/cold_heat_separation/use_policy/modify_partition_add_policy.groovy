@@ -112,7 +112,7 @@ suite("add_table_policy_by_modify_partition") {
     // errCode = 2, detailMessage = Do not support alter table's partition storage policy , this table [create_table_partition] and partition [p1992] has storage policy created_create_table_partition_alter_policy
     assertEquals(alter_table_when_table_partition_has_storage_policy_result, null);
 
-    // sql """
-    // DROP TABLE IF EXISTS create_table_partition;
-    // """
+    sql """
+    DROP TABLE IF EXISTS create_table_partition;
+    """
 }
