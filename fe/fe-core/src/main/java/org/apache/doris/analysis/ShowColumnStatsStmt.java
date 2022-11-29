@@ -111,6 +111,9 @@ public class ShowColumnStatsStmt extends ShowStmt {
     public ShowResultSet constructResultSet(List<Pair<String, ColumnStatistic>> columnStatistics) {
         List<List<String>> result = Lists.newArrayList();
         columnStatistics.forEach(p -> {
+            if (p.second == ColumnStatistic.DEFAULT) {
+                return;
+            }
             List<String> row = Lists.newArrayList();
             row.add(p.first);
             row.add(String.valueOf(p.second.count));
@@ -120,8 +123,8 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.avgSizeByte));
             row.add(String.valueOf(p.second.minValue));
             row.add(String.valueOf(p.second.maxValue));
-            row.add(String.valueOf(p.second.minExpr.toSql()));
-            row.add(String.valueOf(p.second.maxExpr.toSql()));
+            row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
+            row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);
