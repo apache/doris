@@ -62,7 +62,6 @@ public class ArithmeticExpr extends Expr {
         BITXOR("^", "bitxor", OperatorPosition.BINARY_INFIX, TExprOpcode.BITXOR),
         BITNOT("~", "bitnot", OperatorPosition.UNARY_PREFIX, TExprOpcode.BITNOT),
         FACTORIAL("!", "factorial", OperatorPosition.UNARY_POSTFIX, TExprOpcode.FACTORIAL);
-
         private final String description;
         private final String name;
         private final OperatorPosition pos;
