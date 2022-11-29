@@ -90,6 +90,8 @@ public class EsExternalCatalog extends ExternalCatalog {
             nodes = properties.get(PROP_HOSTS).trim().split(",");
             if (properties.containsKey(PROP_SSL)) {
                 enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
+            } else {
+                properties.put(PROP_SSL, String.valueOf(enableSsl));
             }
 
             if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
@@ -102,14 +104,20 @@ public class EsExternalCatalog extends ExternalCatalog {
 
             if (properties.containsKey(PROP_DOC_VALUE_SCAN)) {
                 enableDocValueScan = EsUtil.getBoolean(properties, PROP_DOC_VALUE_SCAN);
+            } else {
+                properties.put(PROP_DOC_VALUE_SCAN, String.valueOf(enableDocValueScan));
             }
 
             if (properties.containsKey(PROP_KEYWORD_SNIFF)) {
                 enableKeywordSniff = EsUtil.getBoolean(properties, PROP_KEYWORD_SNIFF);
+            } else {
+                properties.put(PROP_KEYWORD_SNIFF, String.valueOf(enableKeywordSniff));
             }
 
             if (properties.containsKey(PROP_NODES_DISCOVERY)) {
                 enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
+            } else {
+                properties.put(PROP_NODES_DISCOVERY, String.valueOf(enableNodesDiscovery));
             }
         } catch (DdlException e) {
             // should not happen. the properties are already checked in analysis phase.

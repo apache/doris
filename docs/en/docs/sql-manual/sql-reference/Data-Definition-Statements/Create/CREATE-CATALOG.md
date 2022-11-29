@@ -65,6 +65,10 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
 2. Create catalog es
 
    ```sql
+   CREATE CATALOG es PROPERTIES (
+	   "type"="es",
+	   "elasticsearch.hosts"="http://127.0.0.1:9200"
+   );
    ```
 
 ### Keywords
