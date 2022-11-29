@@ -38,12 +38,14 @@ public abstract class AsyncJob {
     protected final UserIdentity userIdentity;
     protected final Map<String, String> properties;
     protected JobStatus jobStatus = JobStatus.PENDING;
+    protected String matchedQueue;
 
     public AsyncJob(String label, UserIdentity userIdentity, Map<String, String> properties) {
         id = Env.getCurrentEnv().getNextId();
         this.label = label;
         this.userIdentity = userIdentity;
         this.properties = properties == null ? Collections.emptyMap() : properties;
+        this.matchedQueue = null;
     }
 
     public abstract void run();
@@ -76,6 +78,14 @@ public abstract class AsyncJob {
 
     public void setJobStatus(JobStatus jobStatus) {
         this.jobStatus = jobStatus;
+    }
+
+    public String getMatchedQueue() {
+        return matchedQueue;
+    }
+
+    public void setMatchedQueue(String matchedQueue) {
+        this.matchedQueue = matchedQueue;
     }
 
     @Override

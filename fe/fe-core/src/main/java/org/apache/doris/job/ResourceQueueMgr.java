@@ -162,7 +162,7 @@ public class ResourceQueueMgr {
         wlock.lock();
         try {
             Long queueId = name2id.get(name);
-            if (queueId != null) {
+            if (queueId == null) {
                 if (ifExists) {
                     return;
                 }

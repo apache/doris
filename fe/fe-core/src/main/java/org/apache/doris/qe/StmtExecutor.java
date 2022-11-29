@@ -1710,12 +1710,14 @@ public class StmtExecutor implements ProfileWriter {
                 } else {
                     insertStmt.setLabel(submitAsyncJobStmt.getLabel());
                 }
-
+                if (insertStmt.getUserInfo() == null) {
+                    insertStmt.setUserInfo(context.getUserIdentity());
+                }
                 SqlJob sqlJob = new SqlJob(submitAsyncJobStmt.getLabel(), JobType.INSERT,
-                        submitAsyncJobStmt.getExecStmt(), submitAsyncJobStmt.getProperties());
+                        insertStmt, submitAsyncJobStmt.getProperties());
                 AsyncJobManager.get().submitAsyncJob(sqlJob);
-                String msg = String.format("{'label':'%s', 'status':'%s', 'jobId':'job_%d'}",
-                        sqlJob.getLabel(), sqlJob.getJobStatus(), sqlJob.jobId());
+                String msg = String.format("{'label':'%s', 'status':'%s', 'jobId':'job_%d', 'resource_queue':'%s'}",
+                        sqlJob.getLabel(), sqlJob.getJobStatus(), sqlJob.jobId(), sqlJob.getMatchedQueue());
                 context.getState().setOk(0, 0, msg);
             } else {
                 throw new UserException("Unsupported async job type: " + submitAsyncJobStmt.getType());

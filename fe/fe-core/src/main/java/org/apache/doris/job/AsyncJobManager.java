@@ -58,6 +58,7 @@ public class AsyncJobManager {
             throw new UserException(String.format("Resource queue %s is full(pending=%d, running=%d)", queue.getName(),
                     queue.numPendingJobs(), queue.numRunningJobs()));
         }
+        job.setMatchedQueue(queue.getName());
         jobId2Queue.put(job.jobId(), queue.queueId());
         jobLabel2Id.put(job.getLabel(), job.jobId());
     }
