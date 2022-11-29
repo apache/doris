@@ -37,8 +37,13 @@ This statement is used for view created catalogs
 Syntax:
 
 ```sql
-SHOW CATALOGS
+SHOW CATALOGS [LIKE]
 ```
+
+illustrate:
+
+1. LIKE: Fuzzy query can be performed according to the catalog name
+
 
 Return result:
 
@@ -60,6 +65,17 @@ Return result:
 	+-----------+-------------+----------+
    	```
 
+2. Fuzzy query by catalog name
+
+   ```sql
+   SHOW CATALOGS LIKE 'hi%';
+    +-----------+-------------+----------+
+    | CatalogId | CatalogName | Type     |
+    +-----------+-------------+----------+
+    |     10024 | hive        | hms      |
+    +-----------+-------------+----------+
+       ```
+   
 ### Keywords
 
 SHOW, CATALOG, CATALOGS
