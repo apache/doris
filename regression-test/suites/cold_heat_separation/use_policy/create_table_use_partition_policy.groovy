@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
-
 suite("create_table_use_partion_policy") {
+    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
+
     def create_table_partion_use_not_create_policy = try_sql """
         CREATE TABLE IF NOT EXISTS create_table_partion_use_not_create_policy
         (

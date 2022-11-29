@@ -2347,3 +2347,14 @@ Default: 3
 Is it possible to dynamically configure: true
 
 Is it a configuration item unique to the Master FE node: true
+
+### `enable_storage_policy`
+
+Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
+
+Default: false
+
+Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: true
+
