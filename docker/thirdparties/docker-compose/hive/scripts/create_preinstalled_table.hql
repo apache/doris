@@ -25,7 +25,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
-  '/user/doris/parquet/partition_table'
+  '/user/doris/preinstalled_data/parquet/partition_table'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
 
@@ -58,7 +58,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
-  '/user/doris/orc/orc_all_types';
+  '/user/doris/preinstalled_data/orc/orc_all_types';
 
 msck repair table orc_all_types;
 
@@ -71,7 +71,7 @@ CREATE TABLE `student` (
   phone varchar(50)
 )
 ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION '/user/doris/data_case/student'
+LOCATION '/user/doris/preinstalled_data/data_case/student'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE TABLE `lineorder` (
@@ -94,7 +94,7 @@ CREATE TABLE `lineorder` (
   `lo_shipmode` varchar(11) 
 )
 ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION '/user/doris/data_case/lineorder'
+LOCATION '/user/doris/preinstalled_data/data_case/lineorder'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE TABLE `test1` (
@@ -105,7 +105,7 @@ CREATE TABLE `test1` (
   col_5 varchar(20)
 )
 ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION '/user/doris/data_case/test1'
+LOCATION '/user/doris/preinstalled_data/data_case/test1'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE TABLE `string_table` (
@@ -120,7 +120,7 @@ CREATE TABLE `string_table` (
   p_comment string
 )
 ROW FORMAT DELIMITED FIELDS TERMINATED by ','
-LOCATION '/user/doris/data_case/string_table'
+LOCATION '/user/doris/preinstalled_data/data_case/string_table'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE TABLE `account_fund` (
@@ -141,7 +141,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
-  '/user/doris/data_case/account_fund'
+  '/user/doris/preinstalled_data/data_case/account_fund'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 create table sale_table (
@@ -158,7 +158,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
     'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
-  '/user/doris/data_case/sale_table'
+  '/user/doris/preinstalled_data/data_case/sale_table'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 create table t_hive (
@@ -174,7 +174,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
-  '/user/doris/data_case/t_hive'
+  '/user/doris/preinstalled_data/data_case/t_hive'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 create table hive01 (
@@ -185,7 +185,7 @@ create table hive01 (
 )
 ROW FORMAT DELIMITED FIELDS TERMINATED by ','
 LOCATION
-  '/user/doris/data_case/hive01'
+  '/user/doris/preinstalled_data/data_case/hive01'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE TABLE test2 (
@@ -197,7 +197,7 @@ dt date
 )
 row format delimited fields terminated by ','
 stored as textfile
-LOCATION '/user/doris/data_case/test2'
+LOCATION '/user/doris/preinstalled_data/data_case/test2'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 create table test_hive_doris(
@@ -206,7 +206,7 @@ age varchar(100)
 )
 row format delimited fields terminated by ','
 stored as textfile
-LOCATION '/user/doris/data_case/test_hive_doris'
+LOCATION '/user/doris/preinstalled_data/data_case/test_hive_doris'
 TBLPROPERTIES ('transient_lastDdlTime'='1658816839');
 
 CREATE external TABLE `table_with_vertical_line`(
@@ -237,7 +237,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
-  '/user/doris/csv_partition_table/table_with_vertical_line/'
+  '/user/doris/preinstalled_data/csv_partition_table/table_with_vertical_line/'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669304897');
 
@@ -268,7 +268,7 @@ STORED AS INPUTFORMAT
 OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
-  '/user/doris/csv_partition_table/table_with_x01/'
+  '/user/doris/preinstalled_data/csv_partition_table/table_with_x01/'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669360080');
 
