@@ -41,7 +41,7 @@ under the License.
 
 * `token`
 
-    集群的token。可以在 `palo-meta/image/VERSION` 文件中查看。
+    集群的token。可以在 `doris-meta/image/VERSION` 文件中查看。
 
 * `file_id`
     
