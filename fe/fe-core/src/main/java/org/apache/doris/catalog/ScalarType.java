@@ -279,7 +279,7 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createDecimalType() {
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             return DEFAULT_DECIMALV3;
         } else {
             return DEFAULT_DECIMALV2;
@@ -350,7 +350,7 @@ public class ScalarType extends Type {
     }
 
     public static PrimitiveType getSuitableDecimalType(int precision, boolean decimalV2) {
-        if ((decimalV2 && !Config.enable_decimal_conversion) || !Config.enable_decimalv3) {
+        if (decimalV2 && !Config.enable_decimal_conversion) {
             return PrimitiveType.DECIMALV2;
         }
         if (precision <= MAX_DECIMAL32_PRECISION) {
@@ -651,6 +651,7 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DATETIMEV2: {
+                Preconditions.checkArgument(precision >= scale);
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
@@ -1012,6 +1013,16 @@ public class ScalarType extends Type {
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             return MAX_DECIMALV2_TYPE;
+        }
+
+        if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
+            return t1.isDecimalV3() ? t1 : t2;
+        }
+
+        if (t1.isDecimalV3() && t2.isDecimalV3()) {
+            return ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
+                            t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
+                            t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
         }
 
         PrimitiveType smallerType =

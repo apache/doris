@@ -220,8 +220,12 @@ public class LargeIntLiteral extends LiteralExpr {
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isFloatingPointType()) {
             return new FloatLiteral(new Double(value.doubleValue()), targetType);
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
+        } else if (targetType.isDecimalV2()) {
             return new DecimalLiteral(new BigDecimal(value));
+        } else if (targetType.isDecimalV3()) {
+            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+            res.setType(targetType);
+            return res;
         } else if (targetType.isIntegerType()) {
             try {
                 return new IntLiteral(value.longValueExact(), targetType);

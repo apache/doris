@@ -412,6 +412,7 @@
                                 "sql-manual/sql-functions/string-functions/split_part",
                                 "sql-manual/sql-functions/string-functions/money_format",
                                 "sql-manual/sql-functions/string-functions/parse_url",
+                                "sql-manual/sql-functions/string-functions/convert_to",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
                                 "sql-manual/sql-functions/string-functions/space",

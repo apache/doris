@@ -5861,6 +5861,13 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
+  {: 
+    ArrayList<Expr> exprs = new ArrayList<>();
+    exprs.add(e);
+    exprs.add(new StringLiteral(character));
+    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
+  :}
   ;
 
 expr_pipe_list ::=
