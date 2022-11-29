@@ -20,8 +20,8 @@ package org.apache.doris.load.loadv2.dpp;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
-import com.google.common.collect.Maps;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -461,7 +461,7 @@ public final class SparkDpp implements java.io.Serializable {
                     for (int i = 0; i < keyAndPartitionColumnNames.size(); i++) {
                         String columnName = keyAndPartitionColumnNames.get(i);
                         Object columnObject = row.get(row.fieldIndex(columnName));
-                        if (!validateData(columnObject, baseIndex.getColumn(columnName), parsers.get(columnName), row)) {
+                        if (!validateData(columnObject, baseIndex.getColumn(columnName), parsers.get(columnName),row)) {
                             abnormalRowAcc.add(1);
                             return result.iterator();
                         }
