@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
-
 # 内存超限错误分析
+
+<version since="1.2.0">
 
 当查询或导入报错`Memory limit exceeded`时，可能的原因：进程内存超限、系统剩余可用内存不足、超过单次查询执行的内存上限。
 ```
@@ -175,3 +175,5 @@ Memory Tracker Summary:
     MemTracker Label=ExecNode:VNewOlapScanNode(lineorder) (id=0), Parent Label=Query#Id=78208b15e064527-a84c5c0b04c04fcf, Used=6.03 MB(6318064 B), Peak=4.02 MB(4217664 B)
     MemTracker Label=VDataStreamSender:78208b15e064527-a84c5c0b04c04fd0, Parent Label=Query#Id=78208b15e064527-a84c5c0b04c04fcf, Used=2.34 KB(2400 B), Peak=0(0 B)
 ```
+
+</version>

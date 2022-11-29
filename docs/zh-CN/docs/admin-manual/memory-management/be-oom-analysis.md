@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
-
 # BE OOM分析
+
+<version since="1.2.0">
 
 理想情况下，在 [Memory Limit Exceeded Analysis](../admin-manual/memory-management/memory-limit-exceeded-analysis.md) 中我们定时检测操作系统剩余可用内存，并在内存不足时及时响应，如触发内存GC释放缓存或cancel内存超限的查询，但因为刷新进程内存统计和内存GC都具有一定的滞后性，同时我们很难完全catch所有大内存申请，在集群压力过大时仍有OOM风险。
 
@@ -80,3 +80,5 @@ Memory Tracker Summary:
   - 若`Parent Label=Orphan`的tracker统计值相加占 Orphan 内存的大部分，当`Label=TabletManager`内存使用多时，进一步查看集群 Tablet 数量，若 Tablet 数量过多则考虑删除过时不会被使用的表或数据；当`Label=StorageEngine`内存使用过多时，进一步查看集群 Segment 文件个数，若 Segment 文件个数过多则考虑手动触发compaction；
 
 8. 若`be/log/be.INFO`没有在 OOM 前打印出`Memory Tracker Summary`日志，说明 BE 没有及时检测出内存超限，观察 Grafana 内存监控确认BE在 OOM 前的内存增长趋势，若 OOM 可复现，考虑在`be.conf`中增加`memory_debug=true`，重启集群后会每秒打印集群内存统计，观察 OOM 前的最后一次`Memory Tracker Summary`日志，继续步骤3分析；
+
+</version>

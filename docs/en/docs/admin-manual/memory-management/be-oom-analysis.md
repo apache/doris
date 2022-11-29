@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
-
 # BE OOM Analysis
+
+<version since="1.2.0">
 
 Ideally, in [Memory Limit Exceeded Analysis](../admin-manual/memory-management/memory-limit-exceeded-analysis.md), we regularly detect the remaining available memory of the operating system and respond in time when the memory is insufficient , such as triggering the memory GC to release the cache or cancel the memory overrun query, but because refreshing process memory statistics and memory GC both have a certain lag, and it is difficult for us to completely catch all large memory applications, there are still OOM risk.
 
@@ -80,3 +80,5 @@ Memory Tracker Summary:
   - If the tracker statistics of `Parent Label=Orphan` account for most of Orphan’s memory, when `Label=TabletManager` uses a lot of memory, further check the number of tablets in the cluster. If there are too many tablets, delete them and they will not be used table or data; when `Label=StorageEngine` uses too much memory, further check the number of segment files in the cluster, and consider manually triggering compaction if the number of segment files is too large;
 
 8. If `be/log/be.INFO` does not print the `Memory Tracker Summary` log before OOM, it means that BE did not detect the memory limit in time, observe Grafana memory monitoring to confirm the memory growth trend of BE before OOM, if OOM is reproducible, consider adding `memory_debug=true` in `be.conf`, after restarting the cluster, the cluster memory statistics will be printed every second, observe the last `Memory Tracker Summary` log before OOM, and continue to step 3 for analysis;
+
+</version>
