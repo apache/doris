@@ -1761,7 +1761,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         FUNCTION_CALL(12),
         ARRAY_LITERAL(13),
         CAST_EXPR(14),
-        JSON_LITERAL(15);
+        JSON_LITERAL(15),
+        ARITHMETIC_EXPR(16);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1815,8 +1816,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else if (expr instanceof CastExpr) {
             output.writeInt(ExprSerCode.CAST_EXPR.getCode());
+        } else if (expr instanceof ArithmeticExpr) {
+            output.writeInt(ExprSerCode.ARITHMETIC_EXPR.getCode());
         } else {
-            throw new IOException("Unknown class " + expr.getClass().getName());
+            throw new IOException("Unsupported writable expr class: " + expr.getClass().getName());
         }
         expr.write(output);
     }
@@ -1862,8 +1865,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return ArrayLiteral.read(in);
             case CAST_EXPR:
                 return CastExpr.read(in);
+            case ARITHMETIC_EXPR:
+                return ArithmeticExpr.read(in);
             default:
-                throw new IOException("Unknown code: " + code);
+                throw new IOException("Unknown wriable expr code: " + code);
         }
     }
 
