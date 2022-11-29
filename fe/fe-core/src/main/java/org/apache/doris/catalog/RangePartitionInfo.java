@@ -25,6 +25,7 @@ import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import java.io.DataInput;
@@ -70,6 +71,19 @@ public class RangePartitionInfo extends PartitionInfo {
         if (isTemp) {
             tmpMap = idToTempItem;
         }
+        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+        if (isSorted) {
+            Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        }
+        return itemEntryList;
+    }
+
+    public List<Map.Entry<Long, PartitionItem>> getAllPartitionItemEntryList(boolean isSorted) {
+        Map<Long, PartitionItem> tmpMap = Maps.newHashMap();
+
+        tmpMap.putAll(idToItem);
+        tmpMap.putAll(idToTempItem);
+
         List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
         if (isSorted) {
             Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
