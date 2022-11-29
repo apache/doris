@@ -40,7 +40,7 @@ Doris使用clang-format进行代码格式化，并在build-support目录下提�
 
 Doris的代码风格在Google Style的基础上稍有改动，定制为 `.clang-format` 文件，位于Doris根目录。
 
-目前，`.clang-format` 配置文件适配clang-format-13.0.1以上的版本。
+目前，`.clang-format` 配置文件适配clang-format-15.0.1以上的版本。
 
 `.clang-format-ignore` 文件中记录了不希望被格式化的代码。这些代码通常来自第三方代码库，建议保持原有代码风格。
 
@@ -50,25 +50,25 @@ Doris的代码风格在Google Style的基础上稍有改动，定制为 `.clang-
 
 ### 下载安装clang-format
 
-推荐使用 NPM 安装 clang-format 14（不同版本的 clang-format 可能产生不同的代码格式，建议使用 14 版本）：
+推荐使用 NPM 安装 clang-format 15（不同版本的 clang-format 可能产生不同的代码格式，建议使用 15 版本）：
 
-`npm install clang-format@1.6.0`
+`npm install clang-format@1.8.0`
 
 Ubuntu: `apt-get install clang-format` 
 
-当前版本为10.0，也可指定旧版本，例如: `apt-get install clang-format-9`，建议源码编译14.0版本。
+当前版本为10.0，也可指定旧版本，例如: `apt-get install clang-format-9`，建议源码编译15.0版本。
 
 Mac: `brew install clang-format`
 
 Centos 7: 
 
-centos yum安装的clang-format版本过老，支持的StyleOption太少，建议源码编译14.0版本。
+centos yum安装的clang-format版本过老，支持的StyleOption太少，建议源码编译15.0版本。
 
 LDB toolchain:
 
 如果使用 [LDB toolchain](/docs/install/source-install/compilation-with-ldb-toolchain)，
-最新版本的 [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases)（>= v0.11）已经包含了预编译的clang-format
-13.0.1的二进制文件。
+最新版本的 [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases)（>= v0.13）已经包含了预编译的clang-format
+15.0.1的二进制文件。
 
 ### clang-format插件
 
