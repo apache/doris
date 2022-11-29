@@ -216,6 +216,7 @@ Status NodeChannel::open_wait() {
                 // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
                 // will be blocked.
                 _add_batches_finished = true;
+                VLOG_PROGRESS << "node channel " << channel_info() << "add_batches_finished";
             }
         });
 
@@ -271,6 +272,9 @@ Status NodeChannel::open_wait() {
                         }
                     }
                     _add_batches_finished = true;
+                    VLOG_PROGRESS << "node channel " << channel_info()
+                                  << "add_batches_finished and handled "
+                                  << result.tablet_errors().size() << " tablets errors";
                 }
             } else {
                 _cancel_with_msg(
@@ -408,7 +412,8 @@ void NodeChannel::mark_close() {
         DCHECK(_pending_batches.back().second.eos());
         _close_time_ms = UnixMillis();
         LOG(INFO) << channel_info()
-                  << " mark closed, left pending batch size: " << _pending_batches.size();
+                  << " mark closed, left pending batch size: " << _pending_batches.size()
+                  << " left pending batch size: " << _pending_batches_bytes;
     }
 
     _eos_is_produced = true;
@@ -718,6 +723,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
+    VLOG_PROGRESS << "mark node_id:" << node_id << " tablet_id: " << tablet_id
+                  << " as failed, err: " << err;
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -949,6 +956,10 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                 tablet_with_partition.tablet_id = tablet;
                 tablets.emplace_back(std::move(tablet_with_partition));
             }
+        }
+        if (UNLIKELY(tablets.empty())) {
+            LOG(WARNING) << "load job:" << state->load_job_id() << " index: " << index->index_id
+                         << " would open 0 tablet";
         }
         _channels.emplace_back(new IndexChannel(this, index->index_id, use_vec));
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
