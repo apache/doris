@@ -26,7 +26,9 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInput
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
@@ -49,6 +51,9 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
         PropagateNullable {
 
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
+            DateType.INSTANCE,
+            DateV2Type.INSTANCE,
+            DateTimeV2Type.INSTANCE,
             DateTimeType.INSTANCE,
             IntegerType.INSTANCE
     );
