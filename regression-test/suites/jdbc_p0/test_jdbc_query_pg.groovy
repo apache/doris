@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.nio.charset.Charset;
+
 suite("test_jdbc_query_pg", "p0") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -30,6 +32,8 @@ suite("test_jdbc_query_pg", "p0") {
         String dorisInTable4 = "doris_in_table4";
         String dorisViewName = "doris_view_name";
         String exMysqlTypeTable = "doris_type_tb";
+
+        println "yyy default charset: " + Charset.defaultCharset()
 
         sql """drop resource if exists $jdbcResourcePg14;"""
         sql """
@@ -47,7 +51,7 @@ suite("test_jdbc_query_pg", "p0") {
         sql """drop table if exists $jdbcPg14Table1"""
         sql """
             CREATE EXTERNAL TABLE `$jdbcPg14Table1` (
-                k1 boolean,
+                k1 boolean comment "中国",
                 k2 char(100),
                 k3 varchar(128),
                 k4 date,

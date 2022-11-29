@@ -160,7 +160,7 @@ FE的单元测试会首先启动一个FE服务，然后由测试用例作为客�
     ```
     mkdir /path/to/doris/fe/run/
     cd /path/to/doris/fe/run/
-    mkdir conf/ log/ palo-meta/
+    mkdir conf/log/doris-meta/
     ```
     
 2. 创建配置文件

@@ -1936,6 +1936,9 @@ public class Analyzer {
                     && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
+            } else if (exprs.get(i).isConstantImpl()) {
+                exprs.get(i).compactForLiteral(compatibleType);
+                compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
             } else {
                 compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
             }

@@ -69,6 +69,7 @@ public class LoadingTaskPlanner {
     private final long timeoutS;    // timeout of load job, in second
     private final int loadParallelism;
     private final int sendBatchParallelism;
+    private final boolean useNewLoadScanNode;
     private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
@@ -82,9 +83,9 @@ public class LoadingTaskPlanner {
     private int nextNodeId = 0;
 
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
-                              BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode, String timezone, long timeoutS, int loadParallelism,
-                              int sendBatchParallelism, UserIdentity userInfo) {
+            BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
+            boolean strictMode, String timezone, long timeoutS, int loadParallelism,
+            int sendBatchParallelism, boolean useNewLoadScanNode, UserIdentity userInfo) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -96,6 +97,7 @@ public class LoadingTaskPlanner {
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
+        this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
         if (Env.getCurrentEnv().getAuth()
                 .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
@@ -145,7 +147,8 @@ public class LoadingTaskPlanner {
         // Generate plan trees
         // 1. Broker scan node
         ScanNode scanNode;
-        if (Config.enable_new_load_scan_node) {
+        boolean useNewScanNode = Config.enable_new_load_scan_node || useNewLoadScanNode;
+        if (useNewScanNode) {
             scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
             ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
                     fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);

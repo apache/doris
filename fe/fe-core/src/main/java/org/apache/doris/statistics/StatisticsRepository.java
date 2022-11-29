@@ -192,11 +192,11 @@ public class StatisticsRepository {
         }
         if (min != null) {
             builder.setMinExpr(StatisticsUtil.readableValue(column.getType(), min));
-            builder.setMinValue(StatisticsUtil.convertStringToDouble(min));
+            builder.setMinValue(StatisticsUtil.convertToDouble(column.getType(), min));
         }
         if (max != null) {
             builder.setMaxExpr(StatisticsUtil.readableValue(column.getType(), max));
-            builder.setMaxValue(StatisticsUtil.convertStringToDouble(max));
+            builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
         }
         if (dataSize != null) {
             builder.setDataSize(Double.parseDouble(dataSize));

@@ -153,7 +153,7 @@ void NodeChannel::open() {
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
-    LOG(WARNING) << channel_info() << ", " << msg;
+    LOG(WARNING) << "cancel node channel " << channel_info() << ", error message: " << msg;
     {
         std::lock_guard<SpinLock> l(_cancel_msg_lock);
         if (_cancel_msg == "") {
@@ -205,7 +205,10 @@ Status NodeChannel::open_wait() {
             }
             // If rpc failed, mark all tablets on this node channel as failed
             _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                           _add_batch_closure->cntl.ErrorText(), -1);
+                                           fmt::format("rpc failed, error coed:{}, error text:{}",
+                                                       _add_batch_closure->cntl.ErrorCode(),
+                                                       _add_batch_closure->cntl.ErrorText()),
+                                           -1);
             Status st = _index_channel->check_intolerable_failure();
             if (!st.ok()) {
                 _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
@@ -229,7 +232,8 @@ Status NodeChannel::open_wait() {
             if (status.ok()) {
                 // if has error tablet, handle them first
                 for (auto& error : result.tablet_errors()) {
-                    _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
+                    _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                                   "tablet error: " + error.msg(),
                                                    error.tablet_id());
                 }
 

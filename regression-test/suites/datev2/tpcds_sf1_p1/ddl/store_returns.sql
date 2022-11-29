@@ -10,15 +10,15 @@ CREATE TABLE IF NOT EXISTS store_returns (
     sr_reason_sk bigint,
     sr_ticket_number bigint,
     sr_return_quantity integer,
-    sr_return_amt decimal(7,2),
-    sr_return_tax decimal(7,2),
-    sr_return_amt_inc_tax decimal(7,2),
-    sr_fee decimal(7,2),
-    sr_return_ship_cost decimal(7,2),
-    sr_refunded_cash decimal(7,2),
-    sr_reversed_charge decimal(7,2),
-    sr_store_credit decimal(7,2),
-    sr_net_loss decimal(7,2)
+    sr_return_amt decimalv3(7,2),
+    sr_return_tax decimalv3(7,2),
+    sr_return_amt_inc_tax decimalv3(7,2),
+    sr_fee decimalv3(7,2),
+    sr_return_ship_cost decimalv3(7,2),
+    sr_refunded_cash decimalv3(7,2),
+    sr_reversed_charge decimalv3(7,2),
+    sr_store_credit decimalv3(7,2),
+    sr_net_loss decimalv3(7,2)
 )
 DUPLICATE KEY(sr_returned_date_sk, sr_return_time_sk, sr_item_sk)
 DISTRIBUTED BY HASH(sr_return_time_sk) BUCKETS 3

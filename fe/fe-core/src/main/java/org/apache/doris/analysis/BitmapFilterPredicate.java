@@ -90,7 +90,7 @@ public class BitmapFilterPredicate extends Predicate {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        // Unreachable
+        Preconditions.checkArgument(false, "`toThrift` in BitmapFilterPredicate should not be reached!");
     }
 
     @Override
