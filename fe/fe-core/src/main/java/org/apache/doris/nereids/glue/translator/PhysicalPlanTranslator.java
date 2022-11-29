@@ -378,6 +378,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
         olapScanNode.setSampleTabletIds(olapScan.getSelectedTabletIds());
+        olapScanNode.setPushDownAggNoGrouping(olapScan.getPushDownAggOperator().toThrift());
 
         switch (olapScan.getTable().getKeysType()) {
             case AGG_KEYS:
