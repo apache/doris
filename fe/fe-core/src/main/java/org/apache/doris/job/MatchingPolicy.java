@@ -18,6 +18,7 @@
 package org.apache.doris.job;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.cluster.ClusterNamespace;
 
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -36,7 +37,7 @@ public class MatchingPolicy {
         this.user = user;
         this.ip = ip;
         userPattern = Pattern.compile(user.replaceAll("\\*", ".*"));
-        ipPattern = Pattern.compile(ip.replaceAll("\\*", ".*"));
+        ipPattern = Pattern.compile(ip.replaceAll("\\.", "\\\\.").replaceAll("\\*", ".*"));
     }
 
     public MatchingPolicy(Map<String, String> polices) {
@@ -44,8 +45,12 @@ public class MatchingPolicy {
     }
 
     public boolean match(UserIdentity userIdentity) {
-        return userPattern.matcher(userIdentity.getQualifiedUser()).matches() && ipPattern.matcher(
-                userIdentity.getHost()).matches();
+        if (userIdentity == null || userIdentity.getUser() == null || userIdentity.getHost() == null) {
+            return false;
+        } else {
+            return userPattern.matcher(ClusterNamespace.getNameFromFullName(userIdentity.getUser())).matches()
+                    && ipPattern.matcher(userIdentity.getHost()).matches();
+        }
     }
 
     @Override

@@ -38,6 +38,8 @@ public class ResourceQueueConfig implements Writable {
 
     public ResourceQueueConfig(Map<String, String> properties) {
         this.properties = properties;
+        properties.putIfAbsent(MAX_CONCURRENCY, "1");
+        properties.putIfAbsent(MAX_QUEUE_SIZE, "10");
         try {
             maxConcurrency = Integer.parseInt(properties.get(MAX_CONCURRENCY));
         } catch (Exception e) {
@@ -50,11 +52,11 @@ public class ResourceQueueConfig implements Writable {
         try {
             maxQueueSize = Integer.parseInt(properties.get(MAX_QUEUE_SIZE));
         } catch (Exception e) {
-            maxQueueSize = 0;
+            maxQueueSize = -1;
         }
-        if (maxQueueSize < 1) {
-            properties.put(MAX_QUEUE_SIZE, "1");
-            maxQueueSize = 1;
+        if (maxQueueSize < 0) {
+            properties.put(MAX_QUEUE_SIZE, "0");
+            maxQueueSize = 0;
         }
     }
 

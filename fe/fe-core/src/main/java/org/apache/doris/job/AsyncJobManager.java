@@ -67,7 +67,7 @@ public class AsyncJobManager {
         return null;
     }
 
-    public void cancelJob(long jobId) {
+    public void cancelJob(long jobId) throws UserException {
         Long queueId = jobId2Queue.remove(jobId);
         if (queueId != null) {
             ResourceQueue queue = queueMgr.getQueue(queueId);
@@ -75,13 +75,17 @@ public class AsyncJobManager {
             if (job != null) {
                 jobLabel2Id.remove(job.getLabel());
             }
+        } else {
+            throw new UserException("Can't find job with jobId: job_" + jobId);
         }
     }
 
-    public void cancelJob(String jobLabel) {
+    public void cancelJob(String jobLabel) throws UserException {
         Long jobId = jobLabel2Id.get(jobLabel);
         if (jobId != null) {
             cancelJob(jobId);
+        } else {
+            throw new UserException("Can't find job with label: " + jobLabel);
         }
     }
 }

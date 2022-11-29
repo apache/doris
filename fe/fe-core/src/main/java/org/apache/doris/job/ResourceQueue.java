@@ -40,11 +40,11 @@ public class ResourceQueue {
     private MatchingPolicy policy;
 
     private Thread scheduleThread = null;
-    // jobId -> job
-    private final Map<Long, AsyncJob> allJobs;
     private final BlockingQueue<AsyncJob> pendingQueue;
+    private final Map<Long, AsyncJob> pendingJobs;
     private final Map<Long, AsyncJob> runningJobs;
     private final Map<Long, AsyncJob> finishedJobs;
+    private final Map<Long, AsyncJob> allJobs;
     private Semaphore runningSemaphore;
     private final ReadWriteLock rwlock = new ReentrantReadWriteLock();
     private final Lock rlock = rwlock.readLock();
@@ -57,10 +57,11 @@ public class ResourceQueue {
         this.config = config;
         this.policy = policy;
 
-        allJobs = new HashMap<>();
         pendingQueue = new LinkedBlockingQueue<>();
+        pendingJobs = new HashMap<>();
         runningJobs = new HashMap<>();
         finishedJobs = new HashMap<>();
+        allJobs = new HashMap<>();
         runningSemaphore = new Semaphore(config.maxConcurrency());
     }
 
@@ -81,9 +82,12 @@ public class ResourceQueue {
                 throw new UserException(String.format("Submit the same job(jobId=%d)", job.jobId()));
             }
             job.setJobStatus(JobStatus.PENDING);
-            if (pendingQueue.size() < config.maxQueueSize() && pendingQueue.offer(job)) {
-                allJobs.put(job.jobId(), job);
-                return true;
+            if (runningJobs.size() < config.maxConcurrency() || pendingJobs.size() < config.maxQueueSize()) {
+                if (pendingQueue.offer(job)) {
+                    allJobs.put(job.jobId(), job);
+                    pendingJobs.put(job.jobId(), job);
+                    return true;
+                }
             }
             job.setJobStatus(JobStatus.CANCELED);
             return false;
@@ -99,11 +103,10 @@ public class ResourceQueue {
             if (job != null) {
                 // cancel should be Idempotent
                 job.cancel();
-                if (finishedJobs.putIfAbsent(jobId, job) == null) {
-                    if (runningJobs.remove(jobId) == null) {
-                        pendingQueue.remove(job);
-                    }
-                }
+                finishedJobs.putIfAbsent(jobId, job);
+                pendingQueue.remove(job);
+                pendingJobs.remove(jobId);
+                runningJobs.remove(jobId);
             }
             return job;
         } finally {
@@ -141,10 +144,10 @@ public class ResourceQueue {
     public void setName(String name) throws UserException {
         wlock.lock();
         try {
-            if (pendingQueue.size() != 0 && runningJobs.size() != 0) {
+            if (pendingJobs.size() != 0 && runningJobs.size() != 0) {
                 throw new UserException(
                         String.format("Should rename resource queue when empty(numPendingJobs=%d, numRunningJobs=%d)",
-                                pendingQueue.size(), runningJobs.size()));
+                                pendingJobs.size(), runningJobs.size()));
             }
             this.name = name;
         } finally {
@@ -155,10 +158,10 @@ public class ResourceQueue {
     public void alterQueue(ResourceQueueConfig config, MatchingPolicy policy) throws UserException {
         wlock.lock();
         try {
-            if (pendingQueue.size() != 0 && runningJobs.size() != 0) {
+            if (pendingJobs.size() != 0 && runningJobs.size() != 0) {
                 throw new UserException(
                         String.format("Should alter resource queue when empty(numPendingJobs=%d, numRunningJobs=%d)",
-                                pendingQueue.size(), runningJobs.size()));
+                                pendingJobs.size(), runningJobs.size()));
             }
             this.config = config;
             this.policy = policy;
@@ -171,10 +174,10 @@ public class ResourceQueue {
     public void dropQueue() throws UserException {
         wlock.lock();
         try {
-            if (pendingQueue.size() != 0 && runningJobs.size() != 0) {
+            if (pendingJobs.size() != 0 && runningJobs.size() != 0) {
                 throw new UserException(
                         String.format("Should drop resource queue when empty(numPendingJobs=%d, numRunningJobs=%d)",
-                                pendingQueue.size(), runningJobs.size()));
+                                pendingJobs.size(), runningJobs.size()));
             }
             if (scheduleThread != null) {
                 scheduleThread.interrupt();
@@ -187,7 +190,7 @@ public class ResourceQueue {
     public boolean canAddJob() {
         rlock.lock();
         try {
-            return pendingQueue.size() < config.maxQueueSize();
+            return runningJobs.size() < config.maxConcurrency() || pendingJobs.size() < config.maxQueueSize();
         } finally {
             rlock.unlock();
         }
@@ -196,7 +199,7 @@ public class ResourceQueue {
     public int numPendingJobs() {
         rlock.lock();
         try {
-            return pendingQueue.size();
+            return pendingJobs.size();
         } finally {
             rlock.unlock();
         }
@@ -221,7 +224,7 @@ public class ResourceQueue {
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(id));
             row.add(name);
-            row.add(String.valueOf(pendingQueue.size()));
+            row.add(String.valueOf(pendingJobs.size()));
             row.add(String.valueOf(runningJobs.size()));
             row.add(config.toString());
             row.add(policy.toString());
@@ -241,6 +244,7 @@ public class ResourceQueue {
                     try {
                         // job may be canceled before adding to runningJobs.
                         if (!finishedJobs.containsKey(job.jobId())) {
+                            pendingJobs.remove(job.jobId());
                             runningJobs.put(job.jobId(), job);
                         }
                     } finally {
