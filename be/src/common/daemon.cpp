@@ -80,7 +80,7 @@ void Daemon::tcmalloc_gc_thread() {
     double release_rates[10] = {1.0, 1.0, 1.0, 5.0, 5.0, 20.0, 50.0, 100.0, 500.0, 2000.0};
     int64_t pressure_limit = 90;
     bool is_performance_mode = false;
-    size_t physical_limit_bytes = std::min(MemInfo::hard_mem_limit(), MemInfo::mem_limit());
+    size_t physical_limit_bytes = std::min(MemInfo::physical_mem() - MemInfo::sys_mem_available_low_water_mark(), MemInfo::mem_limit());
 
     if (config::memory_mode == std::string("performance")) {
         max_cache_percent = 100;
