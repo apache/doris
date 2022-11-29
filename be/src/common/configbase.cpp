@@ -439,12 +439,12 @@ Status set_fuzzy_config(const std::string& field, const std::string& value) {
 
 void set_fuzzy_configs() {
     // random value true or false
-    Status s = set_fuzzy_config("enable_storage_vectorization",
-                                ((rand() % 2) == 0) ? "true" : "false");
+    Status s =
+            set_fuzzy_config("disable_storage_page_cache", ((rand() % 2) == 0) ? "true" : "false");
     LOG(INFO) << s.to_string();
     // random value from 8 to 48
-    s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
-    LOG(INFO) << s.to_string();
+    // s = set_fuzzy_config("doris_scanner_thread_pool_thread_num", std::to_string((rand() % 41) + 8));
+    // LOG(INFO) << s.to_string();
 }
 
 std::mutex* get_mutable_string_config_lock() {
