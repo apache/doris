@@ -174,7 +174,8 @@ extern std::mutex custom_conf_lock;
 bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = true,
           bool set_to_default = true);
 
-Status set_config(const std::string& field, const std::string& value, bool need_persist = false, bool force = false);
+Status set_config(const std::string& field, const std::string& value, bool need_persist = false,
+                  bool force = false);
 
 bool persist_config(const std::string& field, const std::string& value);
 
