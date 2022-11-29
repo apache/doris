@@ -222,6 +222,7 @@ void convert_to_decimal(T* from_value, T* to_value, int32_t from_scale, int32_t 
                                          to_scale - from_scale)),
                                  *to_value)) {
             LOG(WARNING) << "Decimal convert overflow";
+            *to_value = 0;
         }
     }
 }
