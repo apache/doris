@@ -844,6 +844,12 @@ The number of sliced tablets, plan the layout of the tablet, and avoid too many 
 * Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
 * Default value: performance
 
+### `max_sys_mem_available_low_water_mark_bytes`
+
+* Type: int64
+* Description: The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G, actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines with large memory larger than 16G. Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC. Turn down max. will use as much memory as possible.
+* Default value: 1717986918
+
 ### `memory_limitation_per_thread_for_schema_change_bytes`
 
 Default: 2147483648

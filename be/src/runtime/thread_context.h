@@ -123,7 +123,7 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local bool enable_thread_cache_bad_alloc = false;
+inline thread_local bool enable_thread_catch_bad_alloc = false;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
@@ -290,6 +290,8 @@ private:
 // For the memory that cannot be counted by mem hook, manually count it into the mem tracker, such as mmap.
 #define CONSUME_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->thread_mem_tracker_mgr->consume(size)
+#define TRY_CONSUME_THREAD_MEM_TRACKER(size) \
+    doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)
 #define RELEASE_THREAD_MEM_TRACKER(size) \
     doris::thread_context()->thread_mem_tracker_mgr->consume(-size)
 
@@ -305,7 +307,7 @@ private:
 #define RETURN_IF_CATCH_BAD_ALLOC(stmt)                                                            \
     do {                                                                                           \
         doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();             \
-        if (doris::enable_thread_cache_bad_alloc) {                                                \
+        if (doris::enable_thread_catch_bad_alloc) {                                                \
             try {                                                                                  \
                 { stmt; }                                                                          \
             } catch (std::bad_alloc const& e) {                                                    \
@@ -317,8 +319,8 @@ private:
             }                                                                                      \
         } else {                                                                                   \
             try {                                                                                  \
-                doris::enable_thread_cache_bad_alloc = true;                                       \
-                Defer defer {[&]() { doris::enable_thread_cache_bad_alloc = false; }};             \
+                doris::enable_thread_catch_bad_alloc = true;                                       \
+                Defer defer {[&]() { doris::enable_thread_catch_bad_alloc = false; }};             \
                 { stmt; }                                                                          \
             } catch (std::bad_alloc const& e) {                                                    \
                 doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
@@ -348,7 +350,7 @@ private:
 #define TRY_CONSUME_MEM_TRACKER(size, fail_ret)                                            \
     do {                                                                                   \
         if (doris::thread_context_ptr.init) {                                              \
-            if (doris::enable_thread_cache_bad_alloc) {                                    \
+            if (doris::enable_thread_catch_bad_alloc) {                                    \
                 if (!doris::thread_context()->thread_mem_tracker_mgr->try_consume(size)) { \
                     return fail_ret;                                                       \
                 }                                                                          \
@@ -367,25 +369,15 @@ private:
             doris::ThreadMemTrackerMgr::consume_no_attach(-size);            \
         }                                                                    \
     } while (0)
-#define TRY_RELEASE_MEM_TRACKER(size)                                            \
-    do {                                                                         \
-        if (doris::thread_context_ptr.init) {                                    \
-            if (!doris::enable_thread_cache_bad_alloc) {                         \
-                doris::thread_context()->thread_mem_tracker_mgr->consume(-size); \
-            }                                                                    \
-        } else {                                                                 \
-            doris::ThreadMemTrackerMgr::consume_no_attach(-size);                \
-        }                                                                        \
-    } while (0)
 #else
 #define CONSUME_THREAD_MEM_TRACKER(size) (void)0
+#define TRY_CONSUME_THREAD_MEM_TRACKER(size) true
 #define RELEASE_THREAD_MEM_TRACKER(size) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
 #define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
 #define CONSUME_MEM_TRACKER(size) (void)0
 #define TRY_CONSUME_MEM_TRACKER(size, fail_ret) (void)0
 #define RELEASE_MEM_TRACKER(size) (void)0
-#define TRY_RELEASE_MEM_TRACKER(size) (void)0
 #define RETURN_IF_CATCH_BAD_ALLOC(stmt) (stmt)
 #endif
 } // namespace doris

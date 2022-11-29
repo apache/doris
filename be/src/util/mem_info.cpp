@@ -45,6 +45,7 @@ bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
 std::string MemInfo::_s_mem_limit_str = "";
+int64_t MemInfo::_s_soft_mem_limit = -1;
 
 int64_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
@@ -55,6 +56,7 @@ static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 int64_t MemInfo::_s_sys_mem_available = 0;
 std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = 0;
+int64_t MemInfo::_s_sys_mem_available_warning_water_mark = 0;
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -109,11 +111,6 @@ void MemInfo::refresh_proc_meminfo() {
 
     _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
     _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
-
-    LOG_EVERY_N(INFO, 10) << fmt::format(
-            "Physical Memory: {}, Sys Mem Available {}, Tc/Jemalloc Allocator Cache {}",
-            PrettyPrinter::print(_mem_info_bytes["MemTotal"], TUnit::BYTES),
-            _s_sys_mem_available_str, MemInfo::allocator_cache_mem_str());
 }
 
 void MemInfo::init() {
@@ -143,6 +140,7 @@ void MemInfo::init() {
         _s_mem_limit = _s_physical_mem;
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
+    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
 
     std::string line;
     int64_t _s_vm_min_free_kbytes = 0;
@@ -166,13 +164,15 @@ void MemInfo::init() {
     // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
     //
     // available_low_water_mark = p1 - p2
-    // p1: max 3.2G, avoid wasting too much memory on machines with large memory larger than 32G.
+    // p1: upper sys_mem_available_low_water_mark, avoid wasting too much memory.
     // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
     //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
     int64_t p1 = std::min<int64_t>(
-            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1), 3435973836L);
+            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
+            config::max_sys_mem_available_low_water_mark_bytes);
     int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
     _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
+    _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1 * 2;
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
@@ -196,6 +196,7 @@ void MemInfo::init() {
     bool is_percent = true;
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
+    _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;

@@ -51,6 +51,8 @@
 #include "olap/options.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/user_function_cache.h"
 #include "util/cpu_info.h"
@@ -180,9 +182,8 @@ void Daemon::tcmalloc_gc_thread() {
 #endif
 }
 
-void Daemon::memory_maintenance_thread() {
-    while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::memory_maintenance_sleep_time_s))) {
+void Daemon::buffer_pool_gc_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
@@ -192,6 +193,53 @@ void Daemon::memory_maintenance_thread() {
                 buffer_pool->Maintenance();
             }
         }
+    }
+}
+
+void Daemon::memory_maintenance_thread() {
+    int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(interval_milliseconds))) {
+        // Refresh process memory metrics.
+        doris::PerfCounters::refresh_proc_status();
+        doris::MemInfo::refresh_proc_meminfo();
+
+        // Refresh allocator memory metrics.
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+        doris::MemInfo::refresh_allocator_mem();
+#endif
+        doris::MemInfo::refresh_proc_mem_no_allocator_cache();
+        LOG_EVERY_N(INFO, 10) << MemTrackerLimiter::process_mem_log_str();
+
+        // Refresh mem tracker each type metrics.
+        doris::MemTrackerLimiter::refresh_global_counter();
+        if (doris::config::memory_debug) {
+            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
+        }
+        doris::MemTrackerLimiter::enable_print_log_process_usage();
+
+        // If system available memory is not enough, or the process memory exceeds the limit, reduce refresh interval.
+        if (doris::MemInfo::sys_mem_available() <
+                    doris::MemInfo::sys_mem_available_low_water_mark() ||
+            doris::MemInfo::proc_mem_no_allocator_cache() >= doris::MemInfo::mem_limit()) {
+            interval_milliseconds = 100;
+        } else if (doris::MemInfo::sys_mem_available() <
+                           doris::MemInfo::sys_mem_available_warning_water_mark() ||
+                   doris::MemInfo::proc_mem_no_allocator_cache() >=
+                           doris::MemInfo::soft_mem_limit()) {
+            interval_milliseconds = 200;
+        } else {
+            interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+        }
+    }
+}
+
+void Daemon::load_channel_tracker_refresh_thread() {
+    // Refresh the memory statistics of the load channel tracker more frequently,
+    // which helps to accurately control the memory of LoadChannelMgr.
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::load_channel_memory_refresh_sleep_time_ms))) {
+        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
     }
 }
 
@@ -360,8 +408,17 @@ void Daemon::start() {
             &_tcmalloc_gc_thread);
     CHECK(st.ok()) << st.to_string();
     st = Thread::create(
+            "Daemon", "buffer_pool_gc_thread", [this]() { this->buffer_pool_gc_thread(); },
+            &_buffer_pool_gc_thread);
+    CHECK(st.ok()) << st.to_string();
+    st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
             &_memory_maintenance_thread);
+    CHECK(st.ok()) << st.to_string();
+    st = Thread::create(
+            "Daemon", "load_channel_tracker_refresh_thread",
+            [this]() { this->load_channel_tracker_refresh_thread(); },
+            &_load_channel_tracker_refresh_thread);
     CHECK(st.ok()) << st.to_string();
 
     if (config::enable_metric_calculator) {
@@ -384,8 +441,14 @@ void Daemon::stop() {
     if (_tcmalloc_gc_thread) {
         _tcmalloc_gc_thread->join();
     }
+    if (_buffer_pool_gc_thread) {
+        _buffer_pool_gc_thread->join();
+    }
     if (_memory_maintenance_thread) {
         _memory_maintenance_thread->join();
+    }
+    if (_load_channel_tracker_refresh_thread) {
+        _load_channel_tracker_refresh_thread->join();
     }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();

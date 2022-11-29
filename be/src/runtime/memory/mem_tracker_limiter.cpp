@@ -178,9 +178,9 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     if (_enable_print_log_usage) {
         _enable_print_log_usage = false;
         std::string detail = msg;
-        detail += "\n    " + MemTrackerLimiter::process_mem_log_str();
-        detail += "\n" + get_stack_trace();
-        detail += "\n    " + log_usage();
+        detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
+        detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
+        detail += "\nMemory Tracker Summary:    " + log_usage();
         std::string child_trackers_usage;
         std::vector<MemTracker::Snapshot> snapshots;
         MemTracker::make_group_snapshot(&snapshots, _group_num, _label);
@@ -222,7 +222,7 @@ std::string MemTrackerLimiter::mem_limit_exceeded(const std::string& msg,
     std::string detail = fmt::format(
             "Memory limit exceeded:<consuming tracker:<{}>, {}>, executing msg:<{}>. backend {} "
             "process memory used {}, limit {}. If query tracker exceed, `set "
-            "exec_mem_limit=8G` to change limit, details mem usage see be.INFO.",
+            "exec_mem_limit=8G` to change limit, details see be.INFO.",
             _label, limit_exceeded_errmsg, msg, BackendOptions::get_localhost(),
             PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str());
     return detail;
