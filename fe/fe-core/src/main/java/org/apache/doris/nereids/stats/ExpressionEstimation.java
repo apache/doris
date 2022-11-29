@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
