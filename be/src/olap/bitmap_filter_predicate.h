@@ -75,7 +75,7 @@ private:
         return new_size;
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         return "BitmapFilterColumnPredicate(" + type_to_string(T) + ")";
     }
 
