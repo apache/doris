@@ -187,7 +187,7 @@ static IAggregateFunction* create_with_decimal_type(const IDataType& argument_ty
         return new AggregateFunctionTemplate<Decimal128>(std::forward<TArgs>(args)...);
     }
     if (which.idx == TypeIndex::Decimal128I) {
-        return new AggregateFunctionTemplate<Decimal128>(std::forward<TArgs>(args)...);
+        return new AggregateFunctionTemplate<Decimal128I>(std::forward<TArgs>(args)...);
     }
     return nullptr;
 }

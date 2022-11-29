@@ -199,7 +199,7 @@ public abstract class BoundFunction extends Expression implements FunctionTrait,
             FunctionSignature signature, List<Expression> arguments) {
         DataType returnType = signature.returnType;
         Type type = returnType.toCatalogDataType();
-        if (type.isDecimalV2() && Config.enable_decimal_conversion && Config.enable_decimalv3) {
+        if (type.isDecimalV2() && Config.enable_decimal_conversion) {
             Type v3Type = ScalarType.createDecimalV3Type(type.getPrecision(), ((ScalarType) type).getScalarScale());
             signature = signature.withReturnType(DataType.fromCatalogType(v3Type));
         }

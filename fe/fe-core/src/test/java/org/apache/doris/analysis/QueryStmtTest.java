@@ -190,7 +190,7 @@ public class QueryStmtTest {
         Assert.assertEquals(2, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             Assert.assertEquals(6, constMap.size());
         } else {
             Assert.assertEquals(0, constMap.size());
