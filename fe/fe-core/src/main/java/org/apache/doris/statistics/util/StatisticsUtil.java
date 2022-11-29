@@ -41,6 +41,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -218,7 +219,8 @@ public class StatisticsUtil {
                     return dateTimeLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
-                    return convertStringToDouble(columnValue);
+                    VarcharLiteral varchar = new VarcharLiteral(columnValue);
+                    return varchar.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:
@@ -233,16 +235,6 @@ public class StatisticsUtil {
 
     }
 
-    public static double convertStringToDouble(String s) {
-        long v = 0;
-        int pos = 0;
-        int len = Math.min(s.length(), 8);
-        while (pos < len) {
-            v += ((long) s.charAt(pos)) << ((7 - pos) * 8);
-            pos++;
-        }
-        return (double) v;
-    }
 
     public static DBObjects convertTableNameToObjects(TableName tableName) {
         CatalogIf<DatabaseIf> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());

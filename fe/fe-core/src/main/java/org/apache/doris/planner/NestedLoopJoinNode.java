@@ -23,11 +23,9 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -38,16 +36,12 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Nested loop join between left child and right child.
@@ -58,6 +52,9 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     private boolean isOutputLeftSideOnly = false;
 
     private List<Expr> runtimeFilterExpr = Lists.newArrayList();
+    private List<Expr> joinConjuncts;
+
+    private Expr vJoinConjunct;
 
     public NestedLoopJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, "NESTED LOOP JOIN", StatisticalType.NESTED_LOOP_JOIN_NODE, outer, inner, innerRef);
@@ -71,29 +68,16 @@ public class NestedLoopJoinNode extends JoinNodeBase {
                 || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
+    public void setJoinConjuncts(List<Expr> joinConjuncts) {
+        this.joinConjuncts = joinConjuncts;
+    }
+
     @Override
-    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        Set<SlotId> result = Sets.newHashSet();
-        Preconditions.checkState(outputSlotIds != null);
-        // step1: change output slot id to src slot id
-        if (vSrcToOutputSMap != null) {
-            for (SlotId slotId : outputSlotIds) {
-                SlotRef slotRef = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
-                Expr srcExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
-                if (srcExpr == null) {
-                    result.add(slotId);
-                } else {
-                    List<SlotRef> srcSlotRefList = Lists.newArrayList();
-                    srcExpr.collect(SlotRef.class, srcSlotRefList);
-                    result.addAll(srcSlotRefList.stream().map(e -> e.getSlotId()).collect(Collectors.toList()));
-                }
-            }
-        }
+    protected List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer) {
         // conjunct
         List<SlotId> conjunctSlotIds = Lists.newArrayList();
-        Expr.getIds(conjuncts, null, conjunctSlotIds);
-        result.addAll(conjunctSlotIds);
-        return result;
+        Expr.getIds(joinConjuncts, null, conjunctSlotIds);
+        return conjunctSlotIds;
     }
 
     @Override
@@ -162,6 +146,25 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     }
 
     @Override
+    protected void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap) {
+        joinConjuncts = Expr.substituteList(joinConjuncts, originToIntermediateSmap, analyzer, false);
+        if (vJoinConjunct != null) {
+            vJoinConjunct =
+                    Expr.substituteList(Collections.singletonList(vJoinConjunct), originToIntermediateSmap, analyzer,
+                                    false).get(0);
+        }
+    }
+
+    @Override
+    public void convertToVectoriezd() {
+        if (!joinConjuncts.isEmpty()) {
+            vJoinConjunct = convertConjunctsToAndCompoundPredicate(joinConjuncts);
+            initCompoundPredicate(vJoinConjunct);
+        }
+        super.convertToVectoriezd();
+    }
+
+    @Override
     protected String debugString() {
         return MoreObjects.toStringHelper(this).addValue(super.debugString()).toString();
     }
@@ -170,6 +173,9 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     protected void toThrift(TPlanNode msg) {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
         msg.nested_loop_join_node.join_op = joinOp.toThrift();
+        if (vJoinConjunct != null) {
+            msg.nested_loop_join_node.setVjoinConjunct(vJoinConjunct.treeToThrift());
+        }
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 // TODO: Enable it after we support new optimizers
@@ -196,6 +202,8 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
+        ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
+        joinConjuncts = Expr.substituteList(joinConjuncts, combinedChildSmap, analyzer, false);
         computeCrossRuntimeFilterExpr();
 
         // Only for Vec: create new tuple for join result
@@ -224,6 +232,10 @@ public class NestedLoopJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append(
                     String.format("cardinality=%,d", cardinality)).append("\n");
             return output.toString();
+        }
+
+        if (!joinConjuncts.isEmpty()) {
+            output.append(detailPrefix).append("join conjuncts: ").append(getExplainString(joinConjuncts)).append("\n");
         }
 
         if (!conjuncts.isEmpty()) {

@@ -49,7 +49,7 @@ column_name1 op { value | value_list } [ AND column_name2 op { value | value_lis
 2. 使用聚合类的表模型（AGGREGATE、UNIQUE）只能指定 key 列上的条件。
 3. 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
 4. 条件之间只能是“与”的关系。若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
-5. 如果为分区表，需要指定分区，如果不指定，doris 会从条件中推断出分区。两种情况下，doris 无法从条件中推断出分区: 1) 条件中不包含分区列；2) 分区列的 op 为 not in。当分区表未指定分区，或者无法从条件中推断分区的时候，需要设置会话变量 delete_without_partition 为 true，此时 delete 会应用到所有分区。
+5. <version since="1.2" type="inline"> 如果为分区表，需要指定分区，如果不指定，doris 会从条件中推断出分区。两种情况下，doris 无法从条件中推断出分区: 1) 条件中不包含分区列；2) 分区列的 op 为 not in。当分区表未指定分区，或者无法从条件中推断分区的时候，需要设置会话变量 delete_without_partition 为 true，此时 delete 会应用到所有分区。</version>
 
 注意：
 1. 该语句可能会降低执行后一段时间内的查询效率。

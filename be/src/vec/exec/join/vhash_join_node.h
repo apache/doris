@@ -251,8 +251,6 @@ private:
     RuntimeProfile::Counter* _build_side_compute_hash_timer;
     RuntimeProfile::Counter* _build_side_merge_block_timer;
 
-    RuntimeProfile::Counter* _join_filter_timer;
-
     RuntimeProfile* _build_phase_profile;
 
     int64_t _mem_used;
@@ -289,12 +287,8 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
 
-    MutableColumnPtr _tuple_is_null_left_flag_column;
-    MutableColumnPtr _tuple_is_null_right_flag_column;
-
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
-private:
     Status _materialize_build_side(RuntimeState* state) override;
 
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
@@ -317,15 +311,12 @@ private:
 
     void _prepare_probe_block();
 
-    // add tuple is null flag column to Block for filter conjunct and output expr
-    void _add_tuple_is_null_column(Block* block);
-
-    // reset the tuple is null flag column for the next call
-    void _reset_tuple_is_null_column();
-
     static std::vector<uint16_t> _convert_block_to_null(Block& block);
 
     void _release_mem();
+
+    // add tuple is null flag column to Block for filter conjunct and output expr
+    void _add_tuple_is_null_column(Block* block) override;
 
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;

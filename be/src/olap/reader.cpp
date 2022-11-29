@@ -20,8 +20,8 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "common/status.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "olap/bitmap_filter_predicate.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"

@@ -79,6 +79,9 @@ public:
     ~MemTrackerLimiter();
 
     static bool sys_mem_exceed_limit_check(int64_t bytes) {
+        if (!_oom_avoidance) {
+            return false;
+        }
         // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
         // This is independent of the consumption value of the mem tracker, which counts the virtual memory
         // of the process malloc.
@@ -109,6 +112,8 @@ public:
     // this tracker limiter.
     int64_t spare_capacity() const { return _limit - consumption(); }
 
+    static void disable_oom_avoidance() { _oom_avoidance = false; }
+
 public:
     // If need to consume the tracker frequently, use it
     void cache_consume(int64_t bytes);
@@ -138,6 +143,16 @@ public:
                                    const std::string& limit_exceeded_errmsg);
     Status fragment_mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                                        int64_t failed_allocation_size = 0);
+
+    static std::string process_mem_log_str() {
+        return fmt::format(
+                "physical memory {}, process memory used {} limit {}, sys mem available {} low "
+                "water mark {}",
+                PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
+                PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
+                MemInfo::sys_mem_available_str(),
+                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
+    }
 
     std::string debug_string() {
         std::stringstream msg;
@@ -173,23 +188,12 @@ private:
 
     static std::string process_limit_exceeded_errmsg_str(int64_t bytes) {
         return fmt::format(
-                "process memory used {} exceed limit {} or sys mem available {} less than min "
-                "reserve {}, failed "
-                "alloc size {}, tc/jemalloc allocator cache {}",
+                "process memory used {} exceed limit {} or sys mem available {} less than low "
+                "water mark {}, failed alloc size {}",
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
                 MemInfo::sys_mem_available_str(),
                 PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
-                print_bytes(bytes), MemInfo::allocator_cache_mem_str());
-    }
-
-    static std::string process_mem_log_str() {
-        return fmt::format(
-                "process memory used {} limit {}, sys mem available {} min reserve {}, tc/jemalloc "
-                "allocator cache {}",
-                PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
-                MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
-                MemInfo::allocator_cache_mem_str());
+                print_bytes(bytes));
     }
 
 private:
@@ -208,6 +212,7 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
+    static bool _oom_avoidance;
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;
@@ -233,6 +238,11 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
         failed_msg = std::string();
         return true;
     }
+
+    if (config::memory_debug && bytes > 1073741824) { // 1G
+        print_log_process_usage(fmt::format("Alloc Large Memory, Try Alloc: {}", bytes));
+    }
+
     if (sys_mem_exceed_limit_check(bytes)) {
         failed_msg = process_limit_exceeded_errmsg_str(bytes);
         return false;

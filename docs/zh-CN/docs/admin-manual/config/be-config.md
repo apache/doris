@@ -845,6 +845,12 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 * 描述：控制tcmalloc的回收。如果配置为performance，内存使用超过mem_limit的90%时，doris会释放tcmalloc cache中的内存，如果配置为compact，内存使用超过mem_limit的50%时，doris会释放tcmalloc cache中的内存。
 * 默认值：performance
 
+### `max_sys_mem_available_low_water_mark_bytes`
+
+* 类型：int64
+* 描述：系统`/proc/meminfo/MemAvailable` 的最大低水位线，单位字节，默认1.6G，实际低水位线=min(1.6G，MemTotal * 10%)，避免在大于16G的机器上浪费过多内存。调大max，在大于16G内存的机器上，将为Full GC预留更多的内存buffer；反之调小max，将尽可能充分使用内存。
+* 默认值：1717986918
+
 ### `memory_limitation_per_thread_for_schema_change_bytes`
 
 默认值：2147483648

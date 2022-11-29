@@ -25,7 +25,7 @@ suite("test_window_function") {
     sql """ INSERT INTO ${windowFunctionTable1} VALUES ('JDR',12.86,'2014-10-02 00:00:00','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111','2014-10-02 00:00:00.111111'),('JDR',12.89,'2014-10-03 00:00:00','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111','2014-10-03 00:00:00.111111'),('JDR',12.94,'2014-10-04 00:00:00','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111','2014-10-04 00:00:00.111111'),('JDR',12.55,'2014-10-05 00:00:00','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111','2014-10-05 00:00:00.111111'),('JDR',14.03,'2014-10-06 00:00:00','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111','2014-10-06 00:00:00.111111'),('JDR',14.75,'2014-10-07 00:00:00','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111','2014-10-07 00:00:00.111111'),('JDR',13.98,'2014-10-08 00:00:00','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111','2014-10-08 00:00:00.111111') """
 
     qt_sql """
-            SELECT
+            SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date,
                 closing_price,
@@ -39,7 +39,7 @@ suite("test_window_function") {
            """
     // LEAD
     qt_sql """ 
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date,
                 closing_price,
@@ -54,12 +54,12 @@ suite("test_window_function") {
 
     // LEAD not nullable coredump
     qt_sql """
-           select t1.new_time from (select closing_date, lead(closing_date, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date = t1.closing_date order by t1.new_time desc;
+           select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ t1.new_time from (select closing_date, lead(closing_date, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date = t1.closing_date order by t1.new_time desc;
            """
 
     // LAG
     qt_sql """ 
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date,
                 closing_price,
@@ -71,7 +71,7 @@ suite("test_window_function") {
             """
 
     qt_sql """
-            SELECT
+            SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date1,
                 closing_price,
@@ -85,7 +85,7 @@ suite("test_window_function") {
            """
     // LEAD
     qt_sql """
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date1,
                 closing_price,
@@ -99,13 +99,13 @@ suite("test_window_function") {
             """
 
     // LEAD not nullable coredump
-    qt_sql """
-           select t1.new_time from (select closing_date1, lead(closing_date1, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date1 = t1.closing_date1 order by t1.new_time desc;
+    qt_sql """  
+           select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ t1.new_time from (select closing_date1, lead(closing_date1, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date1 = t1.closing_date1 order by t1.new_time desc;
            """
 
     // LAG
     qt_sql """
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date1,
                 closing_price,
@@ -117,7 +117,7 @@ suite("test_window_function") {
             """
 
     qt_sql """
-            SELECT
+            SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date2,
                 closing_price,
@@ -131,7 +131,7 @@ suite("test_window_function") {
            """
     // LEAD
     qt_sql """
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date2,
                 closing_price,
@@ -146,12 +146,12 @@ suite("test_window_function") {
 
     // LEAD not nullable coredump
     qt_sql """
-           select t1.new_time from (select closing_date2, lead(closing_date2, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date2 = t1.closing_date2 order by t1.new_time desc;
+           select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ t1.new_time from (select closing_date2, lead(closing_date2, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date2 = t1.closing_date2 order by t1.new_time desc;
            """
 
     // LAG
     qt_sql """
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date2,
                 closing_price,
@@ -163,7 +163,7 @@ suite("test_window_function") {
             """
 
     qt_sql """
-            SELECT
+            SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date3,
                 closing_price,
@@ -177,7 +177,7 @@ suite("test_window_function") {
            """
     // LEAD
     qt_sql """
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date3,
                 closing_price,
@@ -192,12 +192,12 @@ suite("test_window_function") {
 
     // LEAD not nullable coredump
     qt_sql """
-           select t1.new_time from (select closing_date3, lead(closing_date3, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date3 = t1.closing_date3 order by t1.new_time desc;
+           select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ t1.new_time from (select closing_date3, lead(closing_date3, 1, '2014-10-02 00:00:00') over () as new_time from ${windowFunctionTable1}) as t1 left join ${windowFunctionTable1} t2 on t2.closing_date3 = t1.closing_date3 order by t1.new_time desc;
            """
 
     // LAG
     qt_sql """
-             SELECT
+             SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                 stock_symbol,
                 closing_date3,
                 closing_price,
@@ -217,7 +217,7 @@ suite("test_window_function") {
 
     // SUM
     qt_sql """
-               SELECT
+               SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                     x,
                     property,
                     sum( x ) over ( PARTITION BY property ORDER BY x rows BETWEEN 1 preceding AND 1 following ) AS 'moving total' 
@@ -230,7 +230,7 @@ suite("test_window_function") {
            """
     // AVG
     qt_sql """
-               SELECT
+               SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                     x,
                     property,
                     avg( x ) over ( PARTITION BY property ORDER BY x rows BETWEEN 1 preceding AND 1 following ) AS 'moving average' 
@@ -243,7 +243,7 @@ suite("test_window_function") {
            """
     // COUNT
     qt_sql """
-               SELECT
+               SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                     x,
                     property,
                     count( x ) over ( PARTITION BY property ORDER BY x rows BETWEEN unbounded preceding AND current ROW ) AS 'cumulative total' 
@@ -259,7 +259,7 @@ suite("test_window_function") {
 
     // MIN
     qt_sql """ 
-              SELECT
+              SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                    x,
                    property,
                    min( x ) over ( ORDER BY property, x DESC rows BETWEEN unbounded preceding AND 1 following ) AS 'local minimum' 
@@ -270,7 +270,7 @@ suite("test_window_function") {
            """
     // MAX
     qt_sql """
-              SELECT
+              SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */
                    x,
                    property,
                    max( x ) over ( ORDER BY property, x rows BETWEEN unbounded preceding AND 1 following ) AS 'local maximum' 
@@ -288,11 +288,11 @@ suite("test_window_function") {
     sql """ insert into  ${windowFunctionTable3} values (1,1),(1,2),(1,2),(2,1),(2,2),(2,3),(3,1),(3,1),(3,2); """
 
     // RANK
-    qt_sql """ select x, y, rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // DENSE_RANK
-    qt_sql """ select x, y, dense_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, dense_rank() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
     // ROW_NUMBER
-    qt_sql """ select x, y, row_number() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ x, y, row_number() over(partition by x order by y) as rank from ${windowFunctionTable3} order by x, y; """
 
     sql """ drop table   ${windowFunctionTable3}  """
 
@@ -303,9 +303,9 @@ suite("test_window_function") {
     sql """ insert into ${windowFunctionTable4} VALUES ('Pete','USA','Hello'),('John','USA','Hi'),('Boris','Germany','Guten tag'),('Michael','Germany','Guten morgen'),('Bjorn','Sweden','Hej'),('Mats','Sweden','Tja')"""
 
     // first_value
-    qt_sql """ select country, name,first_value(greeting) over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4} order by country, name; """
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ country, name,first_value(greeting) over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4} order by country, name; """
     // last_value
-    qt_sql """ select country, name,last_value(greeting)  over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4} order by country, name; """
+    qt_sql """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ country, name,last_value(greeting)  over (partition by country order by name, greeting) as greeting from ${windowFunctionTable4} order by country, name; """
 
     sql """ drop table   ${windowFunctionTable4}  """
 
@@ -316,15 +316,15 @@ suite("test_window_function") {
     String k1 = fields[3]
     String k2 = fields[5]
     String k3 = fields[3]
-    qt_first_value1"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2})
+    qt_first_value1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2})
              as wj from baseall  order by ${k1}, wj"""
-    qt_first_value2"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2}
+    qt_first_value2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2}
              range between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_first_value3"""select ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2} 
+    qt_first_value3"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (partition by ${k1} order by ${k3}, ${k2} 
              rows between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_first_value4"""select a, min(d) as wjj from 
+    qt_first_value4"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ a, min(d) as wjj from 
              (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
              t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
              t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
@@ -336,15 +336,15 @@ suite("test_window_function") {
              order by a, wjj"""
 
     // test_query_last_value
-    qt_last_value1"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2})
+    qt_last_value1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2})
                  as wj from baseall  order by ${k1}, wj"""
-    qt_last_value2"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
+    qt_last_value2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              range between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_last_value3"""select ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
+    qt_last_value3"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, last_value(${k2}) over (partition by ${k1} order by ${k3},${k2}
              rows between unbounded preceding and current row)
              as wj from baseall  order by ${k1}, wj"""
-    qt_last_value4"""select a, max(d) as wjj from 
+    qt_last_value4"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ a, max(d) as wjj from 
              (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
              t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
              t1.k7 as k7, t1.k8 as k8, t1.k9 as k9,
@@ -356,52 +356,52 @@ suite("test_window_function") {
              order by a, wjj"""
 
     // test_query_row_number
-    qt_row_number1"""select ${k1}, row_number() over (partition by ${k1} order by ${k3}) 
+    qt_row_number1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, row_number() over (partition by ${k1} order by ${k3}) 
                     as wj from baseall order by ${k1}, wj"""
-    qt_row_number2"""select ${k1}, count(k1) over (partition by ${k1} order by ${k3}
+    qt_row_number2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, count(k1) over (partition by ${k1} order by ${k3}
                     rows between unbounded preceding and current row)
                     as wj from baseall order by ${k1}, wj"""
 
     // test error
     test {
-        sql("select ${k1}, lag(${k2}) over (partition by ${k1} order by ${k3}) from baseall")
+        sql("select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}) over (partition by ${k1} order by ${k3}) from baseall")
         exception "errCode = 2, detailMessage = Lag/offset must have three parameters"
     }
     test {
-        sql"select ${k1}, lag(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
+        sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
     test {
-        sql"select ${k1}, lag(${k2}, 1) over (partition by ${k1} order by ${k3}) from baseall"
+        sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lag(${k2}, 1) over (partition by ${k1} order by ${k3}) from baseall"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
     test {
-        sql"select ${k1}, lead(${k2}) over (partition by ${k1} order by ${k3}) from baseall"
+        sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lead(${k2}) over (partition by ${k1} order by ${k3}) from baseall"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
     test {
-        sql"select ${k1}, lead(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
+        sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lead(${k2}, -1, 1) over (partition by ${k1} order by ${k3}) from baseall"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
     test {
-        sql"select ${k1}, lead(${k2}, 1) over (partition by ${k1} order by ${k3}) from baseall"
+        sql"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, lead(${k2}, 1) over (partition by ${k1} order by ${k3}) from baseall"
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
-    qt_window_error1"""select ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall order by ${k1}"""
-    qt_window_error2"""select ${k1}, first_value(${k2}) over (order by ${k3}) from baseall"""
-    qt_window_error3"""select ${k1}, max(${k2}) over (order by ${k3}) from baseall"""
+    qt_window_error1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (partition by ${k1}) from baseall order by ${k1}"""
+    qt_window_error2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, first_value(${k2}) over (order by ${k3}) from baseall"""
+    qt_window_error3"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, max(${k2}) over (order by ${k3}) from baseall"""
     test {
-        sql"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows
+        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows
             between current row and unbounded preceding) as wj
             from baseall order by ${k1}, wj"""
         check { result, exception, startTime, endTime ->
@@ -409,7 +409,7 @@ suite("test_window_function") {
         }
     }
     test {
-        sql"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows 
+        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows 
             between 0 preceding and 1 following) as wj 
             from baseall order by ${k1}, wj"""
         check { result, exception, startTime, endTime ->
@@ -417,7 +417,7 @@ suite("test_window_function") {
         }
     }
     test {
-        sql"""select ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows 
+        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, sum(${k2}) over (partition by ${k1} order by ${k3} rows 
             between unbounded following and current row) as wj 
             from baseall order by ${k1}, wj"""
         check { result, exception, startTime, endTime ->
@@ -425,28 +425,28 @@ suite("test_window_function") {
         }
     }
     test {
-        sql"""select ${k1}, rank(${k2}) over (partition by ${k1} order by ${k3}) as wj
+        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, rank(${k2}) over (partition by ${k1} order by ${k3}) as wj
             from baseall order by ${k1}, wj"""
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
     test {
-        sql"""select ${k1}, max() over (partition by ${k1} order by ${k3}) as wj
+        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, max() over (partition by ${k1} order by ${k3}) as wj
             from baseall order by ${k1}, wj"""
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
     test {
-        sql"""select ${k1}, count(*) over (partition by ${k1} order by ${k3}) as wj
+        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, count(*) over (partition by ${k1} order by ${k3}) as wj
             from baseall order by ${k1}, wj"""
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
         }
     }
     test {
-        sql"""select ${k1}, count(${k2}) over (order by ${k1} rows partition by ${k3}) as wj
+        sql"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, count(${k2}) over (order by ${k1} rows partition by ${k3}) as wj
             from baseall order by ${k1}, wj"""
         check { result, exception, startTime, endTime ->
             assertTrue(exception != null)
@@ -455,9 +455,9 @@ suite("test_window_function") {
 
     // test_query_rank
     k3 = fields[7]
-    qt_rank1"""select ${k1}, rank() over (partition by ${k1} order by ${k3}) as wj 
+    qt_rank1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, rank() over (partition by ${k1} order by ${k3}) as wj 
              from baseall order by ${k1}, wj"""
-    qt_rank2"""select F2.${k1}, (F1.wj - F2.basewj + 1) as wj from
+    qt_rank2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ F2.${k1}, (F1.wj - F2.basewj + 1) as wj from
              (select a, c, count(*) as wj from 
              (select t1.k1 as k1, t1.k2 as k2, t1.k3 as k3,
              t1.k4 as k4, t1.k5 as k5,t1.k6 as k6,
@@ -471,16 +471,16 @@ suite("test_window_function") {
              where F1.a=F2.${k1} and F1.c = F2.${k3} order by F2.${k1}, wj"""
 
     //test_hang
-    qt_window_hang1"""select ${k1}, row_number() over (partition by ${k1} order by ${k3}) as wj from
+    qt_window_hang1"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, row_number() over (partition by ${k1} order by ${k3}) as wj from
              baseall order by ${k1}, wj"""
     String line = "("
     String cur
     for (p in range(0, 829)) {
         if (p == 0) {
-            cur = "(select ${k1}, 1 as wj from baseall order by ${k1}, ${k3} limit 1)".toString()
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, 1 as wj from baseall order by ${k1}, ${k3} limit 1)".toString()
         }
         else {
-            cur = """(select ${k1}, ${p+1} as wj from baseall order by ${k1} , ${k3}
+            cur = """(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ ${k1}, ${p+1} as wj from baseall order by ${k1} , ${k3}
                     limit ${p}, 1 ) """.toString()
 
         }
@@ -494,7 +494,7 @@ suite("test_window_function") {
 
     sql """ admin set frontend config("remote_fragment_exec_timeout_ms"="300000"); """
 
-    qt_window_hang2"""select A.${k1}, A.wj - B.dyk + 1 as num from 
+    qt_window_hang2"""select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ A.${k1}, A.wj - B.dyk + 1 as num from 
         (select ${k1}, wj from ${line} as W1) as A join 
         (select ${k1}, min(wj) as dyk from ${line} as W2 group by ${k1}) as B
         where A.${k1}=B.${k1}  order by A.${k1}, num"""
@@ -503,9 +503,9 @@ suite("test_window_function") {
     line = "("
     for (p in range(0, 829)) {
         if (p == 0 ) {
-            cur = "(select * from baseall order by k1, k6 limit 1)"
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ * from baseall order by k1, k6 limit 1)"
         } else {
-            cur = "(select * from baseall order by k1, k6 limit ${p}, 1)"
+            cur = "(select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ * from baseall order by k1, k6 limit ${p}, 1)"
         }
         if (p < 828) {
             line = line + cur + " union all "
@@ -514,12 +514,12 @@ suite("test_window_function") {
         }
     }
     // qt_hujie1"select T.k1, T.k6 from ${line} as T order by T.k1, T.k6"
-    qt_hujie2"select k1, k6 from baseall order by k1, k6"
+    qt_hujie2"select /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ k1, k6 from baseall order by k1, k6"
 
     // test_bug
-    order_qt_window_bug1"""SELECT wj FROM (SELECT row_number() over (PARTITION BY k6 ORDER BY k1) AS wj 
+    order_qt_window_bug1"""SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ wj FROM (SELECT row_number() over (PARTITION BY k6 ORDER BY k1) AS wj 
             FROM baseall ) AS A where wj = 2"""
-    order_qt_window_bug2"""SELECT A.k2 AS a, A.k1 as b, B.k1 as c, B.k2 as d FROM  
+    order_qt_window_bug2"""SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1) */ A.k2 AS a, A.k1 as b, B.k1 as c, B.k2 as d FROM  
            ( SELECT k2, k1, row_number () over (PARTITION BY k2 ORDER BY k3) AS wj  
            FROM baseall ) AS A JOIN ( SELECT k2, k1, row_number () over  
            (PARTITION BY k2 ORDER BY k3) AS wj FROM baseall ) AS B WHERE A.k2=B.k2"""

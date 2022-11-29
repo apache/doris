@@ -33,7 +33,7 @@ suite("test_broker_load", "p0") {
                   "parquet_s3_case1", // col1 not in file but in table, will load default value for it.
                   "parquet_s3_case2", // x1 not in file, not in table, will throw "col not found" error.
                   "parquet_s3_case3", // p_comment not in table but in file, load normally.
-                  "parquet_s3_case4", // all tables are in table but not in file, will throw "no column found" error.
+                  "parquet_s3_case4", // all columns are in table but not in file, will fill default values.
                   "parquet_s3_case5", // x1 not in file, not in table, will throw "col not found" error.
                   "parquet_s3_case6", // normal
                   "parquet_s3_case7", // col5 will be ignored, load normally
@@ -129,7 +129,7 @@ suite("test_broker_load", "p0") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "\\N",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "\\N",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "\\N",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
@@ -153,7 +153,7 @@ suite("test_broker_load", "p0") {
                     "",
                     "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to init reader for file s3://doris-build-hk-1308700295/regression/load/data/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet, err: No columns found in parquet file",
+                    "",
                     "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
                     "",
                     "",
@@ -184,7 +184,10 @@ suite("test_broker_load", "p0") {
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-hongkong.myqcloud.com",
                 "AWS_REGION" = "ap-hongkong"
-            );
+            )
+            properties(
+                "use_new_load_scan_node" = "true"
+            )
             """
         logger.info("Submit load with lable: $uuid, table: $table, path: $path")
     }
@@ -210,10 +213,9 @@ suite("test_broker_load", "p0") {
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def uuids = []
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         set_be_config.call('true')
         try {
-            i = 0
+            def i = 0
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
                 sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
@@ -227,22 +229,22 @@ suite("test_broker_load", "p0") {
 
             i = 0
             for (String label in uuids) {
-                max_try_milli_secs = 600000
+                def max_try_milli_secs = 600000
                 while (max_try_milli_secs > 0) {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5])
+                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7])
+                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
                         break;
                     }
                     Thread.sleep(1000)
                     max_try_milli_secs -= 1000
                     if(max_try_milli_secs <= 0) {
-                        assertTrue(1 == 2, "Load Timeout.")
+                        assertTrue(1 == 2, "load Timeout: $label")
                     }
                 }
                 i++
@@ -256,7 +258,6 @@ suite("test_broker_load", "p0") {
             order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
 
         } finally {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
             set_be_config.call('false')
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text

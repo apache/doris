@@ -58,6 +58,9 @@ public:
     static inline int64_t sys_mem_available_low_water_mark() {
         return _s_sys_mem_available_low_water_mark;
     }
+    static inline int64_t sys_mem_available_warning_water_mark() {
+        return _s_sys_mem_available_warning_water_mark;
+    }
 
     static inline int64_t get_tc_metrics(const std::string& name) {
 #ifndef USE_JEMALLOC
@@ -99,6 +102,10 @@ public:
         DCHECK(_s_initialized);
         return _s_mem_limit_str;
     }
+    static inline int64_t soft_mem_limit() {
+        DCHECK(_s_initialized);
+        return _s_soft_mem_limit;
+    }
 
     static std::string debug_string();
 
@@ -107,6 +114,7 @@ private:
     static int64_t _s_physical_mem;
     static int64_t _s_mem_limit;
     static std::string _s_mem_limit_str;
+    static int64_t _s_soft_mem_limit;
 
     static int64_t _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
@@ -116,6 +124,7 @@ private:
     static int64_t _s_sys_mem_available;
     static std::string _s_sys_mem_available_str;
     static int64_t _s_sys_mem_available_low_water_mark;
+    static int64_t _s_sys_mem_available_warning_water_mark;
 };
 
 } // namespace doris

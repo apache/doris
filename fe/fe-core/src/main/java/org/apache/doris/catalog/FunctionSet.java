@@ -1476,7 +1476,8 @@ public class FunctionSet<T> {
         // retention vectorization
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.RETENTION,
                 Lists.newArrayList(Type.BOOLEAN),
-                new ArrayType(Type.BOOLEAN),
+                // Type.BOOLEAN will return non-numeric results so we use Type.TINYINT
+                new ArrayType(Type.TINYINT),
                 Type.VARCHAR,
                 true,
                 "",

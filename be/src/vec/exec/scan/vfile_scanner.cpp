@@ -481,7 +481,7 @@ Status VFileScanner::_get_next_reader() {
             ParquetReader* parquet_reader =
                     new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
                                       const_cast<cctz::time_zone*>(&_state->timezone_obj()));
-            if (_push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
+            if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
                 _discard_conjuncts();
             }

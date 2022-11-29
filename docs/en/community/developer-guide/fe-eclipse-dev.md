@@ -158,7 +158,7 @@ You can directly start an FE process in Eclipse to facilitate debugging the code
     ```
     mkdir /path/to/doris/fe/run/
     cd /path/to/doris/fe/run/
-    mkdir conf/ log/ palo-meta/
+    mkdir conf/log/doris-meta/
     ```
     
 2. Create configuration file
