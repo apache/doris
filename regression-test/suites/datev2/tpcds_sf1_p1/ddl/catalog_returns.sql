@@ -17,15 +17,15 @@ CREATE TABLE IF NOT EXISTS catalog_returns (
     cr_reason_sk bigint,
     cr_order_number bigint,
     cr_return_quantity integer,
-    cr_return_amount decimal(7,2),
-    cr_return_tax decimal(7,2),
-    cr_return_amt_inc_tax decimal(7,2),
-    cr_fee decimal(7,2),
-    cr_return_ship_cost decimal(7,2),
-    cr_refunded_cash decimal(7,2),
-    cr_reversed_charge decimal(7,2),
-    cr_store_credit decimal(7,2),
-    cr_net_loss decimal(7,2)
+    cr_return_amount decimalv3(7,2),
+    cr_return_tax decimalv3(7,2),
+    cr_return_amt_inc_tax decimalv3(7,2),
+    cr_fee decimalv3(7,2),
+    cr_return_ship_cost decimalv3(7,2),
+    cr_refunded_cash decimalv3(7,2),
+    cr_reversed_charge decimalv3(7,2),
+    cr_store_credit decimalv3(7,2),
+    cr_net_loss decimalv3(7,2)
 )
 DUPLICATE KEY(cr_returned_date_sk, cr_returned_time_sk, cr_item_sk, cr_refunded_customer_sk)
 DISTRIBUTED BY HASH(cr_refunded_customer_sk) BUCKETS 3

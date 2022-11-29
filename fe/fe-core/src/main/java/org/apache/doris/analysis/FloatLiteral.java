@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -188,9 +189,14 @@ public class FloatLiteral extends LiteralExpr {
                 return floatLiteral;
             }
             return this;
-        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
+        } else if (targetType.isDecimalV2()) {
             // the double constructor does an exact translation, use valueOf() instead.
             return new DecimalLiteral(BigDecimal.valueOf(value));
+        } else if (targetType.isDecimalV3()) {
+            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+            res.setType(ScalarType.createDecimalV3Type(res.getType().getPrecision(),
+                    ((ScalarType) res.getType()).decimalScale()));
+            return res;
         }
         return this;
     }
