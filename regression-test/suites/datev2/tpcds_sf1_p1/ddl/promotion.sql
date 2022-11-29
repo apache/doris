@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS promotion (
     p_start_date_sk bigint,
     p_end_date_sk bigint,
     p_item_sk bigint,
-    p_cost decimal(15,2),
+    p_cost decimalv3(15,2),
     p_response_targe integer,
     p_promo_name char(50),
     p_channel_dmail char(1),

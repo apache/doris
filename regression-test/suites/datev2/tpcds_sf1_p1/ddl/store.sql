@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS store (
     s_state char(2),
     s_zip char(10),
     s_country varchar(20),
-    s_gmt_offset decimal(5,2),
-    s_tax_precentage decimal(5,2)
+    s_gmt_offset decimalv3(5,2),
+    s_tax_precentage decimalv3(5,2)
 )
 DUPLICATE KEY(s_store_sk, s_store_id)
 DISTRIBUTED BY HASH(s_store_id) BUCKETS 3

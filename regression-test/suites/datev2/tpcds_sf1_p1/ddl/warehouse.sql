@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS warehouse (
     w_state char(2),
     w_zip char(10),
     w_country varchar(20),
-    w_gmt_offset decimal(5,2)
+    w_gmt_offset decimalv3(5,2)
 )
 DUPLICATE KEY(w_warehouse_sk, w_warehouse_id)
 DISTRIBUTED BY HASH(w_warehouse_sk) BUCKETS 3
