@@ -25,8 +25,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Lists;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.commons.codec.binary.Hex;
@@ -42,10 +40,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.Driver;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Properties;
 
 @Getter
 public class JdbcClient {
@@ -63,8 +63,6 @@ public class JdbcClient {
     private String driverUrl;
     private String driverClass;
     private String checkSum;
-
-    private HikariDataSource dataSource = null;
 
     private URLClassLoader classLoader = null;
 
@@ -107,15 +105,11 @@ public class JdbcClient {
     public Connection getConnection() throws JdbcClientException {
         Connection conn = null;
         try {
-            Thread.currentThread().setContextClassLoader(classLoader);
-            HikariConfig config = new HikariConfig();
-            config.setDriverClassName(driverClass);
-            config.setJdbcUrl(jdbcUrl);
-            config.setUsername(jdbcUser);
-            config.setPassword(jdbcPasswd);
-            config.setMaximumPoolSize(1);
-            dataSource = new HikariDataSource(config);
-            conn = dataSource.getConnection();
+            Properties props = new Properties();
+            props.put("user", jdbcUser);
+            props.put("password", jdbcPasswd);
+            Driver driver = (Driver) classLoader.loadClass(driverClass).newInstance();
+            conn = driver.connect(jdbcUrl, props);
         } catch (Exception e) {
             throw new JdbcClientException("Can not connect to jdbc", e);
         }
