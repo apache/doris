@@ -295,12 +295,15 @@ struct DecimalBinaryOperation {
             for (size_t i = 0; i < size; ++i) {
                 c[i] = apply_scaled_div(a, b[i]);
             }
-            return;
-        }
-
-        /// default: use it if no return before
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = apply(a, b[i]);
+        } else if constexpr (IsDecimalNumber<A> || IsDecimalNumber<B>) {
+            DecimalV2Value da(a);
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Op::template apply(da, DecimalV2Value(b[i])).value();
+            }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a, b[i]);
+            }
         }
     }
 
@@ -413,12 +416,7 @@ private:
         if constexpr (IsDecimalV2<B> || IsDecimalV2<A>) {
             // Now, Doris only support decimal +-*/ decimal.
             // overflow in consider in operator
-            DecimalV2Value l(a);
-            DecimalV2Value r(b);
-            auto ans = Op::template apply(l, r);
-            NativeResultType result;
-            memcpy(&result, &ans, sizeof(NativeResultType));
-            return result;
+            return Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
         } else {
             if constexpr (OpTraits::can_overflow && check_overflow) {
                 NativeResultType res;
