@@ -4774,7 +4774,7 @@ public class Env {
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
         Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.addFunction(stmt.getFunction());
+        db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
     }
 
     public void replayCreateFunction(Function function) throws MetaNotFoundException {
@@ -4786,7 +4786,7 @@ public class Env {
     public void dropFunction(DropFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
         Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.dropFunction(stmt.getFunction());
+        db.dropFunction(stmt.getFunction(), stmt.isIfExists());
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {

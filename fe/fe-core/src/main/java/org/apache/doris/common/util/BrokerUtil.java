@@ -204,6 +204,9 @@ public class BrokerUtil {
                 }
                 FileSystem fs = FileSystem.get(new URI(fsName), conf, userName);
                 FileStatus[] statusList = fs.globStatus(new Path(path));
+                if (statusList == null) {
+                    throw new UserException("failed to get files from path: " + path);
+                }
                 for (FileStatus status : statusList) {
                     if (status.isFile()) {
                         fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
