@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
  * Bottom up job for rewrite, use pattern match.
  */
 public class RewriteBottomUpJob extends Job {
-    private static final EventProducer REWRITE_BOTTOM_UP_JOB_TRACER = new EventProducer(
+    private static final EventProducer RULE_TRANSFORM_TRACER = new EventProducer(
             TransformEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, EventChannel.LOG)));
     private final Group group;
@@ -68,6 +68,11 @@ public class RewriteBottomUpJob extends Job {
     }
 
     @Override
+    public EventProducer getEventTracer() {
+        return RULE_TRANSFORM_TRACER;
+    }
+
+    @Override
     public void execute() throws AnalysisException {
         GroupExpression logicalExpression = group.getLogicalExpression();
         if (!childrenOptimized) {
@@ -79,14 +84,13 @@ public class RewriteBottomUpJob extends Job {
             return;
         }
 
-        trace(logicalExpression);
+        countJobExecutionTimesOfGroupExpressions(logicalExpression);
         List<Rule> validRules = getValidRules(logicalExpression, rules);
         for (Rule rule : validRules) {
             GroupExpressionMatching groupExpressionMatching
                     = new GroupExpressionMatching(rule.getPattern(), logicalExpression);
             for (Plan before : groupExpressionMatching) {
-                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group,
-                        REWRITE_BOTTOM_UP_JOB_TRACER);
+                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
                 if (!copyInResult.isPresent()) {
                     continue;
                 }

@@ -42,6 +42,7 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 
@@ -234,7 +235,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
-    public static final String NEREIDS_EVENT_MODE = "nereids_event_mode";
+    public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
 
     public static final String INTERNAL_SESSION = "internal_session";
 
@@ -647,31 +648,32 @@ public class SessionVariable implements Serializable, Writable {
      * all except event_1, event_2, ..., event_n -> use all events excluding the event_1~n
      * event_1, event_2, ..., event_n -> use event_1~n
      */
-    @VariableMgr.VarAttr(name = NEREIDS_EVENT_MODE)
-    public String nereidsEventMode = "all";
+    @VariableMgr.VarAttr(name = NEREIDS_TRACE_EVENT_MODE)
+    public String nereidsTraceEventMode = "all";
 
     private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
+    private String cachedNereidsTraceEventMode = "all";
 
     public void setEnableNereidsTrace(boolean enableNereidsTrace) {
         this.enableNereidsTrace = enableNereidsTrace;
     }
 
-    public String getNereidsEventMode() {
-        return nereidsEventMode;
+    public void setNereidsTraceEventMode(String nereidsTraceEventMode) {
+        this.nereidsTraceEventMode = nereidsTraceEventMode;
     }
 
-    public void setNereidsEventMode(String nereidsEventMode) throws UnsupportedOperationException {
-        this.nereidsEventMode = nereidsEventMode;
-        List<String> strings = EventSwitchParser.checkEventModeStringAndSplit(nereidsEventMode);
+    public Set<Class<? extends Event>> getParsedNereidsEventMode() {
+        if (Objects.equals(this.cachedNereidsTraceEventMode, this.nereidsTraceEventMode)) {
+            return parsedNereidsEventMode;
+        }
+        cachedNereidsTraceEventMode = nereidsTraceEventMode;
+        List<String> strings = EventSwitchParser.checkEventModeStringAndSplit(nereidsTraceEventMode);
         if (strings != null) {
             parsedNereidsEventMode = EventSwitchParser.parse(strings);
         }
         if (parsedNereidsEventMode == null) {
-            throw new UnsupportedOperationException("nereids_event_mode syntax error, please check");
+            throw new UnsupportedOperationException("nereids_trace_event_mode syntax error, please check");
         }
-    }
-
-    public Set<Class<? extends Event>> getParsedNereidsEventMode() {
         return parsedNereidsEventMode;
     }
 

@@ -61,7 +61,7 @@ public class ApplyRuleJob extends Job {
         if (groupExpression.hasApplied(rule)) {
             return;
         }
-        trace(groupExpression);
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);

@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class EventChannel {
     public static final Logger LOG = LogManager.getLogger(EventChannel.class);
-    private static final EventChannel DEFAULT_CHANNEL = new EventChannel();
+    private static final EventChannel DEFAULT_CHANNEL = new EventChannel().start();
     private final Map<Class<? extends Event>, List<EventConsumer>> consumers = Maps.newHashMap();
     private final Map<Class<? extends Event>, EventEnhancer> enhancers = Maps.newHashMap();
     private final BlockingQueue<Event> queue = new LinkedBlockingQueue<>(4096);
@@ -43,7 +43,7 @@ public class EventChannel {
     public void add(Event e) {
         try {
             queue.put(e);
-        } catch (InterruptedException exception) {
+        } catch (Exception exception) {
             LOG.warn("Exception when put event: ", exception);
         }
     }

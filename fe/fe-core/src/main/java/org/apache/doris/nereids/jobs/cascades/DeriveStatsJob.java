@@ -63,7 +63,7 @@ public class DeriveStatsJob extends Job {
 
     @Override
     public void execute() {
-        trace(groupExpression);
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
         if (!deriveChildren) {
             deriveChildren = true;
             pushJob(new DeriveStatsJob(this));

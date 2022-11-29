@@ -44,7 +44,7 @@ import java.util.stream.Collectors;
  * Top down job for rewrite, use pattern match.
  */
 public class RewriteTopDownJob extends Job {
-    private static final EventProducer REWRITE_TOP_DOWN_JOB_TRACER = new EventProducer(
+    private static final EventProducer RULE_TRANSFORM_TRACER = new EventProducer(
             TransformEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, NereidsPlanner.LOG)));
     private final Group group;
@@ -74,9 +74,14 @@ public class RewriteTopDownJob extends Job {
     }
 
     @Override
+    public EventProducer getEventTracer() {
+        return RULE_TRANSFORM_TRACER;
+    }
+
+    @Override
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
-        trace(logicalExpression);
+        countJobExecutionTimesOfGroupExpressions(logicalExpression);
         List<Rule> validRules = getValidRules(logicalExpression, rules);
         for (Rule rule : validRules) {
             Preconditions.checkArgument(rule.isRewrite(),
@@ -86,8 +91,7 @@ public class RewriteTopDownJob extends Job {
             // In topdown job, there must be only one matching plan.
             // This `for` loop runs at most once.
             for (Plan before : groupExpressionMatching) {
-                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group,
-                        REWRITE_TOP_DOWN_JOB_TRACER);
+                Optional<CopyInResult> copyInResult = invokeRewriteRuleWithTrace(rule, before, group);
                 if (!copyInResult.isPresent()) {
                     continue;
                 }

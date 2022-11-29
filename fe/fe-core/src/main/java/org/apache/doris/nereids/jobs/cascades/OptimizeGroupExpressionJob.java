@@ -40,7 +40,7 @@ public class OptimizeGroupExpressionJob extends Job {
 
     @Override
     public void execute() {
-        trace(groupExpression);
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> validRules = new ArrayList<>();
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
         List<Rule> explorationRules = getRuleSet().getExplorationRules();

@@ -113,19 +113,19 @@ public class EventTest extends TestWithFeService {
 
     @Test
     public void testEvent() {
-        connectContext.getSessionVariable().setNereidsEventMode("all except transform");
+        connectContext.getSessionVariable().setNereidsTraceEventMode("all except transform");
         for (int i = 0; i < 10; ++i) {
             producers.get(i % 2).log(i % 2 == 0
                     ? CounterEvent.of(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
                     : TransformEvent.of(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
         }
-        connectContext.getSessionVariable().setNereidsEventMode("all");
+        connectContext.getSessionVariable().setNereidsTraceEventMode("all");
         for (int i = 0; i < 10; ++i) {
             producers.get(i % 2).log(i % 2 == 0
                     ? CounterEvent.of(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)
                     : TransformEvent.of(null, null, ImmutableList.of(), RuleType.AGGREGATE_DISASSEMBLE));
         }
-        connectContext.getSessionVariable().setNereidsEventMode("counter, transform");
+        connectContext.getSessionVariable().setNereidsTraceEventMode("counter, transform");
         for (int i = 0; i < 10; ++i) {
             producers.get(i % 2).log(i % 2 == 0
                     ? CounterEvent.of(0, CounterType.PLAN_CONSTRUCTOR, null, null, null)

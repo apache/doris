@@ -25,6 +25,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.metrics.CounterType;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.TracerSupplier;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
@@ -45,7 +46,7 @@ import java.util.stream.Collectors;
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
-public abstract class Job {
+public abstract class Job implements TracerSupplier {
     protected static final EventProducer COUNTER_TRACER = new EventProducer(CounterEvent.class,
             EventChannel.getDefaultChannel()
                     .addEnhancers(new AddCounterEventEnhancer())
@@ -94,8 +95,11 @@ public abstract class Job {
 
     public abstract void execute() throws AnalysisException;
 
-    protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup,
-            EventProducer transformTracer) {
+    public EventProducer getEventTracer() {
+        throw new UnsupportedOperationException("get_event_tracer is unsupported");
+    }
+
+    protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup) {
         context.onInvokeRule(rule.getRuleType());
         COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(),
                 CounterType.EXPRESSION_TRANSFORM, targetGroup, targetGroup.getLogicalExpression(), before));
@@ -112,14 +116,19 @@ public abstract class Job {
                 .copyIn(after, targetGroup, rule.isRewrite());
 
         if (result.generateNewExpression || result.correspondingExpression.getOwnerGroup() != targetGroup) {
-            transformTracer.log(TransformEvent.of(targetGroup.getLogicalExpression(), before, afters,
+            getEventTracer().log(TransformEvent.of(targetGroup.getLogicalExpression(), before, afters,
                             rule.getRuleType()), rule::isRewrite);
         }
 
         return Optional.of(result);
     }
 
-    protected void trace(GroupExpression groupExpression) {
+    /**
+     * count the job execution times of groupExpressions, all groupExpressions will be inclusive.
+     * TODO: count a specific groupExpression.
+     * @param groupExpression the groupExpression at current job.
+     */
+    protected void countJobExecutionTimesOfGroupExpressions(GroupExpression groupExpression) {
         COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION,
                 groupExpression.getOwnerGroup(), groupExpression, groupExpression.getPlan()));
     }

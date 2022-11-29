@@ -94,7 +94,12 @@ public class Memo {
      *                       is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
-        CopyInResult result = rewrite ? doRewrite(plan, target) : doCopyIn(plan, target);
+        CopyInResult result;
+        if (rewrite) {
+            result = doRewrite(plan, target);
+        } else {
+            result = doCopyIn(plan, target);
+        }
         maybeAddStateId(result);
         return result;
     }

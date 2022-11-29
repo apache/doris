@@ -101,7 +101,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
      */
     @Override
     public void execute() {
-        trace(groupExpression);
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
         // Do init logic of root plan/groupExpr of `subplan`, only run once per task.
         if (curChildIndex == -1) {
             curNodeCost = 0;
