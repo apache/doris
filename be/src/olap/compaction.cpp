@@ -150,9 +150,12 @@ bool Compaction::should_vertical_compaction() {
 
 int64_t Compaction::get_avg_segment_rows() {
     // take care of empty rowset
-    // todo(yixiu): add a new conf of segment size in compaction
+    // input_rowsets_size is total disk_size of input_rowset, this size is the
+    // final size after codec and compress, so expect dest segment file size
+    // in disk is config::writer_buffer_size
     return config::write_buffer_size / (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
+
 bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {
     size_t min_tidy_size = config::ordered_data_compaction_min_segment_size;
     if (rhs->num_segments() == 0) {

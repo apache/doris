@@ -209,9 +209,9 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         } else {
             // create short key indexes'
             // for min_max key
-            for (size_t pos = 0; pos < num_rows; pos++) {
-                set_min_max_key(_full_encode_keys(key_columns, pos));
-            }
+            set_min_key(_full_encode_keys(key_columns, 0));
+            set_max_key(_full_encode_keys(key_columns, num_rows - 1));
+
             key_columns.resize(_num_short_key_columns);
             for (const auto pos : short_key_pos) {
                 RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
@@ -502,6 +502,20 @@ void SegmentWriter::set_min_max_key(const Slice& key) {
         _min_key.append(key.get_data(), key.get_size());
         _is_first_row = false;
     }
+    if (key.compare(_max_key) > 0) {
+        _max_key.clear();
+        _max_key.append(key.get_data(), key.get_size());
+    }
+}
+
+void SegmentWriter::set_min_key(const Slice& key) {
+    if (UNLIKELY(_is_first_row)) {
+        _min_key.append(key.get_data(), key.get_size());
+        _is_first_row = false;
+    }
+}
+
+void SegmentWriter::set_max_key(const Slice& key) {
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
 }

@@ -115,25 +115,26 @@ Status RowSourcesBuffer::_create_buffer_file() {
     if (_fd != -1) {
         return Status::OK();
     }
-    std::stringstream file_path;
-    file_path << _tablet_path << "/compaction_row_source_" << _tablet_id;
+    std::stringstream file_path_ss;
+    file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
     if (_reader_type == READER_BASE_COMPACTION) {
-        file_path << "_base";
+        file_path_ss << "_base";
     } else if (_reader_type == READER_CUMULATIVE_COMPACTION) {
-        file_path << "_cumu";
+        file_path_ss << "_cumu";
     } else {
         DCHECK(false);
         return Status::InternalError("unknown reader type");
     }
-    file_path << ".XXXXXX";
-    LOG(INFO) << "Vertical compaction row sources buffer path: " << file_path.str();
-    _fd = mkstemp(file_path.str().data());
+    file_path_ss << ".XXXXXX";
+    std::string file_path = file_path_ss.str();
+    LOG(INFO) << "Vertical compaction row sources buffer path: " << file_path;
+    _fd = mkstemp(file_path.data());
     if (_fd < 0) {
-        LOG(WARNING) << "failed to create tmp file, file_path=" << file_path.str();
+        LOG(WARNING) << "failed to create tmp file, file_path=" << file_path;
         return Status::InternalError("failed to create tmp file");
     }
     // file will be released after fd is close
-    unlink(file_path.str().data());
+    unlink(file_path.data());
     return Status::OK();
 }
 

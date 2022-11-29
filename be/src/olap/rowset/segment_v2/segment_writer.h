@@ -118,6 +118,8 @@ private:
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
             bool null_first = true);
     void set_min_max_key(const Slice& key);
+    void set_min_key(const Slice& key);
+    void set_max_key(const Slice& key);
 
     void _reset_column_writers();
 
