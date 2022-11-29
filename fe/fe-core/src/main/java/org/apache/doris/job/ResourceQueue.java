@@ -138,9 +138,14 @@ public class ResourceQueue {
         }
     }
 
-    public void setName(String name) {
+    public void setName(String name) throws UserException {
         wlock.lock();
         try {
+            if (pendingQueue.size() != 0 && runningJobs.size() != 0) {
+                throw new UserException(
+                        String.format("Should rename resource queue when empty(numPendingJobs=%d, numRunningJobs=%d)",
+                                pendingQueue.size(), runningJobs.size()));
+            }
             this.name = name;
         } finally {
             wlock.unlock();

@@ -121,8 +121,9 @@ public class ResourceQueueMgr {
             if (name2id.containsKey(stmt.getNewQueueName())) {
                 throw new UserException("Rename to an existed resource queue with name: " + stmt.getNewQueueName());
             }
-            name2id.put(stmt.getNewQueueName(), name2id.remove(stmt.getQueueName()));
-            id2Queue.get(name2id.get(stmt.getNewQueueName())).setName(stmt.getNewQueueName());
+            Long queueId = name2id.remove(stmt.getQueueName());
+            id2Queue.get(queueId).setName(stmt.getNewQueueName());
+            name2id.put(stmt.getNewQueueName(), queueId);
         } finally {
             wlock.unlock();
         }
@@ -144,11 +145,13 @@ public class ResourceQueueMgr {
     public void dropQueue(long queueId) throws UserException {
         wlock.lock();
         try {
-            ResourceQueue queue = id2Queue.remove(queueId);
+            ResourceQueue queue = id2Queue.get(queueId);
             if (queue == null) {
                 throw new UserException("No resource queue found with id: " + queueId);
             } else {
+                queue.dropQueue();
                 name2id.remove(queue.getName());
+                id2Queue.remove(queueId);
             }
         } finally {
             wlock.unlock();
