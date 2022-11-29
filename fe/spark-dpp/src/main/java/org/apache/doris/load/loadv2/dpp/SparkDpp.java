@@ -461,7 +461,8 @@ public final class SparkDpp implements java.io.Serializable {
                     for (int i = 0; i < keyAndPartitionColumnNames.size(); i++) {
                         String columnName = keyAndPartitionColumnNames.get(i);
                         Object columnObject = row.get(row.fieldIndex(columnName));
-                        if (!validateData(columnObject, baseIndex.getColumn(columnName), parsers.get(columnName),row)) {
+                        if (!validateData(columnObject, baseIndex.getColumn(columnName),
+                            parsers.get(columnName), row)) {
                             abnormalRowAcc.add(1);
                             return result.iterator();
                         }
