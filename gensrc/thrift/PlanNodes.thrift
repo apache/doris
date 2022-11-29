@@ -615,6 +615,8 @@ struct TNestedLoopJoinNode {
 
   // for bitmap filer, don't need to join, but output left child tuple
   5: optional bool is_output_left_side_only
+
+  6: optional Exprs.TExpr vjoin_conjunct
 }
 
 struct TMergeJoinNode {
