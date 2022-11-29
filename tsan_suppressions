@@ -22,4 +22,3 @@ race:std::char_traits<char>::copy(char*, char const*, unsigned long)
 race:std::lock_guard<int volatile>::lock_guard(int volatile&)
 race:std::lock_guard<int volatile>::~lock_guard()
 race:void google::protobuf::internal::RepeatedPtrFieldBase::Clear<google::protobuf::RepeatedPtrField<doris::PTabletInfo>::TypeHandler>()
-race::doris::JniUtil::*
