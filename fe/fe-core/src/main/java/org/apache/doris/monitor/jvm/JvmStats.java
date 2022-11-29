@@ -71,7 +71,7 @@ public class JvmStats {
                 }
                 pools.add(new MemoryPool(name,
                         usage.getUsed() < 0 ? 0 : usage.getUsed(),
-                        usage.getMax() < 0 ? 0 : usage.getMax(),
+                        usage.getMax() < 0 ? heapMax : usage.getMax(),
                         peakUsage.getUsed() < 0 ? 0 : peakUsage.getUsed(),
                         peakUsage.getMax() < 0 ? 0 : peakUsage.getMax()
                 ));

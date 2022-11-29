@@ -27,6 +27,7 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -37,6 +38,9 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -651,5 +655,29 @@ public class ArithmeticExpr extends Expr {
             Preconditions.checkState(false, String.format("No match for op with operand types. %s", toSql()));
         }
         type = fn.getReturnType();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, op.name());
+        out.writeInt(children.size());
+        for (Expr expr : children) {
+            Expr.writeTo(expr, out);
+        }
+    }
+
+    public static ArithmeticExpr read(DataInput in) throws IOException {
+        Operator op = Operator.valueOf(Text.readString(in));
+        int childNum = in.readInt();
+        Preconditions.checkState(childNum <= 2, childNum);
+        Expr child1 = null;
+        Expr child2 = null;
+        if (childNum > 0) {
+            child1 = Expr.readIn(in);
+        }
+        if (childNum > 1) {
+            child2 = Expr.readIn(in);
+        }
+        return new ArithmeticExpr(op, child1, child2);
     }
 }

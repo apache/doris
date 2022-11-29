@@ -363,7 +363,8 @@ public class BrokerLoadJobTest {
         RuntimeProfile jobProfile = new RuntimeProfile("test");
         LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups,
                 100, 100, false, 100, callback, "",
-                100, 1, 1, true, jobProfile, false);
+                100, 1, 1, true, jobProfile, false,
+                false);
         try {
             UserIdentity userInfo = new UserIdentity("root", "localhost");
             userInfo.setIsAnalyzed();
