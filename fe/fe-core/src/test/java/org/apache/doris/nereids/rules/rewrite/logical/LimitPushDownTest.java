@@ -106,12 +106,13 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
 
     @Test
     public void testPushLimitThroughRightJoin() {
+        // after use RelationUtil to allocate relation id, the id will increase when getNextId() called.
         test(JoinType.RIGHT_OUTER_JOIN, true,
                 logicalLimit(
                         logicalProject(
                                 logicalJoin(
-                                        logicalOlapScan().when(s -> s.equals(scanScore)),
-                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
+                                        logicalOlapScan().when(s -> s.getId().asInt() == 2),
+                                        logicalLimit(logicalOlapScan().when(s -> s.getId().asInt() == 3))
                                 ).when(j -> j.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
                         )
                 )
