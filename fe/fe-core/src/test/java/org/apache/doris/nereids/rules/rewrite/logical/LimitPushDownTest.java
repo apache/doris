@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -111,8 +112,8 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
                 logicalLimit(
                         logicalProject(
                                 logicalJoin(
-                                        logicalOlapScan().when(s -> s.getId().asInt() == 2),
-                                        logicalLimit(logicalOlapScan().when(s -> s.getId().asInt() == 3))
+                                        logicalOlapScan().when(s -> s.equals(scanScore)),
+                                        logicalLimit(logicalOlapScan().when(s -> s.equals(scanStudent)))
                                 ).when(j -> j.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
                         )
                 )
@@ -213,8 +214,8 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.score),
-                new LogicalOlapScan(RelationUtil.newRelationId(), PlanConstructor.student)
+                new LogicalOlapScan(new RelationId(0), PlanConstructor.score),
+                new LogicalOlapScan(new RelationId(1), PlanConstructor.student)
         );
 
         if (hasProject) {
