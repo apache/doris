@@ -25,6 +25,7 @@ import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 
 import java.io.DataInput;
