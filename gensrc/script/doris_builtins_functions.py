@@ -2483,6 +2483,7 @@ visible_functions = [
         '', '', 'vec', 'ALWAYS_NULLABLE'],
 
     # Utility functions
+    [['convert_to'], 'VARCHAR', ['VARCHAR','VARCHAR'], '','', '', 'vec', ''],
     [['sleep'], 'BOOLEAN', ['INT'],
         '_ZN5doris16UtilityFunctions5sleepEPN9doris_udf15FunctionContextERKNS1_6IntValE',
         '', '', 'vec', ''],
