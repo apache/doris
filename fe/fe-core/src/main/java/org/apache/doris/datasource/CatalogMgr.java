@@ -94,6 +94,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private CatalogIf removeCatalog(long catalogId) {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         if (catalog != null) {
+            if (catalog instanceof JdbcExternalCatalog) {
+                ((JdbcExternalCatalog) catalog).closeClient();
+            }
             nameToCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
         }

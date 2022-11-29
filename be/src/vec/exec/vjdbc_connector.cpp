@@ -113,9 +113,18 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         std::string local_location;
         std::hash<std::string> hash_str;
         auto function_cache = UserFunctionCache::instance();
-        RETURN_IF_ERROR(function_cache->get_jarpath(
-                std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
-                _conn_param.driver_checksum, &local_location));
+        if (_conn_param.resource_name.empty()) {
+            // for jdbcExternalTable, _conn_param.resource_name == ""
+            // so, we use _conn_param.driver_path as key of jarpath
+            RETURN_IF_ERROR(function_cache->get_jarpath(
+                    std::abs((int64_t)hash_str(_conn_param.driver_path)), _conn_param.driver_path,
+                    _conn_param.driver_checksum, &local_location));
+        } else {
+            RETURN_IF_ERROR(function_cache->get_jarpath(
+                    std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
+                    _conn_param.driver_checksum, &local_location));
+        }
+
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);

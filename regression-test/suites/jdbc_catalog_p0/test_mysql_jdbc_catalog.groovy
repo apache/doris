@@ -56,7 +56,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
                 "jdbc.password"="123456",
                 "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
                 "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-                "jdbc.driver_class" = "com.mysql.jdbc.Driver");
+                "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
              """
 
         sql  """ drop table if exists ${inDorisTable} """
@@ -95,7 +95,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb16  """ select * from ${ex_tb16} order by id; """
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
-        order_qt_ex_tb18  """ select * from ${ex_tb19} order by date_value; """
+        order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
 
 
         sql """admin set frontend config ("enable_multi_catalog" = "false")"""

@@ -25,6 +25,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Lists;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.commons.codec.binary.Hex;
@@ -40,12 +42,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
-import java.sql.Driver;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
-import java.util.Properties;
 
 @Getter
 public class JdbcClient {
@@ -66,6 +66,8 @@ public class JdbcClient {
 
     private URLClassLoader classLoader = null;
 
+    private HikariDataSource dataSource = null;
+
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
         this.jdbcUser = user;
@@ -82,13 +84,25 @@ public class JdbcClient {
             URL[] urls = {new URL(driverUrl)};
             // set parent ClassLoader to null, we can achieve class loading isolation.
             classLoader = URLClassLoader.newInstance(urls, null);
+            Thread.currentThread().setContextClassLoader(classLoader);
+            HikariConfig config = new HikariConfig();
+            config.setDriverClassName(driverClass);
+            config.setJdbcUrl(jdbcUrl);
+            config.setUsername(jdbcUser);
+            config.setPassword(jdbcPasswd);
+            config.setMaximumPoolSize(1);
+            dataSource = new HikariDataSource(config);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         }
     }
 
+    public void closeClient() {
+        dataSource.close();
+    }
+
     public String parseDbType(String url) {
-        if (url.startsWith("jdbc:mysql")) {
+        if (url.startsWith("jdbc:mysql") || url.startsWith("jdbc:mariadb")) {
             return MYSQL;
         }
         // else if (url.startsWith("jdbc:oracle")) {
@@ -105,11 +119,7 @@ public class JdbcClient {
     public Connection getConnection() throws JdbcClientException {
         Connection conn = null;
         try {
-            Properties props = new Properties();
-            props.put("user", jdbcUser);
-            props.put("password", jdbcPasswd);
-            Driver driver = (Driver) classLoader.loadClass(driverClass).newInstance();
-            conn = driver.connect(jdbcUrl, props);
+            conn = dataSource.getConnection();
         } catch (Exception e) {
             throw new JdbcClientException("Can not connect to jdbc", e);
         }

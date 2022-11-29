@@ -61,6 +61,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         this.catalogProperty.setProperties(props);
     }
 
+    public void closeClient() {
+        jdbcClient.closeClient();
+    }
+
     private void setProperties(Map<String, String> props) {
         jdbcUser = props.getOrDefault(PROP_USER, "");
         jdbcPasswd = props.getOrDefault(PROP_PASSWORD, "");
