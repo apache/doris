@@ -26,6 +26,10 @@
 
 namespace doris::vectorized {
 
+struct ConvertTzCtx {
+    std::map<StringRef, cctz::time_zone> time_zone_cache;
+};
+
 template <typename DateValueType, typename ArgType>
 struct ConvertTZImpl {
     using ColumnType = std::conditional_t<
@@ -46,8 +50,11 @@ struct ConvertTZImpl {
     static void execute(FunctionContext* context, const ColumnType* date_column,
                         const ColumnString* from_tz_column, const ColumnString* to_tz_column,
                         ReturnColumnType* result_column, NullMap& result_null_map,
-                        size_t input_rows_count,
-                        std::map<StringRef, cctz::time_zone>& time_zone_cache) {
+                        size_t input_rows_count) {
+        auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        std::map<StringRef, cctz::time_zone> time_zone_cache_;
+        auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();
@@ -131,6 +138,24 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope != FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        context->set_function_state(scope, new ConvertTzCtx);
+        return Status::OK();
+    }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            auto* convert_ctx = reinterpret_cast<ConvertTzCtx*>(
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+            delete convert_ctx;
+            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
+        }
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
@@ -159,7 +184,7 @@ public:
                                assert_cast<const ColumnString*>(argument_columns[2].get()),
                                assert_cast<ColumnDateTime*>(result_column.get()),
                                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                               input_rows_count, _time_zone_cache);
+                               input_rows_count);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
@@ -169,7 +194,7 @@ public:
                                assert_cast<const ColumnString*>(argument_columns[2].get()),
                                assert_cast<ColumnDateTimeV2*>(result_column.get()),
                                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                               input_rows_count, _time_zone_cache);
+                               input_rows_count);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } else {
@@ -180,16 +205,13 @@ public:
                                assert_cast<const ColumnString*>(argument_columns[2].get()),
                                assert_cast<ColumnDateTimeV2*>(result_column.get()),
                                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                               input_rows_count, _time_zone_cache);
+                               input_rows_count);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         }
 
         return Status::OK();
     }
-
-private:
-    std::map<StringRef, cctz::time_zone> _time_zone_cache;
 };
 
 } // namespace doris::vectorized

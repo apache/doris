@@ -94,6 +94,8 @@ suite("test_date_function") {
             (18, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Creston")
     """
 
+    sql "set parallel_fragment_exec_instance_num = 8"
+
     qt_sql1 """
         SELECT
             `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
