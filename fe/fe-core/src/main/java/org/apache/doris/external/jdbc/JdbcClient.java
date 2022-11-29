@@ -107,7 +107,6 @@ public class JdbcClient {
     public Connection getConnection() throws JdbcClientException {
         Connection conn = null;
         try {
-            Class.forName(driverClass, true, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(driverClass);
@@ -334,7 +333,7 @@ public class JdbcClient {
                 case "INT":
                     return Type.BIGINT;
                 case "BIGINT":
-                    return Type.LARGEINT;
+                    return ScalarType.createStringType();
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -345,6 +344,7 @@ public class JdbcClient {
             case "TINYINT":
                 return Type.TINYINT;
             case "SMALLINT":
+            case "YEAR":
                 return Type.SMALLINT;
             case "MEDIUMINT":
             case "INT":
@@ -370,7 +370,6 @@ public class JdbcClient {
                 charType.setLength(fieldSchema.columnSize);
                 return charType;
             case "TIME":
-            case "YEAR":
             case "VARCHAR":
             case "TINYTEXT":
             case "TEXT":

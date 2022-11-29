@@ -65,8 +65,31 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcUser = props.getOrDefault(PROP_USER, "");
         jdbcPasswd = props.getOrDefault(PROP_PASSWORD, "");
         jdbcUrl = props.getOrDefault(PROP_JDBC_URL, "");
+        handleJdbcUrl();
         driverUrl = props.getOrDefault(PROP_DRIVER_URL, "");
         driverClass = props.getOrDefault(PROP_DRIVER_CLASS, "");
+    }
+
+    // `yearIsDateType` is a parameter of JDBC, and the default is `yearIsDateType=true`
+    // We force the use of `yearIsDateType=false`
+    private void handleJdbcUrl() {
+        // delete all space in jdbcUrl
+        jdbcUrl.replaceAll(" ", "");
+        if (jdbcUrl.contains("yearIsDateType=false")) {
+            return;
+        } else if (jdbcUrl.contains("yearIsDateType=true")) {
+            jdbcUrl.replaceAll("yearIsDateType=true", "yearIsDateType=false");
+        } else {
+            String yearIsDateType = "yearIsDateType=false";
+            if (jdbcUrl.contains("?")) {
+                if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
+                    jdbcUrl += "&";
+                }
+            } else {
+                jdbcUrl += "?";
+            }
+            jdbcUrl += yearIsDateType;
+        }
     }
 
     @Override
