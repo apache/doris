@@ -25,6 +25,9 @@
 
 namespace doris::vectorized {
 
+struct ConvertTzCtx {
+    std::map<StringRef, cctz::time_zone> time_zone_cache;
+};
 class FunctionConvertTZ : public IFunction {
 public:
     static constexpr auto name = "convert_tz";
@@ -41,6 +44,24 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope != FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        context->set_function_state(scope, new ConvertTzCtx);
+        return Status::OK();
+    }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            auto* convert_ctx = reinterpret_cast<ConvertTzCtx*>(
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+            delete convert_ctx;
+            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
+        }
+        return Status::OK();
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -79,6 +100,10 @@ private:
                           const ColumnString* from_tz_column, const ColumnString* to_tz_column,
                           ColumnDateTime* result_column, NullMap& result_null_map,
                           size_t input_rows_count) {
+        auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        std::map<StringRef, cctz::time_zone> time_zone_cache_;
+        auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
                 result_column->insert_default();
@@ -88,18 +113,36 @@ private:
             StringRef from_tz = from_tz_column->get_data_at(i);
             StringRef to_tz = to_tz_column->get_data_at(i);
 
+            if (time_zone_cache.find(from_tz) == time_zone_cache.cend()) {
+                if (!TimezoneUtils::find_cctz_time_zone(from_tz.to_string(),
+                                                        time_zone_cache[from_tz])) {
+                    result_null_map[i] = true;
+                    result_column->insert_default();
+                    continue;
+                }
+            }
+
+            if (time_zone_cache.find(to_tz) == time_zone_cache.cend()) {
+                if (!TimezoneUtils::find_cctz_time_zone(to_tz.to_string(),
+                                                        time_zone_cache[to_tz])) {
+                    result_null_map[i] = true;
+                    result_column->insert_default();
+                    continue;
+                }
+            }
+
             VecDateTimeValue ts_value =
                     binary_cast<Int64, VecDateTimeValue>(date_column->get_element(i));
             int64_t timestamp;
 
-            if (!ts_value.unix_timestamp(&timestamp, from_tz.to_string())) {
+            if (!ts_value.unix_timestamp(&timestamp, time_zone_cache[from_tz])) {
                 result_null_map[i] = true;
                 result_column->insert_default();
                 continue;
             }
 
             VecDateTimeValue ts_value2;
-            if (!ts_value2.from_unixtime(timestamp, to_tz.to_string())) {
+            if (!ts_value2.from_unixtime(timestamp,  time_zone_cache[to_tz])) {
                 result_null_map[i] = true;
                 result_column->insert_default();
                 continue;
