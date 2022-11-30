@@ -63,7 +63,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void onClose() {
-        jdbcClient.closeClient();
+        if (jdbcClient != null) {
+            jdbcClient.closeClient();
+        }
     }
 
     private void setProperties(Map<String, String> props) {
