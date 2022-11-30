@@ -30,6 +30,7 @@ suite("test_jdbc_query_pg", "p0") {
         String dorisInTable4 = "doris_in_table4";
         String dorisViewName = "doris_view_name";
         String exMysqlTypeTable = "doris_type_tb";
+        String exMysqlTypeTable2 = "doris_type_tb2";
 
         sql """drop resource if exists $jdbcResourcePg14;"""
         sql """
@@ -586,6 +587,23 @@ suite("test_jdbc_query_pg", "p0") {
             );
         """
         order_qt_sql """ select * from ${exMysqlTypeTable} order by id """
+        sql  """ drop table if exists ${exMysqlTypeTable2} """
+        sql  """
+               CREATE EXTERNAL TABLE ${exMysqlTypeTable2} (
+                id1 smallint,
+                id2 int,
+                id3 boolean,
+                id4 varchar(10),
+                id5 bigint
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+            PROPERTIES (
+            "resource" = "$jdbcResourcePg14",
+            "table" = "test9", 
+            "table_type"="postgresql"
+            );
+        """
+        order_qt_sql """ select * from ${exMysqlTypeTable2} order by id1 """
 
 
         order_qt_sql92 """ WITH a AS (SELECT k8 from $jdbcPg14Table1), b AS (WITH a AS (SELECT k8 from $jdbcPg14Table1) SELECT * FROM a) 
@@ -617,4 +635,5 @@ suite("test_jdbc_query_pg", "p0") {
 
     }
 }
+
 
