@@ -13,7 +13,9 @@
 
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h" // for TStatus
+#ifdef ENABLE_STACKTRACE
 #include "util/stack_util.h"
+#endif
 
 namespace doris {
 
