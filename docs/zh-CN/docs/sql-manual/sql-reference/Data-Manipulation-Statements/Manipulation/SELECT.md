@@ -66,7 +66,7 @@ SELECT
 
 4. `ALL | DISTINCT ` ：对结果集进行刷选，all 为全部，distinct/distinctrow 将刷选出重复列，默认为all
 
-5. `ALL EXCEPT`：对全部（all）结果集进行筛选，except 指定要从全部结果集中排除的一个或多个列的名称。输出中将忽略所有匹配的列名称。
+5. <version since="1.2" type="inline"> `ALL EXCEPT`：对全部（all）结果集进行筛选，except 指定要从全部结果集中排除的一个或多个列的名称。输出中将忽略所有匹配的列名称。 </version>
 
 6. `INTO OUTFILE 'file_name' ` ：保存结果至新文件（之前不存在）中，区别在于保存的格式。
    
