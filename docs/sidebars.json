@@ -1008,6 +1008,15 @@
                                 "admin-manual/maint-monitor/monitor-metrics/metrics"
                             ]
                         },
+                        {
+                            "type": "category",
+                            "label": "Memory Management",
+                            "items": [
+                                "admin-manual/memory-management/memory-tracker",
+                                "admin-manual/memory-management/memory-limit-exceeded-analysis",
+                                "admin-manual/memory-management/be-oom-analysis"
+                            ]
+                        },
                         "admin-manual/maint-monitor/disk-capacity",
                         "admin-manual/maint-monitor/tablet-repair-and-balance",
                         "admin-manual/maint-monitor/be-olap-error-code",
