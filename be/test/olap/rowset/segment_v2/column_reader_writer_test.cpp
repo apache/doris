@@ -86,7 +86,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
     {
         io::FileWriterPtr file_writer;
         Status st = fs->create_file(fname, &file_writer);
-        EXPECT_TRUE(st.ok()) << st.get_error_msg();
+        EXPECT_TRUE(st.ok()) << st;
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -259,7 +259,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     {
         io::FileWriterPtr file_writer;
         Status st = fs->create_file(fname, &file_writer);
-        EXPECT_TRUE(st.ok()) << st.get_error_msg();
+        EXPECT_TRUE(st.ok()) << st;
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;

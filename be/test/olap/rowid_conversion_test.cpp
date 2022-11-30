@@ -405,7 +405,7 @@ protected:
                                          columns[1].column->get_int(i));
             }
         } while (s == Status::OK());
-        EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+        EXPECT_EQ(Status::Error<E_END_OF_FILE>(), s);
         EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
         std::vector<uint32_t> segment_num_rows;
         EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());

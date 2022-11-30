@@ -38,7 +38,7 @@ TEST_F(HdfsFileReaderTest, test_connect_fail) {
     hdfsParams.__set_hdfs_conf(confs);
     HdfsFileReader hdfs_file_reader(hdfsParams, "/user/foo/test.data", 0);
     Status status = hdfs_file_reader.open();
-    EXPECT_EQ(TStatusCode::INTERNAL_ERROR, status.code());
+    EXPECT_EQ(E_INTERNAL_ERROR, status.code());
     hdfs_file_reader.close();
 }
 
