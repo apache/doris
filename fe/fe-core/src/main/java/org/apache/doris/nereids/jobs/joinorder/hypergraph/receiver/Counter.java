@@ -24,6 +24,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -47,10 +48,10 @@ public class Counter implements AbstractReceiver {
      *
      * @param left the bitmap of left child tree
      * @param right the bitmap of the right child tree
-     * @param edge the join operator
+     * @param edges the join operator
      * @return the left and the right can be connected by the edge
      */
-    public boolean emitCsgCmp(BitSet left, BitSet right, Edge edge) {
+    public boolean emitCsgCmp(BitSet left, BitSet right, List<Edge> edges) {
         Preconditions.checkArgument(counter.containsKey(left));
         Preconditions.checkArgument(counter.containsKey(right));
         emitCount += 1;
