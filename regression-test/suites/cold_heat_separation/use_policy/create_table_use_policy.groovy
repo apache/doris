@@ -15,11 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 suite("create_table_use_policy") {
+    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
+
+    SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    Date date = new Date(System.currentTimeMillis() + 3600000)
+    def cooldownTime = format.format(date)
+
     def create_table_use_not_create_policy = try_sql """
         CREATE TABLE IF NOT EXISTS create_table_use_not_create_policy
         (
@@ -50,28 +55,29 @@ suite("create_table_use_policy") {
         return false;
     }
 
-    if (!storage_exist.call("test_create_table_use_policy")) {
-        def create_s3_resource = try_sql """
-            CREATE RESOURCE "test_create_table_use_resource"
-            PROPERTIES(
-                "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
-            );
-        """
-        def create_succ_1 = try_sql """
-            CREATE STORAGE POLICY test_create_table_use_policy
-            PROPERTIES(
-            "storage_resource" = "test_create_table_use_resource",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
-            );
-        """
-        assertEquals(storage_exist.call("test_create_table_use_policy"), true)
-    }
+    def create_s3_resource = try_sql """
+        CREATE RESOURCE IF NOT EXISTS "test_create_table_use_resource"
+        PROPERTIES(
+            "type"="s3",
+            "s3_region" = "bj",
+            "s3_endpoint" = "http://bj.s3.comaaaa",
+            "s3_root_path" = "path/to/rootaaaa",
+            "s3_secret_key" = "aaaa",
+            "s3_access_key" = "bbba",
+            "s3_bucket" = "test-bucket"
+        );
+    """
+    def create_succ_1 = try_sql """
+        CREATE STORAGE POLICY IF NOT EXISTS test_create_table_use_policy
+        PROPERTIES(
+        "storage_resource" = "test_create_table_use_resource",
+        "cooldown_datetime" = "$cooldownTime"
+        );
+    """
+
+    sql """ALTER STORAGE POLICY test_create_table_use_policy PROPERTIES("cooldown_datetime" = "$cooldownTime")"""
+
+    assertEquals(storage_exist.call("test_create_table_use_policy"), true)
 
     // success
     def create_table_use_created_policy = try_sql """
@@ -92,7 +98,7 @@ suite("create_table_use_policy") {
     assertEquals(create_table_use_created_policy.size(), 1);
 
     sql """
-    DROP TABLE create_table_use_created_policy
+    DROP TABLE IF EXISTS create_table_use_created_policy
     """
 
 }
