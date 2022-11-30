@@ -204,7 +204,6 @@ public class JdbcExecutor {
         try {
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-            Class.forName(driverClass, true, classLoader);
             Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(driverClass);
@@ -226,8 +225,6 @@ public class JdbcExecutor {
             throw new UdfRuntimeException("Can not find driver file:  " + driverUrl, e);
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
-        } catch (ClassNotFoundException e) {
-            throw new UdfRuntimeException("Loading JDBC class error ClassNotFoundException about " + driverClass, e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         }

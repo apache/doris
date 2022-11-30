@@ -111,4 +111,8 @@ public interface CatalogIf<T extends DatabaseIf> {
         return getDbOrException(dbId,
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
+
+    default void onClose() {
+
+    }
 }

@@ -194,15 +194,19 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         Slot leftSlot = leftSlots.iterator().next();
         Slot rightSlot = rightSlots.iterator().next();
-        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlotId(leftSlot.getExprId());
-        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlotId(rightSlot.getExprId());
+        ColumnStatistic probeColumnStat = leftStats.getColumnStatsBySlot(leftSlot);
+        ColumnStatistic buildColumnStat = rightStats.getColumnStatsBySlot(rightSlot);
         //TODO remove these code when we ensure left child if from probe side
         if (probeColumnStat == null || buildColumnStat == null) {
-            probeColumnStat = leftStats.getColumnStatsBySlotId(rightSlot.getExprId());
-            buildColumnStat = rightStats.getColumnStatsBySlotId(leftSlot.getExprId());
+            probeColumnStat = leftStats.getColumnStatsBySlot(rightSlot);
+            buildColumnStat = rightStats.getColumnStatsBySlot(leftSlot);
             if (probeColumnStat == null || buildColumnStat == null) {
                 return false;
             }
+        }
+        //without column statistics, we can not judge if the rf is effective.
+        if (probeColumnStat.isUnKnown || buildColumnStat.isUnKnown) {
+            return true;
         }
         return buildColumnStat.selectivity < 1
                 || probeColumnStat.coverage(buildColumnStat) < 1
