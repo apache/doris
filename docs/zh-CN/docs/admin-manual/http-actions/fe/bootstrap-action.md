@@ -42,11 +42,11 @@ under the License.
 
 * `cluster_id`
 
-    集群id。可以在 `palo-meta/image/VERSION` 文件中查看。
+    集群id。可以在 `doris-meta/image/VERSION` 文件中查看。
     
 * `token`
 
-    集群token。可以在 `palo-meta/image/VERSION` 文件中查看。
+    集群token。可以在 `doris-meta/image/VERSION` 文件中查看。
 
 ## Request body
 

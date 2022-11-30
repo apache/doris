@@ -2403,3 +2403,14 @@ hive partition 的最大缓存数量。
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
+
+### `enable_storage_policy`
+
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+
+默认值：false。即不开启
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+

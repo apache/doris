@@ -196,6 +196,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_NEREIDS_RUNTIME_FILTER = "enable_nereids_runtime_filter";
 
+    public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
+    public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
+
+    //percentage of EXEC_MEM_LIMIT
+    public static final String BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE = "broadcast_hashtable_mem_limit_percentage";
     public static final String NEREIDS_STAR_SCHEMA_SUPPORT = "nereids_star_schema_support";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
@@ -229,8 +234,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
-
-    public static final String ENABLE_NEREIDS_STATS_DERIVE_V2 = "enable_nereids_stats_derive_v2";
 
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
 
@@ -552,6 +555,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_RUNTIME_FILTER)
     private boolean enableNereidsRuntimeFilter = true;
 
+    @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
+    private double broadcastRightTableScaleFactor = 10.0;
+
+    @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT)
+    private double broadcastRowCountLimit = 15000000;
+
+    @VariableMgr.VarAttr(name = BROADCAST_HASHTABLE_MEM_LIMIT_PERCENTAGE)
+    private double broadcastHashtableMemLimitPercentage = 0.2;
+
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_REORDER_TO_ELIMINATE_CROSS_JOIN)
     private boolean enableNereidsReorderToEliminateCrossJoin = true;
 
@@ -611,9 +623,6 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_CBO_STATISTICS)
     public boolean enableCboStatistics = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_STATS_DERIVE_V2)
-    public boolean enableNereidsStatsDeriveV2 = false;
 
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
@@ -980,6 +989,30 @@ public class SessionVariable implements Serializable, Writable {
         this.maxPushdownConditionsPerColumn = maxPushdownConditionsPerColumn;
     }
 
+    public double getBroadcastRightTableScaleFactor() {
+        return broadcastRightTableScaleFactor;
+    }
+
+    public void setBroadcastRightTableScaleFactor(double broadcastRightTableScaleFactor) {
+        this.broadcastRightTableScaleFactor = broadcastRightTableScaleFactor;
+    }
+
+    public double getBroadcastRowCountLimit() {
+        return broadcastRowCountLimit;
+    }
+
+    public void setBroadcastRowCountLimit(double broadcastRowCountLimit) {
+        this.broadcastRowCountLimit = broadcastRowCountLimit;
+    }
+
+    public double getBroadcastHashtableMemLimitPercentage() {
+        return broadcastHashtableMemLimitPercentage;
+    }
+
+    public void setBroadcastHashtableMemLimitPercentage(double broadcastHashtableMemLimitPercentage) {
+        this.broadcastHashtableMemLimitPercentage = broadcastHashtableMemLimitPercentage;
+    }
+
     public boolean showHiddenColumns() {
         return showHiddenColumns;
     }
@@ -1245,14 +1278,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableSingleReplicaInsert(boolean enableSingleReplicaInsert) {
         this.enableSingleReplicaInsert = enableSingleReplicaInsert;
-    }
-
-    public boolean isEnableNereidsStatsDeriveV2() {
-        return enableNereidsStatsDeriveV2;
-    }
-
-    public void setEnableNereidsStatsDeriveV2(boolean enableNereidsStatsDeriveV2) {
-        this.enableNereidsStatsDeriveV2 = enableNereidsStatsDeriveV2;
     }
 
     public boolean isEnableRuntimeFilterPrune() {

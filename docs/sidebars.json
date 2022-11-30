@@ -25,7 +25,16 @@
                     "items": [
                         "install/source-install/compilation",
                         "install/source-install/compilation-with-ldb-toolchain",
-                        "install/source-install/compilation-arm"
+                        "install/source-install/compilation-arm",
+                        "install/source-install/compilation-mac"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Construct Docker",
+                    "items": [
+                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/construct-docker-compose"
                     ]
                 }
             ]
@@ -403,6 +412,7 @@
                                 "sql-manual/sql-functions/string-functions/split_part",
                                 "sql-manual/sql-functions/string-functions/money_format",
                                 "sql-manual/sql-functions/string-functions/parse_url",
+                                "sql-manual/sql-functions/string-functions/convert_to",
                                 "sql-manual/sql-functions/string-functions/extract_url_parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
                                 "sql-manual/sql-functions/string-functions/space",
@@ -539,7 +549,6 @@
                             "type": "category",
                             "label": "JSON Functions",
                             "items": [
-                                "sql-manual/sql-functions/json-functions/jsonb_tutorial",
                                 "sql-manual/sql-functions/json-functions/jsonb_parse",
                                 "sql-manual/sql-functions/json-functions/jsonb_extract",
                                 "sql-manual/sql-functions/json-functions/get_json_double",

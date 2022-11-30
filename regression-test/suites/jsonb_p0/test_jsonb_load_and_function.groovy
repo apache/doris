@@ -89,7 +89,8 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // insert into 1 row and then check result
-    sql """INSERT INTO ${testTable} VALUES(26, '{"k1":"v1", "k2": 200}')"""
+    sql """INSERT INTO ${testTable} VALUES(26, NULL)"""
+    sql """INSERT INTO ${testTable} VALUES(27, '{"k1":"v1", "k2": 200}')"""
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // jsonb_extract
@@ -308,4 +309,48 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT id, j, jsonb_type(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_type(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_type(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+
+    // CAST from JSONB
+    qt_select "SELECT id, j, CAST(j AS BOOLEAN) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS SMALLINT) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS INT) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS BIGINT) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS DOUBLE) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(j AS STRING) FROM ${testTable} ORDER BY id"
+
+    // CAST to JSONB
+    qt_select "SELECT id, j, CAST(CAST(j AS BOOLEAN) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS SMALLINT) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS INT) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS BIGINT) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS DOUBLE) AS JSONB) FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, CAST(CAST(j AS STRING) AS JSONB) FROM ${testTable} ORDER BY id"
+
+    qt_select """SELECT CAST(NULL AS JSONB)"""
+    qt_select """SELECT CAST('null' AS JSONB)"""
+    qt_select """SELECT CAST('true' AS JSONB)"""
+    qt_select """SELECT CAST('false' AS JSONB)"""
+    qt_select """SELECT CAST('100' AS JSONB)"""
+    qt_select """SELECT CAST('10000' AS JSONB)"""
+    qt_select """SELECT CAST('1000000000' AS JSONB)"""
+    qt_select """SELECT CAST('1152921504606846976' AS JSONB)"""
+    qt_select """SELECT CAST('6.18' AS JSONB)"""
+    qt_select """SELECT CAST('"abcd"' AS JSONB)"""
+    qt_select """SELECT CAST('{}' AS JSONB)"""
+    qt_select """SELECT CAST('{"k1":"v31", "k2": 300}' AS JSONB)"""
+    qt_select """SELECT CAST('[]' AS JSONB)"""
+    qt_select """SELECT CAST('[123, 456]' AS JSONB)"""
+    qt_select """SELECT CAST('["abc", "def"]' AS JSONB)"""
+    qt_select """SELECT CAST('[null, true, false, 100, 6.18, "abc"]' AS JSONB)"""
+    qt_select """SELECT CAST('[{"k1":"v41", "k2": 400}, 1, "a", 3.14]' AS JSONB)"""
+    qt_select """SELECT CAST('{"k1":"v31", "k2": 300, "a1": [{"k1":"v41", "k2": 400}, 1, "a", 3.14]}' AS JSONB)"""
+    qt_select """SELECT CAST("''" AS JSONB)"""
+    qt_select """SELECT CAST("'abc'" AS JSONB)"""
+    qt_select """SELECT CAST('abc' AS JSONB)"""
+    qt_select """SELECT CAST('100x' AS JSONB)"""
+    qt_select """SELECT CAST('6.a8' AS JSONB)"""
+    qt_select """SELECT CAST('{x' AS JSONB)"""
+    qt_select """SELECT CAST('[123, abc]' AS JSONB)"""
+
 }

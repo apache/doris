@@ -141,17 +141,20 @@ public:
 
     void insert_default() override {
         get_nested_column().insert_default();
-        get_null_map_data().push_back(1);
+        _get_null_map_data().push_back(1);
+        _has_null = true;
     }
 
     void insert_many_defaults(size_t length) override {
         get_nested_column().insert_many_defaults(length);
-        get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);
+        _get_null_map_data().resize_fill(get_null_map_data().size() + length, 1);
+        _has_null = true;
     }
 
     void insert_null_elements(int num) {
         get_nested_column().insert_many_defaults(num);
-        get_null_map_column().fill(1, num);
+        _get_null_map_column().fill(1, num);
+        _has_null = true;
     }
 
     void pop_back(size_t n) override;
@@ -311,7 +314,19 @@ public:
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
+    void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
+        nested_column->set_rowset_segment_id(rowset_segment_id);
+    }
+
+    std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
+        return nested_column->get_rowset_segment_id();
+    }
+
 private:
+    // the two functions will not update `_need_update_has_null`
+    ColumnUInt8& _get_null_map_column() { return assert_cast<ColumnUInt8&>(*null_map); }
+    NullMap& _get_null_map_data() { return get_null_map_column().get_data(); }
+
     WrappedPtr nested_column;
     WrappedPtr null_map;
 

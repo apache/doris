@@ -28,7 +28,11 @@ under the License.
 
 ### Name
 
+<version since="1.2">
+
 hdfs
+
+</version>
 
 ### Description
 

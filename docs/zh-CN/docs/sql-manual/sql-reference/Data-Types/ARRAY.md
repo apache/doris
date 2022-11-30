@@ -26,6 +26,14 @@ under the License.
 
 ## ARRAY
 
+### name
+
+<version since="1.2">
+
+ARRAY
+
+</version>
+
 ### description
 
 `ARRAY<T>`

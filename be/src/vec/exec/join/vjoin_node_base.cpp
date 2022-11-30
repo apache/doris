@@ -144,6 +144,11 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
             _output_expr_ctxs.push_back(ctx);
         }
     }
+    // only use in outer join as the bool column to mark for function of `tuple_is_null`
+    if (_is_outer_join) {
+        _tuple_is_null_left_flag_column = ColumnUInt8::create();
+        _tuple_is_null_right_flag_column = ColumnUInt8::create();
+    }
     return ExecNode::init(tnode, state);
 }
 
@@ -171,6 +176,13 @@ Status VJoinNodeBase::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
     return status;
+}
+
+void VJoinNodeBase::_reset_tuple_is_null_column() {
+    if (_is_outer_join) {
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
+    }
 }
 
 void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {

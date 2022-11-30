@@ -26,6 +26,8 @@ under the License.
 
 # Hive External Table of Doris
 
+<version deprecated="1.2" comment="请使用 Multi-Catalog 功能访问 Hive">
+
 Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能力，外部表省去了繁琐的数据导入工作，并借助 Doris 本身的 OLAP 的能力来解决 Hive 表的数据分析问题：
 
 1. 支持 Hive 数据源接入Doris
@@ -33,6 +35,8 @@ Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能�
 3. 支持 访问开启 kerberos 的 Hive 数据源
  
 本文档主要介绍该功能的使用方式和注意事项等。
+
+</version>
 
 ## 名词解释
 

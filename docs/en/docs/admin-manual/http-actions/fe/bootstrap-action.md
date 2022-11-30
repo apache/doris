@@ -42,11 +42,11 @@ none
 
 * `cluster_id`
 
-    The cluster id. It can be viewed in the file `palo-meta/image/VERSION`.
+    The cluster id. It can be viewed in the file `doris-meta/image/VERSION`.
     
 * `token`
 
-    Cluster token. It can be viewed in the file `palo-meta/image/VERSION`.
+    Cluster token. It can be viewed in the file `doris-meta/image/VERSION`.
 
 ## Request body
 

@@ -58,5 +58,5 @@
 2	[1, 0, 0]
 
 -- !test_aggregate_retention_13 --
-1
+3	2	1
 

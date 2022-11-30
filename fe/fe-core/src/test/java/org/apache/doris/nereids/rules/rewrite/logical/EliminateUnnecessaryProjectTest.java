@@ -26,19 +26,39 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * test ELIMINATE_UNNECESSARY_PROJECT rule.
  */
-public class EliminateUnnecessaryProjectTest {
+public class EliminateUnnecessaryProjectTest extends TestWithFeService {
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+
+        connectContext.setDatabase("default_cluster:test");
+
+        createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"
+                + "DISTRIBUTED BY HASH(col3)\n"
+                + "BUCKETS 1\n"
+                + "PROPERTIES(\n"
+                + "    \"replication_num\"=\"1\"\n"
+                + ");");
+    }
 
     @Test
     public void testEliminateNonTopUnnecessaryProject() {
@@ -81,5 +101,20 @@ public class EliminateUnnecessaryProjectTest {
 
         Plan actual = cascadesContext.getMemo().copyOut();
         Assertions.assertTrue(actual instanceof LogicalProject);
+    }
+
+    @Test
+    public void testEliminationForThoseNeitherDoPruneNorDoExprCalc() {
+        PlanChecker.from(connectContext).checkPlannerResult("SELECT col1 FROM t1",
+                p -> {
+                    List<PlanFragment> fragments = p.getFragments();
+                    Assertions.assertTrue(fragments.stream()
+                            .flatMap(fragment -> {
+                                Set<OlapScanNode> scans = Sets.newHashSet();
+                                fragment.getPlanRoot().collect(OlapScanNode.class, scans);
+                                return scans.stream();
+                            })
+                            .noneMatch(s -> s.getProjectList() != null));
+                });
     }
 }

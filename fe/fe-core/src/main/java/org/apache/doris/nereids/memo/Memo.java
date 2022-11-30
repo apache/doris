@@ -29,7 +29,9 @@ import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -40,6 +42,7 @@ import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -636,7 +639,17 @@ public class Memo {
         StringBuilder builder = new StringBuilder();
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
-            builder.append(group.toString()).append("\n");
+            builder.append(group).append("\n");
+            builder.append("  stats=").append(group.getStatistics()).append("\n");
+            StatsDeriveResult stats = group.getStatistics();
+            if (stats != null && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+                for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
+                    builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+                }
+            }
+            for (GroupExpression groupExpression : group.getLogicalExpressions()) {
+                builder.append("  ").append(groupExpression.toString()).append("\n");
+            }
             for (GroupExpression groupExpression : group.getPhysicalExpressions()) {
                 builder.append("  ").append(groupExpression.toString()).append("\n");
             }
