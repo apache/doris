@@ -40,8 +40,8 @@ struct TrackerGroup {
 static std::vector<TrackerGroup> mem_tracker_pool(1000);
 
 MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
-                       const std::string& profile_counter_name, bool only_allocated)
-        : _label(label), _only_allocated(only_allocated) {
+                       const std::string& profile_counter_name, bool only_track_alloc)
+        : _label(label), _only_track_alloc(only_track_alloc) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {

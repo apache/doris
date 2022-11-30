@@ -47,7 +47,7 @@ public:
     MemTracker(const std::string& label, RuntimeProfile* profile = nullptr,
                MemTrackerLimiter* parent = nullptr,
                const std::string& profile_counter_name = "PeakMemoryUsage",
-               bool only_allocated = false);
+               bool only_track_alloc = false);
     // For MemTrackerLimiter
     MemTracker() { _parent_group_num = -1; }
 
@@ -67,7 +67,7 @@ public:
 
     void consume(int64_t bytes) {
         if (bytes == 0) return;
-        if (bytes < 0 && _only_allocated) return;
+        if (bytes < 0 && _only_track_alloc) return;
         _consumption->add(bytes);
     }
     void release(int64_t bytes) { consume(-bytes); }
@@ -98,7 +98,7 @@ protected:
     int64_t _parent_group_num = 0;
     std::string _parent_label = "-";
 
-    bool _only_allocated = false;
+    bool _only_track_alloc = false;
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
