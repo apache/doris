@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -274,7 +275,7 @@ class MemoTest implements PatternMatchSupported {
     /*
      * A -> A:
      *
-     * UnboundRelation(RelationUtil.newRelationId(), student) -> UnboundRelation(RelationUtil.newRelationId(), student)
+     * UnboundRelation(student) -> UnboundRelation(student)
      */
     @Test
     public void a2a() {
@@ -290,7 +291,7 @@ class MemoTest implements PatternMatchSupported {
     /*
      * A -> B:
      *
-     * UnboundRelation(RelationUtil.newRelationId(), student) -> logicalOlapScan(student)
+     * UnboundRelation(student) -> logicalOlapScan(student)
      */
     @Test
     public void a2b() {
@@ -326,7 +327,7 @@ class MemoTest implements PatternMatchSupported {
     /*
      * A -> B(C):
      *
-     *  UnboundRelation(RelationUtil.newRelationId(), student)               limit(1)
+     *  UnboundRelation(student)               limit(1)
      *                              ->           |
      *                                    logicalOlapScan(student)
      */
@@ -350,9 +351,9 @@ class MemoTest implements PatternMatchSupported {
     /*
      * A -> B(A): will run into dead loop, so we detect it and throw exception.
      *
-     *  UnboundRelation(RelationUtil.newRelationId(), student)               limit(1)                          limit(1)
+     *  UnboundRelation(student)               limit(1)                          limit(1)
      *                              ->           |                   ->             |                 ->    ...
-     *                                    UnboundRelation(RelationUtil.newRelationId(), student)          UnboundRelation(RelationUtil.newRelationId(), student)
+     *                                    UnboundRelation(student)          UnboundRelation(student)
      *
      * you should split A into some states:
      * 1. A(not rewrite)
@@ -381,6 +382,8 @@ class MemoTest implements PatternMatchSupported {
                             ).when(limit::equals)
                     );
         });
+
+        // use relation id to divide different unbound relation.
 
         // valid case: 5 steps
         class A extends UnboundRelation {
@@ -418,20 +421,22 @@ class MemoTest implements PatternMatchSupported {
             }
         }
 
-        A a = new A(ImmutableList.of("student"), State.NOT_REWRITE);
+        UnboundRelation a = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
 
-        A a2 = new A(ImmutableList.of("student"), State.ALREADY_REWRITE);
+        UnboundRelation a2 = new UnboundRelation(new RelationId(1), ImmutableList.of("student"));
         LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, a2);
 
-        PlanChecker.from(connectContext, a).applyBottomUp(unboundRelation()
-                        // 4: add state condition to the pattern's predicates
-                        .when(r -> (r instanceof A) && ((A) r).state == State.NOT_REWRITE).then(unboundRelation -> {
-                            // 5: new plan and change state, so this case equal to 'A -> B(C)', which C has
-                            //    different state with A
-                            A notRewritePlan = (A) unboundRelation;
-                            return limit.withChildren(notRewritePlan.withState(State.ALREADY_REWRITE));
-                        })).checkGroupNum(2)
-                .matchesFromRoot(logicalLimit(unboundRelation().when(a2::equals)).when(limit::equals));
+        PlanChecker.from(connectContext, a)
+                .applyBottomUp(
+                        unboundRelation().then(
+                                unboundRelation ->
+                                        limit.withChildren(new UnboundRelation(RelationUtil.newRelationId(), unboundRelation.getNameParts()))))
+                .checkGroupNum(2)
+                .matchesFromRoot(
+                        logicalLimit(
+                                unboundRelation().when(a2::equals)
+                        ).when(limit::equals)
+                );
     }
 
     /*
@@ -440,7 +445,7 @@ class MemoTest implements PatternMatchSupported {
      *
      *      limit(1)                             limit(1)                          limit(1)
      *         |                      ->           |                   ->             |                 ->    ...
-     * UnboundRelation(RelationUtil.newRelationId(), student)            UnboundRelation(RelationUtil.newRelationId(), student)         UnboundRelation(RelationUtil.newRelationId(), student)
+     * UnboundRelation(student)            UnboundRelation(student)         UnboundRelation(student)
      *
      * you should split A into some states:
      * 1. A(not rewrite)
@@ -475,7 +480,7 @@ class MemoTest implements PatternMatchSupported {
     /*
      * A -> B(C(D)):
      *
-     * UnboundRelation(RelationUtil.newRelationId(), student)   ->     logicalLimit(10)
+     * UnboundRelation(student)   ->     logicalLimit(10)
      *                                         |
      *                                   logicalLimit(5)
      *                                        |
@@ -622,7 +627,7 @@ class MemoTest implements PatternMatchSupported {
      *
      *       limit(10)                                     limit(5)
      *         |                        ->                    |
-     *  UnboundRelation(RelationUtil.newRelationId(), student)                    logicalOlapScan(student)
+     *  UnboundRelation(student)                    logicalOlapScan(student)
      */
     @Test
     public void ab2cd() {
@@ -731,7 +736,7 @@ class MemoTest implements PatternMatchSupported {
      *
      * logicalLimit(3)            ->         logicalLimit(10)
      *       |                                    |
-     * UnboundRelation(RelationUtil.newRelationId(), student)              logicalLimit(5)
+     * UnboundRelation(student)              logicalLimit(5)
      *                                           |
      *                                   logicalOlapScan(student)))
      */
