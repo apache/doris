@@ -20,18 +20,18 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang.NotImplementedException;
-import org.apache.commons.lang3.tuple.Triple;
 
 import java.util.List;
 import java.util.Map;
 
 public class BackendClause extends AlterClause {
     protected List<String> hostPorts;
-    protected List<Triple<String, String, Integer>> ipHostPortTriples;
+    protected List<HostInfo> hostInfos;
 
     public static final String MUTLI_TAG_DISABLED_MSG = "Not support multi tags for Backend now. "
             + "You can set 'enable_multi_tags=true' in fe.conf to enable this feature.";
@@ -41,20 +41,20 @@ public class BackendClause extends AlterClause {
     protected BackendClause(List<String> hostPorts) {
         super(AlterOpType.ALTER_OTHER);
         this.hostPorts = hostPorts;
-        this.ipHostPortTriples = Lists.newArrayList();
+        this.hostInfos = Lists.newArrayList();
     }
 
-    public List<Triple<String, String, Integer>> getIpHostPortTriples() {
-        return ipHostPortTriples;
+    public List<HostInfo> getHostInfos() {
+        return hostInfos;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         for (String hostPort : hostPorts) {
-            Triple<String, String, Integer> triple = SystemInfoService.getIpHostAndPort(hostPort, true);
-            ipHostPortTriples.add(triple);
+            HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+            hostInfos.add(hostInfo);
         }
-        Preconditions.checkState(!ipHostPortTriples.isEmpty());
+        Preconditions.checkState(!hostInfos.isEmpty());
     }
 
     @Override

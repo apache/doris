@@ -20,35 +20,35 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.tuple.Triple;
 
 import java.util.List;
 
 public class CancelAlterSystemStmt extends CancelStmt {
 
     protected List<String> hostPorts;
-    private List<Triple<String, String, Integer>> ipHostPortTriples;
+    private List<HostInfo> hostInfos;
 
     public CancelAlterSystemStmt(List<String> hostPorts) {
         this.hostPorts = hostPorts;
-        this.ipHostPortTriples = Lists.newArrayList();
+        this.hostInfos = Lists.newArrayList();
     }
 
-    public List<Triple<String, String, Integer>> getIpHostPortTriples() {
-        return ipHostPortTriples;
+    public List<HostInfo> getHostInfos() {
+        return hostInfos;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         for (String hostPort : hostPorts) {
-            Triple<String, String, Integer> triple = SystemInfoService.getIpHostAndPort(hostPort,
+            HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort,
                     !Config.enable_fqdn_mode);
-            this.ipHostPortTriples.add(triple);
+            this.hostInfos.add(hostInfo);
         }
-        Preconditions.checkState(!this.ipHostPortTriples.isEmpty());
+        Preconditions.checkState(!this.hostInfos.isEmpty());
     }
 
     @Override

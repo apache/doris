@@ -20,9 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang3.tuple.Triple;
 
 import java.util.List;
 
@@ -47,11 +47,11 @@ public class DropBackendClause extends BackendClause {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (Config.enable_fqdn_mode) {
             for (String hostPort : hostPorts) {
-                Triple<String, String, Integer> triple = SystemInfoService.getIpHostAndPort(hostPort,
+                HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort,
                         !Config.enable_fqdn_mode);
-                ipHostPortTriples.add(triple);
+                hostInfos.add(hostInfo);
             }
-            Preconditions.checkState(!ipHostPortTriples.isEmpty());
+            Preconditions.checkState(!hostInfos.isEmpty());
         } else {
             super.analyze(analyzer);
         }

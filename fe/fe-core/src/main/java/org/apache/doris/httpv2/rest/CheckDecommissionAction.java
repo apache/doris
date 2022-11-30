@@ -25,10 +25,10 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang3.tuple.Triple;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -70,18 +70,18 @@ public class CheckDecommissionAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No host:port specified");
         }
 
-        List<Triple<String, String, Integer>> ipHostPortTriples = Lists.newArrayList();
+        List<HostInfo> hostInfos = Lists.newArrayList();
         for (String hostPort : hostPortArr) {
             try {
-                Triple<String, String, Integer> triple = SystemInfoService.getIpHostAndPort(hostPort, true);
-                ipHostPortTriples.add(triple);
+                HostInfo hostInfo = SystemInfoService.getIpHostAndPort(hostPort, true);
+                hostInfos.add(hostInfo);
             } catch (AnalysisException e) {
                 return ResponseEntityBuilder.badRequest(e.getMessage());
             }
         }
 
         try {
-            List<Backend> backends = SystemHandler.checkDecommission(ipHostPortTriples);
+            List<Backend> backends = SystemHandler.checkDecommission(hostInfos);
             List<String> backendsList = backends.stream().map(b -> b.getHost() + ":"
                     + b.getHeartbeatPort()).collect(Collectors.toList());
             return ResponseEntityBuilder.ok(backendsList);

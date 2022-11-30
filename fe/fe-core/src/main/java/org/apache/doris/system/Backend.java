@@ -69,7 +69,7 @@ public class Backend implements Writable {
     @SerializedName("id")
     private long id;
     @SerializedName("host")
-    private volatile String host;
+    private volatile String ip;
     @SerializedName("hostName")
     private String hostName;
     private String version;
@@ -143,7 +143,7 @@ public class Backend implements Writable {
     private int heartbeatFailureCounter = 0;
 
     public Backend() {
-        this.host = "";
+        this.ip = "";
         this.version = "";
         this.lastUpdateMs = 0;
         this.lastStartTime = 0;
@@ -167,7 +167,7 @@ public class Backend implements Writable {
 
     public Backend(long id, String ip, String hostName, int heartbeatPort) {
         this.id = id;
-        this.host = ip;
+        this.ip = ip;
         this.hostName = hostName;
         this.version = "";
         this.heartbeatPort = heartbeatPort;
@@ -192,7 +192,7 @@ public class Backend implements Writable {
     }
 
     public String getHost() {
-        return host;
+        return ip;
     }
 
     public String getHostName() {
@@ -288,8 +288,8 @@ public class Backend implements Writable {
         this.backendState = state.ordinal();
     }
 
-    public void setHost(String host) {
-        this.host = host;
+    public void setHost(String ip) {
+        this.ip = ip;
     }
 
     public void setAlive(boolean isAlive) {
@@ -597,7 +597,7 @@ public class Backend implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, host, heartbeatPort, bePort, isAlive);
+        return Objects.hash(id, ip, heartbeatPort, bePort, isAlive);
     }
 
     @Override
@@ -611,13 +611,13 @@ public class Backend implements Writable {
 
         Backend backend = (Backend) obj;
 
-        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort)
+        return (id == backend.id) && (ip.equals(backend.ip)) && (heartbeatPort == backend.heartbeatPort)
                 && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
     }
 
     @Override
     public String toString() {
-        return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
+        return "Backend [id=" + id + ", ip=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", tags: " + tagMap + "]";
     }
 
