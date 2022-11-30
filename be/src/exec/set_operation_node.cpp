@@ -42,7 +42,7 @@ Status SetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SetOperationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
     _build_pool.reset(new MemPool(mem_tracker_held()));
@@ -130,7 +130,7 @@ bool SetOperationNode::equals(TupleRow* row, TupleRow* other) {
 Status SetOperationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     // open result expr lists.
     for (const std::vector<ExprContext*>& exprs : _child_expr_lists) {

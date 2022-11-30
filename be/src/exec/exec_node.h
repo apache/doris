@@ -195,9 +195,9 @@ public:
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
     MemTracker* mem_tracker_held() const { return _mem_tracker_held.get(); }
-    MemTracker* mem_tracker_allocated() const { return _mem_tracker_allocated.get(); }
-    std::shared_ptr<MemTracker> mem_tracker_allocated_shared() const {
-        return _mem_tracker_allocated;
+    MemTracker* mem_tracker_growh() const { return _mem_tracker_growh.get(); }
+    std::shared_ptr<MemTracker> mem_tracker_growh_shared() const {
+        return _mem_tracker_growh;
     }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
@@ -304,9 +304,9 @@ protected:
 
     // Record the memory size held by this node.
     std::unique_ptr<MemTracker> _mem_tracker_held;
-    // Record the memory size alloc by this node.
+    // Record the memory size allocated by this node.
     // Similar to tcmalloc heap profile growh, only track memory alloc, not track memory free.
-    std::shared_ptr<MemTracker> _mem_tracker_allocated;
+    std::shared_ptr<MemTracker> _mem_tracker_growh;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;

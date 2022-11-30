@@ -148,7 +148,7 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VAnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     DCHECK(child(0)->row_desc().is_prefix_of(_row_descriptor));
     _mem_pool.reset(new MemPool(mem_tracker_held()));
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
@@ -216,7 +216,7 @@ Status VAnalyticEvalNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(child(0)->open(state));
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
@@ -254,7 +254,7 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span,
                                  "VAnalyticEvalNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
 
     if (_input_eos && _output_block_index == _input_blocks.size()) {
