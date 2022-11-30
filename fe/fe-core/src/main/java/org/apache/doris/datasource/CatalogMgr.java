@@ -302,7 +302,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     if (Env.getCurrentEnv().getAuth()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                         String name = catalog.getName();
-                        // Filter dbname
+                        // Filter catalog name
                         if (matcher != null && !matcher.match(name)) {
                             continue;
                         }
@@ -312,6 +312,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(catalog.getType());
                         rows.add(row);
                     }
+
+                    // sort by catalog name
+                    rows.sort((x, y) -> {
+                        return x.get(1).compareTo(y.get(1));
+                    });
                 }
             } else {
                 if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
