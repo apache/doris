@@ -34,6 +34,7 @@ suite("test_aggregate_all_functions") {
 	    ) 
            """
     sql "INSERT INTO ${tableName_01} values(1,'beijing'), (2,'xian'), (3,'xian')"
+    sql "sync"
     qt_select1 "select approx_count_distinct(id) from ${tableName_01} group by group_type order by approx_count_distinct(id) asc"
     sql "DROP TABLE IF EXISTS ${tableName_01}"
     
@@ -53,6 +54,7 @@ suite("test_aggregate_all_functions") {
         ) 
         """
     sql "INSERT INTO ${tableName_02} values(1,100,'beijing'), (2,70,'xian'), (3,90,'xian') ,(4,100,'beijing') ,(5,140,'xian') ,(6,100,'beijing')"
+    sql "sync"
     qt_select2 "select group_type,AVG(level) from ${tableName_02} group by group_type order by group_type"
     qt_select3 "select group_type,AVG(distinct level) from ${tableName_02} group by group_type order by group_type"
     sql "DROP TABLE IF EXISTS ${tableName_02}"
@@ -103,6 +105,7 @@ suite("test_aggregate_all_functions") {
     sql "insert into ${tableName_03} select dt,page,to_bitmap(user_id_int) user_id from ${tableName_04}"
     sql "insert into ${tableName_03} select dt,page,bitmap_hash(user_id_str) user_id from ${tableName_04}"
 
+    sql "sync"
     sql "set enable_vectorized_engine = false"
     qt_bitmap_intersect "select dt, bitmap_to_string(bitmap_intersect(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 
@@ -134,6 +137,7 @@ suite("test_aggregate_all_functions") {
         ) 
         """
     sql "INSERT INTO ${tableName_05} values(1,'beijing'), (2,'xian'), (2,'xian') ,(4,'beijing') ,(5,'xian') ,(6,'beijing')"
+    sql "sync"
     qt_select6 "select group_type,count(*) from ${tableName_05} group by group_type order by group_type"
     qt_select7 "select group_type,count(id) from ${tableName_05} group by group_type order by group_type"
     qt_select8 "select group_type,count(distinct id) from ${tableName_05} group by group_type order by group_type"
@@ -157,6 +161,7 @@ suite("test_aggregate_all_functions") {
     """
     sql "INSERT INTO ${tableName_06} values(1,'beijing'),(2,'beijing'), (1,'xian'), (2,'chengdu') ,(2,'shanghai')"
 
+    sql "sync"
     qt_select9 "select GROUP_CONCAT(name) from ${tableName_06}"
     qt_select10 "select GROUP_CONCAT(name,' ') from ${tableName_06}"    
     qt_select11 "select GROUP_CONCAT(name,NULL) from ${tableName_06}"
@@ -183,6 +188,7 @@ suite("test_aggregate_all_functions") {
         """
 
     sql "INSERT INTO ${tableName_07} values(1,'beijing'), (2,'xian'), (2,'xian') ,(4,'beijing') ,(5,'xian') ,(6,'beijing')"
+    sql "sync"
     sql "DROP TABLE IF EXISTS ${tableName_08}"
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName_08} (
@@ -196,6 +202,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_08} select id,hll_hash(group_type) from ${tableName_07}"
     
+    sql "sync"
     qt_select15 "select id,HLL_UNION_AGG(group_type) from ${tableName_08} group by id order by id"
     
     sql "DROP TABLE IF EXISTS ${tableName_07}"
@@ -217,7 +224,8 @@ suite("test_aggregate_all_functions") {
         ) 
         """
     sql "INSERT INTO ${tableName_09} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
-    
+
+    sql "sync"
     qt_select16 "select id,MAX(level) from ${tableName_09} group by id order by id"
     qt_select17 "select MAX(level) from ${tableName_09}"
     
@@ -239,6 +247,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_11} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
+    sql "sync"
     qt_select18 "select id,MIN(level) from ${tableName_11} group by id order by id"
     qt_select19 "select MIN(level) from ${tableName_11}"
 
@@ -261,6 +270,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_11} values(1,1),(2,2),(3,3),(4,null),(null,5)"
 
+    sql "sync"
     qt_select "select * from (select k1 from ${tableName_11} union select null) t order by k1"
     qt_select "select * from (select k1,a1 from ${tableName_11} union select null,null) t order by k1, a1"
 
@@ -285,6 +295,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_13} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
+    sql "sync"
     qt_select20 "select id,percentile(level,0.5) from ${tableName_13} group by id order by id"
     qt_select21 "select id,percentile(level,0.55) from ${tableName_13} group by id order by id"
     qt_select22 "select id,percentile(level,0.805) from ${tableName_13} group by id order by id"
@@ -309,6 +320,7 @@ suite("test_aggregate_all_functions") {
 
     sql "INSERT INTO ${tableName_14} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
+    sql "sync"
     qt_select23 "select id,PERCENTILE_APPROX(level,0.5) from ${tableName_14} group by id order by id"
     qt_select24 "select id,PERCENTILE_APPROX(level,0.55) from ${tableName_14} group by id order by id"
     qt_select25 "select id,PERCENTILE_APPROX(level,0.805) from ${tableName_14} group by id order by id"
@@ -336,6 +348,7 @@ suite("test_aggregate_all_functions") {
 
     sql "INSERT INTO ${tableName_15} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
+    sql "sync"
     qt_select29 "select id,stddev(level) from ${tableName_15} group by id order by id"
     qt_select30 "select id,stddev_pop(level) from ${tableName_15} group by id order by id"
 
@@ -358,6 +371,7 @@ suite("test_aggregate_all_functions") {
         """
 
     sql "INSERT INTO ${tableName_16} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
+    sql "sync"
     qt_select31 "select id,stddev_samp(level) from ${tableName_16} group by id order by id"
 
     sql "DROP TABLE IF EXISTS ${tableName_16}"
@@ -379,6 +393,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_17} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
+    sql "sync"
     qt_select32 "select id,sum(level) from ${tableName_17} group by id order by id"
     qt_select33 "select sum(level) from ${tableName_17}"
 
@@ -401,6 +416,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_18} values(1,10), (2,18), (2,441) ,(1,10) ,(3,29) ,(3,101),(1,11), (2,18), (2,41) ,(1,13) ,(3,4) ,(3,12)"
 
+    sql "sync"
     qt_select34 "select id,topn(level,2) from ${tableName_18} group by id order by id"
     qt_select35 "select id,topn(level,2,100) from ${tableName_18} group by id order by id"
     qt_select36 "select topn(level,2,100) from ${tableName_18}"
@@ -424,6 +440,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_19} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
+    sql "sync"
     qt_select37 "select id,var_samp(level) from ${tableName_19} group by id order by id"
     qt_select38 "select id,variance_samp(level) from ${tableName_19} group by id order by id"
 
@@ -446,6 +463,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_20} values(1,10), (2,8), (2,441) ,(1,10) ,(3,29) ,(3,101)"
 
+    sql "sync"
     qt_select39 "select id,VARIANCE(level) from ${tableName_20} group by id order by id"
     qt_select40 "select id,VAR_POP(level) from ${tableName_20} group by id order by id"
     qt_select41 "select id,VARIANCE_POP(level) from ${tableName_20} group by id order by id"
@@ -469,6 +487,7 @@ suite("test_aggregate_all_functions") {
 	"""
     sql "INSERT INTO ${tableName_10} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
+    sql "sync"
     qt_select42 "select MAX_BY(id,level) from ${tableName_10}"
     
     sql "DROP TABLE IF EXISTS ${tableName_10}"
@@ -489,6 +508,7 @@ suite("test_aggregate_all_functions") {
         """
     sql "INSERT INTO ${tableName_12} values(1,10), (2,8), (2,441) ,(3,10) ,(5,29) ,(6,101)"
 
+    sql "sync"
     qt_select43 "select MIN_BY(id,level) from ${tableName_12}"
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
