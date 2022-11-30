@@ -49,6 +49,8 @@ public class GroupExpression {
     private final BitSet ruleMasks;
     private boolean statDerived;
 
+    private long estOutputRowCount = -1;
+
     // Mapping from output properties to the corresponding best cost, statistics, and child properties.
     // key is the physical properties the group expression support for its parent
     // and value is cost and request physical properties to its children.
@@ -240,27 +242,32 @@ public class GroupExpression {
         return new StatsDeriveResult(child(idx).getStatistics());
     }
 
+    public void setEstOutputRowCount(long estOutputRowCount) {
+        this.estOutputRowCount = estOutputRowCount;
+    }
+
+    public long getEstOutputRowCount() {
+        return estOutputRowCount;
+    }
+
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-
         if (ownerGroup == null) {
             builder.append("OWNER GROUP IS NULL[]");
         } else {
-            builder.append(ownerGroup.getGroupId()).append(" cost=").append((long) cost);
+            builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
 
         if (costEstimate != null) {
-            builder.append(" est=").append(costEstimate);
+            builder.append(" cost=").append((long) cost).append(" (").append(costEstimate).append(")");
         }
+        builder.append(" estRows=").append(estOutputRowCount);
         builder.append(" (plan=").append(plan.toString()).append(") children=[");
         for (Group group : children) {
             builder.append(group.getGroupId()).append(" ");
         }
         builder.append("]");
-        if (ownerGroup != null) {
-            builder.append(" stats=").append(ownerGroup.getStatistics());
-        }
         return builder.toString();
     }
 }
