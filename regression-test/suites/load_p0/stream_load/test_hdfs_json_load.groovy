@@ -47,7 +47,7 @@ suite("test_hdfs_json_load", "p0") {
         // should be delete after new_load_scan is ready
         sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
         
-        def hdfsFilePath = "${fsPath}/user/doris/json_format_test/${fileName}"
+        def hdfsFilePath = "${fsPath}/user/doris/preinstalled_data/json_format_test/${fileName}"
         def result1= sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")

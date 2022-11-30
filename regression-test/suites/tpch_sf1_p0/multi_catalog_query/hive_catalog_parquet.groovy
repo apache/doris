@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalog_hive", "p0") {
+suite("test_catalog_hive_parquet", "p0") {
 
     def q01 = { 
         sql """set exec_mem_limit=8589934592"""
@@ -835,8 +835,7 @@ order by
             );
             """
         sql """switch hive"""
-        sql """use `default`"""
-        // order_qt_show_tables """show tables"""
+        sql """use `tpch1_parquet`"""
 
         q01()
         q02()
