@@ -35,7 +35,7 @@ suite("alter_column_stats") {
 
     sql """ANALYZE statistics_test"""
 
-    sleep(3000)
+    sleep(9000)
 
     qt_sql """
         SHOW COLUMN STATS statistics_test
