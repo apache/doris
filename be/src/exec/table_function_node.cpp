@@ -90,7 +90,7 @@ bool TableFunctionNode::_is_inner_and_empty() {
 
 Status TableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
 
     _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
 
@@ -106,7 +106,7 @@ Status TableFunctionNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
 
     RETURN_IF_ERROR(Expr::open(_fn_ctxs, state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_vfn_ctxs, state));
@@ -198,7 +198,7 @@ bool TableFunctionNode::_roll_table_functions(int last_eos_idx) {
 // And the inner loop is to expand the row by table functions, and output row by row.
 Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
 
     const RowDescriptor& parent_rowdesc = row_batch->row_desc();
     const RowDescriptor& child_rowdesc = _children[0]->row_desc();

@@ -76,7 +76,7 @@ Status NewEsScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status NewEsScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << NEW_SCAN_NODE_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {

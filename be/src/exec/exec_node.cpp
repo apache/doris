@@ -219,9 +219,18 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = std::make_shared<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                                _runtime_profile.get());
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    _mem_tracker_held =
+            std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
+                                         _runtime_profile.get(), nullptr, "PeakMemoryUsage");
+    // Only when the query profile is enabled, the node allocated memory will be track through the mem hook,
+    // otherwise _mem_tracker_allocated is nullptr, and SCOPED_CONSUME_MEM_TRACKER will do nothing.
+    if (state->query_options().__isset.is_report_success &&
+        state->query_options().is_report_success) {
+        _mem_tracker_allocated = std::make_shared<MemTracker>(
+                "ExecNode:AllocatedMemory:" + _runtime_profile->name(), _runtime_profile.get(),
+                nullptr, "AllocatedMemoryNotConsiderFree", true);
+    }
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
@@ -243,7 +252,7 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::open(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }

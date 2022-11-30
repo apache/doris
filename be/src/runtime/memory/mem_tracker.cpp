@@ -28,8 +28,6 @@
 
 namespace doris {
 
-const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
-
 struct TrackerGroup {
     std::list<MemTracker*> trackers;
     std::mutex group_lock;
@@ -41,8 +39,9 @@ struct TrackerGroup {
 // Multiple groups are used to reduce the impact of locks.
 static std::vector<TrackerGroup> mem_tracker_pool(1000);
 
-MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent)
-        : _label(label) {
+MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
+                       const std::string& profile_counter_name, bool only_allocated)
+        : _label(label), _only_allocated(only_allocated) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
@@ -55,7 +54,7 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTra
         // Other consumption metrics are used in trackers below the process level to account
         // for memory (such as free buffer pool buffers) that is not tracked by consume() and
         // release().
-        _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
+        _consumption = profile->AddSharedHighWaterMarkCounter(profile_counter_name, TUnit::BYTES);
     }
 
     if (parent) {

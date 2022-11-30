@@ -155,7 +155,7 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VJoinNodeBase::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::open");
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated());
     RETURN_IF_CANCELLED(state);
 
     std::promise<Status> thread_status;
@@ -188,7 +188,7 @@ void VJoinNodeBase::_reset_tuple_is_null_column() {
 void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_allocated_shared());
     status->set_value(child(0)->open(state));
 }
 
