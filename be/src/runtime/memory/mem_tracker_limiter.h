@@ -145,9 +145,9 @@ public:
     Status fragment_mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                                        int64_t failed_allocation_size = 0);
 
-    //
+    // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is released.
     static void free_top_query(int64_t min_free_mem);
-    
+
     static std::string process_mem_log_str() {
         return fmt::format(
                 "physical memory {}, process memory used {} limit {}, sys mem available {} low "

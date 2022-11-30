@@ -242,10 +242,6 @@ Status MemTrackerLimiter::fragment_mem_limit_exceeded(RuntimeState* state, const
     return Status::MemoryLimitExceeded(failed_msg);
 }
 
-// Logs the usage of 'limit' number of queries based on maximum total memory consumption.
-// Helper function for LogTopNQueries that iterates through the MemTracker hierarchy
-// and populates 'min_pq' with 'limit' number of elements (that contain state related
-// to query MemTrackers) based on maximum total memory consumption.
 void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
     std::priority_queue<std::pair<int64_t, std::string>,
                         std::vector<std::pair<int64_t, std::string>>,
