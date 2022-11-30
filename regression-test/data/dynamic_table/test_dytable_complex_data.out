@@ -99,10 +99,6 @@ BUILD_FINISHED	post	[[text, text, text, text, a, text]]	[]	[[status: SUCCESS\n, 
 1
 
 -- !sql --
-BUILD_FINISHED	[]
-teamcity publisher	[[NULL, NULL, NULL, NULL, http://43.129.232.36:8111/viewType.html?buildTypeId=IncubatorDoris_IncubatorDorisBeUt_BeUt]]
-
--- !sql --
 Soumojit28/Oxytocin
 Soumojit28/Oxytocin
 audacity/audacity
