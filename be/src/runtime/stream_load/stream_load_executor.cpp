@@ -83,7 +83,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                                  << ", err_msg=" << status->get_error_msg() << ", " << ctx->brief();
                     // cancel body_sink, make sender known it
                     if (ctx->body_sink != nullptr) {
-                        ctx->body_sink->cancel(status->get_error_msg());
+                        ctx->body_sink->cancel(status->to_string());
                     }
 
                     switch (ctx->load_src_type) {
@@ -105,7 +105,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                     // However, the http connection may still be sending data to stream_load_pipe
                     // and waiting for it to be consumed.
                     // Therefore, we need to actively cancel to end the pipe.
-                    ctx->body_sink->cancel(status->get_error_msg());
+                    ctx->body_sink->cancel(status->to_string());
                 }
 
                 if (ctx->need_commit_self && ctx->body_sink != nullptr) {
@@ -164,8 +164,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         status = Status(result.status);
     }
     if (!status.ok()) {
-        LOG(WARNING) << "begin transaction failed, errmsg=" << status.get_error_msg()
-                     << ctx->brief();
+        LOG(WARNING) << "begin transaction failed, errmsg=" << status << ctx->brief();
         if (result.__isset.job_status) {
             ctx->existing_job_status = result.job_status;
         }
@@ -201,9 +200,8 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     // rollback this transaction
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "precommit transaction failed, errmsg=" << status.get_error_msg()
-                     << ctx->brief();
-        if (status.code() == TStatusCode::PUBLISH_TIMEOUT) {
+        LOG(WARNING) << "precommit transaction failed, errmsg=" << status << ctx->brief();
+        if (status.is<E_PUBLISH_TIMEOUT>()) {
             ctx->need_rollback = false;
         }
         return status;
@@ -231,7 +229,7 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
             config::txn_commit_rpc_timeout_ms));
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "2PC commit transaction failed, errmsg=" << status.get_error_msg();
+        LOG(WARNING) << "2PC commit transaction failed, errmsg=" << status;
         return status;
     }
     return Status::OK();
@@ -283,9 +281,8 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     // rollback this transaction
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg() << ", "
-                     << ctx->brief();
-        if (status.code() == TStatusCode::PUBLISH_TIMEOUT) {
+        LOG(WARNING) << "commit transaction failed, errmsg=" << status << ", " << ctx->brief();
+        if (status.is<E_PUBLISH_TIMEOUT>()) {
             ctx->need_rollback = false;
         }
         return status;
@@ -308,7 +305,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     }
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
-    request.__set_reason(ctx->status.get_error_msg());
+    request.__set_reason(ctx->status.to_string());
 
     // set attachment if has
     TTxnCommitAttachment attachment;
@@ -325,8 +322,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
                 client->loadTxnRollback(result, request);
             });
     if (!rpc_st.ok()) {
-        LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st.get_error_msg()
-                     << ctx->brief();
+        LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st << ctx->brief();
     }
 #else
     result = k_stream_load_rollback_result;

@@ -715,9 +715,9 @@ Status BufferedBlockMgr2::allocate_scratch_space(int64_t block_size, TmpFileMgr:
         }
         // Log error and try other files if there was a problem. Problematic files will be
         // blacklisted so we will not repeatedly log the same error.
-        LOG(WARNING) << "Error while allocating temporary file range: " << status.get_error_msg()
+        LOG(WARNING) << "Error while allocating temporary file range: " << status
                      << ". Will try another temporary file.";
-        errs.emplace_back(status.get_error_msg());
+        errs.emplace_back(status.to_string());
     }
     Status err_status = Status::InternalError(
             "No usable temporary files: space could not be allocated on any temporary device.");
@@ -781,21 +781,20 @@ void BufferedBlockMgr2::write_complete(Block* block, const Status& write_status)
         VLOG_FILE << "Query: " << _query_id
                   << ". Write did not complete successfully: "
                      "write_status="
-                  << write_status.get_error_msg() << ", status=" << status.get_error_msg()
-                  << ". _is_cancelled=" << _is_cancelled;
+                  << write_status << ", status=" << status << ". _is_cancelled=" << _is_cancelled;
 
         // If the instance is already cancelled, don't confuse things with these errors.
-        if (!write_status.is_cancelled() && !state->is_cancelled()) {
+        if (!write_status.is<E_CANCELLED>() && !state->is_cancelled()) {
             if (!write_status.ok()) {
                 // Report but do not attempt to recover from write error.
                 DCHECK(block->_tmp_file != nullptr);
-                block->_tmp_file->report_io_error(write_status.get_error_msg());
+                block->_tmp_file->report_io_error(write_status.to_string());
                 VLOG_QUERY << "Query: " << _query_id << " write complete callback with error.";
-                state->log_error(write_status.get_error_msg());
+                state->log_error(write_status);
             }
             if (!status.ok()) {
                 VLOG_QUERY << "Query: " << _query_id << " error while writing unpinned blocks.";
-                state->log_error(status.get_error_msg());
+                state->log_error(status.to_string());
             }
         }
         // Set cancelled and wake up waiting threads if an error occurred.  Note that in

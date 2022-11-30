@@ -197,7 +197,7 @@ Status MergeIteratorContext::_load_next_block() {
         Status st = _iter->next_batch(&_block);
         if (!st.ok()) {
             _valid = false;
-            if (st.is_end_of_file()) {
+            if (st.is<E_END_OF_FILE>()) {
                 return Status::OK();
             } else {
                 return st;
@@ -378,7 +378,7 @@ Status UnionIterator::init(const StorageReadOptions& opts) {
 Status UnionIterator::next_batch(RowBlockV2* block) {
     while (_cur_iter != nullptr) {
         auto st = _cur_iter->next_batch(block);
-        if (st.is_end_of_file()) {
+        if (st.is<E_END_OF_FILE>()) {
             delete _cur_iter;
             _cur_iter = nullptr;
             _origin_iters.pop_front();

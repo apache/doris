@@ -124,7 +124,7 @@ public:
     // @param [in] root_path specify root path of new tablet
     // @param [in] request specify new tablet info
     // @param [in] restore whether we're restoring a tablet from trash
-    // @return OLAP_SUCCESS if load tablet success
+    // @return E_OK if load tablet success
     Status load_header(const std::string& shard_path, const TCloneReq& request,
                        bool restore = false);
 

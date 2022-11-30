@@ -355,7 +355,7 @@ Status NewJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& column
         bool valid = false;
         if (_next_row >= _total_rows) { // parse json and generic document
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<E_DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -426,7 +426,7 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
     do {
         if (_next_row >= _total_rows) {
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<E_DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -456,7 +456,7 @@ Status NewJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>
                                                    bool* is_empty_row, bool* eof) {
     while (true) {
         Status st = _parse_json(is_empty_row, eof);
-        if (st.is_data_quality_error()) {
+        if (st.is<E_DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);

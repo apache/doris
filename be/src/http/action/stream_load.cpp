@@ -151,20 +151,20 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // status already set to fail
     if (ctx->status.ok()) {
         ctx->status = _handle(ctx);
-        if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
+        if (!ctx->status.ok() && !ctx->status.is<E_PUBLISH_TIMEOUT>()) {
             LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
-                         << ", errmsg=" << ctx->status.get_error_msg();
+                         << ", errmsg=" << ctx->status;
         }
     }
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
-    if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
+    if (!ctx->status.ok() && !ctx->status.is<E_PUBLISH_TIMEOUT>()) {
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx);
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel(ctx->status.get_error_msg());
+            ctx->body_sink->cancel(ctx->status.to_string());
         }
     }
 
@@ -240,13 +240,13 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 
     auto st = _on_header(req, ctx);
     if (!st.ok()) {
-        ctx->status = st;
+        ctx->status = std::move(st);
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx);
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel(st.get_error_msg());
+            ctx->body_sink->cancel(ctx->status.to_string());
         }
         auto str = ctx->to_json();
         // add new line at end
@@ -357,8 +357,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         bb->flip();
         auto st = ctx->body_sink->append(bb);
         if (!st.ok()) {
-            LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg() << ", "
-                         << ctx->brief();
+            LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
             return;
         }
@@ -580,8 +579,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
 #endif
     Status plan_status(ctx->put_result.status);
     if (!plan_status.ok()) {
-        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status.get_error_msg()
-                     << ctx->brief();
+        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);

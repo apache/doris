@@ -107,10 +107,10 @@ Status EsHttpScanNode::build_conjuncts_list() {
         } else {
             _conjunct_to_predicate[i] = -1;
 
-            VLOG_CRITICAL << status.get_error_msg();
+            VLOG_CRITICAL << status;
             status = predicate->get_es_query_status();
             if (!status.ok()) {
-                LOG(WARNING) << status.get_error_msg();
+                LOG(WARNING) << status;
                 return status;
             }
         }
@@ -461,8 +461,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
                               scanner_expr_ctxs, &counter, doc_value_mode));
     status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
     if (!status.ok()) {
-        LOG(WARNING) << "Scanner[" << start_idx
-                     << "] process failed. status=" << status.get_error_msg();
+        LOG(WARNING) << "Scanner[" << start_idx << "] process failed. status=" << status;
     }
 
     // scanner is going to finish

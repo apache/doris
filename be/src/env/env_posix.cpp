@@ -352,7 +352,7 @@ public:
         if (_sync_on_close) {
             Status sync_status = sync();
             if (!sync_status.ok()) {
-                LOG(ERROR) << "Unable to Sync " << _filename << ": " << sync_status.to_string();
+                LOG(ERROR) << "Unable to Sync " << _filename << ": " << sync_status;
                 if (s.ok()) {
                     s = sync_status;
                 }
@@ -461,7 +461,7 @@ public:
         if (_sync_on_close) {
             s = sync();
             if (!s.ok()) {
-                LOG(ERROR) << "Unable to Sync " << _filename << ": " << s.to_string();
+                LOG(ERROR) << "Unable to Sync " << _filename << ": " << s;
             }
         }
 
@@ -600,7 +600,7 @@ Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
     }
 
     // Check that dirname is actually a directory.
-    if (s.is_already_exist()) {
+    if (s.is<E_ALREADY_EXIST>()) {
         bool is_dir = false;
         RETURN_IF_ERROR(is_directory(dirname, &is_dir));
         if (is_dir) {

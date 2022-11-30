@@ -83,12 +83,11 @@ Status VArrowScanner::_open_next_reader() {
         Status status =
                 _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
 
-        if (status.is_end_of_file()) {
+        if (status.is<E_END_OF_FILE>()) {
             continue;
         } else {
             if (!status.ok()) {
-                return Status::InternalError(" file: {} error:{}", range.path,
-                                             status.get_error_msg());
+                return Status::InternalError(" file: {} error:{}", range.path, status);
             } else {
                 update_profile(_cur_file_reader->statistics());
                 return status;
@@ -200,7 +199,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     {
         Status st = _init_arrow_batch_if_necessary();
         if (!st.ok()) {
-            if (!st.is_end_of_file()) {
+            if (!st.is<E_END_OF_FILE>()) {
                 return st;
             }
             *eof = true;
@@ -224,7 +223,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
             continue;
         }
         // return error if not EOF
-        if (!status.is_end_of_file()) {
+        if (!status.is<E_END_OF_FILE>()) {
             return status;
         }
         _cur_file_eof = true;

@@ -519,7 +519,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
         *rowid = num_rows();
-        if (status.is_not_found()) {
+        if (status.is<E_NOT_FOUND>()) {
             return Status::OK();
         }
         return status;

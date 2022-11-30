@@ -255,7 +255,7 @@ void RuntimeState::log_error(const Status& status) {
         return;
     }
 
-    log_error(status.get_error_msg());
+    log_error(status);
 }
 
 void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
@@ -274,7 +274,7 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
             _process_status = Status::MemoryLimitExceeded(msg);
         }
     }
-    DCHECK(_process_status.is_mem_limit_exceeded());
+    DCHECK(_process_status.is<E_MEM_LIMIT_EXCEEDED>());
     return _process_status;
 }
 
@@ -335,7 +335,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (_error_log_file == nullptr) {
         Status status = create_error_log_file();
         if (!status.ok()) {
-            LOG(WARNING) << "Create error file log failed. because: " << status.get_error_msg();
+            LOG(WARNING) << "Create error file log failed. because: " << status;
             if (_error_log_file != nullptr) {
                 _error_log_file->close();
                 delete _error_log_file;
@@ -388,7 +388,7 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
             Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
                                                  _error_log_file_path, &_error_hub);
             if (!st.ok()) {
-                LOG(WARNING) << "failed to create load error hub: " << st.get_error_msg();
+                LOG(WARNING) << "failed to create load error hub: " << st;
                 return;
             }
         }

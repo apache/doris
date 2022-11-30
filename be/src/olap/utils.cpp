@@ -64,7 +64,7 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
                      << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
 
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<E_INVALID_ARGUMENT>();
     }
 
     *written_len = dest_len;
@@ -80,12 +80,12 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
             LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
                          << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
 
-            return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
+            return Status::Error<COMPRESS_ERROR>();
         } else if (*written_len > dest_len) {
             VLOG_NOTICE << "buffer overflow when compressing. "
                         << "dest_len=" << dest_len << ", written_len=" << *written_len;
 
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+            return Status::Error<BUFFER_OVERFLOW>();
         }
         break;
     }
@@ -99,12 +99,12 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
             LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
                          << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
 
-            return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
+            return Status::Error<COMPRESS_ERROR>();
         } else if (*written_len > dest_len) {
             VLOG_NOTICE << "buffer overflow when compressing. "
                         << ", dest_len=" << dest_len << ", written_len=" << *written_len;
 
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+            return Status::Error<BUFFER_OVERFLOW>();
         }
         break;
     }
@@ -117,7 +117,7 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         if (0 == lz4_res) {
             VLOG_TRACE << "compress failed. src_len=" << src_len << ", dest_len=" << dest_len
                        << ", written_len=" << *written_len << ", lz4_res=" << lz4_res;
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+            return Status::Error<BUFFER_OVERFLOW>();
         }
         break;
     }
@@ -134,7 +134,7 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
         LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
                      << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
 
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<E_INVALID_ARGUMENT>();
     }
 
     *written_len = dest_len;
@@ -147,11 +147,11 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
         if (LZO_E_OK != lzo_res) {
             LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
                          << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
-            return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
+            return Status::Error<DECOMPRESS_ERROR>();
         } else if (*written_len > dest_len) {
             LOG(WARNING) << "buffer overflow when decompressing. [dest_len=" << dest_len
                          << " written_len=" << *written_len << "]";
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+            return Status::Error<BUFFER_OVERFLOW>();
         }
         break;
     }
@@ -162,11 +162,11 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
         if (LZO_E_OK != lzo_res) {
             LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
                          << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
-            return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
+            return Status::Error<DECOMPRESS_ERROR>();
         } else if (*written_len > dest_len) {
             LOG(WARNING) << "buffer overflow when decompressing. [dest_len=" << dest_len
                          << " written_len=" << *written_len << "]";
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+            return Status::Error<BUFFER_OVERFLOW>();
         }
         break;
     }
@@ -178,7 +178,7 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
         if (lz4_res < 0) {
             LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
                          << "; written_len=" << *written_len << "; lzo_res=" << lz4_res;
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+            return Status::Error<BUFFER_OVERFLOW>();
         }
         break;
     }
@@ -553,12 +553,12 @@ Status gen_timestamp_string(string* out_string) {
 
     if (localtime_r(&now, &local_tm) == nullptr) {
         LOG(WARNING) << "fail to localtime_r time. [time=" << now << "]";
-        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        return Status::Error<OS_ERROR>();
     }
     char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
         LOG(WARNING) << "fail to strftime time. [time=" << now << "]";
-        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        return Status::Error<OS_ERROR>();
     }
 
     *out_string = time_suffix;
@@ -576,7 +576,7 @@ Status read_write_test_file(const string& test_file_path) {
             LOG(WARNING) << "fail to delete test file. "
                          << "path=" << test_file_path << ", errno=" << errno
                          << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<E_IO_ERROR>();
         }
     } else {
         if (errno != ENOENT) {
@@ -584,7 +584,7 @@ Status read_write_test_file(const string& test_file_path) {
             LOG(WARNING) << "fail to access test file. "
                          << "path=" << test_file_path << ", errno=" << errno
                          << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+            return Status::Error<E_IO_ERROR>();
         }
     }
     Status res = Status::OK();
@@ -600,12 +600,12 @@ Status read_write_test_file(const string& test_file_path) {
     char* read_test_buff = nullptr;
     if (posix_memalign((void**)&write_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate write buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<E_MEM_ALLOC_FAILED>();
     }
     std::unique_ptr<char, decltype(&std::free)> write_buff(write_test_buff, &std::free);
     if (posix_memalign((void**)&read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate read buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<E_MEM_ALLOC_FAILED>();
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers
@@ -625,7 +625,7 @@ Status read_write_test_file(const string& test_file_path) {
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "the test file write_buf and read_buf not equal, [file_name = "
                      << test_file_path << "]";
-        return Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR);
+        return Status::Error<TEST_FILE_ERROR>();
     }
     if ((res = file_handler.close()) != Status::OK()) {
         LOG(WARNING) << "fail to close test file. [file_name=" << test_file_path << "]";
@@ -635,7 +635,7 @@ Status read_write_test_file(const string& test_file_path) {
         char errmsg[64];
         VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64)
                     << "' path='" << test_file_path << "']";
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<E_IO_ERROR>();
     }
     return res;
 }

@@ -83,7 +83,7 @@ Status EngineCloneTask::_do_clone() {
     if (tablet != nullptr) {
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
-            return Status::OLAPInternalError(OLAP_ERR_RWLOCK_ERROR);
+            return Status::Error<TRY_LOCK_FAILED>();
         }
 
         // get download path

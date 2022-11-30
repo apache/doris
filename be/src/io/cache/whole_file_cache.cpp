@@ -49,7 +49,7 @@ Status WholeFileCache::read_at(size_t offset, Slice result, const IOContext& io_
     if (*bytes_read != result.size) {
         LOG(ERROR) << "read cache file failed: " << _cache_file_reader->path().native()
                    << ", bytes read: " << bytes_read << " vs required size: " << result.size;
-        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        return Status::Error<OS_ERROR>();
     }
     return Status::OK();
 }
@@ -112,8 +112,7 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 download_st.set_value(func());
             });
             if (!st.ok()) {
-                LOG(FATAL) << "Failed to submit download cache task to thread pool! "
-                           << st.get_error_msg();
+                LOG(FATAL) << "Failed to submit download cache task to thread pool! " << st;
                 return st;
             }
         } else {

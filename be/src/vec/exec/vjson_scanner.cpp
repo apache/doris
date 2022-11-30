@@ -157,7 +157,7 @@ Status VJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
         bool valid = false;
         if (_next_line >= _total_lines) { // parse json and generic document
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<E_DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -380,7 +380,7 @@ Status VJsonReader::_vhandle_flat_array_complex_json(std::vector<MutableColumnPt
     do {
         if (_next_line >= _total_lines) {
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<E_DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
@@ -410,7 +410,7 @@ Status VJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>& 
                                                  bool* is_empty_row, bool* eof) {
     while (true) {
         Status st = _parse_json(is_empty_row, eof);
-        if (st.is_data_quality_error()) {
+        if (st.is<E_DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
@@ -869,7 +869,7 @@ Status VSIMDJsonReader::_vhandle_simple_json(Block& block,
         try {
             if (_next_line >= _total_lines) { // parse json and generic document
                 Status st = _parse_json(is_empty_row, eof);
-                if (st.is_data_quality_error()) {
+                if (st.is<E_DATA_QUALITY_ERROR>()) {
                     continue; // continue to read next
                 }
                 RETURN_IF_ERROR(st);
@@ -947,7 +947,7 @@ Status VSIMDJsonReader::_vhandle_flat_array_complex_json(
         try {
             if (_next_line >= _total_lines) {
                 Status st = _parse_json(is_empty_row, eof);
-                if (st.is_data_quality_error()) {
+                if (st.is<E_DATA_QUALITY_ERROR>()) {
                     continue; // continue to read next
                 }
                 RETURN_IF_ERROR(st);
@@ -985,7 +985,7 @@ Status VSIMDJsonReader::_vhandle_nested_complex_json(Block& block,
     while (true) {
         try {
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is_data_quality_error()) {
+            if (st.is<E_DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);

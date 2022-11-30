@@ -252,13 +252,13 @@ Status PlanFragmentExecutor::open() {
         status = open_internal();
     }
 
-    if (!status.ok() && !status.is_cancelled() && _runtime_state->log_has_space()) {
+    if (!status.ok() && !status.is<E_CANCELLED>() && _runtime_state->log_has_space()) {
         // Log error message in addition to returning in Status. Queries that do not
         // fetch results (e.g. insert) may not receive the message directly and can
         // only retrieve the log.
-        _runtime_state->log_error(status.get_error_msg());
+        _runtime_state->log_error(status);
     }
-    if (status.is_cancelled()) {
+    if (status.is<E_CANCELLED>()) {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
         } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
@@ -309,7 +309,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             }
 
             auto st = _sink->send(runtime_state(), block);
-            if (st.is_end_of_file()) {
+            if (st.is<E_END_OF_FILE>()) {
                 break;
             }
             RETURN_IF_ERROR(st);
@@ -407,7 +407,7 @@ Status PlanFragmentExecutor::open_internal() {
             _collect_query_statistics();
         }
         const Status& st = _sink->send(runtime_state(), batch);
-        if (st.is_end_of_file()) {
+        if (st.is<E_END_OF_FILE>()) {
             break;
         }
         RETURN_IF_ERROR(st);
@@ -609,8 +609,8 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
         std::lock_guard<std::mutex> l(_status_lock);
         // if current `_status` is ok, set it to `new_status` to record the error.
         if (_status.ok()) {
-            if (new_status.is_mem_limit_exceeded()) {
-                _runtime_state->set_mem_limit_exceeded(new_status.get_error_msg());
+            if (new_status.is<E_MEM_LIMIT_EXCEEDED>()) {
+                _runtime_state->set_mem_limit_exceeded(new_status.to_string());
             }
             _status = new_status;
             if (_runtime_state->query_type() == TQueryType::EXTERNAL) {

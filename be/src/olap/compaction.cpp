@@ -305,7 +305,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
-        return Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
+        return Status::Error<ROWSET_BUILDER_INIT>();
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
@@ -444,7 +444,7 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
                          << prev_rowset->end_version()
                          << ", rowset version=" << rowset->start_version() << "-"
                          << rowset->end_version();
-            return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_MISS_VERSION);
+            return Status::Error<CUMULATIVE_MISS_VERSION>();
         }
         prev_rowset = rowset;
     }
@@ -460,7 +460,7 @@ Status Compaction::check_correctness(const Merger::Statistics& stats) {
                      << ", merged_row_num=" << stats.merged_rows
                      << ", filtered_row_num=" << stats.filtered_rows
                      << ", output_row_num=" << _output_rowset->num_rows();
-        return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
+        return Status::Error<CHECK_LINES_ERROR>();
     }
     return Status::OK();
 }

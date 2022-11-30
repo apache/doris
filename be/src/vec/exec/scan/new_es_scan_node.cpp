@@ -228,10 +228,10 @@ Status NewEsScanNode::build_conjuncts_list() {
         } else {
             _conjunct_to_predicate[i] = -1;
 
-            VLOG_CRITICAL << status.get_error_msg();
+            VLOG_CRITICAL << status;
             status = predicate->get_es_query_status();
             if (!status.ok()) {
-                LOG(WARNING) << status.get_error_msg();
+                LOG(WARNING) << status;
                 return status;
             }
         }

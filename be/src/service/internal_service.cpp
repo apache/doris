@@ -152,7 +152,7 @@ void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* cntl_
     if (extract_st.ok()) {
         st = _exec_env->stream_mgr()->transmit_data(request, &done);
         if (!st.ok()) {
-            LOG(WARNING) << "transmit_data failed, message=" << st.get_error_msg()
+            LOG(WARNING) << "transmit_data failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
         }
@@ -174,9 +174,8 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     brpc::ClosureGuard closure_guard(done);
     auto st = _exec_env->load_channel_mgr()->open(*request);
     if (!st.ok()) {
-        LOG(WARNING) << "load channel open failed, message=" << st.get_error_msg()
-                     << ", id=" << request->id() << ", index_id=" << request->index_id()
-                     << ", txn_id=" << request->txn_id();
+        LOG(WARNING) << "load channel open failed, message=" << st << ", id=" << request->id()
+                     << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
     }
     st.to_protobuf(response->mutable_status());
 }
@@ -194,7 +193,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
     st = _exec_plan_fragment(request->request(), version, compact);
     if (!st.ok()) {
-        LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
+        LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
     st.to_protobuf(response->mutable_status());
 }
@@ -262,7 +261,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
 
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
-                LOG(WARNING) << "tablet writer add block failed, message=" << st.get_error_msg()
+                LOG(WARNING) << "tablet writer add block failed, message=" << st
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
                              << ", sender_id=" << request->sender_id()
                              << ", backend id=" << request->backend_id();
@@ -322,7 +321,7 @@ void PInternalServiceImpl::_tablet_writer_add_batch(google::protobuf::RpcControl
 
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
-                LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
+                LOG(WARNING) << "tablet writer add batch failed, message=" << st
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
                              << ", sender_id=" << request->sender_id()
                              << ", backend id=" << request->backend_id();
@@ -423,7 +422,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         uint32_t len = request->file_scan_range().size();
         st = deserialize_thrift_msg(buf, &len, false, &file_scan_range);
         if (!st.ok()) {
-            LOG(WARNING) << "fetch table schema failed, errmsg=" << st.get_error_msg();
+            LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -479,7 +478,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     std::vector<TypeDescriptor> col_types;
     st = reader->get_parsered_schema(&col_names, &col_types);
     if (!st.ok()) {
-        LOG(WARNING) << "fetch table schema failed, errmsg=" << st.get_error_msg();
+        LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
         st.to_protobuf(result->mutable_status());
         return;
     }
@@ -676,7 +675,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
         st = _fold_constant_expr(cntl->request_attachment().to_string(), response);
     }
     if (!st.ok()) {
-        LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st.get_error_msg();
+        LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st;
     }
     st.to_protobuf(response->mutable_status());
 }
@@ -740,7 +739,7 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cntl
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
         if (!st.ok()) {
-            LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
+            LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
         }
@@ -959,9 +958,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), tablet->tablet_uid(),
                 rowset_meta->load_id(), rowset, true);
-        if (!commit_txn_status &&
-            commit_txn_status !=
-                    Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
+        if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
             LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
                          << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
                          << ", txn_id=" << rowset_meta->txn_id();

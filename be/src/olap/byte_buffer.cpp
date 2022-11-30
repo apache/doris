@@ -171,7 +171,7 @@ Status StorageByteBuffer::put(char src) {
         return Status::OK();
     }
 
-    return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+    return Status::Error<BUFFER_OVERFLOW>();
 }
 
 Status StorageByteBuffer::put(uint64_t index, char src) {
@@ -180,19 +180,19 @@ Status StorageByteBuffer::put(uint64_t index, char src) {
         return Status::OK();
     }
 
-    return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+    return Status::Error<BUFFER_OVERFLOW>();
 }
 
 Status StorageByteBuffer::put(const char* src, uint64_t src_size, uint64_t offset,
                               uint64_t length) {
     //没有足够的空间可以写
     if (length > remaining()) {
-        return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+        return Status::Error<BUFFER_OVERFLOW>();
     }
 
     //src不够大
     if (offset + length > src_size) {
-        return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
+        return Status::Error<OUT_OF_BOUND>();
     }
 
     memory_copy(&_array[_position], &src[offset], length);

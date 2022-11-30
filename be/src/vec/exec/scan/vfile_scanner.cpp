@@ -527,11 +527,11 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params.format_type);
         }
 
-        if (init_status.is_end_of_file()) {
+        if (init_status.is<E_END_OF_FILE>()) {
             continue;
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
-                                         init_status.get_error_msg());
+                                         init_status);
         }
 
         _name_to_col_type.clear();

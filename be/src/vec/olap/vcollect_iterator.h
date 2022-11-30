@@ -49,8 +49,8 @@ public:
 
     // Read nest order row in Block.
     // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *row to nullptr when EOF is reached.
+    //      E_OK when read successfully.
+    //      Status::Error<E_END_OF_FILE>() and set *row to nullptr when EOF is reached.
     //      Others when error happens
     Status next(IteratorRowRef* ref);
 

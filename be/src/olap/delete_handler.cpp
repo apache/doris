@@ -54,14 +54,14 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     if (conditions.empty()) {
         LOG(WARNING) << "invalid parameters for store_cond."
                      << " condition_size=" << conditions.size();
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
+        return Status::Error<DELETE_INVALID_PARAMETERS>();
     }
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
         if (check_condition_valid(schema, condition) != Status::OK()) {
             LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
-            return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+            return Status::Error<DELETE_INVALID_CONDITION>();
         }
     }
 
@@ -168,7 +168,7 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     int32_t field_index = schema.field_index(cond.column_name);
     if (field_index < 0) {
         LOG(WARNING) << "field is not existent. [field_index=" << field_index << "]";
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+        return Status::Error<DELETE_INVALID_CONDITION>();
     }
 
     // Delete condition should only applied on key columns or duplicate key table, and
@@ -179,7 +179,7 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
         column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
                         "is float or double.";
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+        return Status::Error<DELETE_INVALID_CONDITION>();
     }
 
     // Check operator and operands size are matched.
@@ -187,14 +187,14 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
         cond.condition_values.size() != 1) {
         LOG(WARNING) << "invalid condition value size. [size=" << cond.condition_values.size()
                      << "]";
-        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+        return Status::Error<DELETE_INVALID_CONDITION>();
     }
 
     // Check each operand is valid
     for (const auto& condition_value : cond.condition_values) {
         if (!is_condition_value_valid(column, cond.condition_op, condition_value)) {
             LOG(WARNING) << "invalid condition value. [value=" << condition_value << "]";
-            return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
+            return Status::Error<DELETE_INVALID_CONDITION>();
         }
     }
 
@@ -257,7 +257,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
                 LOG(WARNING) << "fail to parse condition. [condition=" << sub_predicate << "]";
-                return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
+                return Status::Error<DELETE_INVALID_PARAMETERS>();
             }
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());

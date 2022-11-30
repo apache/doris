@@ -253,7 +253,7 @@ ThreadPool::~ThreadPool() {
 }
 
 Status ThreadPool::init() {
-    if (!_pool_status.is_uninitialized()) {
+    if (!_pool_status.is<E_UNINITIALIZED>()) {
         return Status::NotSupported("The thread pool {} is already initialized", _name);
     }
     _pool_status = Status::OK();

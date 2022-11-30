@@ -65,7 +65,7 @@ Status RowBlock::finalize(uint32_t row_num) {
         LOG(WARNING) << "Input row num is larger than internal row num."
                         "[row_num="
                      << row_num << "; _info.row_num=" << _info.row_num << "]";
-        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+        return Status::Error<E_INVALID_ARGUMENT>();
     }
     _info.row_num = row_num;
     return Status::OK();

@@ -106,7 +106,7 @@ Status ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
     }
 
     if (size < this->size()) {
-        return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+        return Status::Error<BUFFER_OVERFLOW>();
     }
 
     // TODO(zc): too ugly

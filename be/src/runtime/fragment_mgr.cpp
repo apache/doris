@@ -772,7 +772,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             remove_pipeline_context(context);
             return Status::InternalError("Submit pipeline failed. err = {}, BE: {}",
-                                         st.get_error_msg(), BackendOptions::get_localhost());
+                                         st.to_string(), BackendOptions::get_localhost());
         }
     }
 

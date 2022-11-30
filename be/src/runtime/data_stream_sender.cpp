@@ -280,7 +280,7 @@ Status DataStreamSender::Channel::close_internal() {
 Status DataStreamSender::Channel::close(RuntimeState* state) {
     Status st = close_internal();
     if (!st.ok()) {
-        state->log_error(st.get_error_msg());
+        state->log_error(st);
     }
     return st;
 }
@@ -289,7 +289,7 @@ Status DataStreamSender::Channel::close_wait(RuntimeState* state) {
     if (_need_close) {
         Status st = _wait_last_brpc();
         if (!st.ok()) {
-            state->log_error(st.get_error_msg());
+            state->log_error(st);
         }
         _need_close = false;
         return st;

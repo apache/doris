@@ -95,7 +95,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
             Status st = ctx->exec_env()->small_file_mgr()->get_file(file_id, parts[2], &file_path);
             if (!st.ok()) {
                 return Status::InternalError("PAUSE: failed to get file for config: {}, error: {}",
-                                             item.first, st.get_error_msg());
+                                             item.first, st);
             }
             RETURN_IF_ERROR(set_conf(item.first, file_path));
         } else {

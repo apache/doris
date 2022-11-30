@@ -50,8 +50,8 @@ public:
 
     // read next block data into *block.
     // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *block to null when there is no more block.
+    //      E_OK when read successfully.
+    //      Status::Error<E_END_OF_FILE>() and set *block to null when there is no more block.
     //      Others when error happens.
     virtual Status next_block(RowBlock** block) = 0;
 

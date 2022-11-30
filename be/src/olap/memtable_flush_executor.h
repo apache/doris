@@ -56,7 +56,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 class FlushToken {
 public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
-            : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
+            : _flush_token(std::move(flush_pool_token)), _flush_status(E_OK) {}
 
     Status submit(std::unique_ptr<MemTable> mem_table);
 
