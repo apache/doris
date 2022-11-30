@@ -145,7 +145,6 @@ public class HeartbeatMgr extends MasterDaemon {
                 }
             } catch (InterruptedException | ExecutionException e) {
                 LOG.warn("got exception when doing heartbeat", e);
-                continue;
             }
         } // end for all results
 

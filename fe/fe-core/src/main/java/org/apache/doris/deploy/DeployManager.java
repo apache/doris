@@ -24,10 +24,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -552,7 +554,7 @@ public class DeployManager extends MasterDaemon {
                             env.dropFrontend(FrontendNodeType.OBSERVER, localIp, localPort);
                             break;
                         case BACKEND:
-                            Env.getCurrentSystemInfo().dropBackend(localIp, localPort);
+                            Env.getCurrentSystemInfo().dropBackend(localIp, null, localPort);
                             break;
                         default:
                             break;
@@ -585,8 +587,12 @@ public class DeployManager extends MasterDaemon {
                             env.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remotePort);
                             break;
                         case BACKEND:
-                            List<Pair<String, Integer>> newBackends = Lists.newArrayList();
-                            newBackends.add(Pair.of(remoteIp, remotePort));
+                            List<HostInfo> newBackends = Lists.newArrayList();
+                            String remoteHostName = NetUtils.getHostnameByIp(remoteIp);
+                            if (remoteHostName.equals(remoteIp)) {
+                                remoteHostName = null;
+                            }
+                            newBackends.add(new HostInfo(remoteIp, remoteHostName, remotePort));
                             Env.getCurrentSystemInfo().addBackends(newBackends, false);
                             break;
                         default:
