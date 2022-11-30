@@ -301,7 +301,7 @@ mysql> select * from test;
 **elasticsearch.hosts** | ES 地址，可以是一个或多个，也可以是 ES 的负载均衡地址
 **elasticsearch.username** | ES 用户名
 **elasticsearch.password** | 对应用户的密码信息
-**elasticsearch.doc_value_scan** | 是否开启通过 ES/Lucene 列式存储获取查询字段的值，默认为 false
+**elasticsearch.doc_value_scan** | 是否开启通过 ES/Lucene 列式存储获取查询字段的值，默认为 true
 **elasticsearch.keyword_sniff** | 是否对 ES 中字符串分词类型 text.fields 进行探测，通过 keyword 进行查询(默认为 true，设置为 false 会按照分词后的内容匹配)
 **elasticsearch.nodes_discovery** | 是否开启 ES 节点发现，默认为 true，在网络隔离环境下设置为 false，只连接指定节点
 **elasticsearch.ssl** | ES 是否开启 https 访问模式，目前在 fe/be 实现方式为信任所有

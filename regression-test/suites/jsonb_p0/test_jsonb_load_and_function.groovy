@@ -89,7 +89,8 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // insert into 1 row and then check result
-    sql """INSERT INTO ${testTable} VALUES(26, '{"k1":"v1", "k2": 200}')"""
+    sql """INSERT INTO ${testTable} VALUES(26, NULL)"""
+    sql """INSERT INTO ${testTable} VALUES(27, '{"k1":"v1", "k2": 200}')"""
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // jsonb_extract
@@ -326,6 +327,7 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT id, j, CAST(CAST(j AS DOUBLE) AS JSONB) FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, CAST(CAST(j AS STRING) AS JSONB) FROM ${testTable} ORDER BY id"
 
+    qt_select """SELECT CAST(NULL AS JSONB)"""
     qt_select """SELECT CAST('null' AS JSONB)"""
     qt_select """SELECT CAST('true' AS JSONB)"""
     qt_select """SELECT CAST('false' AS JSONB)"""

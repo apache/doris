@@ -57,11 +57,9 @@ feServerArray=(${FE_SERVERS})
 for i in "${!feServerArray[@]}"; do
     val=${feServerArray[i]}
     val=${val// /}
-    #echo "DEBUG >>>>>>>>> $i => 【$val】"
     tmpFeId=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
     tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
     tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
-    #echo "DEBUG >>>>>>>>> tmpFeId = $tmpFeIdi, tmpFeIp = $tmpFeIp, tmpFeEditLogPort = $tmpFeEditLogPort"
     feIpArray[tmpFeId]=${tmpFeIp}
     feEditLogPortArray[tmpFeId]=${tmpFeEditLogPort}
 done
@@ -79,20 +77,18 @@ echo "DEBUG >>>>>> Append the configuration [priority_networks = ${priority_netw
 echo "priority_networks = ${priority_networks}" >>/opt/apache-doris/be/conf/be.conf
 
 registerMySQL="mysql -uroot -P9030 -h${feIpArray[1]} -e \"alter system add backend '${be_ip}:${be_heartbeat_port}'\""
-registerShell="/opt/apache-doris/be/bin/start_be.sh"
-
 echo "DEBUG >>>>>> registerMySQL = ${registerMySQL}"
+
+registerShell="/opt/apache-doris/be/bin/start_be.sh &"
 echo "DEBUG >>>>>> registerShell = ${registerShell}"
 
 for ((i = 0; i <= 20; i++)); do
-
-    echo "DEBUG >>>>>> The " "${i}" "time to register BE node, be_join_status=${be_join_status}"
 
     ## check be register status
     echo "mysql -uroot -P9030 -h${feIpArray[1]} -e \"show backends\" | grep \" ${be_ip} \" | grep \" ${be_heartbeat_port} \""
     mysql -uroot -P9030 -h"${feIpArray[1]}" -e "show backends" | grep "[[:space:]]${be_ip}[[:space:]]" | grep "[[:space:]]${be_heartbeat_port}[[:space:]]"
     be_join_status=$?
-    echo "DEBUG >>>>>> be_join_status = ${be_join_status}"
+    echo "DEBUG >>>>>> The " "${i}" "time to register BE node, be_join_status=${be_join_status}"
     if [[ "${be_join_status}" == 0 ]]; then
         ## be registe successfully
         echo "DEBUG >>>>>> run command ${registerShell}"
@@ -101,6 +97,9 @@ for ((i = 0; i <= 20; i++)); do
         ## be doesn't registe
         echo "DEBUG >>>>>> run commnad ${registerMySQL}"
         eval "${registerMySQL}"
+        if [[ "${i}" == 20 ]]; then
+            echo "DEBUG >>>>>> BE Start Or Register FAILED!"
+        fi
         sleep 5
     fi
 done

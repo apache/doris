@@ -15,13 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
-suite("create_table_use_partion_policy") {
-    def create_table_partion_use_not_create_policy = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partion_use_not_create_policy
+suite("create_table_use_partition_policy") {
+    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
+
+    SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    Date date = new Date(System.currentTimeMillis() + 3600000)
+    def cooldownTime = format.format(date)
+
+    def create_table_partition_use_not_create_policy = try_sql """
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_not_create_policy
         (
             k1 DATE,
             k2 INT,
@@ -33,7 +38,7 @@ suite("create_table_use_partion_policy") {
     """
 
     // errCode = 2, detailMessage = Storage policy does not exist. name: not_exist_policy_1
-    assertEquals(create_table_partion_use_not_create_policy, null)
+    assertEquals(create_table_partition_use_not_create_policy, null)
 
     def storage_exist = { name ->
         def show_storage_policy = sql """
@@ -64,7 +69,7 @@ suite("create_table_use_partion_policy") {
             CREATE STORAGE POLICY test_create_table_partition_use_policy_1
             PROPERTIES(
             "storage_resource" = "test_create_table_partition_use_resource_1",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "cooldown_datetime" = "$cooldownTime"
             );
         """
         assertEquals(storage_exist.call("test_create_table_partition_use_policy_1"), true)
@@ -88,7 +93,7 @@ suite("create_table_use_partion_policy") {
             CREATE STORAGE POLICY test_create_table_partition_use_policy_2
             PROPERTIES(
             "storage_resource" = "test_create_table_partition_use_resource_2",
-            "cooldown_datetime" = "2022-06-08 00:00:00"
+            "cooldown_datetime" = "$cooldownTime"
             );
         """
         assertEquals(storage_exist.call("test_create_table_partition_use_policy_2"), true)
@@ -96,7 +101,7 @@ suite("create_table_use_partion_policy") {
 
     // success
     def create_table_partition_use_created_policy = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partion_use_created_policy
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy
         (
             k1 DATE,
             k2 INT,
@@ -110,11 +115,11 @@ suite("create_table_use_partion_policy") {
     assertEquals(create_table_partition_use_created_policy.size(), 1);
 
     sql """
-    DROP TABLE create_table_partion_use_created_policy
+    DROP TABLE create_table_partition_use_created_policy
     """
 
     def create_table_partition_use_created_policy_1 = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partion_use_created_policy_1
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_1
         (
             k1 DATEV2,
             k2 INT,
@@ -128,11 +133,11 @@ suite("create_table_use_partion_policy") {
     assertEquals(create_table_partition_use_created_policy_1.size(), 1);
 
     sql """
-    DROP TABLE create_table_partion_use_created_policy_1
+    DROP TABLE create_table_partition_use_created_policy_1
     """
 
     def create_table_partition_use_created_policy_2 = try_sql """
-        CREATE TABLE IF NOT EXISTS create_table_partion_use_created_policy_2
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_2
         (
             k1 DATETIMEV2(3),
             k2 INT,
@@ -146,6 +151,6 @@ suite("create_table_use_partion_policy") {
     assertEquals(create_table_partition_use_created_policy_2.size(), 1);
 
     sql """
-    DROP TABLE create_table_partion_use_created_policy_2
+    DROP TABLE create_table_partition_use_created_policy_2
     """
 }
