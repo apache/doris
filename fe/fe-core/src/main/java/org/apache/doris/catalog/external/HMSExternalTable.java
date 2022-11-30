@@ -251,13 +251,6 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * get database name of hms table.
-     */
-    public String getDbName() {
-        return dbName;
-    }
-
-    /**
      * get the dla type for scan node to get right information.
      */
     public DLAType getDlaType() {
