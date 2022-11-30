@@ -83,3 +83,9 @@ jobs:
           export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
           DORIS_TOOLCHAIN=clang ./run-be-ut.sh -j "$(nproc)" --run --clean
 
+      - name: Run clang-tidy review
+        uses: ./.github/actions/clang-tidy-review
+        build_dir: ./be/ut_build_ASAN
+        id: review
+        if: steps.review.outputs.total_comments > 0
+        run: exit 1
