@@ -40,17 +40,24 @@ public class ShowCatalogStmt extends ShowStmt {
                     .build();
 
     private final String catalogName;
-
-    public ShowCatalogStmt(String catalogName) {
-        this.catalogName = catalogName;
-    }
+    private String pattern;
 
     public ShowCatalogStmt() {
         this.catalogName = null;
+        this.pattern = null;
+    }
+
+    public ShowCatalogStmt(String catalogName, String pattern) {
+        this.catalogName = catalogName;
+        this.pattern = pattern;
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public String getPattern() {
+        return pattern;
     }
 
     @Override
@@ -69,6 +76,13 @@ public class ShowCatalogStmt extends ShowStmt {
             sb.append(catalogName);
         } else {
             sb.append(" CATALOGS");
+
+            if (pattern != null) {
+                sb.append(" LIKE ");
+                sb.append("'");
+                sb.append(pattern);
+                sb.append("'");
+            }
         }
 
         return sb.toString();
