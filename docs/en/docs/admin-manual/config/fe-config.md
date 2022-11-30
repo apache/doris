@@ -2346,8 +2346,6 @@ Default: 3
 
 Is it possible to dynamically configure: true
 
-Is it a configuration item unique to the Master FE node: true
-
 ### `enable_storage_policy`
 
 Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
@@ -2355,6 +2353,16 @@ Whether to enable the Storage Policy feature. This feature allows users to separ
 Default: false
 
 Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: true
+
+### `enable_fqdn_mode`
+
+This configuration is mainly used in the k8s cluster environment. When enable_fqdn_mode is true, the name of the pod where the be is located will remain unchanged after reconstruction, while the ip can be changed.
+
+Default: false
+
+Is it possible to dynamically configure: false
 
 Is it a configuration item unique to the Master FE node: true
 
