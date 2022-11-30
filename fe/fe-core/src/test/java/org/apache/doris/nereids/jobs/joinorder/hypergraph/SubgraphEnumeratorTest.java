@@ -35,9 +35,9 @@ public class SubgraphEnumeratorTest {
     void testStarQuery() {
         //      t2
         //      |
-        //t3-- t1 -- t4
+        //t3-- t0 -- t4
         //      |
-        //     t5
+        //     t1
         HyperGraph hyperGraph = new HyperGraphBuilder()
                 .init(10, 20, 30, 40, 50)
                 .addEdge(JoinType.INNER_JOIN, 0, 1)
@@ -96,8 +96,8 @@ public class SubgraphEnumeratorTest {
 
     @Test
     void testTime() {
-        int tableNum = 10;
-        int edgeNum = 40;
+        int tableNum = 20;
+        int edgeNum = 21;
         HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
 
         Counter counter = new Counter();
