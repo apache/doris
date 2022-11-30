@@ -184,4 +184,34 @@ CREATE TABLE doris_test.ex_tb17 (
   `order_source` tinyint(4) NULL
 );
 
+create table ex_tb18 (
+    num_tinyint tinyint,
+    num_tinyint2 tinyint unsigned,
+    num_smallint SMALLINT,
+    num_smallint2 SMALLINT unsigned,
+    num_mediumint MEDIUMINT,
+    num_mediumint2 MEDIUMINT unsigned,
+    num_bigint BIGINT,
+    num_int int(5),
+    num_int2 int(5) unsigned,
+    num_int3 int(5) unsigned zerofill,
+    num_float float(5, 2),
+    num_double double(10, 3),
+    num_decimal decimal(20, 2),
+    char_value1 char(5),
+    char_value2 char(100),
+    varchar_value1 varchar(5),
+    varchar_value2 varchar(10),
+    varchar_value3 varchar(100),
+    text_value TEXT(123)
+) engine=innodb charset=utf8;
+
+create table ex_tb19 (
+    date_value date,
+    time_value time,
+    year_value year,
+    datetime_value datetime,
+    timestamp_value timestamp
+) engine=innodb charset=utf8;
+
 
