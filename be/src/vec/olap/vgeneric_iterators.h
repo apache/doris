@@ -120,6 +120,14 @@ public:
 
     void set_skip(bool skip) const { _skip = skip; }
 
+    bool is_same() const { return _same; }
+
+    void set_same(bool same) const { _same = same; }
+
+    bool get_pre_ctx_same() const { return _pre_ctx_same; }
+
+    void set_pre_ctx_same(bool pre_ctx_same) const { _pre_ctx_same = pre_ctx_same; }
+
     void add_cur_batch() { _cur_batch_num++; }
 
     void reset_cur_batch() { _cur_batch_num = 0; }
@@ -137,6 +145,8 @@ private:
     bool _is_reverse = false;
     bool _valid = false;
     mutable bool _skip = false;
+    mutable bool _same = false;
+    mutable bool _pre_ctx_same = false;
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
@@ -220,6 +230,7 @@ private:
                         pre_ctx->copy_rows(block);
                     }
                     pre_ctx = ctx;
+                    pre_ctx->set_pre_ctx_same(ctx->is_same());
                 }
                 if (UNLIKELY(_record_rowids)) {
                     _block_row_locations[row_idx] = ctx->current_row_location();

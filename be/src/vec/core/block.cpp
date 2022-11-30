@@ -198,6 +198,8 @@ void Block::erase_impl(size_t position) {
             ++it;
         }
     }
+    if (position < row_same_bit.size())
+        row_same_bit.erase(row_same_bit.begin() + position);
 }
 
 void Block::erase(const String& name) {
@@ -339,6 +341,10 @@ void Block::set_num_rows(size_t length) {
                 elem.column = elem.column->cut(0, length);
             }
         }
+        if (length < row_same_bit.size()) {
+            std::vector <uint64_t> tmp_row_same_bit(row_same_bit.begin(), row_same_bit.begin() + length);
+            row_same_bit = tmp_row_same_bit;
+        }
     }
 }
 
@@ -352,6 +358,10 @@ void Block::skip_num_rows(int64_t& length) {
             if (elem.column) {
                 elem.column = elem.column->cut(length, origin_rows - length);
             }
+        }
+        if (length < row_same_bit.size()) {
+            std::vector <uint64_t> tmp_row_same_bit(row_same_bit.begin() + length, row_same_bit.end());
+            row_same_bit = tmp_row_same_bit;
         }
     }
 }
@@ -593,6 +603,7 @@ DataTypes Block::get_data_types() const {
 void Block::clear() {
     data.clear();
     index_by_name.clear();
+    row_same_bit.clear();
 }
 
 void Block::clear_column_data(int column_size) noexcept {
@@ -607,17 +618,20 @@ void Block::clear_column_data(int column_size) noexcept {
         DCHECK_EQ(d.column->use_count(), 1);
         (*std::move(d.column)).assume_mutable()->clear();
     }
+    row_same_bit.clear();
 }
 
 void Block::swap(Block& other) noexcept {
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
+    row_same_bit.swap(other.row_same_bit);
 }
 
 void Block::swap(Block&& other) noexcept {
     clear();
     data = std::move(other.data);
     initialize_index_by_name();
+    row_same_bit = std::move(other.row_same_bit);
 }
 
 void Block::update_hash(SipHash& hash) const {

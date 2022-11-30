@@ -124,6 +124,7 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
     if (_is_unique) {
         result ? set_skip(true) : rhs.set_skip(true);
     }
+    result ? set_same(true) : rhs.set_same(true);
     return result;
 }
 
@@ -148,6 +149,7 @@ void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
         d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
     }
+    dst.set_same_bit(get_pre_ctx_same());
     _cur_batch_num = 0;
 }
 
@@ -260,6 +262,7 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
 
 Status VMergeIteratorContext::advance() {
     _skip = false;
+    _same = false;
     // NOTE: we increase _index_in_block directly to valid one check
     do {
         _index_in_block++;
