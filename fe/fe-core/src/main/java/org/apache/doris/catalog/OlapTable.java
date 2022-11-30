@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -68,6 +69,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -1627,7 +1629,11 @@ public class OlapTable extends Table {
         tableProperty.buildEnableLightSchemaChange();
     }
 
-    public void setStoragePolicy(String storagePolicy) {
+    public void setStoragePolicy(String storagePolicy) throws UserException {
+        if (!Config.enable_storage_policy && !Strings.isNullOrEmpty(storagePolicy)) {
+            throw new UserException("storage policy feature is disabled by default. "
+                    + "Enable it by setting 'enable_storage_policy=true' in fe.conf");
+        }
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
@@ -1664,19 +1670,6 @@ public class OlapTable extends Table {
         }
         tableProperty.modifyDataSortInfoProperties(dataSortInfo);
         tableProperty.buildDataSortInfo();
-    }
-
-    /**
-     * set remote storage policy for table.
-     *
-     * @param remoteStoragePolicy remote storage policy name
-     */
-    public void setRemoteStoragePolicy(String remoteStoragePolicy) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.setRemoteStoragePolicy(remoteStoragePolicy);
-        tableProperty.buildRemoteStoragePolicy();
     }
 
     // return true if partition with given name already exist, both in partitions and temp partitions.
@@ -1844,18 +1837,6 @@ public class OlapTable extends Table {
             return new DataSortInfo(TSortType.LEXICAL, this.getKeysNum());
         }
         return tableProperty.getDataSortInfo();
-    }
-
-    /**
-     * get remote storage policy name.
-     *
-     * @return remote storage policy name for this table.
-     */
-    public String getRemoteStoragePolicy() {
-        if (tableProperty == null) {
-            return "";
-        }
-        return tableProperty.getRemoteStoragePolicy();
     }
 
     public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {

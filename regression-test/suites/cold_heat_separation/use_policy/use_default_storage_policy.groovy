@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
-
 suite("use_default_storage_policy") {
+    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
+
     def storage_exist = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;

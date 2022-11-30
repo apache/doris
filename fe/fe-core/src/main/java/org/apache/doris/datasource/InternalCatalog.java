@@ -1925,15 +1925,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 false);
         olapTable.setIsInMemory(isInMemory);
 
-        // set remote storage
-        String remoteStoragePolicy = PropertyAnalyzer.analyzeRemoteStoragePolicy(properties);
-        olapTable.setRemoteStoragePolicy(remoteStoragePolicy);
-
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
-
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
-
         olapTable.setStoragePolicy(storagePolicy);
 
         TTabletType tabletType;
