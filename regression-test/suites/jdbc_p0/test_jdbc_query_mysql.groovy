@@ -905,6 +905,25 @@ suite("test_jdbc_query_mysql", "p0") {
                ); 
         """
         order_qt_sql """ select * from ${exMysqlTypeTable} order by id """
+        sql  """ drop table if exists ${exMysqlTypeTable} """
+        sql  """
+               CREATE EXTERNAL TABLE ${exMysqlTypeTable} (
+                id1 smallint,
+                id2 int,
+                id3 boolean,
+                id4 tinyint,
+                id5 varchar(10),
+                id6 bigint
+               ) ENGINE=JDBC
+               COMMENT "JDBC Mysql 外部表"
+               PROPERTIES (
+                "resource" = "$jdbcResourceMysql57",
+                "table" = "ex_tb18",
+                "table_type"="mysql"
+               ); 
+        """
+        order_qt_sql """ select * from ${exMysqlTypeTable} order by id1 """
+
 
 
         order_qt_sql92 """ WITH a AS (SELECT k8 from $jdbcMysql57Table1), b AS (WITH a AS (SELECT k8 from $jdbcMysql57Table1) SELECT * FROM a) 
@@ -936,6 +955,7 @@ suite("test_jdbc_query_mysql", "p0") {
 
     }
 }
+
 
 
 

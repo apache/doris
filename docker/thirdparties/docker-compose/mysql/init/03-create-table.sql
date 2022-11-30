@@ -184,4 +184,13 @@ CREATE TABLE doris_test.ex_tb17 (
   `order_source` tinyint(4) NULL
 );
 
+CREATE TABLE doris_test.ex_tb18 (
+  id1 smallint,
+  id2 int,
+  id3 boolean,
+  id4 tinyint,
+  id5 varchar(10),
+  id6 bigint
+);
+
 

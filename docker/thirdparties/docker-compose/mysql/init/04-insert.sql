@@ -1112,5 +1112,10 @@ INSERT INTO doris_test.ex_tb17 (id,media_order_id,supplier_id,agent_policy_type,
 (7,3,2,8,5297.81,9,3,23753694.2,96930000.64,'c',7,2,0,'b','e',1,5), (9,3,9,1,4785.38,1,5,95199488.12,94869703.42,'a',4,4,0,'c','d',2,4),
 (5,6,4,5,9137.82,2,7,26526675.7,90098303.36,'a',6,7,0,'d','e',4,1);
 
+INSERT INTO doris_test.ex_tb18 VALUES
+(-32768, -2147483648, true, -128, "tsettestab", -9223372036854775808),
+(32767, 2147483647, false, 127, "tsettestab", 9223372036854775807),
+(null, null, null, null, null, null);
+
 
 
