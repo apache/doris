@@ -57,13 +57,12 @@ import java.util.List;
 import java.util.Map;
 
 public class CatalogMgrTest extends TestWithFeService {
-    private CatalogMgr mgr;
     private static final String MY_CATALOG = "my_catalog";
-
     private static PaloAuth auth;
     private static Env env;
     private static UserIdentity user1;
     private static UserIdentity user2;
+    private CatalogMgr mgr;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -269,6 +268,12 @@ public class CatalogMgrTest extends TestWithFeService {
         // user2 can switch to internal catalog
         parseAndAnalyzeStmt("switch " + InternalCatalog.INTERNAL_CATALOG_NAME + ";", user2Ctx);
         Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user2Ctx.getDefaultCatalog());
+
+        String showCatalogSql = "SHOW CATALOGS";
+        ShowCatalogStmt showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
+        ShowResultSet showResultSet = mgr.showCatalogs(showStmt, user2Ctx.getCurrentCatalog().getName());
+        Assertions.assertEquals("yes", showResultSet.getResultRows().get(1).get(3));
+
         // user2 can switch to hive
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
         env.changeCatalog(user2Ctx, switchHive.getCatalogName());
@@ -277,6 +282,11 @@ public class CatalogMgrTest extends TestWithFeService {
         GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
                 "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
         auth.grant(user2GrantHiveTable);
+
+        showCatalogSql = "SHOW CATALOGS";
+        showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
+        showResultSet = mgr.showCatalogs(showStmt, user2Ctx.getCurrentCatalog().getName());
+        Assertions.assertEquals("yes", showResultSet.getResultRows().get(0).get(3));
     }
 
     @Test

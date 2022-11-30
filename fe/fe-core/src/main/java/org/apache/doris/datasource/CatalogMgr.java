@@ -68,6 +68,8 @@ import java.util.stream.Collectors;
 public class CatalogMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogMgr.class);
 
+    private static final String YES = "yes";
+
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
@@ -289,6 +291,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * List all catalog or get the special catalog with a name.
      */
     public ShowResultSet showCatalogs(ShowCatalogStmt showStmt) throws AnalysisException {
+        return showCatalogs(showStmt, InternalCatalog.INTERNAL_CATALOG_NAME);
+    }
+
+    public ShowResultSet showCatalogs(ShowCatalogStmt showStmt, String currentCtlg) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
         try {
@@ -311,6 +317,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(String.valueOf(catalog.getId()));
                         row.add(name);
                         row.add(catalog.getType());
+                        if (name.equals(currentCtlg)) {
+                            row.add(YES);
+                        } else {
+                            row.add("");
+                        }
                         rows.add(row);
                     }
 
