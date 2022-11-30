@@ -1157,6 +1157,10 @@ public class FunctionCallExpr extends Expr {
             System.arraycopy(childTypes, 0, newChildTypes, 0, newChildTypes.length);
             fn = getBuiltinFunction(fnName.getFunction(), newChildTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction().toLowerCase()) && children.size() == 1
+                && collectChildReturnTypes()[0].isDecimalV3()) {
+            fn = getBuiltinFunction(fnName.getFunction(), new Type[] {Type.DOUBLE},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {

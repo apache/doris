@@ -69,22 +69,18 @@ inline std::string int128_to_string(UInt128 value) {
 
 template <typename T>
 void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
-    using UnsignedType =
-            std::conditional_t<std::is_same_v<T, Int128I> || std::is_same_v<T, Int128>, uint128_t,
-                               std::conditional_t<std::is_same_v<T, Int32>, uint32_t, uint64_t>>;
-    UnsignedType unsigned_value = value;
     if (value < Decimal<T>(0)) {
-        ostr << '-';
+        value *= Decimal<T>(-1);
+        if (value > Decimal<T>(0)) {
+            ostr << '-';
+        }
     }
 
-    UnsignedType whole_part = unsigned_value;
+    using Type = std::conditional_t<std::is_same_v<T, Int128I>, int128_t, T>;
+    Type whole_part = value;
 
     if (scale) {
-        if constexpr (std::is_same_v<T, Int128I>) {
-            whole_part = unsigned_value / decimal_scale_multiplier<Int128>(scale);
-        } else {
-            whole_part = unsigned_value / decimal_scale_multiplier<T>(scale);
-        }
+        whole_part = value / decimal_scale_multiplier<Type>(scale);
     }
     if constexpr (std::is_same_v<T, __int128_t> || std::is_same_v<T, Int128I>) {
         ostr << int128_to_string(whole_part);
@@ -94,8 +90,17 @@ void write_text(Decimal<T> value, UInt32 scale, std::ostream& ostr) {
     if (scale) {
         ostr << '.';
         String str_fractional(scale, '0');
-        for (Int32 pos = scale - 1; pos >= 0; --pos, unsigned_value /= 10) {
-            str_fractional[pos] += unsigned_value % 10;
+        Int32 pos = scale - 1;
+        if (value < Decimal<T>(0) && pos >= 0) {
+            // Reach here iff this value is a min value of a signed numeric type. It means min<int>()
+            // which is -2147483648 multiply -1 is still -2147483648.
+            str_fractional[pos] += (value / 10 * 10) - value;
+            pos--;
+            value /= 10;
+            value *= Decimal<T>(-1);
+        }
+        for (; pos >= 0; --pos, value /= 10) {
+            str_fractional[pos] += value % 10;
         }
         ostr.write(str_fractional.data(), scale);
     }
