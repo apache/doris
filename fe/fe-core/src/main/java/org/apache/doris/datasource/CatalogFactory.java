@@ -79,6 +79,9 @@ public class CatalogFactory {
                 validateEsCatalogProperties(props);
                 catalog = new EsExternalCatalog(catalogId, name, props);
                 break;
+            case "jdbc":
+                catalog = new JdbcExternalCatalog(catalogId, name, props);
+                break;
             default:
                 throw new RuntimeException("Unknown catalog type: " + type);
         }

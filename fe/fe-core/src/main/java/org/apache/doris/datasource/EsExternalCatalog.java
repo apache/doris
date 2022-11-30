@@ -21,8 +21,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsUtil;
@@ -33,7 +31,6 @@ import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -159,39 +156,20 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        return esRestClient.listTable();
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(String dbName) {
         makeSureInitialized();
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
+        EsExternalDatabase db = (EsExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (db != null && db.isInitialized()) {
+            List<String> names = Lists.newArrayList();
+            db.getTables().stream().forEach(table -> names.add(table.getName()));
+            return names;
+        } else {
+            return esRestClient.listTable();
         }
-        return idToDb.get(dbNameToId.get(realDbName));
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
-        return idToDb.get(dbId);
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return esRestClient.existIndex(this.esRestClient.getClient(), tblName);
-    }
-
-    @Override
-    public List<Long> getDbIds() {
-        return Lists.newArrayList(dbNameToId.values());
-    }
-
-    public ExternalDatabase getDbForReplay(long dbId) {
-        return idToDb.get(dbId);
     }
 
     @Override
