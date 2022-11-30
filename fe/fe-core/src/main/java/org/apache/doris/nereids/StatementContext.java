@@ -40,7 +40,7 @@ public class StatementContext {
     private StatementBase parsedStatement;
 
     public StatementContext() {
-        setConnectContext(ConnectContext.get());
+        this.connectContext = ConnectContext.get();
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {

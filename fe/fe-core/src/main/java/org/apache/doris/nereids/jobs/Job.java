@@ -47,6 +47,7 @@ import java.util.stream.Collectors;
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
 public abstract class Job implements TracerSupplier {
+    // counter tracer to count expression transform times.
     protected static final EventProducer COUNTER_TRACER = new EventProducer(CounterEvent.class,
             EventChannel.getDefaultChannel()
                     .addEnhancers(new AddCounterEventEnhancer())
