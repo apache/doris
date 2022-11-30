@@ -22,10 +22,10 @@ CREATE TABLE lineitem (
     l_linenumber  int not null,
     l_partkey     int NOT NULL,
     l_suppkey     int not null,
-    l_quantity    decimal(15, 2) NOT NULL,
-    l_extendedprice  decimal(15, 2) NOT NULL,
-    l_discount    decimal(15, 2) NOT NULL,
-    l_tax         decimal(15, 2) NOT NULL,
+    l_quantity    decimalv3(15, 2) NOT NULL,
+    l_extendedprice  decimalv3(15, 2) NOT NULL,
+    l_discount    decimalv3(15, 2) NOT NULL,
+    l_tax         decimalv3(15, 2) NOT NULL,
     l_returnflag  VARCHAR(1) NOT NULL,
     l_linestatus  VARCHAR(1) NOT NULL,
     l_commitdate  DATEV2 NOT NULL,
@@ -48,7 +48,7 @@ CREATE TABLE orders  (
     o_orderdate      DATEV2 NOT NULL,
     o_custkey        int NOT NULL,
     o_orderstatus    VARCHAR(1) NOT NULL,
-    o_totalprice     decimal(15, 2) NOT NULL,
+    o_totalprice     decimalv3(15, 2) NOT NULL,
     o_orderpriority  VARCHAR(15) NOT NULL,
     o_clerk          VARCHAR(15) NOT NULL,
     o_shippriority   int NOT NULL,
@@ -67,7 +67,7 @@ CREATE TABLE partsupp (
     ps_partkey          int NOT NULL,
     ps_suppkey     int NOT NULL,
     ps_availqty    int NOT NULL,
-    ps_supplycost  decimal(15, 2)  NOT NULL,
+    ps_supplycost  decimalv3(15, 2)  NOT NULL,
     ps_comment     VARCHAR(199) NOT NULL
 )ENGINE=OLAP
 DUPLICATE KEY(`ps_partkey`)
@@ -87,7 +87,7 @@ CREATE TABLE part (
     p_type        VARCHAR(25) NOT NULL,
     p_size        int NOT NULL,
     p_container   VARCHAR(10) NOT NULL,
-    p_retailprice decimal(15, 2) NOT NULL,
+    p_retailprice decimalv3(15, 2) NOT NULL,
     p_comment     VARCHAR(23) NOT NULL
 )ENGINE=OLAP
 DUPLICATE KEY(`p_partkey`)
@@ -105,7 +105,7 @@ CREATE TABLE customer (
     c_address     VARCHAR(40) NOT NULL,
     c_nationkey   int NOT NULL,
     c_phone       VARCHAR(15) NOT NULL,
-    c_acctbal     decimal(15, 2)   NOT NULL,
+    c_acctbal     decimalv3(15, 2)   NOT NULL,
     c_mktsegment  VARCHAR(10) NOT NULL,
     c_comment     VARCHAR(117) NOT NULL
 )ENGINE=OLAP
@@ -123,7 +123,7 @@ CREATE TABLE supplier (
     s_address     VARCHAR(40) NOT NULL,
     s_nationkey   int NOT NULL,
     s_phone       VARCHAR(15) NOT NULL,
-    s_acctbal     decimal(15, 2) NOT NULL,
+    s_acctbal     decimalv3(15, 2) NOT NULL,
     s_comment     VARCHAR(101) NOT NULL
 )ENGINE=OLAP
 DUPLICATE KEY(`s_suppkey`)

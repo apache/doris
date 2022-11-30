@@ -38,15 +38,12 @@ public class DataProperty implements Writable {
     );
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
-    @SerializedName(value =  "storageMedium")
+    @SerializedName(value = "storageMedium")
     private TStorageMedium storageMedium;
-    @SerializedName(value =  "cooldownTimeMs")
+    @SerializedName(value = "cooldownTimeMs")
     private long cooldownTimeMs;
-    @SerializedName(value = "remoteStoragePolicy")
-    private String remoteStoragePolicy;
-    // cooldown time for remote storage
-    @SerializedName(value = "remoteCooldownTimeMs")
-    private long remoteCooldownTimeMs;
+    @SerializedName(value = "storagePolicy")
+    private String storagePolicy;
 
     private DataProperty() {
         // for persist
@@ -60,8 +57,7 @@ public class DataProperty implements Writable {
         } else {
             this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
-        this.remoteStoragePolicy = "";
-        this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+        this.storagePolicy = "";
     }
 
     /**
@@ -69,18 +65,12 @@ public class DataProperty implements Writable {
      *
      * @param medium storage medium for the init storage of the table
      * @param cooldown cool down time for SSD->HDD
-     * @param remoteStoragePolicy remote storage policy for remote storage
-     * @param remoteCooldownTimeMs remote storage cooldown time
+     * @param storagePolicy remote storage policy for remote storage
      */
-    public DataProperty(TStorageMedium medium, long cooldown, String remoteStoragePolicy, long remoteCooldownTimeMs) {
+    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
-        this.remoteStoragePolicy = remoteStoragePolicy;
-        if (remoteCooldownTimeMs > 0) {
-            this.remoteCooldownTimeMs = remoteCooldownTimeMs;
-        } else {
-            this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
-        }
+        this.storagePolicy = storagePolicy;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -91,12 +81,8 @@ public class DataProperty implements Writable {
         return cooldownTimeMs;
     }
 
-    public String getRemoteStoragePolicy() {
-        return remoteStoragePolicy;
-    }
-
-    public long getRemoteCooldownTimeMs() {
-        return remoteCooldownTimeMs;
+    public String getStoragePolicy() {
+        return storagePolicy;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -118,12 +104,12 @@ public class DataProperty implements Writable {
     public void readFields(DataInput in) throws IOException {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
         cooldownTimeMs = in.readLong();
-        remoteStoragePolicy = "";
+        storagePolicy = "";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(storageMedium, cooldownTimeMs, remoteStoragePolicy, remoteCooldownTimeMs);
+        return Objects.hash(storageMedium, cooldownTimeMs, storagePolicy);
     }
 
     @Override
@@ -140,8 +126,7 @@ public class DataProperty implements Writable {
 
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
-                && this.remoteStoragePolicy.equals(other.remoteStoragePolicy)
-                && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs;
+                && this.storagePolicy.equals(other.storagePolicy);
     }
 
     @Override
@@ -149,8 +134,7 @@ public class DataProperty implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
-        sb.append("remote storage policy[").append(this.remoteStoragePolicy).append("]. ");
-        sb.append("remote cooldown time[").append(TimeUtils.longToTimeString(remoteCooldownTimeMs)).append("]. ");
+        sb.append("remote storage policy[").append(this.storagePolicy).append("]. ");
         return sb.toString();
     }
 }

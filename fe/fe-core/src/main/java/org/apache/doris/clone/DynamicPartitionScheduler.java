@@ -162,7 +162,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             idx = 0;
         }
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
-        String storagePolicyName = dynamicPartitionProperty.getRemoteStoragePolicy();
+        String storagePolicyName = dynamicPartitionProperty.getStoragePolicy();
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(
@@ -267,7 +267,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private void setStoragePolicyProperty(HashMap<String, String> partitionProperties,
                                           DynamicPartitionProperty property, ZonedDateTime now, int offset,
                                           String storagePolicyName) {
-        partitionProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, storagePolicyName);
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicyName);
         String baseTime = DynamicPartitionUtil.getPartitionRangeString(
                 property, now, offset, DynamicPartitionUtil.DATETIME_FORMAT);
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_DATA_BASE_TIME, baseTime);
