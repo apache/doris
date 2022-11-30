@@ -24,19 +24,16 @@ suite("test_dynamic_table", "dynamic_table"){
         // load the json data
         streamLoad {
             table "${table_name}"
-            
             // set http request header params
             set 'enable_vectorized_engine', vec_flag
             set 'read_json_by_line', read_flag
             set 'format', format_flag
             set 'read_json_by_line', read_flag
-            
             file file_name // import json file
             time 10000 // limit inflight 10s
 
             // if declared a check callback, the default check condition will ignore.
             // So you must check all condition
-            
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
                         throw exception
@@ -104,7 +101,7 @@ suite("test_dynamic_table", "dynamic_table"){
         sleep(1000)
         //def select_res = sql "select * from ${table_name} order by `${columes[0]}`"
         def select_res = sql "select `${columes[0]}` from ${table_name} order by `${columes[0]}`"
-        logger.info("after stream load ${table_name}, select result: ${select_res}".toString())  
+        logger.info("after stream load ${table_name}, select result: ${select_res}".toString())
 
         //check data in table and check table schema
         def select_res_now = "true"
@@ -150,7 +147,7 @@ suite("test_dynamic_table", "dynamic_table"){
                 """
             }else{
                 index_res = sql """
-                create index ${index_name} on ${table_name}(`${colume_name}`) using inverted(${index_type})
+                create index ${index_name} on ${table_name}(`${colume_name}`) using inverted PROPERTIES("parser"="${index_type}")
                 """
             }
             logger.info("create index res: ${index_res} \n".toString())
@@ -204,7 +201,7 @@ suite("test_dynamic_table", "dynamic_table"){
         if( data_models[j] == "AGGREGATE" ){
             expect_success = "false"
         }
-   
+
         for(def k=0; k < replica_num.size(); k++){
             // expect create table
             for(def t=0; t< table_name.size(); t++){
@@ -219,7 +216,7 @@ suite("test_dynamic_table", "dynamic_table"){
         }
     }
     // expect create table false
-    test_create_and_load_dynamic_table("test_dytable_complex_data_feishu_array_key_colume", "DUPLICATE", 3, ["content.post.zh_cn.content.tag"], ["ARRAY<NOT_NULL(ARRAY<text>)>"], "dynamic_feishu_alarm.json", "false")
+    test_create_and_load_dynamic_table("test_dytable_complex_data_feishu_array_key_colume", "DUPLICATE", 3, ["content.post.zh_cn.content.tag"], ["ARRAY<ARRAY<text>>"], "dynamic_feishu_alarm.json", "false")
     logger.info("recording tables: ${table_names}".toString())
 
 
@@ -228,21 +225,21 @@ suite("test_dynamic_table", "dynamic_table"){
         for(def round = 0; round < test_round; round++){
             if((round % test_round) == 1){
                 if(table_names[tb].contains("feishu")) {
-                    create_index("${table_names[tb]}", "content.post.zh_cn.title", "title_idx", "simple", "success")
-                    create_index("${table_names[tb]}", "msg_type", "msg_idx", "none", "success")
+                    create_index("${table_names[tb]}", "content.post.zh_cn.title", "title_idx", "english", "success")
+                    create_index("${table_names[tb]}", "msg_type", "msg_idx", "null", "success")
                     //select index colume mix select
-                    qt_sql """ select * from ${table_names[tb]} where msg_type="post" or `content.post.zh_cn.title` match_all "BUILD_FINISHED" order by `content.post.zh_cn.title` limit 30; """ 
+                    qt_sql """ select * from ${table_names[tb]} where msg_type="post" or `content.post.zh_cn.title` match_all "BUILD_FINISHED" order by `content.post.zh_cn.title` limit 30; """
                     qt_sql """ select * from ${table_names[tb]} where msg_type in ("post", "get") and `content.post.zh_cn.title` match_any "BUILD_FINISHED" order by `content.post.zh_cn.title` limit 30; """
                     qt_sql """ select `content.post.zh_cn.content.herf` from ${table_names[tb]} where msg_type in ("post") and `content.post.zh_cn.title` match_any "FINISHED" order by `content.post.zh_cn.title` limit 30; """
                     qt_sql """ select count() from ${table_names[tb]} where msg_type="post" and `content.post.zh_cn.title` != "BUILD_FINISHED" group by `content.post.zh_cn.title`; """
-                    qt_sql """ select `content.post.zh_cn.title`,`content.post.zh_cn.content.herf` from dytable_complex_feishu_3_DUPLICATE where msg_type="post" group by `content.post.zh_cn.content.herf`, `content.post.zh_cn.title` order by `content.post.zh_cn.title`;"""
+                    // qt_sql """ select `content.post.zh_cn.title`,`content.post.zh_cn.content.herf` from dytable_complex_feishu_3_DUPLICATE where msg_type="post" group by `content.post.zh_cn.content.herf`, `content.post.zh_cn.title` order by `content.post.zh_cn.title`;"""
                 }else if(table_names[tb].contains("github")) {
                     create_index("${table_names[tb]}", "actor.id", "actorid_idx", "null", "success")
-                    create_index("${table_names[tb]}", "payload.pull_request.title", "title_idx", "simple", "success")
+                    create_index("${table_names[tb]}", "payload.pull_request.title", "title_idx", "english", "success")
                     // index colume select
                     //qt_sql """ select * from ${table_names[tb]} where `actor.id`=93110249 or `payload.pull_request.title`="" order by `actor.id` limit 100; """
                     qt_sql """select `repo.name` from ${table_names[tb]} where `actor.id`=93110249 or `payload.pull_request.title`="" order by `actor.id`; """
-                    // index colume and  simple colume mix select 
+                    // index colume and  simple colume mix select
                     //qt_sql """ select * from ${table_names[tb]} where `actor.id`!= 93110249 order by `actor.id` limit 100;"""
                     qt_sql """select `repo.name`, type from ${table_names[tb]} where `actor.id`!= 93110249 order by `actor.id`, `repo.name` limit 100;"""
                     qt_sql """ select * from ${table_names[tb]} where `actor.id`!= 93110249 order by `actor.id`, `repo.name`, type limit 10;"""
@@ -263,7 +260,7 @@ suite("test_dynamic_table", "dynamic_table"){
                     qt_sql """ select count() from ${table_names[tb]} WHERE msg_type="post" group by msg_type; """
                     qt_sql """ select * from ${table_names[tb]} WHERE msg_type="post" and content.post.zh_cn.title="BUILD_FINISHED" order by `content.post.zh_cn.title` limit 50;; """
                     qt_sql """ select count() from ${table_names[tb]} where msg_type="post" and `content.post.zh_cn.title` != "BUILD_FINISHED" group by `content.post.zh_cn.title`; """
-                    qt_sql """ select `content.post.zh_cn.content.herf` from where msg_type="post" group by `content.post.zh_cn.content.herf` order by `content.post.zh_cn.title`;"""
+                    // qt_sql """ select `content.post.zh_cn.content.herf` from where msg_type="post" group by `content.post.zh_cn.content.herf` order by `content.post.zh_cn.title`;"""
                 }else if(table_names[tb].contains("github")) {
                     qt_sql """ SELECT count() FROM ${table_names[tb]}  WHERE type = 'WatchEvent' GROUP BY payload.action;"""
                     qt_sql """ SELECT `repo.name`, count() AS stars FROM ${table_names[tb]} WHERE type = 'WatchEvent' AND year(created_at) = '2015' GROUP BY repo.name ORDER BY `repo.name`, `actor.id` DESC LIMIT 50;"""
@@ -274,5 +271,3 @@ suite("test_dynamic_table", "dynamic_table"){
         }
     }
 }
-
-
