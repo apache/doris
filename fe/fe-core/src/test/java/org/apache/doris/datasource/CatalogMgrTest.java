@@ -158,6 +158,10 @@ public class CatalogMgrTest extends TestWithFeService {
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(5, showResultSet.getResultRows().size());
 
+        //test result order
+        Assertions.assertEquals("es", showResultSet.getResultRows().get(0).get(1));
+        Assertions.assertEquals("internal", showResultSet.getResultRows().get(4).get(1));
+
         showCatalogSql = "SHOW CATALOGS LIKE 'hms%'";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         showResultSet = mgr.showCatalogs(showStmt);
