@@ -617,7 +617,7 @@ public class Backend implements Writable {
 
     @Override
     public String toString() {
-        return "Backend [id=" + id + ", ip=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
+        return "Backend [id=" + id + ", host=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", tags: " + tagMap + "]";
     }
 
