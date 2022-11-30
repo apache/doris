@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -289,8 +290,17 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
         boolean isAnalyticFunction = false;
+        String functionName = function.isDistinct() ? "MULTI_DISTINCT_" + function.getName() : function.getName();
+        if (function.getAggregateParam().aggPhase == AggPhase.DISTINCT_LOCAL
+                || function.getAggregateParam().aggPhase == AggPhase.DISTINCT_GLOBAL) {
+            if (function.getName().equalsIgnoreCase("count")) {
+                functionName = "SUM";
+            } else {
+                functionName = function.getName();
+            }
+        }
         org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
-                new FunctionName(function.getName()), argTypes,
+                new FunctionName(functionName), argTypes,
                 function.getDataType().toCatalogDataType(),
                 function.getIntermediateTypes().toCatalogDataType(),
                 function.hasVarArguments(),
