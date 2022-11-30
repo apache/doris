@@ -1912,7 +1912,7 @@ public:
 
     BitmapValueIterator(const BitmapValueIterator& other)
             : _bitmap(other._bitmap), _sv(other._sv), _end(other._end) {
-        _iter = new detail::Roaring64MapSetBitForwardIterator(*other._iter);
+        _iter = other._iter ? new detail::Roaring64MapSetBitForwardIterator(*other._iter) : nullptr;
     }
 
     ~BitmapValueIterator() {
