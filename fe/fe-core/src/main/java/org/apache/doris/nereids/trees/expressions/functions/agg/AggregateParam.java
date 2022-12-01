@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.AggregateMode;
 
 import com.google.common.base.Preconditions;
 
@@ -29,6 +30,8 @@ public class AggregateParam {
 
     public final AggPhase aggPhase;
 
+    public final AggregateMode aggregateMode;
+
     public final boolean isDistinct;
 
     public final boolean isDisassembled;
@@ -39,10 +42,19 @@ public class AggregateParam {
         this.isDistinct = isDistinct;
         this.aggPhase = aggPhase;
         this.isDisassembled = isDisassembled;
+        this.aggregateMode = null;
         if (!isFinalPhase) {
             Preconditions.checkArgument(isDisassembled,
                     "non-final phase aggregate should be disassembed");
         }
+    }
+
+    public AggregateParam(boolean isDistinct, AggregateMode aggregateMode) {
+        this.isDistinct = isDistinct;
+        this.aggregateMode = aggregateMode;
+        this.isDisassembled = false;
+        this.aggPhase = null;
+        this.isFinalPhase = false;
     }
 
     public static AggregateParam finalPhase() {

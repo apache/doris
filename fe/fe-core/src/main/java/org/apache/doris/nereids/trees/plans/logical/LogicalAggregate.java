@@ -59,10 +59,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     private final boolean disassembled;
     private final boolean normalized;
     private final AggPhase aggPhase;
-    private final ImmutableList<Expression> groupByExpressions;
-    private final ImmutableList<NamedExpression> outputExpressions;
+    private final List<Expression> groupByExpressions;
+    private final List<NamedExpression> outputExpressions;
     // TODO: we should decide partition expression according to cost.
-    private final Optional<ImmutableList<Expression>> partitionExpressions;
+    private final Optional<List<Expression>> partitionExpressions;
 
     // use for scenes containing distinct agg
     // 1. If there is LOCAL only, LOCAL is the final phase
@@ -308,5 +308,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
         return new LogicalAggregate<>(groupByExpressions, newOutput, partitionExpressions.map(List.class::cast),
                 disassembled, normalized, isFinalPhase, aggPhase, sourceRepeat, Optional.empty(),
                 Optional.empty(), child());
+    }
+
+    public LogicalAggregate<Plan> withNormalized(List<Expression> normalizedGroupBy,
+            List<NamedExpression> normalizedOutput, Plan normalizedChild) {
+        return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, partitionExpressions,
+                disassembled, true, isFinalPhase, aggPhase, Optional.empty(),
+                Optional.empty(), Optional.empty(), normalizedChild);
     }
 }
