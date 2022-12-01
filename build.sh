@@ -283,7 +283,7 @@ if [[ -z "${USE_DWARF}" ]]; then
 fi
 
 if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
-    OUTPUT_BE_BINARY=1
+    OUTPUT_BE_BINARY=${BUILD_BE}
 fi
 
 if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
@@ -512,7 +512,7 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/fe/spark-dpp/target"/spark-dpp-*-jar-with-dependencies.jar "${DORIS_OUTPUT}/fe/spark-dpp"/
 fi
 
-if [[ "${BUILD_BE}" -eq 1 ]]; then
+if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
