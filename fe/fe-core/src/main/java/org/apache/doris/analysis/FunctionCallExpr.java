@@ -363,6 +363,7 @@ public class FunctionCallExpr extends Expr {
         }
         int len = children.size();
         List<String> result = Lists.newArrayList();
+        //XXX_diff are used by nereids only
         if (fnName.getFunction().equalsIgnoreCase("years_diff")
                 || fnName.getFunction().equalsIgnoreCase("months_diff")
                 || fnName.getFunction().equalsIgnoreCase("days_diff")
@@ -373,6 +374,8 @@ public class FunctionCallExpr extends Expr {
             sb.append(children.get(0).toSql()).append(")");
             return sb.toString();
         }
+        //used by nereids END
+
         if (fnName.getFunction().equalsIgnoreCase("json_array")
                 || fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;

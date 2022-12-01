@@ -35,7 +35,6 @@ import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
-import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
@@ -643,8 +642,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             //      the function information is obtained by parsing the catalog. This method is more scalable.
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
-            List<ExpressionContext> expressionContexts = ctx.expression();
-            List<Expression> params = visit(expressionContexts, Expression.class);
+            List<Expression> params = visit(ctx.expression(), Expression.class);
             for (Expression expression : params) {
                 if (expression instanceof UnboundStar && functionName.equalsIgnoreCase("count") && !isDistinct) {
                     return new UnboundFunction(functionName, false, true, new ArrayList<>());

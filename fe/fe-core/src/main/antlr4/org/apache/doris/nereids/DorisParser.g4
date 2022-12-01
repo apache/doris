@@ -264,7 +264,12 @@ datetimeUnit
     ;
 
 primaryExpression
-    : name=(TIMESTAMPDIFF | DATEDIFF) LEFT_PAREN unit=datetimeUnit COMMA startTimestamp=valueExpression COMMA endTimestamp=valueExpression RIGHT_PAREN    #timestampdiff
+    : name=(TIMESTAMPDIFF | DATEDIFF)
+            LEFT_PAREN
+                unit=datetimeUnit COMMA
+                startTimestamp=valueExpression COMMA
+                endTimestamp=valueExpression
+            RIGHT_PAREN                                                                        #timestampdiff
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
