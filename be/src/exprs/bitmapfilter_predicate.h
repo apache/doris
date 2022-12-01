@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include "common/object_pool.h"
+#include <algorithm>
+
 #include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
@@ -30,14 +31,15 @@ class BitmapFilterFuncBase {
 public:
     virtual void insert(const void* data) = 0;
     virtual void insert_many(const std::vector<const BitmapValue*> bitmaps) = 0;
-    virtual bool find(uint64 data) const = 0;
-    virtual bool is_empty() = 0;
+    virtual bool empty() = 0;
     virtual Status assign(BitmapValue* bitmap_value) = 0;
     virtual void light_copy(BitmapFilterFuncBase* other) { _not_in = other->_not_in; };
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
                                                 uint16_t* offsets, int number) = 0;
     virtual void find_batch(const char* data, const uint8* nullmap, int number,
                             uint8* results) const = 0;
+    virtual size_t size() const = 0;
+    bool is_not_in() const { return _not_in; }
     void set_not_in(bool not_in) { _not_in = not_in; }
     virtual ~BitmapFilterFuncBase() = default;
 
@@ -51,7 +53,7 @@ class BitmapFilterFunc : public BitmapFilterFuncBase {
 public:
     using CppType = typename PrimitiveTypeTraits<type>::CppType;
 
-    BitmapFilterFunc() : _bitmap_value(std::make_shared<BitmapValue>()), _empty(true) {}
+    BitmapFilterFunc() : _bitmap_value(std::make_shared<BitmapValue>()) {}
 
     ~BitmapFilterFunc() override = default;
 
@@ -59,15 +61,13 @@ public:
 
     void insert_many(const std::vector<const BitmapValue*> bitmaps) override;
 
-    bool find(uint64 data) const override { return _not_in ^ _bitmap_value->contains(data); }
-
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
                                         int number) override;
 
     void find_batch(const char* data, const uint8* nullmap, int number,
                     uint8* results) const override;
 
-    bool is_empty() override { return _empty; }
+    bool empty() override { return _bitmap_value->empty(); }
 
     Status assign(BitmapValue* bitmap_value) override {
         *_bitmap_value = *bitmap_value;
@@ -76,9 +76,25 @@ public:
 
     void light_copy(BitmapFilterFuncBase* bloomfilter_func) override;
 
+    size_t size() const override { return _bitmap_value->cardinality(); }
+
+    uint64_t max() { return _bitmap_value->max(nullptr); }
+
+    uint64_t min() { return _bitmap_value->min(nullptr); }
+
+    bool contains_any(CppType left, CppType right) {
+        if (right < 0) {
+            return false;
+        }
+        return _bitmap_value->contains_any(std::max(left, (CppType)0), right);
+    }
+
+    std::shared_ptr<BitmapValue> get_inner_bitmap() { return _bitmap_value; }
+
 private:
     std::shared_ptr<BitmapValue> _bitmap_value;
-    bool _empty;
+
+    bool find(CppType data) const { return _not_in ^ (data >= 0 && _bitmap_value->contains(data)); }
 };
 
 template <PrimitiveType type>
@@ -88,7 +104,6 @@ void BitmapFilterFunc<type>::insert(const void* data) {
     }
 
     *_bitmap_value |= *reinterpret_cast<const BitmapValue*>(data);
-    _empty = false;
 }
 
 template <PrimitiveType type>
@@ -97,7 +112,6 @@ void BitmapFilterFunc<type>::insert_many(const std::vector<const BitmapValue*> b
         return;
     }
     _bitmap_value->fastunion(bitmaps);
-    _empty = false;
 }
 
 template <PrimitiveType type>
@@ -136,7 +150,6 @@ template <PrimitiveType type>
 void BitmapFilterFunc<type>::light_copy(BitmapFilterFuncBase* bitmapfilter_func) {
     BitmapFilterFuncBase::light_copy(bitmapfilter_func);
     auto other_func = reinterpret_cast<BitmapFilterFunc*>(bitmapfilter_func);
-    _empty = other_func->_empty;
     _bitmap_value = other_func->_bitmap_value;
 }
 
