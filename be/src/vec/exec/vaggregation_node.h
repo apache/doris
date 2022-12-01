@@ -790,8 +790,6 @@ private:
     bool _use_fixed_length_serialization_opt;
     std::unique_ptr<MemPool> _mem_pool;
 
-    std::unique_ptr<MemTracker> _data_mem_tracker;
-
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
     Sizes _offsets_of_aggregate_states;
