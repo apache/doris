@@ -240,12 +240,25 @@ CONF_Bool(enable_storage_vectorization, "true");
 CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
+// whether check compaction checksum
+CONF_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
 // whether enable vectorized compaction
 CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
+// whether enable vertical compaction
+CONF_mBool(enable_vertical_compaction, "false");
+// whether enable ordered data compaction
+CONF_mBool(enable_ordered_data_compaction, "false");
+// In vertical compaction, column number for every group
+CONF_mInt32(vertical_compaction_num_columns_per_group, "5");
+// In vertical compaction, max memory usage for row_source_buffer
+CONF_Int32(vertical_compaction_max_row_source_memory_mb, "200");
+
+// In ordered data compaction, min segment size for input rowset
+CONF_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
