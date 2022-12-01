@@ -196,9 +196,7 @@ public:
 
     MemTracker* mem_tracker_held() const { return _mem_tracker_held.get(); }
     MemTracker* mem_tracker_growh() const { return _mem_tracker_growh.get(); }
-    std::shared_ptr<MemTracker> mem_tracker_growh_shared() const {
-        return _mem_tracker_growh;
-    }
+    std::shared_ptr<MemTracker> mem_tracker_growh_shared() const { return _mem_tracker_growh; }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
