@@ -24,6 +24,7 @@
 #include "olap/primary_key_index.h"
 #include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
+#include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/schema.h"
@@ -104,6 +105,20 @@ Status SegmentWriter::init() {
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
         opts.need_bitmap_index = column.has_bitmap_index();
+        bool skip_inverted_index = false;
+        if (_opts.rowset_ctx != nullptr) {
+            skip_inverted_index =
+                    _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+        }
+        // indexes for this column
+        opts.indexes = _tablet_schema->get_indexes_for_column(column.unique_id());
+        for (auto index : opts.indexes) {
+            if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
+                opts.inverted_index = index;
+                // TODO support multiple inverted index
+                break;
+            }
+        }
         if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             opts.need_zone_map = false;
             if (opts.need_bloom_filter) {
@@ -313,6 +328,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_bitmap_index());
+    RETURN_IF_ERROR(_write_inverted_index());
     RETURN_IF_ERROR(_write_bloom_filter_index());
     if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
         RETURN_IF_ERROR(_write_primary_key_index());
@@ -352,6 +368,13 @@ Status SegmentWriter::_write_zone_map() {
 Status SegmentWriter::_write_bitmap_index() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_bitmap_index());
+    }
+    return Status::OK();
+}
+
+Status SegmentWriter::_write_inverted_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_inverted_index());
     }
     return Status::OK();
 }
