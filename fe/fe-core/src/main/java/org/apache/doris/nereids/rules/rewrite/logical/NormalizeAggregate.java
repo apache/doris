@@ -77,7 +77,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
 
             // replace groupBy and arguments of aggregate function to slot, may be this output contains
             // some expression on the aggregate expression, e.g. `sum(value) + 1`, we should replace
-            // the sum(value) to slot and move the slot + 1 to the upper project
+            // the sum(value) to slot and move the slot + 1 to the upper project later.
             List<NamedExpression> normalizeOutputPhase1 = context.normalizeToUseSlotRef(
                     aggregate.getOutputExpressions(), this::normalizeAggregateExpression);
             Set<AggregateExpression> normalizedAggregateExpressions =
