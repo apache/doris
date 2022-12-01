@@ -53,7 +53,10 @@ import java.util.stream.Collectors;
 
 public class MergeProjects extends OneRewriteRuleFactory {
 
-    private static class ExpressionReplacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
+    /**
+     * replace alias
+     */
+    public static class ExpressionReplacer extends DefaultExpressionRewriter<Map<Expression, Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
         public Expression replace(Expression expr, Map<Expression, Expression> substitutionMap) {
@@ -92,7 +95,7 @@ public class MergeProjects extends OneRewriteRuleFactory {
                 Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
                 if (substitutionMap.containsKey(ref)) {
                     Alias res = (Alias) substitutionMap.get(ref);
-                    return res.child();
+                    return new Alias(res.child(), ref.getName());
                 }
             } else if (substitutionMap.containsKey(expr)) {
                 return substitutionMap.get(expr).child(0);
