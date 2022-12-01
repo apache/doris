@@ -312,6 +312,13 @@ public:
                                 TabletSchemaSPtr tablet_schema,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
+    Status create_vertical_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
+                                         const SegmentsOverlapPB& overlap,
+                                         TabletSchemaSPtr tablet_schema,
+                                         int64_t oldest_write_timestamp,
+                                         int64_t newest_write_timestamp,
+                                         std::unique_ptr<RowsetWriter>* rowset_writer);
+
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
     // Cooldown to remote fs.
     Status cooldown();

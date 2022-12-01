@@ -45,6 +45,10 @@ public:
     virtual Status add_block(const vectorized::Block* block) {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
+    virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
+                               bool is_key, uint32_t max_rows_per_segment) {
+        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+    }
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual Status add_rowset(RowsetSharedPtr rowset) = 0;
@@ -55,6 +59,12 @@ public:
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
+    virtual Status flush_columns() {
+        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+    }
+    virtual Status final_flush() {
+        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+    }
 
     virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
@@ -71,6 +81,9 @@ public:
     // so we  build a tmp rowset ptr to load segment data.
     // real build will be called in DeltaWriter close_wait.
     virtual RowsetSharedPtr build_tmp() = 0;
+
+    // For ordered rowset compaction, manual build rowset
+    virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
 
     virtual Version version() = 0;
 
