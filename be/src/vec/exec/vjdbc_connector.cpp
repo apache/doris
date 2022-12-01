@@ -229,7 +229,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
             type_str, slot_desc->type().debug_string(), slot_desc->col_name());
     switch (slot_desc->type().type) {
     case TYPE_BOOLEAN: {
-        if (type_str != "java.lang.Boolean" || type_str != "java.math.BigDecimal") {
+        if (type_str != "java.lang.Boolean" && type_str != "java.math.BigDecimal") {
             return Status::InternalError(error_msg);
         }
         break;
