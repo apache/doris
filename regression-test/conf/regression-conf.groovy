@@ -89,3 +89,4 @@ enableEsTest=true
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200
+
