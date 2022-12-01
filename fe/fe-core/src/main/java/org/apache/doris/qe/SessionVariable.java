@@ -21,11 +21,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.metrics.Event;
+import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -37,8 +40,10 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * System variable.
@@ -231,6 +236,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
 
     public static final String ENABLE_ELIMINATE_SORT_NODE = "enable_eliminate_sort_node";
+
+    public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
 
     public static final String INTERNAL_SESSION = "internal_session";
 
@@ -641,6 +648,40 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+    }
+
+    /**
+     * syntax:
+     * all -> use all event
+     * all except event_1, event_2, ..., event_n -> use all events excluding the event_1~n
+     * event_1, event_2, ..., event_n -> use event_1~n
+     */
+    @VariableMgr.VarAttr(name = NEREIDS_TRACE_EVENT_MODE, checker = "checkNereidsTraceEventMode")
+    public String nereidsTraceEventMode = "all";
+
+    private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
+
+    public void setEnableNereidsTrace(boolean enableNereidsTrace) {
+        this.enableNereidsTrace = enableNereidsTrace;
+    }
+
+    public void setNereidsTraceEventMode(String nereidsTraceEventMode) {
+        checkNereidsTraceEventMode(nereidsTraceEventMode);
+        this.nereidsTraceEventMode = nereidsTraceEventMode;
+    }
+
+    public void checkNereidsTraceEventMode(String nereidsTraceEventMode) {
+        List<String> strings = EventSwitchParser.checkEventModeStringAndSplit(nereidsTraceEventMode);
+        if (strings != null) {
+            parsedNereidsEventMode = EventSwitchParser.parse(strings);
+        }
+        if (parsedNereidsEventMode == null) {
+            throw new UnsupportedOperationException("nereids_trace_event_mode syntax error, please check");
+        }
+    }
+
+    public Set<Class<? extends Event>> getParsedNereidsEventMode() {
+        return parsedNereidsEventMode;
     }
 
     public String getBlockEncryptionMode() {

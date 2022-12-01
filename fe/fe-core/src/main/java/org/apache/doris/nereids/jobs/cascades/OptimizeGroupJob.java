@@ -22,6 +22,9 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.metrics.CounterType;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
 
 import java.util.List;
 
@@ -38,6 +41,7 @@ public class OptimizeGroupJob extends Job {
 
     @Override
     public void execute() {
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION, group, null, null));
         if (group.getCostLowerBound() > context.getCostUpperBound()
                 || group.getLowestCostPlan(context.getRequiredProperties()).isPresent()) {
             return;
