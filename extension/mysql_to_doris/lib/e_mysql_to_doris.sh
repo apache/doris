@@ -25,7 +25,7 @@ source ${home_dir}/conf/env.conf
 mkdir -p ${home_dir}/result/mysql
 
 #The default path is ../result/mysql_to_doris.sql for create table sql
-path=${1:-${home_dir}/result/mysql/mysql_to_doris.sql}
+path=${1:-${home_dir}/result/mysql/e_mysql_to_doris.sql}
 
 #delete sql file if it is exists
 rm -f $path
@@ -82,7 +82,8 @@ x=0
 for table in $(cat ${home_dir}/conf/doris_external_tables | grep -v '#' | awk -F '\n' '{print $1}'); do
     let x++
     d_t=$(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk "NR==$x{print}" | awk -F '.' '{print $2}')
-    sed -i "s/TABLE \`$d_t\`/TABLE IF NOT EXISTS $table/g" $path
+    table=$(echo ${table} | sed 's/\./`.`/g')
+    sed -i "s/TABLE \`$d_t\`/TABLE IF NOT EXISTS \`$table\`/g" $path
 done
 
 #create database

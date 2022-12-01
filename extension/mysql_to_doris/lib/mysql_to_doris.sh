@@ -76,7 +76,8 @@ x=0
 for table in $(cat ${home_dir}/conf/doris_tables | grep -v '#' | sed 's/ //g' | sed '/^$/d'); do
   let x++
   d_t=$(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk "NR==$x{print}" | awk -F '.' '{print $2}' | sed 's/ //g')
-  sed -i "s/TABLE \`$d_t\`/TABLE IF NOT EXISTS $table/g" $path
+  table=$(echo ${table} | sed 's/\./`.`/g')
+  sed -i "s/TABLE \`$d_t\`/TABLE IF NOT EXISTS \`$table\`/g" $path
 done
 
 #create database
