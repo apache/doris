@@ -122,7 +122,7 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
 
     client_impl->set_conn_timeout(config::thrift_connect_timeout_seconds * 1000);
 
-    Status status = client_impl->open();
+    Status status = client_impl->open_with_retry(20, 500);
 
     if (!status.ok()) {
         *client_key = nullptr;
