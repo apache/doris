@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -121,7 +120,6 @@ public interface NormalizeToSlot {
             }
 
             if (expression instanceof NamedExpression) {
-                Preconditions.checkArgument(existsAlias == null);
                 NamedExpression namedExpression = (NamedExpression) expression;
                 NormalizeToSlotTriplet normalizeToSlotTriplet =
                         new NormalizeToSlotTriplet(expression, namedExpression.toSlot(), namedExpression);

@@ -313,7 +313,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     public LogicalAggregate<Plan> withNormalized(List<Expression> normalizedGroupBy,
             List<NamedExpression> normalizedOutput, Plan normalizedChild) {
         return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, partitionExpressions,
-                disassembled, true, isFinalPhase, aggPhase, Optional.empty(),
+                disassembled, true, isFinalPhase, aggPhase, sourceRepeat,
                 Optional.empty(), Optional.empty(), normalizedChild);
     }
 }
