@@ -556,4 +556,14 @@ public class Util {
         logger.warn(msg, e);
         throw new RuntimeException(msg, e);
     }
+
+    public static String getRootCauseMessage(Throwable t) {
+        String rootCause = "unknown";
+        Throwable p = t;
+        while (p != null) {
+            rootCause = p.getClass().getName() + ": " + p.getMessage();
+            p = p.getCause();
+        }
+        return rootCause;
+    }
 }

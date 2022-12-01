@@ -29,7 +29,9 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,10 +39,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@Setter
 public class JdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(JdbcTable.class);
 
@@ -66,7 +68,7 @@ public class JdbcTable extends Table {
     private String checkSum;
 
     static {
-        Map<String, TOdbcTableType> tempMap = new HashMap<>();
+        Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -83,6 +85,10 @@ public class JdbcTable extends Table {
             throws DdlException {
         super(id, name, TableType.JDBC, schema);
         validate(properties);
+    }
+
+    public JdbcTable(long id, String name, List<Column> schema, TableType type) {
+        super(id, name, type, schema);
     }
 
     public String getCheckSum() {

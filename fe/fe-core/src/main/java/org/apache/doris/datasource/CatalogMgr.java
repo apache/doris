@@ -28,9 +28,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -94,6 +96,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private CatalogIf removeCatalog(long catalogId) {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         if (catalog != null) {
+            catalog.onClose();
             nameToCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
         }
@@ -290,15 +293,31 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         readLock();
         try {
             if (showStmt.getCatalogName() == null) {
+                PatternMatcher matcher = null;
+                if (showStmt.getPattern() != null) {
+                    matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                            CaseSensibility.CATALOG.getCaseSensibility());
+                }
+
                 for (CatalogIf catalog : nameToCatalog.values()) {
                     if (Env.getCurrentEnv().getAuth()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
+                        String name = catalog.getName();
+                        // Filter catalog name
+                        if (matcher != null && !matcher.match(name)) {
+                            continue;
+                        }
                         List<String> row = Lists.newArrayList();
                         row.add(String.valueOf(catalog.getId()));
-                        row.add(catalog.getName());
+                        row.add(name);
                         row.add(catalog.getType());
                         rows.add(row);
                     }
+
+                    // sort by catalog name
+                    rows.sort((x, y) -> {
+                        return x.get(1).compareTo(y.get(1));
+                    });
                 }
             } else {
                 if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {

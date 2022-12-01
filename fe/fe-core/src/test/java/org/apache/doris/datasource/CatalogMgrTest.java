@@ -158,6 +158,15 @@ public class CatalogMgrTest extends TestWithFeService {
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(5, showResultSet.getResultRows().size());
 
+        //test result order
+        Assertions.assertEquals("es", showResultSet.getResultRows().get(0).get(1));
+        Assertions.assertEquals("internal", showResultSet.getResultRows().get(4).get(1));
+
+        showCatalogSql = "SHOW CATALOGS LIKE 'hms%'";
+        showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
+        showResultSet = mgr.showCatalogs(showStmt);
+        Assertions.assertEquals(1, showResultSet.getResultRows().size());
+
         String alterCatalogNameSql = "ALTER CATALOG hms_catalog RENAME " + MY_CATALOG + ";";
         AlterCatalogNameStmt alterNameStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameSql);
         mgr.alterCatalogName(alterNameStmt);
@@ -187,6 +196,9 @@ public class CatalogMgrTest extends TestWithFeService {
         String dropCatalogSql = "DROP CATALOG " + MY_CATALOG;
         DropCatalogStmt dropCatalogStmt = (DropCatalogStmt) parseAndAnalyzeStmt(dropCatalogSql);
         mgr.dropCatalog(dropCatalogStmt);
+
+        showCatalogSql = "SHOW CATALOGS";
+        showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(4, showResultSet.getResultRows().size());
     }
@@ -277,12 +289,24 @@ public class CatalogMgrTest extends TestWithFeService {
         Assert.assertEquals(user1ShowResult.get(0).get(1), InternalCatalog.INTERNAL_CATALOG_NAME);
         Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_DS_ID));
 
+        // have privilege and match
+        user1Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs like 'inter%';", user1Ctx);
+        user1ShowResult = env.getCatalogMgr().showCatalogs(user1Show).getResultRows();
+        Assert.assertEquals(user1ShowResult.size(), 1);
+        Assert.assertEquals(user1ShowResult.get(0).get(1), InternalCatalog.INTERNAL_CATALOG_NAME);
+        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_DS_ID));
+
         // mock the login of user2
         ConnectContext user2Ctx = createCtx(user2, "127.0.0.1");
         ShowCatalogStmt user2Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs;", user2Ctx);
         List<List<String>> user2ShowResult = env.getCatalogMgr().showCatalogs(user2Show).getResultRows();
         Assert.assertEquals(user2ShowResult.size(), 2);
         Assert.assertTrue(user2ShowResult.stream().map(l -> l.get(1)).anyMatch(c -> c.equals("hive")));
+
+        // have privilege but not match
+        user2Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs like 'ice%';", user2Ctx);
+        user2ShowResult = env.getCatalogMgr().showCatalogs(user2Show).getResultRows();
+        Assert.assertEquals(user2ShowResult.size(), 0);
 
         // access denied
         ShowCatalogStmt user2ShowHive = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalog hive;", user2Ctx);

@@ -216,6 +216,7 @@ import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.StatisticsTaskScheduler;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -446,6 +447,8 @@ public class Env {
 
     private ExternalMetaCacheMgr extMetaCacheMgr;
 
+    private FQDNManager fqdnManager;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -647,6 +650,7 @@ public class Env {
         this.analysisJobScheduler = new AnalysisJobScheduler();
         this.statisticsCache = new StatisticsCache();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
+        this.fqdnManager = new FQDNManager(systemInfo);
     }
 
     public static void destroyCheckpoint() {
@@ -1431,6 +1435,9 @@ public class Env {
         this.statisticsJobScheduler.start();
         this.statisticsTaskScheduler.start();
         new InternalSchemaInitializer().start();
+        if (Config.enable_fqdn_mode) {
+            fqdnManager.start();
+        }
     }
 
     // start threads that should running on all FE
@@ -2971,12 +2978,6 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
 
-            // remote storage
-            String remoteStoragePolicy = olapTable.getRemoteStoragePolicy();
-            if (!Strings.isNullOrEmpty(remoteStoragePolicy)) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY).append("\" = \"");
-                sb.append(remoteStoragePolicy).append("\"");
-            }
             // compression type
             if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");

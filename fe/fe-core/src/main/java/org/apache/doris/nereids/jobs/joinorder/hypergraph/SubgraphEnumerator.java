@@ -21,7 +21,11 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.SubsetIterator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.AbstractReceiver;
 
+import com.google.common.base.Preconditions;
+
+import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -34,6 +38,9 @@ public class SubgraphEnumerator {
     AbstractReceiver receiver;
     //The enumerated hyperGraph
     HyperGraph hyperGraph;
+    EdgeCalculator edgeCalculator;
+    NeighborhoodCalculator neighborhoodCalculator;
+    // These caches are used to avoid repetitive computation
 
     public SubgraphEnumerator(AbstractReceiver receiver, HyperGraph hyperGraph) {
         this.receiver = receiver;
@@ -50,12 +57,20 @@ public class SubgraphEnumerator {
         List<Node> nodes = hyperGraph.getNodes();
         // Init all nodes in Receiver
         for (Node node : nodes) {
-            receiver.addGroup(node.getBitSet(), node.getGroup());
+            receiver.addGroup(node.getNodeMap(), node.getGroup());
         }
-        hyperGraph.splitEdgesForNodes();
         int size = nodes.size();
 
-        // We skip the last element due to it can't generate valid csg-cmp pair
+        // Init edgeCalculator
+        edgeCalculator = new EdgeCalculator(hyperGraph.getEdges());
+        for (Node node : nodes) {
+            edgeCalculator.initSubgraph(node.getNodeMap());
+        }
+
+        // Init neighborhoodCalculator
+        neighborhoodCalculator = new NeighborhoodCalculator();
+
+        // We skip the last element because it can't generate valid csg-cmp pair
         BitSet forbiddenNodes = Bitmap.newBitmapBetween(0, size - 1);
         for (int i = size - 2; i >= 0; i--) {
             BitSet csg = Bitmap.newBitmap(i);
@@ -70,11 +85,12 @@ public class SubgraphEnumerator {
     // The general purpose of EnumerateCsgRec is to extend a given set csg, which
     // induces a connected subgraph of G to a larger set with the same property.
     private boolean enumerateCsgRec(BitSet csg, BitSet forbiddenNodes) {
-        BitSet neighborhood = calcNeighborhood(csg, forbiddenNodes);
+        BitSet neighborhood = neighborhoodCalculator.calcNeighborhood(csg, forbiddenNodes, edgeCalculator);
         SubsetIterator subsetIterator = Bitmap.getSubsetIterator(neighborhood);
         for (BitSet subset : subsetIterator) {
             BitSet newCsg = Bitmap.newBitmapUnion(csg, subset);
             if (receiver.contain(newCsg)) {
+                edgeCalculator.unionEdges(csg, subset);
                 if (!emitCsg(newCsg)) {
                     return false;
                 }
@@ -92,22 +108,20 @@ public class SubgraphEnumerator {
     }
 
     private boolean enumerateCmpRec(BitSet csg, BitSet cmp, BitSet forbiddenNodes) {
-        BitSet neighborhood = calcNeighborhood(cmp, forbiddenNodes);
+        BitSet neighborhood = neighborhoodCalculator.calcNeighborhood(cmp, forbiddenNodes, edgeCalculator);
         SubsetIterator subsetIterator = new SubsetIterator(neighborhood);
         for (BitSet subset : subsetIterator) {
             BitSet newCmp = Bitmap.newBitmapUnion(cmp, subset);
             // We need to check whether Cmp is connected and then try to find hyper edge
             if (receiver.contain(newCmp)) {
-                // We check all edges for finding an edge. That is inefficient.
-                // MySQL use full neighborhood for it. Or a hashMap may be useful
-                for (Edge edge : hyperGraph.getEdges()) {
-                    if (Bitmap.isSubset(edge.getLeft(), csg) && Bitmap.isSubset(edge.getRight(), newCmp) || (
-                            Bitmap.isSubset(edge.getLeft(), newCmp) && Bitmap.isSubset(edge.getRight(), csg))) {
-                        if (!receiver.emitCsgCmp(csg, newCmp, edge)) {
-                            return false;
-                        }
-                        break;
-                    }
+                edgeCalculator.unionEdges(cmp, subset);
+                // We check all edges for finding an edge.
+                List<Edge> edges = edgeCalculator.connectCsgCmp(csg, newCmp);
+                if (edges.isEmpty()) {
+                    continue;
+                }
+                if (!receiver.emitCsgCmp(csg, newCmp, edges)) {
+                    return false;
                 }
             }
         }
@@ -128,17 +142,18 @@ public class SubgraphEnumerator {
     private boolean emitCsg(BitSet csg) {
         BitSet forbiddenNodes = Bitmap.newBitmapBetween(0, Bitmap.nextSetBit(csg, 0));
         Bitmap.or(forbiddenNodes, csg);
-        BitSet neighborhoods = calcNeighborhood(csg, Bitmap.newBitmap(forbiddenNodes));
+        BitSet neighborhoods = neighborhoodCalculator.calcNeighborhood(csg, Bitmap.newBitmap(forbiddenNodes),
+                edgeCalculator);
 
         for (int nodeIndex : Bitmap.getReverseIterator(neighborhoods)) {
             BitSet cmp = Bitmap.newBitmap(nodeIndex);
             // whether there is an edge between csg and cmp
-            Node cmpNode = hyperGraph.getNode(nodeIndex);
-            Edge edge = cmpNode.tryGetEdgeWith(csg);
-            if (edge != null) {
-                if (!receiver.emitCsgCmp(csg, cmp, edge)) {
-                    return false;
-                }
+            List<Edge> edges = edgeCalculator.connectCsgCmp(csg, cmp);
+            if (edges.isEmpty()) {
+                continue;
+            }
+            if (!receiver.emitCsgCmp(csg, cmp, edges)) {
+                return false;
             }
 
             // In order to avoid enumerate repeated cmp, e.g.,
@@ -160,33 +175,185 @@ public class SubgraphEnumerator {
         return true;
     }
 
-    // This function is used to calculate neighborhoods of given subgraph.
-    // Though a direct way is to add all nodes u that satisfies:
-    //              <u, v> \in E && v \in subgraph && v \intersect X = empty
-    // We don't used it because they can cause some repeated subgraph when
-    // expand csg and cmp. In fact, we just need a seed node that can be expanded
-    // to all subgraph. That is any one node of hyper nodes. In fact, the neighborhoods
-    // is the minimum set that we choose one node from above v.
+    class NeighborhoodCalculator {
+        // This function is used to calculate neighborhoods of given subgraph.
+        // Though a direct way is to add all nodes u that satisfies:
+        //              <u, v> \in E && v \in subgraph && v \intersect X = empty
+        // We don't used it because they can cause some repeated subgraph when
+        // expand csg and cmp. In fact, we just need a seed node that can be expanded
+        // to all subgraph. That is any one node of hyper nodes. In fact, the neighborhoods
+        // is the minimum set that we choose one node from above v.
+        public BitSet calcNeighborhood(BitSet subgraph, BitSet forbiddenNodes, EdgeCalculator edgeCalculator) {
+            BitSet neighborhoods = Bitmap.newBitmap();
+            edgeCalculator.foundSimpleEdgesContain(subgraph)
+                    .forEach(edge -> neighborhoods.or(edge.getReferenceNodes()));
+            Bitmap.or(forbiddenNodes, subgraph);
+            Bitmap.andNot(neighborhoods, forbiddenNodes);
+            Bitmap.or(forbiddenNodes, neighborhoods);
 
-    // Note there are many tricks implemented in MySQL, such as neighbor cache, complex edges
-    // We hope implement them after a benchmark.
-    private BitSet calcNeighborhood(BitSet subGraph, BitSet forbiddenNodes) {
-        BitSet neighborhoods = Bitmap.newBitmap();
-        Bitmap.getIterator(subGraph)
-                .forEach(nodeIndex -> Bitmap.or(neighborhoods, hyperGraph.getNode(nodeIndex).getSimpleNeighborhood()));
-        Bitmap.andNot(neighborhoods, forbiddenNodes);
-        Bitmap.or(forbiddenNodes, subGraph);
-        Bitmap.or(forbiddenNodes, neighborhoods);
-
-        for (Edge edge : hyperGraph.getEdges()) {
-            BitSet left = edge.getLeft();
-            BitSet right = edge.getRight();
-            if (Bitmap.isSubset(left, subGraph) && !Bitmap.isOverlap(right, forbiddenNodes)) {
-                Bitmap.set(neighborhoods, right.nextSetBit(0));
-            } else if (Bitmap.isSubset(right, subGraph) && !Bitmap.isOverlap(left, forbiddenNodes)) {
-                Bitmap.set(neighborhoods, left.nextSetBit(0));
+            for (Edge edge : edgeCalculator.foundComplexEdgesContain(subgraph)) {
+                BitSet left = edge.getLeft();
+                BitSet right = edge.getRight();
+                if (Bitmap.isSubset(left, subgraph) && !Bitmap.isOverlap(right, forbiddenNodes)) {
+                    Bitmap.set(neighborhoods, right.nextSetBit(0));
+                } else if (Bitmap.isSubset(right, subgraph) && !Bitmap.isOverlap(left, forbiddenNodes)) {
+                    Bitmap.set(neighborhoods, left.nextSetBit(0));
+                }
             }
+            return neighborhoods;
         }
-        return neighborhoods;
+    }
+
+    class EdgeCalculator {
+        final List<Edge> edges;
+        // It cached all edges that contained by this subgraph, Note we always
+        // use bitset store edge map because the number of edges can be very large
+        // We split these into simple edges (only one node on each side) and complex edges (others)
+        // because we can often quickly discard all simple edges by testing the set of interesting nodes
+        // against the “simple_neighborhood” bitmap. These data will be calculated before enumerate.
+
+        HashMap<BitSet, BitSet> containSimpleEdges = new HashMap<>();
+        HashMap<BitSet, BitSet> containComplexEdges = new HashMap<>();
+        // It cached all edges that overlap by this subgraph. All this edges must be
+        // complex edges
+        HashMap<BitSet, BitSet> overlapEdges = new HashMap<>();
+
+        EdgeCalculator(List<Edge> edges) {
+            this.edges = edges;
+        }
+
+        public void initSubgraph(BitSet subgraph) {
+            BitSet simpleContains = new BitSet();
+            BitSet complexContains = new BitSet();
+            BitSet overlaps = new BitSet();
+            for (Edge edge : edges) {
+                if (isContainEdge(subgraph, edge)) {
+                    if (edge.isSimple()) {
+                        simpleContains.set(edge.getIndex());
+                    } else {
+                        complexContains.set(edge.getIndex());
+                    }
+                } else if (isOverlapEdge(subgraph, edge)) {
+                    overlaps.set(edge.getIndex());
+                }
+            }
+            if (containSimpleEdges.containsKey(subgraph)) {
+                complexContains.or(containComplexEdges.get(subgraph));
+                simpleContains.or(containSimpleEdges.get(subgraph));
+            }
+            if (overlapEdges.containsKey(subgraph)) {
+                overlaps.or(overlapEdges.get(subgraph));
+            }
+            overlapEdges.put(subgraph, overlaps);
+            containSimpleEdges.put(subgraph, simpleContains);
+            containComplexEdges.put(subgraph, complexContains);
+        }
+
+        public void unionEdges(BitSet bitSet1, BitSet bitSet2) {
+            // When union two sub graphs, we only need to check overlap edges.
+            // However, if all reference nodes are contained by the subgraph,
+            // we should remove it.
+            if (!containSimpleEdges.containsKey(bitSet1)) {
+                initSubgraph(bitSet1);
+            }
+            if (!containSimpleEdges.containsKey(bitSet2)) {
+                initSubgraph(bitSet2);
+            }
+            BitSet subgraph = Bitmap.newBitmapUnion(bitSet1, bitSet2);
+            if (containSimpleEdges.containsKey(subgraph)) {
+                return;
+            }
+            BitSet simpleContains = Bitmap.newBitmapUnion(containSimpleEdges.get(bitSet1),
+                    containSimpleEdges.get(bitSet2));
+            BitSet complexContains = Bitmap.newBitmapUnion(containComplexEdges.get(bitSet1),
+                    containComplexEdges.get(bitSet2));
+            BitSet overlaps = Bitmap.newBitmapUnion(overlapEdges.get(bitSet1),
+                    overlapEdges.get(bitSet2));
+            for (int index : overlaps.stream().toArray()) {
+                Edge edge = edges.get(index);
+                if (isContainEdge(subgraph, edge)) {
+                    overlaps.set(index, false);
+                    if (edge.isSimple()) {
+                        simpleContains.set(index);
+                    } else {
+                        complexContains.set(index);
+                    }
+                }
+            }
+            simpleContains = removeInvalidEdges(subgraph, simpleContains);
+            complexContains = removeInvalidEdges(subgraph, complexContains);
+            containSimpleEdges.put(subgraph, simpleContains);
+            containComplexEdges.put(subgraph, complexContains);
+            overlapEdges.put(subgraph, overlaps);
+        }
+
+        public List<Edge> connectCsgCmp(BitSet bitSet1, BitSet bitSet2) {
+            Preconditions.checkArgument(
+                    containSimpleEdges.containsKey(bitSet1) && containSimpleEdges.containsKey(bitSet2));
+            List<Edge> foundEdges = new ArrayList<>();
+            BitSet edgeMap = Bitmap.newBitmapIntersect(containSimpleEdges.get(bitSet1),
+                    containSimpleEdges.get(bitSet2));
+            Bitmap.or(edgeMap, Bitmap.newBitmapIntersect(containComplexEdges.get(bitSet1),
+                    containComplexEdges.get(bitSet2)));
+            edgeMap.stream().forEach(index -> foundEdges.add(edges.get(index)));
+            return foundEdges;
+        }
+
+        public List<Edge> foundEdgesContain(BitSet subgraph) {
+            Preconditions.checkArgument(containSimpleEdges.containsKey(subgraph));
+            BitSet edgeMap = containSimpleEdges.get(subgraph);
+            edgeMap.or(containComplexEdges.get(subgraph));
+            List<Edge> foundEdges = new ArrayList<>();
+            edgeMap.stream().forEach(index -> foundEdges.add(edges.get(index)));
+            return foundEdges;
+        }
+
+        public List<Edge> foundSimpleEdgesContain(BitSet subgraph) {
+            List<Edge> foundEdges = new ArrayList<>();
+            if (!containSimpleEdges.containsKey(subgraph)) {
+                return foundEdges;
+            }
+            BitSet edgeMap = containSimpleEdges.get(subgraph);
+            edgeMap.stream().forEach(index -> foundEdges.add(edges.get(index)));
+            return foundEdges;
+        }
+
+        public List<Edge> foundComplexEdgesContain(BitSet subgraph) {
+            List<Edge> foundEdges = new ArrayList<>();
+            if (!containComplexEdges.containsKey(subgraph)) {
+                return foundEdges;
+            }
+            BitSet edgeMap = containComplexEdges.get(subgraph);
+            edgeMap.stream().forEach(index -> foundEdges.add(edges.get(index)));
+            return foundEdges;
+        }
+
+        public int getEdgeSizeContain(BitSet subgraph) {
+            Preconditions.checkArgument(containSimpleEdges.containsKey(subgraph));
+            return containSimpleEdges.get(subgraph).cardinality() + containSimpleEdges.get(subgraph).cardinality();
+        }
+
+        private boolean isContainEdge(BitSet subgraph, Edge edge) {
+            int containLeft = Bitmap.isSubset(edge.getLeft(), subgraph) ? 0 : 1;
+            int containRight = Bitmap.isSubset(edge.getRight(), subgraph) ? 0 : 1;
+            return containLeft + containRight == 1;
+        }
+
+        private boolean isOverlapEdge(BitSet subgraph, Edge edge) {
+            int overlapLeft = Bitmap.isOverlap(edge.getLeft(), subgraph) ? 0 : 1;
+            int overlapRight = Bitmap.isOverlap(edge.getRight(), subgraph) ? 0 : 1;
+            return overlapLeft + overlapRight == 1;
+        }
+
+        private BitSet removeInvalidEdges(BitSet subgraph, BitSet edgeMap) {
+            for (int index : edgeMap.stream().toArray()) {
+                Edge edge = edges.get(index);
+                if (!isOverlapEdge(subgraph, edge)) {
+                    edgeMap.set(index, false);
+                }
+            }
+            return edgeMap;
+        }
     }
 }
+

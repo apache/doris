@@ -61,12 +61,6 @@ public class HyperGraph {
         return nodes.get(index);
     }
 
-    public void splitEdgesForNodes() {
-        for (Node node : nodes) {
-            node.splitEdges();
-        }
-    }
-
     public void addNode(Group group) {
         Preconditions.checkArgument(!group.isJoinGroup());
         // TODO: replace plan with group expression or others

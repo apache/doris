@@ -66,13 +66,6 @@ public class EsExternalTable extends ExternalTable {
         return type.name();
     }
 
-    /**
-     * get database name of es table.
-     */
-    public String getDbName() {
-        return dbName;
-    }
-
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();

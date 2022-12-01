@@ -116,6 +116,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
         builder.put(NULL_TYPE, STRING);
+        builder.put(NULL_TYPE, JSONB);
         builder.put(NULL_TYPE, BITMAP); //TODO(weixiang):why null type can cast to bitmap?
         builder.put(NULL_TYPE, TIME);
         builder.put(NULL_TYPE, TIMEV2);

@@ -176,47 +176,27 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
                                       std::unique_ptr<BloomFilterIndexWriter>* res) {
     FieldType type = type_info->type();
     switch (type) {
-    case OLAP_FIELD_TYPE_SMALLINT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_SMALLINT>(bf_options, type_info));
+#define M(TYPE)                                                                  \
+    case TYPE:                                                                   \
+        res->reset(new BloomFilterIndexWriterImpl<TYPE>(bf_options, type_info)); \
         break;
-    case OLAP_FIELD_TYPE_INT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_INT>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_UNSIGNED_INT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_UNSIGNED_INT>(bf_options,
-                                                                                type_info));
-        break;
-    case OLAP_FIELD_TYPE_BIGINT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_LARGEINT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_CHAR:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_VARCHAR:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_STRING:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_STRING>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_DATE:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_DATETIME:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIME>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_DECIMAL:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_DATEV2:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATEV2>(bf_options, type_info));
-        break;
-    case OLAP_FIELD_TYPE_DATETIMEV2:
-        res->reset(
-                new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIMEV2>(bf_options, type_info));
-        break;
+        M(OLAP_FIELD_TYPE_SMALLINT)
+        M(OLAP_FIELD_TYPE_INT)
+        M(OLAP_FIELD_TYPE_UNSIGNED_INT)
+        M(OLAP_FIELD_TYPE_BIGINT)
+        M(OLAP_FIELD_TYPE_LARGEINT)
+        M(OLAP_FIELD_TYPE_CHAR)
+        M(OLAP_FIELD_TYPE_VARCHAR)
+        M(OLAP_FIELD_TYPE_STRING)
+        M(OLAP_FIELD_TYPE_DATE)
+        M(OLAP_FIELD_TYPE_DATETIME)
+        M(OLAP_FIELD_TYPE_DECIMAL)
+        M(OLAP_FIELD_TYPE_DATEV2)
+        M(OLAP_FIELD_TYPE_DATETIMEV2)
+        M(OLAP_FIELD_TYPE_DECIMAL32)
+        M(OLAP_FIELD_TYPE_DECIMAL64)
+        M(OLAP_FIELD_TYPE_DECIMAL128I)
+#undef M
     default:
         return Status::NotSupported("unsupported type for bitmap index: {}", std::to_string(type));
     }

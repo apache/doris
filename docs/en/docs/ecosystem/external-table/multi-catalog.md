@@ -301,7 +301,7 @@ Parameter | Description
 **elasticsearch.hosts** | ES Connection Address, maybe one or more node, load-balance is also accepted
 **elasticsearch.username** | username for ES
 **elasticsearch.password** | password for the user
-**elasticsearch.doc_value_scan** | whether to enable ES/Lucene column storage to get the value of the query field, the default is false
+**elasticsearch.doc_value_scan** | whether to enable ES/Lucene column storage to get the value of the query field, the default is true
 **elasticsearch.keyword_sniff** | Whether to probe the string segmentation type text.fields in ES, query by keyword (the default is true, false matches the content after the segmentation)
 **elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected
 **elasticsearch.ssl** | Whether ES cluster enables https access mode, the current FE/BE implementation is to trust all
