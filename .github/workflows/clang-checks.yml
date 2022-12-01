@@ -19,7 +19,7 @@
 ---
 name: BE Code Checks
 on:
-  pull_request_target:
+  pull_request:
   push:
 
 jobs:
