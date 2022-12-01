@@ -96,7 +96,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     aggregateExpressionToSlotContext.pushDownToNamedExpression(normalizedAggregateExpressions);
 
             List<Slot> normalizedGroupBy =
-                    (List) aggregateExpressionToSlotContext.normalizeToUseSlotRef(aggregate.getGroupByExpressions());
+                    (List) groupByAndArgumentToSlotContext.normalizeToUseSlotRef(aggregate.getGroupByExpressions());
 
             // we can safely add all groupBy and aggregate expressions to output, because we will
             // add a project on it, and the upper project can protect the scope of visible of slot
