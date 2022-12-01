@@ -42,7 +42,7 @@ Status SpillSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SpillSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
     // AddExprCtxsToFree(_sort_exec_exprs);
     return Status::OK();
@@ -51,7 +51,7 @@ Status SpillSortNode::prepare(RuntimeState* state) {
 Status SpillSortNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(_sort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("Spill sort, while open."));
@@ -81,7 +81,7 @@ Status SpillSortNode::open(RuntimeState* state) {
 
 Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("Spill sort, while getting next."));
 
