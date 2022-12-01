@@ -544,7 +544,9 @@ bool VScanNode::_is_predicate_acting_on_slot(
     }
     *slot_desc = entry->second.first;
     DCHECK(child_contains_slot != nullptr);
-    if (child_contains_slot->type().type != (*slot_desc)->type().type) {
+    if (child_contains_slot->type().type != (*slot_desc)->type().type ||
+        child_contains_slot->type().precision != (*slot_desc)->type().precision ||
+        child_contains_slot->type().scale != (*slot_desc)->type().scale) {
         if (!ignore_cast(*slot_desc, child_contains_slot)) {
             // the type of predicate not match the slot's type
             return false;
