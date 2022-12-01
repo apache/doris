@@ -68,8 +68,10 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             Set<Alias> existsAliases = ExpressionUtils.collect(
                     aggregate.getOutputExpressions(), Alias.class::isInstance);
             Set<Expression> needToSlots = collectGroupByAndArgumentsOfAggregateFunctions(aggregate);
-            NormalizeToSlotContext context = NormalizeToSlotContext.buildContext(existsAliases, needToSlots);
-            Set<NamedExpression> bottomProjects = context.pushDownToNamedExpression(needToSlots);
+            NormalizeToSlotContext groupByAndArgumentToSlotContext =
+                    NormalizeToSlotContext.buildContext(existsAliases, needToSlots);
+            Set<NamedExpression> bottomProjects =
+                    groupByAndArgumentToSlotContext.pushDownToNamedExpression(needToSlots);
             LogicalProject<Plan> normalizedChild =
                     new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
 
@@ -78,7 +80,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             // replace groupBy and arguments of aggregate function to slot, may be this output contains
             // some expression on the aggregate expression, e.g. `sum(value) + 1`, we should replace
             // the sum(value) to slot and move the slot + 1 to the upper project later.
-            List<NamedExpression> normalizeOutputPhase1 = context.normalizeToUseSlotRef(
+            List<NamedExpression> normalizeOutputPhase1 = groupByAndArgumentToSlotContext.normalizeToUseSlotRef(
                     aggregate.getOutputExpressions(), this::normalizeAggregateExpression);
             Set<AggregateExpression> normalizedAggregateExpressions =
                     ExpressionUtils.collect(normalizeOutputPhase1, AggregateExpression.class::isInstance);
@@ -87,12 +89,14 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
 
             // now reuse the exists alias for the aggregate expressions,
             // or create new alias for the aggregate expressions
-            context = NormalizeToSlotContext.buildContext(existsAliases, normalizedAggregateExpressions);
+            NormalizeToSlotContext aggregateExpressionToSlotContext =
+                    NormalizeToSlotContext.buildContext(existsAliases, normalizedAggregateExpressions);
 
             Set<NamedExpression> normalizedAggregateExpressionsWithAlias =
-                    context.pushDownToNamedExpression(normalizedAggregateExpressions);
+                    aggregateExpressionToSlotContext.pushDownToNamedExpression(normalizedAggregateExpressions);
 
-            List<Slot> normalizedGroupBy = (List) context.normalizeToUseSlotRef(aggregate.getGroupByExpressions());
+            List<Slot> normalizedGroupBy =
+                    (List) aggregateExpressionToSlotContext.normalizeToUseSlotRef(aggregate.getGroupByExpressions());
 
             // we can safely add all groupBy and aggregate expressions to output, because we will
             // add a project on it, and the upper project can protect the scope of visible of slot
@@ -105,7 +109,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     (List) normalizedGroupBy, normalizedAggregateOutput, normalizedChild);
 
             // replace aggregate expressions to slot
-            List<NamedExpression> upperProjects = context.normalizeToUseSlotRef(normalizeOutputPhase1);
+            List<NamedExpression> upperProjects = aggregateExpressionToSlotContext.normalizeToUseSlotRef(normalizeOutputPhase1);
             return new LogicalProject<>(upperProjects, normalizedAggregate);
         }).toRule(RuleType.NORMALIZE_AGGREGATE);
     }
