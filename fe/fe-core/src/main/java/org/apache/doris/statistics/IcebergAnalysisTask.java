@@ -38,14 +38,14 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-public class IcebergAnalysisJob extends HMSAnalysisJob {
+public class IcebergAnalysisTask extends HMSAnalysisTask {
 
     private long numRows = 0;
     private long dataSize = 0;
     private long numNulls = 0;
 
-    public IcebergAnalysisJob(AnalysisJobScheduler analysisJobScheduler, AnalysisJobInfo info) {
-        super(analysisJobScheduler, info);
+    public IcebergAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
+        super(analysisTaskScheduler, info);
     }
 
     private static final String INSERT_TABLE_SQL_TEMPLATE = "INSERT INTO "

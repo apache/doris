@@ -20,23 +20,21 @@ package org.apache.doris.statistics;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Objects;
 import java.util.StringJoiner;
 
-public class AnalysisJobInfo {
+public class AnalysisTaskInfo {
 
-    private static final Logger LOG = LogManager.getLogger(AnalysisJobInfo.class);
+    private static final Logger LOG = LogManager.getLogger(AnalysisTaskInfo.class);
 
-    public enum JobState {
-        PENDING,
-        RUNNING,
-        FINISHED,
-        FAILED;
+
+    public enum AnalysisMethod {
+        SAMPLE,
+        FULL
     }
 
     public enum AnalysisType {
-        SAMPLE,
-        FULL;
+        COLUMN,
+        INDEX
     }
 
     public enum JobType {
@@ -53,6 +51,8 @@ public class AnalysisJobInfo {
 
     public final long jobId;
 
+    public final long taskId;
+
     public final String catalogName;
 
     public final String dbName;
@@ -61,54 +61,41 @@ public class AnalysisJobInfo {
 
     public final String colName;
 
+    public final Long indexId;
+
     public final JobType jobType;
 
-    public AnalysisType analysisType;
+    public final AnalysisMethod analysisMethod;
+
+    public final AnalysisType analysisType;
 
     public String message;
 
     // finished or failed
     public int lastExecTimeInMs = 0;
 
-    private JobState state;
+    public AnalysisState state;
 
     public final ScheduleType scheduleType;
 
-    public AnalysisJobInfo(long jobId, String catalogName, String dbName, String tblName, String colName,
-            JobType jobType, ScheduleType scheduleType) {
+    public AnalysisTaskInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
+            String colName, Long indexId, JobType jobType,
+            AnalysisMethod analysisMethod, AnalysisType analysisType, String message, int lastExecTimeInMs,
+            AnalysisState state, ScheduleType scheduleType) {
         this.jobId = jobId;
+        this.taskId = taskId;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
         this.colName = colName;
+        this.indexId = indexId;
         this.jobType = jobType;
+        this.analysisMethod = analysisMethod;
+        this.analysisType = analysisType;
+        this.message = message;
+        this.lastExecTimeInMs = lastExecTimeInMs;
+        this.state = state;
         this.scheduleType = scheduleType;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(catalogName, dbName, tblName, colName, analysisType);
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-        if (obj == null || getClass() != obj.getClass()) {
-            return false;
-        }
-        AnalysisJobInfo other = (AnalysisJobInfo) obj;
-        return catalogName.equals(other.catalogName)
-                && dbName.equals(other.dbName)
-                && tblName.equals(other.tblName)
-                && colName.equals(other.colName)
-                && analysisType.equals(other.analysisType);
-    }
-
-    // TODO: log to meta
-    public void updateState(JobState jobState) {
-        this.state = jobState;
     }
 
     @Override
@@ -119,14 +106,15 @@ public class AnalysisJobInfo {
         sj.add("DBName: " + dbName);
         sj.add("TableName: " + tblName);
         sj.add("ColumnName: " + colName);
-        sj.add("JobType: " + analysisType.toString());
+        sj.add("TaskType: " + analysisType.toString());
+        sj.add("TaskMethod: " + analysisMethod.toString());
         sj.add("Message: " + message);
         sj.add("LastExecTime: " + String.valueOf(lastExecTimeInMs));
         sj.add("CurrentState: " + state.toString());
         return sj.toString();
     }
 
-    public JobState getState() {
+    public AnalysisState getState() {
         return state;
     }
 }
