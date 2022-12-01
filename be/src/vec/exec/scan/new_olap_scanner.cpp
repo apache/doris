@@ -309,13 +309,13 @@ Status NewOlapScanner::_init_return_columns() {
 }
 
 Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
-    if (!_profile_updated) {
-        _profile_updated = _tablet_reader->update_profile(_profile);
-    }
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
     RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof));
+    if (!_profile_updated) {
+        _profile_updated = _tablet_reader->update_profile(_profile);
+    }
     if (block->rows() > 0) {
         *eof = false;
     }
