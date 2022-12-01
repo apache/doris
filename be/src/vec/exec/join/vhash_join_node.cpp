@@ -765,8 +765,10 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
                                           state, arg.hash_table.get_size()));
-                                  return _runtime_filter_slots->copy_from_shared_context(
-                                          _shared_hash_table_context);
+                                  RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
+                                          _shared_hash_table_context));
+                                  _runtime_filter_slots->publish();
+                                  return Status::OK();
                               }},
                     *_hash_table_variants);
             RETURN_IF_ERROR(ret);
