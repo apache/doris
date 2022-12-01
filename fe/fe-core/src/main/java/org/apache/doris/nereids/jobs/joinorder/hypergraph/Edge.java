@@ -36,6 +36,7 @@ public class Edge {
     // left and right may not overlap, and both must have at least one bit set.
     private BitSet left = Bitmap.newBitmap();
     private BitSet right = Bitmap.newBitmap();
+    private BitSet referenceNodes = Bitmap.newBitmap();
 
     /**
      * Create simple edge.
@@ -56,21 +57,25 @@ public class Edge {
 
     public void addLeftNode(BitSet left) {
         Bitmap.or(this.left, left);
+        Bitmap.or(referenceNodes, left);
     }
 
     public void addLeftNodes(BitSet... bitSets) {
         for (BitSet bitSet : bitSets) {
             Bitmap.or(this.left, bitSet);
+            Bitmap.or(referenceNodes, bitSet);
         }
     }
 
     public void addRightNode(BitSet right) {
         Bitmap.or(this.right, right);
+        Bitmap.or(referenceNodes, right);
     }
 
     public void addRightNodes(BitSet... bitSets) {
         for (BitSet bitSet : bitSets) {
             Bitmap.or(this.right, bitSet);
+            Bitmap.or(referenceNodes, bitSet);
         }
     }
 
@@ -79,6 +84,7 @@ public class Edge {
     }
 
     public void setLeft(BitSet left) {
+        referenceNodes.clear();
         this.left = left;
     }
 
@@ -87,18 +93,21 @@ public class Edge {
     }
 
     public void setRight(BitSet right) {
+        referenceNodes.clear();
         this.right = right;
     }
 
     public boolean isSub(Edge edge) {
         // When this join reference nodes is a subset of other join, then this join must appear before that join
-        BitSet bitSet = getReferenceNodes();
         BitSet otherBitset = edge.getReferenceNodes();
-        return Bitmap.isSubset(bitSet, otherBitset);
+        return Bitmap.isSubset(getReferenceNodes(), otherBitset);
     }
 
     public BitSet getReferenceNodes() {
-        return Bitmap.newBitmapUnion(this.left, this.right);
+        if (referenceNodes.cardinality() == 0) {
+            referenceNodes = Bitmap.newBitmapUnion(left, right);
+        }
+        return referenceNodes;
     }
 
     public Edge reverse(int index) {

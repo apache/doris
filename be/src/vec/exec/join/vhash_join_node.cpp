@@ -348,7 +348,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // Build phase
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
     runtime_profile()->add_child(_build_phase_profile, false, nullptr);
@@ -635,7 +635,7 @@ Status HashJoinNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
@@ -765,8 +765,10 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
                                           state, arg.hash_table.get_size()));
-                                  return _runtime_filter_slots->copy_from_shared_context(
-                                          _shared_hash_table_context);
+                                  RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
+                                          _shared_hash_table_context));
+                                  _runtime_filter_slots->publish();
+                                  return Status::OK();
                               }},
                     *_hash_table_variants);
             RETURN_IF_ERROR(ret);

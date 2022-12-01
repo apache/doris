@@ -3,5 +3,14 @@
 31200.0
 
 -- !select_default2 --
-564.666666667
+564.666667
+
+-- !select_decimal32 --
+1.6674
+
+-- !select_decimal64 --
+1.3290205760164607E11
+
+-- !select_decimal128 --
+564.666667
 

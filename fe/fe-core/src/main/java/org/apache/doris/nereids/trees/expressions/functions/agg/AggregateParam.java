@@ -17,51 +17,57 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.nereids.trees.plans.AggPhase;
+
 import com.google.common.base.Preconditions;
 
 import java.util.Objects;
 
 /** AggregateParam. */
 public class AggregateParam {
-    public final boolean isGlobal;
+    public final boolean isFinalPhase;
+
+    public final AggPhase aggPhase;
 
     public final boolean isDistinct;
 
     public final boolean isDisassembled;
 
     /** AggregateParam */
-    public AggregateParam(boolean isDistinct, boolean isGlobal, boolean isDisassembled) {
+    public AggregateParam(boolean isDistinct, boolean isFinalPhase, AggPhase aggPhase, boolean isDisassembled) {
+        this.isFinalPhase = isFinalPhase;
         this.isDistinct = isDistinct;
-        this.isGlobal = isGlobal;
+        this.aggPhase = aggPhase;
         this.isDisassembled = isDisassembled;
-        if (!isGlobal) {
-            Preconditions.checkArgument(isDisassembled == true,
-                    "local aggregate should be disassembed");
+        if (!isFinalPhase) {
+            Preconditions.checkArgument(isDisassembled,
+                    "non-final phase aggregate should be disassembed");
         }
     }
 
-    public static AggregateParam global() {
-        return new AggregateParam(false, true, false);
+    public static AggregateParam finalPhase() {
+        return new AggregateParam(false, true, AggPhase.LOCAL, false);
     }
 
-    public static AggregateParam distinctAndGlobal() {
-        return new AggregateParam(true, true, false);
+    public static AggregateParam distinctAndFinalPhase() {
+        return new AggregateParam(true, true, AggPhase.LOCAL, false);
     }
 
     public AggregateParam withDistinct(boolean isDistinct) {
-        return new AggregateParam(isDistinct, isGlobal, isDisassembled);
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 
-    public AggregateParam withGlobal(boolean isGlobal) {
-        return new AggregateParam(isDistinct, isGlobal, isDisassembled);
+    public AggregateParam withAggPhase(AggPhase aggPhase) {
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 
     public AggregateParam withDisassembled(boolean isDisassembled) {
-        return new AggregateParam(isDistinct, isGlobal, isDisassembled);
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 
-    public AggregateParam withGlobalAndDisassembled(boolean isGlobal, boolean isDisassembled) {
-        return new AggregateParam(isDistinct, isGlobal, isDisassembled);
+    public AggregateParam withPhaseAndDisassembled(boolean isFinalPhase, AggPhase aggPhase,
+                                                      boolean isDisassembled) {
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 
     @Override
@@ -74,12 +80,13 @@ public class AggregateParam {
         }
         AggregateParam that = (AggregateParam) o;
         return isDistinct == that.isDistinct
-                && Objects.equals(isGlobal, that.isGlobal)
+                && isFinalPhase == that.isFinalPhase
+                && Objects.equals(aggPhase, that.aggPhase)
                 && Objects.equals(isDisassembled, that.isDisassembled);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isDistinct, isGlobal, isDisassembled);
+        return Objects.hash(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 }

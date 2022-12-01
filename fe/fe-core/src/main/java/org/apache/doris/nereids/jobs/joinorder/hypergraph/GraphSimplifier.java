@@ -74,7 +74,7 @@ public class GraphSimplifier {
             simplifications.add(bestSimplification);
         }
         for (Node node : graph.getNodes()) {
-            cachePlan.put(node.getBitSet(), node.getPlan());
+            cachePlan.put(node.getNodeMap(), node.getPlan());
         }
         circleDetector = new CircleDetector(edgeSize);
     }
@@ -208,12 +208,12 @@ public class GraphSimplifier {
         SimplificationStep bestStep = bestSimplification.getStep();
         while (bestSimplification.bestNeighbor == -1 || !circleDetector.tryAddDirectedEdge(bestStep.beforeIndex,
                 bestStep.afterIndex)) {
+            processNeighbors(bestStep.afterIndex, 0, edgeSize);
             if (priorityQueue.isEmpty()) {
                 return null;
             }
             bestSimplification = priorityQueue.poll();
             bestSimplification.isInQueue = false;
-            processNeighbors(bestStep.afterIndex, 0, edgeSize);
             bestStep = bestSimplification.getStep();
         }
         return bestStep;

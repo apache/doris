@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -306,6 +306,20 @@ public class Memo {
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
+        // TODO: this is same with EliminateUnnecessaryProject,
+        //   we need a infra to rewrite plan after every exploration job
+        if (plan instanceof LogicalProject) {
+            LogicalProject<Plan> logicalProject = (LogicalProject<Plan>) plan;
+            if (targetGroup != root) {
+                if (logicalProject.getOutputSet().equals(logicalProject.child().getOutputSet())) {
+                    return doCopyIn(logicalProject.child(), targetGroup);
+                }
+            } else {
+                if (logicalProject.getOutput().equals(logicalProject.child().getOutput())) {
+                    return doCopyIn(logicalProject.child(), targetGroup);
+                }
+            }
+        }
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
@@ -344,7 +358,7 @@ public class Memo {
                 validateRewriteChildGroup(childGroup, targetGroup);
                 childrenGroups.add(childGroup);
             } else {
-                childrenGroups.add(doRewrite(child, null).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(copyIn(child, null, true).correspondingExpression.getOwnerGroup());
             }
         }
         return childrenGroups;

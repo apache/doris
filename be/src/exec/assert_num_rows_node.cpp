@@ -50,7 +50,7 @@ Status AssertNumRowsNode::prepare(RuntimeState* state) {
 Status AssertNumRowsNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // ISSUE-3435
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
@@ -58,7 +58,7 @@ Status AssertNumRowsNode::open(RuntimeState* state) {
 
 Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     output_batch->reset();
     child(0)->get_next(state, output_batch, eos);
     _num_rows_returned += output_batch->num_rows();

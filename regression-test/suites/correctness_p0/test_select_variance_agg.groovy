@@ -21,15 +21,15 @@
 
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-         CREATE TABLE IF NOT EXISTS ${tableName} ( `aa` int NULL COMMENT "", `bb` decimal(27,9) NULL COMMENT "" ) 
+         CREATE TABLE IF NOT EXISTS ${tableName} ( `aa` int NULL COMMENT "", `bb` decimal(27,9), `decimal32_col` decimalv3(5,2), `decimal64_col` decimalv3(15,9), `decimal128_col` decimal(27,9) NULL COMMENT "" )
          ENGINE=OLAP UNIQUE KEY(`aa`) DISTRIBUTED BY HASH(`aa`) BUCKETS 3 
          PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "in_memory" = "false", "storage_format" = "V2" );
      """
 
      sql """ INSERT INTO ${tableName} VALUES 
-         (123,34),
-         (423,78),
-         (3,23); """
+         (123,34, 1.22,6666.6666,34),
+         (423,78,2.33,777777.7777,78),
+         (3,23,4.34,2222.2222,23); """
 
      // test_vectorized
      sql """ set enable_vectorized_engine = true; """
@@ -39,5 +39,8 @@
      // doris decimal variance implementation have deviation,
      // use round to check result
      qt_select_default2 """ select round(variance(bb), 6) from ${tableName}; """
+     qt_select_decimal32 """ select round(variance(decimal32_col), 6) from ${tableName}; """
+     qt_select_decimal64 """ select round(variance(decimal64_col), 6) from ${tableName}; """
+     qt_select_decimal128 """ select round(variance(decimal128_col), 6) from ${tableName}; """
 
  }

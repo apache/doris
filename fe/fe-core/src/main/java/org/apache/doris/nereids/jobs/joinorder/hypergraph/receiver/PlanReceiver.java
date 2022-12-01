@@ -23,14 +23,17 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.stats.StatsCalculator;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -54,11 +57,11 @@ public class PlanReceiver implements AbstractReceiver {
      *
      * @param left the bitmap of left child tree
      * @param right the bitmap of the right child tree
-     * @param edge the join operator
+     * @param edges the join conditions that can be added in this operator
      * @return the left and the right can be connected by the edge
      */
     @Override
-    public boolean emitCsgCmp(BitSet left, BitSet right, Edge edge) {
+    public boolean emitCsgCmp(BitSet left, BitSet right, List<Edge> edges) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
         emitCount += 1;
@@ -66,8 +69,8 @@ public class PlanReceiver implements AbstractReceiver {
             return false;
         }
         BitSet fullKey = Bitmap.newBitmapUnion(left, right);
-        Group group1 = constructGroup(left, right, edge);
-        Group group2 = constructGroup(right, left, edge);
+        Group group1 = constructGroup(left, right, edges);
+        Group group2 = constructGroup(right, left, edges);
         Group winnerGroup;
         if (group1.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY) < group2.getLogicalExpression()
                 .getCostByProperties(PhysicalProperties.ANY)) {
@@ -113,7 +116,7 @@ public class PlanReceiver implements AbstractReceiver {
         return plan.getGroupExpression().get().getCostByProperties(PhysicalProperties.ANY);
     }
 
-    private Group constructGroup(BitSet left, BitSet right, Edge edge) {
+    private Group constructGroup(BitSet left, BitSet right, List<Edge> edges) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
         Group leftGroup = planTable.get(left);
@@ -122,7 +125,11 @@ public class PlanReceiver implements AbstractReceiver {
         Plan rightPlan = rightGroup.getLogicalExpression().getPlan();
 
         double cost = getSimpleCost(leftPlan) + getSimpleCost(rightPlan);
-        LogicalJoin newJoin = new LogicalJoin(edge.getJoin().getJoinType(), edge.getJoin().getExpressions(),
+        List<Expression> conditions = new ArrayList<>();
+        for (Edge edge : edges) {
+            conditions.addAll(edge.getJoin().getExpressions());
+        }
+        LogicalJoin newJoin = new LogicalJoin(edges.get(0).getJoin().getJoinType(), conditions,
                 leftGroup.getLogicalExpression().getPlan(),
                 rightGroup.getLogicalExpression().getPlan());
 
