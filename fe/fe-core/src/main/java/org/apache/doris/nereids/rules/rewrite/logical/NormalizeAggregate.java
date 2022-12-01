@@ -79,7 +79,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
 
             // replace groupBy and arguments of aggregate function to slot, may be this output contains
             // some expression on the aggregate expression, e.g. `sum(value) + 1`, we should replace
-            // the sum(value) to slot and move the slot + 1 to the upper project later.
+            // the sum(value) to slot and move the `slot + 1` to the upper project later.
             List<NamedExpression> normalizeOutputPhase1 = groupByAndArgumentToSlotContext.normalizeToUseSlotRef(
                     aggregate.getOutputExpressions(), this::normalizeAggregateExpression);
             Set<AggregateExpression> normalizedAggregateExpressions =
@@ -109,7 +109,8 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     (List) normalizedGroupBy, normalizedAggregateOutput, normalizedChild);
 
             // replace aggregate expressions to slot
-            List<NamedExpression> upperProjects = aggregateExpressionToSlotContext.normalizeToUseSlotRef(normalizeOutputPhase1);
+            List<NamedExpression> upperProjects =
+                    aggregateExpressionToSlotContext.normalizeToUseSlotRef(normalizeOutputPhase1);
             return new LogicalProject<>(upperProjects, normalizedAggregate);
         }).toRule(RuleType.NORMALIZE_AGGREGATE);
     }
