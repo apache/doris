@@ -187,6 +187,7 @@ Status VNestedLoopJoinNode::_materialize_build_side(RuntimeState* state) {
 
 Status VNestedLoopJoinNode::get_left_side(RuntimeState* state, Block* block) {
     do {
+        release_block_memory(*block);
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 child(0)->get_next_after_projects(state, block, &_left_side_eos),
                 child(0)->get_next_span(), _left_side_eos);
@@ -208,7 +209,8 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
 
     if (_is_output_left_side_only) {
-        RETURN_IF_ERROR(get_left_side(state, block));
+        RETURN_IF_ERROR(get_left_side(state, &_left_block));
+        RETURN_IF_ERROR(_build_output_block(&_left_block, block));
         *eos = _left_side_eos;
         reached_limit(block, eos);
         return Status::OK();
@@ -237,7 +239,6 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
                         if (_left_side_eos) {
                             _matched_rows_done = true;
                         } else {
-                            release_block_memory(_left_block);
                             RETURN_IF_ERROR(get_left_side(state, &_left_block));
                         }
                     }

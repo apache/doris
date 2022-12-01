@@ -49,4 +49,6 @@ suite("test_bitmap_filter", "query_p0") {
     qt_sql4 "select t1.k1, t1.k2 from ${tbl1} t1 join ${tbl3} t3 on t1.k1 = t3.k1 where t1.k1 in (select k2 from ${tbl2} where k1 = 1) order by t1.k1;"
 
     qt_sql5 "select k1, k2 from ${tbl1} where k1 in (select k2 from ${tbl2}) and k2 not in (select k3 from ${tbl2}) order by k1;"
+
+    qt_sql6 "select k2, count(k2) from ${tbl1} where k1 in (select k2 from ${tbl2}) group by k2 order by k2;"
 }
