@@ -628,7 +628,7 @@ public class SessionVariable implements Serializable, Writable {
     public int partitionedHashJoinRowsThreshold = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
-    public boolean enableShareHashTableForBroadcastJoin = true;
+    public boolean enableShareHashTableForBroadcastJoin = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
