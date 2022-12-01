@@ -84,6 +84,7 @@ under the License.
 CREATE CATALOG hive PROPERTIES (
 	"type"="hms",
 	'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive'
 	'dfs.nameservices'='service1',
 	'dfs.ha.namenodes. service1'='nn1,nn2',
 	'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
