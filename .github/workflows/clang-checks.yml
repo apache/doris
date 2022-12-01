@@ -105,6 +105,7 @@ jobs:
         uses: ./.github/actions/clang-tidy-review
         build_dir: ./be/build_Release
         id: review
-        if: steps.review.outputs.total_comments > 0
+
+      - if: steps.review.outputs.total_comments > 0
         run: exit 1
     
