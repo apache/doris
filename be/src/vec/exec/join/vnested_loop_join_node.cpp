@@ -319,7 +319,7 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     }
     {
         SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(
+        RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(
                 VExprContext::filter_block(_vconjunct_ctx_ptr, &tmp_block, tmp_block.columns()));
     }
     RETURN_IF_ERROR(_build_output_block(&tmp_block, block));

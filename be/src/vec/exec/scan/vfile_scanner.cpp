@@ -342,8 +342,8 @@ Status VFileScanner::_pre_filter_src_block() {
         SCOPED_TIMER(_pre_filter_timer);
         auto origin_column_num = _src_block_ptr->columns();
         auto old_rows = _src_block_ptr->rows();
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctx_ptr,
-                                                               _src_block_ptr, origin_column_num));
+        RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(vectorized::VExprContext::filter_block(
+                _pre_conjunct_ctx_ptr, _src_block_ptr, origin_column_num));
         _counter.num_rows_unselected += old_rows - _src_block.rows();
     }
     return Status::OK();

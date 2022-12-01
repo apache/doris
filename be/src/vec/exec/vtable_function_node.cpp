@@ -202,7 +202,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
     }
 
     // 3. eval conjuncts
-    RETURN_IF_ERROR(
+    RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(
             VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
 
     return Status::OK();

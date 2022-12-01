@@ -304,33 +304,52 @@ private:
     tracker->transfer_to(                               \
             size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw())
 
+#define RETURN_CATCH_BAD_ALLOC(e)                                                          \
+    do {                                                                                   \
+        doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
+                doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
+        return Status::MemoryLimitExceeded(fmt::format(                                    \
+                "PreCatch {}, {}", e.what(),                                               \
+                doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
+    } while (0)
+
 // Consider catching other memory errors, such as memset failure, etc.
-#define RETURN_IF_CATCH_BAD_ALLOC(stmt)                                                            \
-    do {                                                                                           \
-        doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg();             \
-        if (doris::enable_thread_catch_bad_alloc) {                                                \
-            try {                                                                                  \
-                { stmt; }                                                                          \
-            } catch (std::bad_alloc const& e) {                                                    \
-                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
-                return Status::MemoryLimitExceeded(fmt::format(                                    \
-                        "PreCatch {}, {}", e.what(),                                               \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
-            }                                                                                      \
-        } else {                                                                                   \
-            try {                                                                                  \
-                doris::enable_thread_catch_bad_alloc = true;                                       \
-                Defer defer {[&]() { doris::enable_thread_catch_bad_alloc = false; }};             \
-                { stmt; }                                                                          \
-            } catch (std::bad_alloc const& e) {                                                    \
-                doris::thread_context()->thread_mem_tracker()->print_log_usage(                    \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg());  \
-                return Status::MemoryLimitExceeded(fmt::format(                                    \
-                        "PreCatch {}, {}", e.what(),                                               \
-                        doris::thread_context()->thread_mem_tracker_mgr->exceed_mem_limit_msg())); \
-            }                                                                                      \
-        }                                                                                          \
+#define RETURN_IF_CATCH_BAD_ALLOC(stmt)                                                \
+    do {                                                                               \
+        doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg(); \
+        try {                                                                          \
+            if (doris::enable_thread_catch_bad_alloc) {                                \
+                { stmt; }                                                              \
+            } else {                                                                   \
+                doris::enable_thread_catch_bad_alloc = true;                           \
+                Defer defer {[&]() { doris::enable_thread_catch_bad_alloc = false; }}; \
+                { stmt; }                                                              \
+            }                                                                          \
+        } catch (std::bad_alloc const& e) {                                            \
+            RETURN_CATCH_BAD_ALLOC(e);                                                 \
+        }                                                                              \
+    } while (0)
+
+#define RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(stmt)                                       \
+    do {                                                                               \
+        doris::thread_context()->thread_mem_tracker_mgr->clear_exceed_mem_limit_msg(); \
+        try {                                                                          \
+            if (doris::enable_thread_catch_bad_alloc) {                                \
+                Status _status_ = (stmt);                                              \
+                if (UNLIKELY(!_status_.ok())) {                                        \
+                    return _status_;                                                   \
+                }                                                                      \
+            } else {                                                                   \
+                doris::enable_thread_catch_bad_alloc = true;                           \
+                Defer defer {[&]() { doris::enable_thread_catch_bad_alloc = false; }}; \
+                Status _status_ = (stmt);                                              \
+                if (UNLIKELY(!_status_.ok())) {                                        \
+                    return _status_;                                                   \
+                }                                                                      \
+            }                                                                          \
+        } catch (std::bad_alloc const& e) {                                            \
+            RETURN_CATCH_BAD_ALLOC(e);                                                 \
+        }                                                                              \
     } while (0)
 
 // Mem Hook to consume thread mem tracker

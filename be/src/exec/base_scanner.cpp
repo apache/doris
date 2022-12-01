@@ -297,8 +297,8 @@ Status BaseScanner::_filter_src_block() {
     auto origin_column_num = _src_block.columns();
     // filter block
     auto old_rows = _src_block.rows();
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_vpre_filter_ctx_ptr, &_src_block,
-                                                           origin_column_num));
+    RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(vectorized::VExprContext::filter_block(
+            _vpre_filter_ctx_ptr, &_src_block, origin_column_num));
     _counter->num_rows_unselected += old_rows - _src_block.rows();
     return Status::OK();
 }

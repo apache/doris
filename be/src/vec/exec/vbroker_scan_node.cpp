@@ -234,8 +234,8 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
             continue;
         }
         auto old_rows = block->rows();
-        RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block.get(),
-                                                   _tuple_desc->slots().size()));
+        RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(VExprContext::filter_block(
+                _vconjunct_ctx_ptr, block.get(), _tuple_desc->slots().size()));
         counter->num_rows_unselected += old_rows - block->rows();
         if (block->rows() == 0) {
             continue;

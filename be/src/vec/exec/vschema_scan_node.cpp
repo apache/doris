@@ -316,8 +316,8 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
             } else {
                 columns.clear();
             }
-            RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block,
-                                                       _dest_tuple_desc->slots().size()));
+            RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(VExprContext::filter_block(
+                    _vconjunct_ctx_ptr, block, _dest_tuple_desc->slots().size()));
             VLOG_ROW << "VSchemaScanNode output rows: " << block->rows();
         }
     } while (block->rows() == 0 && !(*eos));

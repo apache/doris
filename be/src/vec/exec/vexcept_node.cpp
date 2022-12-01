@@ -98,7 +98,7 @@ Status VExceptNode::get_next(RuntimeState* state, Block* output_block, bool* eos
             },
             *_hash_table_variants);
 
-    RETURN_IF_ERROR(
+    RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(
             VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
     reached_limit(output_block, eos);
 

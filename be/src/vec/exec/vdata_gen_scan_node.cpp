@@ -98,7 +98,8 @@ Status VDataGenFunctionScanNode::get_next(RuntimeState* state, vectorized::Block
     }
     RETURN_IF_CANCELLED(state);
     Status res = _table_func->get_next(state, block, eos);
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
     return res;
 }

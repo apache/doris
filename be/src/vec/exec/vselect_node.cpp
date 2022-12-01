@@ -57,7 +57,8 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
         }
     } while (block->rows() == 0);
 
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
 
     return Status::OK();

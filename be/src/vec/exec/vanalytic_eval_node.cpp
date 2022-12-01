@@ -263,7 +263,8 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
     }
     RETURN_IF_ERROR(_executor.get_next(state, block, eos));
 
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
 }

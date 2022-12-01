@@ -519,7 +519,8 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         RETURN_IF_ERROR(_executor.get_result(state, block, eos));
         _make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+        RETURN_IF_CATCH_BAD_ALLOC_OR_ERROR(
+                VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
         reached_limit(block, eos);
     }
 
