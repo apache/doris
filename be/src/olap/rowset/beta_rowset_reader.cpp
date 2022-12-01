@@ -182,7 +182,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         auto st = owned_it->init(_read_options);
         if (!st.ok()) {
             LOG(WARNING) << "failed to init iterator: " << st.to_string();
-            return Status::OLAPInternalError(OLAP_ERR_ROWSET_READER_INIT);
+            return Status::Error<ROWSET_READER_INIT>();
         }
         // transfer ownership of segment iterator to `_iterator`
         out_iters->push_back(owned_it.release());

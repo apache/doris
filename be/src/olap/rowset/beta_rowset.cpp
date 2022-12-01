@@ -112,7 +112,7 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
 Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
-        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
+        return Status::Error<INIT_FAILED>();
     }
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         auto seg_path = segment_file_path(seg_id);
