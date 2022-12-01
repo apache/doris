@@ -1791,12 +1791,13 @@ public class StmtExecutor implements ProfileWriter {
 
     public List<ResultRow> executeInternalQuery() {
         try {
+            List<ResultRow> resultRows = new ArrayList<>();
             analyzer = new Analyzer(context.getEnv(), context);
             try {
                 analyze(context.getSessionVariable().toThrift());
             } catch (UserException e) {
                 LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
-                return null;
+                return resultRows;
             }
             planner.getFragments();
             RowBatch batch;
@@ -1821,7 +1822,6 @@ public class StmtExecutor implements ProfileWriter {
             }
             Span fetchResultSpan = context.getTracer().spanBuilder("fetch internal SQL result")
                     .setParent(Context.current()).startSpan();
-            List<ResultRow> resultRows = new ArrayList<>();
             try (Scope scope = fetchResultSpan.makeCurrent()) {
                 while (true) {
                     batch = coord.getNext();
@@ -1834,7 +1834,7 @@ public class StmtExecutor implements ProfileWriter {
             } catch (Exception e) {
                 LOG.warn("Unexpected exception when SQL running", e);
                 fetchResultSpan.recordException(e);
-                return null;
+                return resultRows;
             } finally {
                 fetchResultSpan.end();
             }

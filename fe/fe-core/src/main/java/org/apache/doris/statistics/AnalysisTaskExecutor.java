@@ -17,10 +17,10 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
-import org.apache.doris.statistics.AnalysisJobInfo.JobState;
 import org.apache.doris.statistics.util.BlockingCounter;
 
 import org.apache.logging.log4j.LogManager;
@@ -33,9 +33,9 @@ import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public class AnalysisJobExecutor extends Thread {
+public class AnalysisTaskExecutor extends Thread {
 
-    private static final Logger LOG = LogManager.getLogger(AnalysisJobExecutor.class);
+    private static final Logger LOG = LogManager.getLogger(AnalysisTaskExecutor.class);
 
     private final ThreadPoolExecutor executors = ThreadPoolManager.newDaemonThreadPool(
             Config.statistics_simultaneously_running_job_num,
@@ -44,17 +44,17 @@ public class AnalysisJobExecutor extends Thread {
             new BlockedPolicy("Analysis Job Executor", Integer.MAX_VALUE),
             "Analysis Job Executor", true);
 
-    private final AnalysisJobScheduler jobScheduler;
+    private final AnalysisTaskScheduler taskScheduler;
 
     private final BlockingCounter blockingCounter =
             new BlockingCounter(Config.statistics_simultaneously_running_job_num);
 
-    private final BlockingQueue<AnalysisJobWrapper> jobQueue =
-            new PriorityBlockingQueue<AnalysisJobWrapper>(20,
-                    Comparator.comparingLong(AnalysisJobWrapper::getStartTime));
+    private final BlockingQueue<AnalysisTaskWrapper> jobQueue =
+            new PriorityBlockingQueue<AnalysisTaskWrapper>(20,
+                    Comparator.comparingLong(AnalysisTaskWrapper::getStartTime));
 
-    public AnalysisJobExecutor(AnalysisJobScheduler jobExecutor) {
-        this.jobScheduler = jobExecutor;
+    public AnalysisTaskExecutor(AnalysisTaskScheduler jobExecutor) {
+        this.taskScheduler = jobExecutor;
     }
 
     @Override
@@ -73,12 +73,12 @@ public class AnalysisJobExecutor extends Thread {
     private void doCancelExpiredJob() {
         for (;;) {
             try {
-                AnalysisJobWrapper jobWrapper = jobQueue.take();
+                AnalysisTaskWrapper taskWrapper = jobQueue.take();
                 try {
                     long timeout = StatisticConstants.STATISTICS_TASKS_TIMEOUT_IN_MS;
-                    jobWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
+                    taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
                 } catch (Exception e) {
-                    jobWrapper.cancel();
+                    taskWrapper.cancel();
                 }
             } catch (Throwable throwable) {
                 LOG.warn(throwable);
@@ -101,11 +101,13 @@ public class AnalysisJobExecutor extends Thread {
     }
 
     private void doFetchAndExecute() {
-        AnalysisJob job = jobScheduler.getPendingJobs();
-        AnalysisJobWrapper jobWrapper = new AnalysisJobWrapper(this, job);
+        BaseAnalysisTask task = taskScheduler.getPendingTasks();
+        AnalysisTaskWrapper jobWrapper = new AnalysisTaskWrapper(this, task);
         incr();
-        jobScheduler.updateJobStatus(job.getJobId(), JobState.RUNNING, "", -1);
         executors.submit(jobWrapper);
+        Env.getCurrentEnv().getAnalysisManager()
+                .updateTaskStatus(task.info,
+                        AnalysisState.RUNNING, "", System.currentTimeMillis());
     }
 
     public void decr() {
@@ -116,7 +118,7 @@ public class AnalysisJobExecutor extends Thread {
         blockingCounter.incr();
     }
 
-    public void putJob(AnalysisJobWrapper wrapper) throws Exception {
+    public void putJob(AnalysisTaskWrapper wrapper) throws Exception {
         jobQueue.put(wrapper);
     }
 }
