@@ -143,8 +143,8 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     "When normalize the AggregateExpression,"
                             + "the child of AggregateExpression should be AggregateFunction");
             AggregateFunction aggregateFunction = (AggregateFunction) aggregateExpression.child();
-            List<Expression> normalizedArgumentsOfAggregateFunction = context.normalizeToUseSlotRef(
-                    aggregateFunction.children(), this::normalizeAggregateExpression);
+            List<Expression> normalizedArgumentsOfAggregateFunction =
+                    context.normalizeToUseSlotRef(aggregateFunction.children());
             AggregateFunction normalizedAggregateFunction =
                     aggregateFunction.withChildren(normalizedArgumentsOfAggregateFunction);
             return new AggregateExpression(normalizedAggregateFunction, aggregateParam);
