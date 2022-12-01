@@ -205,56 +205,5 @@ suite("test_agg_keys_schema_change_decimalv3") {
     sql """sync"""
     qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `decimalv3k1`;"""
 
-    sql """ alter table ${tbName} modify column decimalv3k2 DECIMALV3(16,15) key """
-    max_try_time = 1000
-    while(max_try_time--){
-        String result = getJobState(tbName)
-        if (result == "FINISHED") {
-            break
-        } else {
-            sleep(100)
-            if (max_try_time < 1){
-                assertEquals(1,2)
-            }
-        }
-    }
-
-    sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `decimalv3k1`;"""
-
-    sql """ alter table ${tbName} modify column decimalv3k2 DECIMALV3(1,0) key """
-    max_try_time = 1000
-    while(max_try_time--){
-        String result = getJobState(tbName)
-        if (result == "FINISHED") {
-            break
-        } else {
-            sleep(100)
-            if (max_try_time < 1){
-                assertEquals(1,2)
-            }
-        }
-    }
-
-    sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `decimalv3k1`;"""
-
-    sql """ alter table ${tbName} modify column decimalv3k2 DECIMALV3(8,6) key """
-    max_try_time = 1000
-    while(max_try_time--){
-        String result = getJobState(tbName)
-        if (result == "FINISHED") {
-            break
-        } else {
-            sleep(100)
-            if (max_try_time < 1){
-                assertEquals(1,2)
-            }
-        }
-    }
-
-    sql """sync"""
-    qt_sql """select /*+ SET_VAR(enable_vectorized_engine=true) */ * from ${tbName} ORDER BY `decimalv3k1`;"""
-
     sql """ DROP TABLE ${tbName} FORCE """
 }
