@@ -283,7 +283,7 @@ if [[ -z "${USE_DWARF}" ]]; then
 fi
 
 if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
-    BUILD_BE_BINARY=1
+    OUTPUT_BE_BINARY=1
 fi
 
 if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
