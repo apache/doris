@@ -56,7 +56,7 @@ public class MergeProjectPostProcessTest {
      *
      * transform to
      *
-     * proj3(col1 as y, col2 as z)
+     * proj4(col1 as y, col2 as z)
      *    |
      * SCAN(col1, col2, col3)
      *
@@ -89,6 +89,7 @@ public class MergeProjectPostProcessTest {
         PhysicalProject proj1 = new PhysicalProject(projList1, placeHolder, proj2);
         MergeProjectPostProcessor processor = new MergeProjectPostProcessor();
         PhysicalPlan newPlan = (PhysicalPlan) proj1.accept(processor, ctx);
+        System.out.println(newPlan.treeString());
         Assertions.assertTrue(newPlan instanceof PhysicalProject);
         Assertions.assertTrue(newPlan.child(0) instanceof PhysicalOlapScan);
         List<NamedExpression> resProjList = ((PhysicalProject<?>) newPlan).getProjects();
@@ -100,4 +101,5 @@ public class MergeProjectPostProcessTest {
         Assertions.assertEquals(resProjList.get(1).getName(), "z");
         Assertions.assertEquals(((Alias) resProjList.get(1)).child(), b);
     }
+
 }

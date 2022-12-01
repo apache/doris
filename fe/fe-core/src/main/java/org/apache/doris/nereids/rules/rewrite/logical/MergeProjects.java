@@ -95,7 +95,7 @@ public class MergeProjects extends OneRewriteRuleFactory {
                 Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
                 if (substitutionMap.containsKey(ref)) {
                     Alias res = (Alias) substitutionMap.get(ref);
-                    return new Alias(res.child(), ref.getName());
+                    return res.child();
                 }
             } else if (substitutionMap.containsKey(expr)) {
                 return substitutionMap.get(expr).child(0);

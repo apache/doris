@@ -42,7 +42,7 @@ public class MergeProjectPostProcessor extends PlanPostProcessor {
             Map<Expression, Expression> aliasMap = getAliasProjections((PhysicalProject) child);
             List<NamedExpression> projections = project.getProjects();
             projections = projections.stream()
-                    .map(e -> MergeProjects.ExpressionReplacer.INSTANCE.visit(e, aliasMap))
+                    .map(e -> MergeProjects.ExpressionReplacer.INSTANCE.replace(e, aliasMap))
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
             return project.withProjectionsAndChild(projections, child.child(0));
