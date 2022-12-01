@@ -149,9 +149,10 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             Preconditions.checkState(aggregateExpression.child() instanceof AggregateFunction,
                     "When normalize the AggregateExpression,"
                             + "the child of AggregateExpression should be AggregateFunction");
+
             AggregateFunction aggregateFunction = (AggregateFunction) aggregateExpression.child();
             List<Expression> normalizedArgumentsOfAggregateFunction =
-                    context.normalizeToUseSlotRef(aggregateFunction.children());
+                    context.normalizeToUseSlotRef(aggregateFunction.getArguments());
             AggregateFunction normalizedAggregateFunction =
                     aggregateFunction.withChildren(normalizedArgumentsOfAggregateFunction);
             return new AggregateExpression(normalizedAggregateFunction, aggregateParam);
