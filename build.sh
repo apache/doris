@@ -420,7 +420,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
-    
+
     cd "${DORIS_HOME}"
 fi
 
