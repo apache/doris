@@ -17,70 +17,71 @@
  * under the License.
  */
 
-import React, {useState, useEffect} from 'react';
-import {Typography, Divider, BackTop, Spin} from 'antd';
-import {useTranslation} from "react-i18next";
+import React, { useEffect, useState } from 'react';
+import { Divider, FloatButton, Spin, Typography } from 'antd';
+import { getHardwareInfo } from 'Src/api/api';
+import { useTranslation } from 'react-i18next';
 
-const {Title, Paragraph} = Typography;
-import {getHardwareInfo} from 'Src/api/api';
+const { Title, Paragraph } = Typography;
 
 export default function Home(params: any) {
-    const {t} = useTranslation();
-    const [hardwareData, setHardwareData] = useState({});
-    const [hardwareDataLoading, setHardwareDataLoading] = useState(true);
-    const getConfigData = function () {
-        getHardwareInfo().then(res => {
-            if (res && res.msg === 'success') {
-                setHardwareData(res.data);
-                setHardwareDataLoading(false);
-            }
-        }).catch(err => {
-            console.error(err)
-            setHardwareData({VersionInfo: {}, HardwareInfo: {}});
-        });
-    };
-
-    function getItems(data, flag) {
-        const arr: any[] = [];
-        for (const i in data) {
-            let dt = data[i].replace(/&nbsp;/g, "")
-            dt = dt.replace(/<br>/g, "\n")
-            if (flag) {
-                arr.push(<p key={i} dangerouslySetInnerHTML={createMarkup(i, dt)}/>)
-            } else {
-                arr.push(<p key={i}>{i + ' : ' + dt}</p>)
-            }
+  const { t } = useTranslation();
+  const [hardwareData, setHardwareData] = useState({});
+  const [hardwareDataLoading, setHardwareDataLoading] = useState(true);
+  const getConfigData = function () {
+    getHardwareInfo()
+      .then((res) => {
+        if (res && res.msg === "success") {
+          setHardwareData(res.data);
+          setHardwareDataLoading(false);
         }
-        return arr;
-    }
+      })
+      .catch((err) => {
+        console.error(err);
+        setHardwareData({ VersionInfo: {}, HardwareInfo: {} });
+      });
+  };
 
-    function createMarkup(key, data) {
-        return {__html: key + ' : ' + String(data)};
+  function getItems(data, flag) {
+    console.log(data);
+    const arr: any[] = [];
+    for (const i in data) {
+      let dt = data[i].replace(/&nbsp;/g, "");
+      dt = dt.replace(/<br>/g, "\n");
+      if (flag) {
+        arr.push(<p key={i} dangerouslySetInnerHTML={createMarkup(i, dt)} />);
+      } else {
+        arr.push(<p key={i}>{i + " : " + dt}</p>);
+      }
     }
+    return arr;
+  }
 
-    useEffect(() => {
-        getConfigData();
-    }, []);
-    return (
-        <div>
-            <Typography style={{padding: '30px'}}>
-                <Title>Version</Title>
-                <Spin spinning={hardwareDataLoading} tip={t('loading') + '...'}>
-                    <Paragraph style={{background: '#f9f9f9', padding: '20px'}}>
-                        {...getItems(hardwareData.VersionInfo, false)}
-                    </Paragraph>
-                </Spin>
-                <Divider/>
-                <Title>Hardware Info</Title>
-                <Spin spinning={hardwareDataLoading} tip={t('loading') + '...'}>
-                    <Paragraph style={{background: '#f9f9f9', padding: '20px'}}>
-                        {...getItems(hardwareData.HardwareInfo, false)}
-                    </Paragraph>
-                </Spin>
-            </Typography>
-            <BackTop></BackTop>
-        </div>
-    );
+  function createMarkup(key, data) {
+    return { __html: key + " : " + String(data) };
+  }
+
+  useEffect(() => {
+    getConfigData();
+  }, []);
+  return (
+    <div>
+      <Typography style={{ padding: "30px" }}>
+        <Title>Version</Title>
+        <Spin spinning={hardwareDataLoading} tip={t("loading") + "..."}>
+          <Paragraph style={{ background: "#f9f9f9", padding: "20px" }}>
+            {getItems(hardwareData.VersionInfo, false).map((item) => item)}
+          </Paragraph>
+        </Spin>
+        <Divider />
+        <Title>Hardware Info</Title>
+        <Spin spinning={hardwareDataLoading} tip={t("loading") + "..."}>
+          <Paragraph style={{ background: "#f9f9f9", padding: "20px" }}>
+            {getItems(hardwareData.HardwareInfo, false).map((item) => item)}
+          </Paragraph>
+        </Spin>
+      </Typography>
+      <FloatButton.BackTop></FloatButton.BackTop>
+    </div>
+  );
 }
-  
- 

@@ -22,42 +22,38 @@
  * @author lpx
  * @since 2020/08/19
  */
-const merge = require('webpack-merge');
-const baseConfig = require('./webpack.common.js');
-const path = require('path');
+const { merge } = require("webpack-merge");
+const baseConfig = require("./webpack.common.js");
+const path = require("path");
 
 module.exports = merge(baseConfig, {
-    // 设置为开发模式
-    mode: 'development',
-    devtool: 'inline-source-map',
-    optimization: {
-        minimize: false
+  // 设置为开发模式
+  mode: "development",
+  devtool: "inline-source-map",
+  optimization: {
+    minimize: false,
+  },
+  // 配置服务端目录和端口
+  devServer: {
+    historyApiFallback: true,
+    compress: true,
+    hot: false,
+    host: "localhost",
+    open: true,
+    port: 8030,
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8030/",
+        changeOrigin: true,
+        secure: false,
+        // pathRewrite: {'^/commonApi': '/commonApi'}
+      },
+      "/rest": {
+        target: "http://127.0.0.1:8030/",
+        changeOrigin: true,
+        secure: false,
+        // pathRewrite: {'^/commonApi': '/commonApi'}
+      },
     },
-    // 配置服务端目录和端口
-    devServer: {
-        historyApiFallback: true,
-        disableHostCheck: true,
-        stats: 'minimal',
-        compress: true,
-        overlay: true,
-        hot: false,
-        host: 'localhost',
-        open: true,
-        contentBase: path.join(__dirname, 'dist'),
-        port: 8030,
-        proxy: {
-            '/api': {
-                target: 'http://127.0.0.1:8030',
-                changeOrigin: true,
-                secure: false
-                // pathRewrite: {'^/commonApi': '/commonApi'}
-            },
-            '/rest': {
-                target: 'http://127.0.0.1:8030',
-                changeOrigin: true,
-                secure: false
-                // pathRewrite: {'^/commonApi': '/commonApi'}
-            }
-        }
-    }
+  },
 });
