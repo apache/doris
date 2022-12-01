@@ -609,7 +609,7 @@ private:
         }
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         std::string info =
                 "InListPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
         return info;
@@ -635,8 +635,5 @@ private:
     // temp string for char type column
     std::list<std::string> _temp_datas;
 };
-
-template <PrimitiveType Type, PredicateType PT>
-constexpr PrimitiveType InListPredicateBase<Type, PT>::EvalType;
 
 } //namespace doris

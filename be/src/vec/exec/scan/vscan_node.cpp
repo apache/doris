@@ -71,7 +71,7 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     RETURN_IF_ERROR(_init_profile());
 
@@ -89,7 +89,7 @@ Status VScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     RETURN_IF_ERROR(_acquire_runtime_filter());
     RETURN_IF_ERROR(_process_conjuncts());
@@ -109,7 +109,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VScanNode::get_next");
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     if (state->is_cancelled()) {
         _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
         return _scanner_ctx->status();
@@ -544,7 +544,9 @@ bool VScanNode::_is_predicate_acting_on_slot(
     }
     *slot_desc = entry->second.first;
     DCHECK(child_contains_slot != nullptr);
-    if (child_contains_slot->type().type != (*slot_desc)->type().type) {
+    if (child_contains_slot->type().type != (*slot_desc)->type().type ||
+        child_contains_slot->type().precision != (*slot_desc)->type().precision ||
+        child_contains_slot->type().scale != (*slot_desc)->type().scale) {
         if (!ignore_cast(*slot_desc, child_contains_slot)) {
             // the type of predicate not match the slot's type
             return false;
