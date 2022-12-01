@@ -59,10 +59,6 @@ jobs:
     name: "Clang Tidy"
     runs-on: ubuntu-22.04
     steps:
-      - name: Skip
-        if: ${{ github.event_name != 'pull_request_target'}}
-        run: exit 0
-
       - name: Checkout
         uses: actions/checkout@v3
         with:
@@ -80,6 +76,7 @@ jobs:
               - 'gensrc/thrift/**'
       
       - name: Generate compile_commands.json
+        if: ${{ github.event_name == 'pull_request_target' && steps.filter.outputs.be_changes == 'true'}}
         run: |
           export DEFAULT_DIR='/opt/doris'
 
@@ -106,6 +103,7 @@ jobs:
           DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
 
       - name: Run clang-tidy review
+        if: ${{ github.event_name == 'pull_request_target' && steps.filter.outputs.be_changes == 'true'}}
         uses: ./.github/actions/clang-tidy-review
         id: review
         with:
