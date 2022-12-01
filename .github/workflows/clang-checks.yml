@@ -47,7 +47,7 @@ jobs:
         uses: ./.github/actions/clang-format-lint-action
         id: be_clang_format
         with:
-          source: 'be/src be/test'
+          source: "be/src be/test"
           clangFormatVersion: 15
           inplace: False
 
@@ -74,7 +74,7 @@ jobs:
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
-      
+
       - name: Generate compile_commands.json
         if: ${{ github.event_name == 'pull_request_target' && steps.filter.outputs.be_changes == 'true'}}
         run: |
@@ -110,4 +110,4 @@ jobs:
           build_dir: ./be/build_Release
 
       - if: steps.review.outputs.total_comments > 0
-      run: exit 1
+        run: exit 1
