@@ -1843,18 +1843,26 @@ public class SelectStmt extends QueryStmt {
         if (selectList.isDistinct()) {
             strBuilder.append("DISTINCT ");
         }
-        for (int i = 0; i < resultExprs.size(); ++i) {
-            // strBuilder.append(selectList.getItems().get(i).toSql());
-            // strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
-            if (i != 0) {
-                strBuilder.append(", ");
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList) {
+            for (int i = 0; i < selectList.getItems().size(); i++) {
+                strBuilder.append(selectList.getItems().get(i).toSql());
+                strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
             }
-            if (needToSql) {
-                strBuilder.append(originalExpr.get(i).toSql());
-            } else {
-                strBuilder.append(resultExprs.get(i).toSql());
+        } else {
+            for (int i = 0; i < resultExprs.size(); ++i) {
+                // strBuilder.append(selectList.getItems().get(i).toSql());
+                // strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
+                if (i != 0) {
+                    strBuilder.append(", ");
+                }
+                if (needToSql) {
+                    strBuilder.append(originalExpr.get(i).toSql());
+                } else {
+                    strBuilder.append(resultExprs.get(i).toSql());
+                }
+                strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
             }
-            strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
         }
 
         // From clause
