@@ -149,7 +149,8 @@ void VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
         d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
     }
-    dst.set_same_bit(get_pre_ctx_same());
+    auto tmp_pre_ctx_same_bit = get_pre_ctx_same();
+    dst.set_same_bit(tmp_pre_ctx_same_bit.begin(), tmp_pre_ctx_same_bit.begin() + _cur_batch_num);
     _cur_batch_num = 0;
 }
 
@@ -257,6 +258,8 @@ Status VMergeIteratorContext::init(const StorageReadOptions& opts) {
     if (valid()) {
         RETURN_IF_ERROR(advance());
     }
+    _pre_ctx_same_bit.reserve(_block_row_max);
+    _pre_ctx_same_bit.assign(_block_row_max, 0);
     return Status::OK();
 }
 

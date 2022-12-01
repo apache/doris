@@ -124,9 +124,20 @@ public:
 
     void set_same(bool same) const { _same = same; }
 
-    bool get_pre_ctx_same() const { return _pre_ctx_same; }
+    std::vector<uint64_t> get_pre_ctx_same() const { return _pre_ctx_same_bit; }
 
-    void set_pre_ctx_same(bool pre_ctx_same) const { _pre_ctx_same = pre_ctx_same; }
+    void set_pre_ctx_same(VMergeIteratorContext* ctx) const {
+        int64_t index = ctx->get_cur_batch() - 1;
+        DCHECK(index >= 0);
+        DCHECK_LT(index, _pre_ctx_same_bit.size());
+        if (ctx->is_same()) {
+            _pre_ctx_same_bit[index] = 1;
+        } else {
+            _pre_ctx_same_bit[index] = 0;
+        }
+    }
+
+    size_t get_cur_batch() { return _cur_batch_num; }
 
     void add_cur_batch() { _cur_batch_num++; }
 
@@ -146,7 +157,6 @@ private:
     bool _valid = false;
     mutable bool _skip = false;
     mutable bool _same = false;
-    mutable bool _pre_ctx_same = false;
     size_t _index_in_block = -1;
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     int _block_row_max = 4064;
@@ -161,6 +171,7 @@ private:
     std::shared_ptr<Block> _block;
     // used to store data still on block view
     std::list<std::shared_ptr<Block>> _block_list;
+    mutable std::vector<uint64_t> _pre_ctx_same_bit;
 };
 
 class VMergeIterator : public RowwiseIterator {
@@ -230,8 +241,8 @@ private:
                         pre_ctx->copy_rows(block);
                     }
                     pre_ctx = ctx;
-                    pre_ctx->set_pre_ctx_same(ctx->is_same());
                 }
+                pre_ctx->set_pre_ctx_same(ctx);
                 if (UNLIKELY(_record_rowids)) {
                     _block_row_locations[row_idx] = ctx->current_row_location();
                 }

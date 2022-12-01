@@ -350,8 +350,8 @@ public:
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
     int64_t get_compress_time() const { return _compress_time_ns; }
 
-    void set_same_bit(bool is_same) {
-        is_same ? row_same_bit.push_back(1) : row_same_bit.push_back(0);
+    void set_same_bit(std::vector<uint64_t>::iterator begin, std::vector<uint64_t>::iterator end) {
+        row_same_bit.insert(row_same_bit.end(), begin, end);
 
         DCHECK_EQ(row_same_bit.size(), rows());
     }
