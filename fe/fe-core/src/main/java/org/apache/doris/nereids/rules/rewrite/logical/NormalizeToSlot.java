@@ -76,7 +76,7 @@ public interface NormalizeToSlot {
             return expressions.stream()
                     .map(expr -> (E) expr.rewriteDownShortCircuit(child -> {
                         Expression newChild = customNormalize.apply(this, child);
-                        if (newChild != child) {
+                        if (newChild != null && newChild != child) {
                             return newChild;
                         }
                         NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(child);
