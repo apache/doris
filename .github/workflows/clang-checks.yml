@@ -108,3 +108,6 @@ jobs:
         id: review
         with:
           build_dir: ./be/build_Release
+
+      - if: steps.review.outputs.total_comments > 0
+      run: exit 1
