@@ -103,5 +103,6 @@ jobs:
 
       - name: Run clang-tidy review
         uses: ./.github/actions/clang-tidy-review
-        build_dir: ./be/build_Release
         id: review
+        with:
+          build_dir: ./be/build_Release
