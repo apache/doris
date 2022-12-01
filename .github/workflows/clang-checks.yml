@@ -59,6 +59,10 @@ jobs:
     name: "Clang Tidy"
     runs-on: ubuntu-22.04
     steps:
+      - name: Skip
+        if: ${{ github.event_name != 'pull_request_target'}}
+        run: exit 0
+
       - name: Checkout
         uses: actions/checkout@v3
         with:
