@@ -23,6 +23,9 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.metrics.CounterType;
+import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -49,6 +52,8 @@ public class VisitorRewriteJob extends Job {
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
         Plan root = context.getCascadesContext().getMemo().copyOut(logicalExpression, true);
+        COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
+                root));
         Plan rewrittenRoot = root.accept(planRewriter, context);
         context.getCascadesContext().getMemo().copyIn(rewrittenRoot, group, true);
     }
