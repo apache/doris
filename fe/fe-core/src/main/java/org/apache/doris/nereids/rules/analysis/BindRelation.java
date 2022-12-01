@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -63,18 +61,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).toRule(RuleType.BINDING_RELATION);
     }
 
-    private Table getTable(String dbName, String tableName, Env env) {
-        Database db = env.getInternalCatalog().getDb(dbName)
-                .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
-        db.readLock();
-        try {
-            return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
-                    "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
-        } finally {
-            db.readUnlock();
-        }
-    }
-
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String tableName) {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getCteContext();
@@ -89,7 +75,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();
-        Table table = getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
+        Table table = cascadesContext.getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
             return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
@@ -108,7 +94,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (!dbName.equals(connectContext.getDatabase())) {
             dbName = connectContext.getClusterName() + ":" + dbName;
         }
-        Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
+        Table table = cascadesContext.getTable(dbName, nameParts.get(1), connectContext.getEnv());
         if (table.getType() == TableType.OLAP) {
             return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
                     (OlapTable) table, ImmutableList.of(dbName));

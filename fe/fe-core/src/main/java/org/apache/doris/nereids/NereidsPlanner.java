@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -80,6 +81,7 @@ public class NereidsPlanner extends Planner {
         }
 
         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) queryStmt;
+
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
         Plan resultPlan = plan(logicalPlanAdapter.getLogicalPlan(), PhysicalProperties.ANY, explainLevel);
         if (explainLevel.isPlanLevel) {
@@ -145,44 +147,45 @@ public class NereidsPlanner extends Planner {
         plan = preprocess(plan);
 
         initCascadesContext(plan);
-
-        // resolve column, table and function
-        analyze();
-        if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-            analyzedPlan = cascadesContext.getMemo().copyOut(false);
-            if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
-                return analyzedPlan;
+        try (Lock lock = new Lock(plan, cascadesContext)) {
+            // resolve column, table and function
+            analyze();
+            if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+                analyzedPlan = cascadesContext.getMemo().copyOut(false);
+                if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
+                    return analyzedPlan;
+                }
             }
-        }
 
-        // rule-based optimize
-        rewrite();
-        if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-            rewrittenPlan = cascadesContext.getMemo().copyOut(false);
-            if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
-                return rewrittenPlan;
+            // rule-based optimize
+            rewrite();
+            if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+                rewrittenPlan = cascadesContext.getMemo().copyOut(false);
+                if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
+                    return rewrittenPlan;
+                }
             }
+
+            deriveStats();
+
+            // We need to do join reorder before cascades and after deriving stats
+            // joinReorder();
+            // TODO: What is the appropriate time to set physical properties? Maybe before enter.
+            // cascades style optimize phase.
+
+            // cost-based optimize and explore plan space
+            optimize();
+
+            PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
+
+            // post-process physical plan out of memo, just for future use.
+            physicalPlan = postProcess(physicalPlan);
+            if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+                optimizedPlan = physicalPlan;
+            }
+
+            return physicalPlan;
         }
-
-        deriveStats();
-
-        // We need to do join reorder before cascades and after deriving stats
-        // joinReorder();
-        // TODO: What is the appropriate time to set physical properties? Maybe before enter.
-        // cascades style optimize phase.
-
-        // cost-based optimize and explore plan space
-        optimize();
-
-        PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), PhysicalProperties.ANY);
-
-        // post-process physical plan out of memo, just for future use.
-        physicalPlan = postProcess(physicalPlan);
-        if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
-            optimizedPlan = physicalPlan;
-        }
-
-        return physicalPlan;
     }
 
     private LogicalPlan preprocess(LogicalPlan logicalPlan) {
