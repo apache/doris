@@ -373,7 +373,7 @@ class MemoTest implements PatternMatchSupported {
 
             PlanChecker.from(connectContext, student)
                     .applyBottomUp(
-                            unboundRelation().then(unboundRelation -> limit.withChildren(unboundRelation))
+                            unboundRelation().then(limit::withChildren)
                     )
                     .checkGroupNum(2)
                     .matchesFromRoot(
