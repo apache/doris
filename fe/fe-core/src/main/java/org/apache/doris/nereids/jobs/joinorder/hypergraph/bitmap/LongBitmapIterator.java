@@ -19,20 +19,17 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.util.BitSet;
 import java.util.Iterator;
 
 /**
- * This is an Iterator for iterating bitmap descending
+ * This is an Iterator for iterating bitmap
  */
-public class ReverseBitSetIterator implements Iterable<Integer> {
-    int lastIndex = 0;
-    int readNum = 0;
-    BitSet bitSet;
+public class LongBitmapIterator implements Iterable<Integer> {
+    private long bitmap;
+    private int lastIndex = 0;
 
-    ReverseBitSetIterator(BitSet bitSet) {
-        this.bitSet = bitSet;
-        lastIndex = bitSet.size();
+    LongBitmapIterator(long bitmap) {
+        this.bitmap = bitmap;
     }
 
     @NotNull
@@ -41,13 +38,13 @@ public class ReverseBitSetIterator implements Iterable<Integer> {
         class Iter implements Iterator<Integer> {
             @Override
             public boolean hasNext() {
-                return (readNum < bitSet.cardinality());
+                return bitmap != 0;
             }
 
             @Override
             public Integer next() {
-                lastIndex = bitSet.previousSetBit(lastIndex - 1);
-                readNum += 1;
+                lastIndex = LongBitmap.nextSetBit(bitmap, lastIndex);
+                bitmap = LongBitmap.clearLowestBit(bitmap);
                 return lastIndex;
             }
 

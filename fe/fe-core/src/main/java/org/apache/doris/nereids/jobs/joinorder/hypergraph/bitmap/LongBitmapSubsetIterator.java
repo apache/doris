@@ -19,63 +19,44 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Iterator;
-import java.util.List;
 
 /**
  * This is a class for iterating all true subset of a bitset, referenced in
  * https://groups.google.com/forum/#!msg/rec.games.chess/KnJvBnhgDKU/yCi5yBx18PQJ
  */
-public class SubsetIterator implements Iterable<BitSet> {
-    List<BitSet> subsets = new ArrayList<>();
-    int cursor = 0;
+public class LongBitmapSubsetIterator implements Iterable<Long> {
+    private long bitmap;
+    private long state;
 
     /**
      * Generate all subset for this bitSet
      *
-     * @param bitSet The bitset that need to be generated
+     * @param bitmap The bitset that need to be generated
      */
-    public SubsetIterator(BitSet bitSet) {
-        long[] setVal = bitSet.toLongArray();
-        int len = setVal.length;
-        long[] baseVal = new long[len];
-        subsets.add(new BitSet());
-        for (int i = 0; i < len; i++) {
-            long subVal = (-setVal[i]) & setVal[i];
-            int size = subsets.size();
-            while (subVal != 0) {
-                baseVal[i] = subVal;
-                for (int j = 0; j < size; j++) {
-                    BitSet newSubset = BitSet.valueOf(baseVal);
-                    newSubset.or(subsets.get(j));
-                    subsets.add(newSubset);
-                }
-                subVal = (subVal - setVal[i]) & setVal[i];
-            }
-            baseVal[i] = 0;
-        }
-        // remove empty subset
-        subsets.remove(0);
+    public LongBitmapSubsetIterator(long bitmap) {
+        this.bitmap = bitmap;
+        this.state = (-bitmap) & bitmap;
     }
 
     public void reset() {
-        cursor = 0;
+        state = (-bitmap) & bitmap;
     }
 
     @NotNull
     @Override
-    public Iterator<BitSet> iterator() {
-        class Iter implements Iterator<BitSet> {
+    public Iterator<Long> iterator() {
+        class Iter implements Iterator<Long> {
             @Override
             public boolean hasNext() {
-                return (cursor < subsets.size());
+                return state != 0;
             }
 
             @Override
-            public BitSet next() {
-                return subsets.get(cursor++);
+            public Long next() {
+                Long subset = state;
+                state = (state - bitmap) & bitmap;
+                return subset;
             }
 
             @Override
