@@ -899,7 +899,7 @@ OLAPStatus Tablet::pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* i
                     quick_compaction_rowsets[idx].push_back(sortedRowset[i]);
                 } else {
                     idx++;
-                    if (idx > max_series_num) {
+                    if (idx >= max_series_num) {
                         break;
                     }
                 }
