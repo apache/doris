@@ -72,44 +72,56 @@ public class FunctionCallExpr extends Expr {
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
-    public static final Map<String, java.util.function.Function<Type[], Type>> DECIMAL_INFER_RULE;
-    public static final java.util.function.Function<Type[], Type> DEFAULT_DECIMAL_INFER_RULE;
+    public static final Map<String, java.util.function.BiFunction<Type[], Type, Type>> PRECISION_INFER_RULE;
+    public static final java.util.function.BiFunction<Type[], Type, Type> DEFAULT_PRECISION_INFER_RULE;
 
     static {
-        java.util.function.Function<Type[], Type> sumRule = (com.google.common.base.Function<Type[], Type>) type -> {
-            Preconditions.checkArgument(type != null && type.length > 0);
-            if (type[0].isDecimalV3()) {
+        java.util.function.BiFunction<Type[], Type, Type> sumRule = (childrenType, returnType) -> {
+            Preconditions.checkArgument(childrenType != null && childrenType.length > 0);
+            if (childrenType[0].isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) type[0]).getScalarScale());
+                        ((ScalarType) childrenType[0]).getScalarScale());
             } else {
-                return type[0];
+                return returnType;
             }
         };
-        DEFAULT_DECIMAL_INFER_RULE = (com.google.common.base.Function<Type[], Type>) type -> {
-            Preconditions.checkArgument(type != null && type.length > 0);
-            return type[0];
-        };
-        DECIMAL_INFER_RULE = new HashMap<>();
-        DECIMAL_INFER_RULE.put("sum", sumRule);
-        DECIMAL_INFER_RULE.put("multi_distinct_sum", sumRule);
-        DECIMAL_INFER_RULE.put("avg", (com.google.common.base.Function<Type[], Type>) type -> {
-            // TODO: how to set scale?
-            Preconditions.checkArgument(type != null && type.length > 0);
-            if (type[0].isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
-                        ((ScalarType) type[0]).getScalarScale());
+        DEFAULT_PRECISION_INFER_RULE = (childrenType, returnType) -> {
+            if (childrenType != null && childrenType.length > 0
+                    && childrenType[0].isDecimalV3() && returnType.isDecimalV3()) {
+                return childrenType[0];
+            } else if (childrenType != null && childrenType.length > 0 && childrenType[0].isDatetimeV2()
+                    && returnType.isDatetimeV2()) {
+                return childrenType[0];
             } else {
-                return type[0];
+                return returnType;
+            }
+        };
+        PRECISION_INFER_RULE = new HashMap<>();
+        PRECISION_INFER_RULE.put("sum", sumRule);
+        PRECISION_INFER_RULE.put("multi_distinct_sum", sumRule);
+        PRECISION_INFER_RULE.put("avg", (childrenType, returnType) -> {
+            // TODO: how to set scale?
+            Preconditions.checkArgument(childrenType != null && childrenType.length > 0);
+            if (childrenType[0].isDecimalV3()) {
+                return ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                        ((ScalarType) childrenType[0]).getScalarScale());
+            } else {
+                return returnType;
             }
         });
-        DECIMAL_INFER_RULE.put("if", (com.google.common.base.Function<Type[], Type>) type -> {
-            Preconditions.checkArgument(type != null && type.length == 3);
-            if (type[1].isDecimalV3() && type[2].isDecimalV3()) {
+        PRECISION_INFER_RULE.put("if", (childrenType, returnType) -> {
+            Preconditions.checkArgument(childrenType != null && childrenType.length == 3);
+            if (childrenType[1].isDecimalV3() && childrenType[2].isDecimalV3()) {
                 return ScalarType.createDecimalV3Type(
-                        Math.max(((ScalarType) type[1]).decimalPrecision(), ((ScalarType) type[2]).decimalPrecision()),
-                        Math.max(((ScalarType) type[1]).decimalScale(), ((ScalarType) type[2]).decimalScale()));
+                        Math.max(((ScalarType) childrenType[1]).decimalPrecision(),
+                                ((ScalarType) childrenType[2]).decimalPrecision()),
+                        Math.max(((ScalarType) childrenType[1]).decimalScale(),
+                                ((ScalarType) childrenType[2]).decimalScale()));
+            } else if (childrenType[1].isDatetimeV2() && childrenType[2].isDatetimeV2()) {
+                return ((ScalarType) childrenType[1]).decimalScale() > ((ScalarType) childrenType[2]).decimalScale()
+                        ? childrenType[1] : childrenType[2];
             } else {
-                return type[0];
+                return returnType;
             }
         });
     }
@@ -1310,6 +1322,13 @@ public class FunctionCallExpr extends Expr {
             } else {
                 this.type = ScalarType.getDefaultDateType(Type.DATETIME);
             }
+        } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
+                && fn.getReturnType().isDatetimeV2()) {
+            if (children.size() == 1 && children.get(0) instanceof IntLiteral) {
+                this.type = ScalarType.createDatetimeV2Type((int) ((IntLiteral) children.get(0)).getLongValue());
+            } else if (children.size() == 1) {
+                this.type = ScalarType.createDatetimeV2Type(6);
+            }
         } else {
             this.type = fn.getReturnType();
         }
@@ -1351,10 +1370,11 @@ public class FunctionCallExpr extends Expr {
             fn.setReturnType(Type.MAX_DECIMALV2_TYPE);
         }
 
-        if (this.type.isDecimalV3()) {
+        if (this.type.isDecimalV3() || (this.type.isDatetimeV2()
+                && !TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase()))) {
             // TODO(gabriel): If type exceeds max precision of DECIMALV3, we should change it to a double function
-            this.type = DECIMAL_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_DECIMAL_INFER_RULE)
-                    .apply(collectChildReturnTypes());
+            this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
+                    .apply(collectChildReturnTypes(), this.type);
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
