@@ -22,6 +22,7 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_const.h"
+#include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vcompound_pred.h"
@@ -65,6 +66,7 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_register_runtime_filter());
+    RETURN_IF_ERROR(_init_profile());
 
     return Status::OK();
 }
@@ -72,8 +74,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-
-    RETURN_IF_ERROR(_init_profile());
 
     // init profile for runtime filter
     for (auto& rf_ctx : _runtime_filter_ctxs) {
@@ -175,9 +175,15 @@ Status VScanNode::_init_profile() {
 }
 
 Status VScanNode::_start_scanners(const std::list<VScanner*>& scanners) {
-    _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
-                                          scanners, limit(),
-                                          _state->query_options().mem_limit / 20));
+    if (_state->enable_pipeline_exec()) {
+        _scanner_ctx.reset(new pipeline::PipScannerContext(_state, this, _input_tuple_desc,
+                                                           _output_tuple_desc, scanners, limit(),
+                                                           _state->query_options().mem_limit / 20));
+    } else {
+        _scanner_ctx.reset(new ScannerContext(_state, this, _input_tuple_desc, _output_tuple_desc,
+                                              scanners, limit(),
+                                              _state->query_options().mem_limit / 20));
+    }
     RETURN_IF_ERROR(_scanner_ctx->init());
     RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
     return Status::OK();
@@ -200,7 +206,7 @@ Status VScanNode::_register_runtime_filter() {
     return Status::OK();
 }
 
-Status VScanNode::_acquire_runtime_filter() {
+Status VScanNode::_acquire_runtime_filter(bool wait) {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     std::vector<VExpr*> vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
@@ -213,7 +219,7 @@ Status VScanNode::_acquire_runtime_filter() {
             }
         }
         bool ready = runtime_filter->is_ready();
-        if (!ready) {
+        if (!ready && wait) {
             ready = runtime_filter->await();
         }
         if (ready) {

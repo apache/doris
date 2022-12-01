@@ -17,7 +17,15 @@
 
 #pragma once
 
+#include <brpc/http_method.h>
+#include <gen_cpp/internal_service.pb.h>
+
+#include "common/config.h"
+#include "common/status.h"
 #include "exception.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "util/brpc_client_cache.h"
 
 namespace doris {
 
@@ -27,6 +35,55 @@ namespace doris {
 //
 // 2G: In the default "baidu_std" brpcd, upper limit of the request and attachment length is 2G.
 constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
+
+// Embed column_values and brpc request serialization string in controller attachment.
+template <typename Params, typename Closure>
+inline Status request_embed_attachment_contain_block(Params* brpc_request, Closure* closure) {
+    auto block = brpc_request->block();
+    Status st = request_embed_attachment(brpc_request, block.column_values(), closure);
+    block.set_column_values("");
+    return st;
+}
+
+inline bool enable_http_send_block(
+        const PTransmitDataParams& request,
+        bool transfer_large_data_by_brpc = config::transfer_large_data_by_brpc) {
+    if (!config::transfer_large_data_by_brpc) {
+        return false;
+    }
+    if (!request.has_block() || !request.block().has_column_values()) {
+        return false;
+    }
+    if (request.ByteSizeLong() < MIN_HTTP_BRPC_SIZE) {
+        return false;
+    }
+    return true;
+}
+
+template <typename Closure>
+inline void transmit_block(PBackendService_Stub& stub, Closure* closure,
+                           const PTransmitDataParams& params) {
+    closure->cntl.http_request().Clear();
+    stub.transmit_block(&closure->cntl, &params, &closure->result, closure);
+}
+
+template <typename Closure>
+inline Status transmit_block_http(RuntimeState* state, Closure* closure,
+                                  PTransmitDataParams& params, TNetworkAddress brpc_dest_addr) {
+    RETURN_IF_ERROR(request_embed_attachment_contain_block(&params, closure));
+
+    std::string brpc_url =
+            fmt::format("http://{}:{}", brpc_dest_addr.hostname, brpc_dest_addr.port);
+    std::shared_ptr<PBackendService_Stub> brpc_http_stub =
+            state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
+                                                                                     "http");
+    closure->cntl.http_request().uri() = brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
+    closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
+    closure->cntl.http_request().set_content_type("application/json");
+    brpc_http_stub->transmit_block_by_http(&closure->cntl, nullptr, &closure->result, closure);
+
+    return Status::OK();
+}
 
 // TODO(zxy) delete in v1.3 version
 // Transfer RowBatch in ProtoBuf Request to Controller Attachment.
@@ -91,15 +148,6 @@ inline Status request_embed_attachment_contain_tuple(Params* brpc_request, Closu
     auto row_batch = brpc_request->row_batch();
     Status st = request_embed_attachment(brpc_request, row_batch.tuple_data(), closure);
     row_batch.set_tuple_data("");
-    return st;
-}
-
-// Embed column_values and brpc request serialization string in controller attachment.
-template <typename Params, typename Closure>
-inline Status request_embed_attachment_contain_block(Params* brpc_request, Closure* closure) {
-    auto block = brpc_request->block();
-    Status st = request_embed_attachment(brpc_request, block.column_values(), closure);
-    block.set_column_values("");
     return st;
 }
 

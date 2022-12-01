@@ -59,7 +59,7 @@ Status VTableSink::send(RuntimeState* state, RowBatch* batch) {
             "Not Implemented VTableSink::send(RuntimeState* state, RowBatch* batch)");
 }
 
-Status VTableSink::send(RuntimeState* state, Block* block) {
+Status VTableSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VTableSink::send");
     return Status::OK();
 }

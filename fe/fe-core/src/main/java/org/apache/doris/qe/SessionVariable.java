@@ -164,6 +164,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
+    public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
+
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
@@ -461,6 +463,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
     public boolean enableVectorizedEngine = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE)
+    public boolean enablePipelineEngine = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
@@ -1064,6 +1069,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableVectorizedEngine = enableVectorizedEngine;
     }
 
+    public boolean enablePipelineEngine() {
+        return enablePipelineEngine && enableVectorizedEngine;
+    }
+
+    public void setEnablePipelineEngine(boolean enablePipelineEngine) {
+        this.enablePipelineEngine = enablePipelineEngine;
+    }
+
     public boolean enablePushDownNoGroupAgg() {
         return enablePushDownNoGroupAgg;
     }
@@ -1270,6 +1283,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setBeExecVersion(Config.be_exec_version);
+        tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);

@@ -17,6 +17,9 @@
 
 #include "vec/exec/vexchange_node.h"
 
+#include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -62,18 +65,23 @@ Status VExchangeNode::prepare(RuntimeState* state) {
     }
     return Status::OK();
 }
-Status VExchangeNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::open");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
+Status VExchangeNode::alloc_resource(RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
         RETURN_IF_ERROR(_stream_recvr->create_merger(_vsort_exec_exprs.lhs_ordering_expr_ctxs(),
                                                      _is_asc_order, _nulls_first,
                                                      state->batch_size(), _limit, _offset));
     }
+    return Status::OK();
+}
+
+Status VExchangeNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::open");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    RETURN_IF_ERROR(ExecNode::open(state));
 
     return Status::OK();
 }
@@ -99,16 +107,20 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     return status;
 }
 
+void VExchangeNode::release_resource(RuntimeState* state) {
+    if (_stream_recvr != nullptr) {
+        _stream_recvr->close();
+    }
+    if (_is_merging) {
+        _vsort_exec_exprs.close(state);
+    }
+}
+
 Status VExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VExchangeNode::close");
-
-    if (_stream_recvr != nullptr) {
-        _stream_recvr->close();
-    }
-    if (_is_merging) _vsort_exec_exprs.close(state);
 
     return ExecNode::close(state);
 }
