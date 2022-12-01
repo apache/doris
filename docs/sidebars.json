@@ -1021,6 +1021,15 @@
                 },
                 {
                     "type": "category",
+                    "label": "Memory Management",
+                    "items": [
+                        "admin-manual/maint-monitor/memory-management/memory-tracker",
+                        "admin-manual/maint-monitor/memory-management/memory-limit-exceeded-analysis",
+                        "admin-manual/maint-monitor/memory-management/be-oom-analysis"
+                    ]
+                },
+                {
+                    "type": "category",
                     "label": "Config",
                     "items": [
                         "admin-manual/config/config-dir",
@@ -1116,15 +1125,6 @@
                         "admin-manual/http-actions/fe-get-log-file",
                         "admin-manual/http-actions/check-reset-rpc-cache",
                         "admin-manual/http-actions/check-tablet-segment-action"
-                    ]
-                },
-                {
-                    "type": "category",
-                    "label": "Memory Management",
-                    "items": [
-                        "admin-manual/memory-management/memory-tracker",
-                        "admin-manual/memory-management/memory-limit-exceeded-analysis",
-                        "admin-manual/memory-management/be-oom-analysis"
                     ]
                 }
             ]
