@@ -198,8 +198,7 @@ void Block::erase_impl(size_t position) {
             ++it;
         }
     }
-    if (position < row_same_bit.size())
-        row_same_bit.erase(row_same_bit.begin() + position);
+    if (position < row_same_bit.size()) row_same_bit.erase(row_same_bit.begin() + position);
 }
 
 void Block::erase(const String& name) {
@@ -342,7 +341,8 @@ void Block::set_num_rows(size_t length) {
             }
         }
         if (length < row_same_bit.size()) {
-            std::vector <uint64_t> tmp_row_same_bit(row_same_bit.begin(), row_same_bit.begin() + length);
+            std::vector <uint64_t> tmp_row_same_bit(row_same_bit.begin(),
+                                                    row_same_bit.begin() + length);
             row_same_bit = tmp_row_same_bit;
         }
     }
@@ -360,7 +360,8 @@ void Block::skip_num_rows(int64_t& length) {
             }
         }
         if (length < row_same_bit.size()) {
-            std::vector <uint64_t> tmp_row_same_bit(row_same_bit.begin() + length, row_same_bit.end());
+            std::vector <uint64_t> tmp_row_same_bit(row_same_bit.begin() + length,
+                                                    row_same_bit.end());
             row_same_bit = tmp_row_same_bit;
         }
     }
