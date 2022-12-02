@@ -424,6 +424,7 @@ if [[ "${BUILD_DOCS}" = "ON" ]]; then
     cd "${DORIS_HOME}"
 fi
 
+CUSTOM_NPM_REGISTRY="https://registry.npmmirror.com/"
 function build_ui() {
     NPM='npm'
     if ! ${NPM} --version; then
