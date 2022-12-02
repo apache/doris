@@ -78,10 +78,6 @@ jobs:
 
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
 
-          # set timezone
-          sudo ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-          sudo dpkg-reconfigure --frontend noninteractive tzdata
-
           pushd thirdparty
           curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
             -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
