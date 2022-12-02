@@ -24,6 +24,12 @@ jobs:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout ${{ github.ref }} ( ${{ github.sha }} )
+        if: ${{ github.event_name != 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
         if: ${{ github.event_name == 'pull_request_target' }}
         uses: actions/checkout@v3
@@ -47,10 +53,10 @@ jobs:
 
   clang-tidy:
     name: "Clang Tidy"
+    if: ${{ github.event_name == 'pull_request_target' }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
-        if: ${{ github.event_name == 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -67,7 +73,7 @@ jobs:
               - 'gensrc/thrift/**'
 
       - name: Generate compile_commands.json
-        if: ${{ github.event_name == 'pull_request_target' && steps.filter.outputs.be_changes == 'true'}}
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         run: |
           export DEFAULT_DIR='/opt/doris'
 
@@ -88,7 +94,7 @@ jobs:
           DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
 
       - name: Run clang-tidy review
-        if: ${{ github.event_name == 'pull_request_target' && steps.filter.outputs.be_changes == 'true'}}
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         uses: ./.github/actions/clang-tidy-review
         id: review
         with:
