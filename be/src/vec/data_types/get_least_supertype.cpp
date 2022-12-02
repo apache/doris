@@ -40,7 +40,9 @@ String get_exception_message_prefix(const DataTypes& types) {
 
     bool first = true;
     for (const auto& type : types) {
-        if (!first) res << ", ";
+        if (!first) {
+            res << ", ";
+        }
         first = false;
 
         res << type->get_name();
