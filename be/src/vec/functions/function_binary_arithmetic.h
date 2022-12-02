@@ -234,9 +234,7 @@ struct DecimalBinaryOperation {
                       IsDecimalV2<ResultType>) {
             Op::vector_vector(a, b, c);
         } else {
-            for (size_t i = 0; i < size; i++) {
-                c[i] = apply(a[i], b[i]);
-            }
+            for (size_t i = 0; i < size; i++) c[i] = apply(a[i], b[i]);
         }
     }
 
