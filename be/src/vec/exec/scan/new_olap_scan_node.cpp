@@ -35,7 +35,7 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
-Status OlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     statistics->add_scan_bytes(_read_compressed_counter->value());
     statistics->add_scan_rows(_raw_rows_counter->value());
