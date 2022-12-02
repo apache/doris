@@ -14,54 +14,46 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#
 
----
-name: BE Code Checks
+name: Comment Actions
 
-on: [push, pull_request]
+on: [push, pull_request_target]
 
 jobs:
-  clang-format:
-    name: "Clang Formatter"
+  shellcheck:
+    name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        if: ${{ github.event_name == 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
 
-      - name: Paths filter
-        uses: ./.github/actions/paths-filter
-        id: filter
-        with:
-          filters: |
-            be_changes:
-              - 'be/src/**'
-              - 'be/test/**'
+      - name: Patch
+        run: |
+          pushd .github/actions/action-sh-checker >/dev/null
+          git apply ../patches/action-sh-checker.patch
+          popd >/dev/null
 
-      - name: "Format it!"
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
-        uses: ./.github/actions/clang-format-lint-action
-        id: be_clang_format
+      - name: Run ShellCheck
+        uses: ./.github/actions/action-sh-checker
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          source: "be/src be/test"
-          clangFormatVersion: 15
-          inplace: False
-
-      - name: Ignore it!
-        if: ${{ steps.filter.outputs.be_changes == 'false' }}
-        run: echo 'No need to check.'
+          sh_checker_comment: true
+          sh_checker_exclude: .git .github ^thirdparty/src ^thirdparty/installed ^ui ^docs/node_modules ^tools/clickbench-tools ^extension ^output ^fs_brokers/apache_hdfs_broker/output (^|.*/)Dockerfile$
 
   clang-tidy:
     name: "Clang Tidy"
     runs-on: ubuntu-22.04
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        if: ${{ github.event_name == 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
           submodules: recursive
 
       - name: Paths Filter
@@ -75,7 +67,7 @@ jobs:
               - 'gensrc/thrift/**'
 
       - name: Generate compile_commands.json
-        if: ${{ github.event_name == 'pull_request' && steps.filter.outputs.be_changes == 'true'}}
+        if: ${{ github.event_name == 'pull_request_target' && steps.filter.outputs.be_changes == 'true'}}
         run: |
           export DEFAULT_DIR='/opt/doris'
 
@@ -84,8 +76,6 @@ jobs:
             -q -O /tmp/ldb_toolchain_gen.sh
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 
-          sudo apt update
-          sudo apt upgrade --yes
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
 
           # set timezone
@@ -102,11 +92,13 @@ jobs:
           DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
 
       - name: Run clang-tidy review
-        if: ${{ github.event_name == 'pull_request' && steps.filter.outputs.be_changes == 'true'}}
+        if: ${{ github.event_name == 'pull_request_target' && steps.filter.outputs.be_changes == 'true'}}
         uses: ./.github/actions/clang-tidy-review
         id: review
         with:
           build_dir: ./be/build_Release
+          config_file: "./.clang-tidy"
 
-      - if: steps.review.outputs.total_comments > 0
-        run: exit 1
+      # clang-tidy review not required now
+      # - if: steps.review.outputs.total_comments > 0
+      #   run: exit 1
