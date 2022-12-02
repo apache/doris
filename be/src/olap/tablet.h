@@ -94,7 +94,7 @@ public:
 
     size_t num_rows();
     int version_count() const;
-    bool exceed_version_limit() const;
+    bool exceed_version_limit(int32_t limit) const;
     Version max_version() const;
     Version max_version_unlocked() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();

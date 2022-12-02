@@ -681,8 +681,8 @@ Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     return capture_consistent_versions(version, nullptr, quiet);
 }
 
-bool Tablet::exceed_version_limit() const {
-    if (_tablet_meta->version_count() > config::max_tablet_version_num) {
+bool Tablet::exceed_version_limit(int32_t limit) const {
+    if (_tablet_meta->version_count() > limit) {
         exceed_version_limit_counter << 1;
         return true;
     }

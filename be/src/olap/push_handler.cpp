@@ -127,7 +127,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     }
 
     // check if version number exceed limit
-    if (tablet->exceed_version_limit()) {
+    if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
         LOG(WARNING) << "failed to push data. version count: " << tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << tablet->full_name();
