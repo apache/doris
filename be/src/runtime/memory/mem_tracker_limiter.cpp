@@ -68,13 +68,13 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
 }
 
 MemTrackerLimiter::~MemTrackerLimiter() {
+    if (_type == Type::GLOBAL) return;
     consume(_untracked_mem);
     // mem hook record tracker cannot guarantee that the final consumption is 0,
     // nor can it guarantee that the memory alloc and free are recorded in a one-to-one correspondence.
     // In order to ensure `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`
     // in real time. Merge its consumption into orphan when parent is process, to avoid repetition.
-    if (_type != Type::GLOBAL)
-        ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
+    ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
     _consumption->set(0);
     {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[_group_num].group_lock);
