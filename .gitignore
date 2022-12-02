@@ -20,7 +20,6 @@ derby.log
 dependency-reduced-pom.xml
 yarn.lock
 ut_dir
-package-lock.json
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
