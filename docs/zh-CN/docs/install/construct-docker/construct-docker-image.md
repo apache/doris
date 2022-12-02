@@ -121,6 +121,7 @@ Dockerfile 脚本编写需要注意以下几点：
        apt-get clean && \
        mkdir /opt/apache-doris && \
        cd /opt && \
+       tar -zxvf apache-doris-fe-${x.x.x}-bin.tar.gz && \
        mv apache-doris-fe-${x.x.x}-bin /opt/apache-doris/fe
    
    ADD ./resource/init_fe.sh /opt/apache-doris/fe/bin
@@ -185,6 +186,7 @@ mkdir -p ./docker-build/be/resource
        apt-get clean && \
        mkdir /opt/apache-doris && \
        cd /opt && \
+       tar -zxvf apache-doris-be-${x.x.x}-bin-x86_64.tar.gz && \
        mv apache-doris-be-${x.x.x}-bin-x86_64 /opt/apache-doris/be
    
    ADD ./resource/init_be.sh /opt/apache-doris/be/bin
@@ -255,6 +257,7 @@ mkdir -p ./docker-build/broker/resource
        apt-get clean && \
        mkdir /opt/apache-doris && \
        cd /opt && \
+       tar -zxvf apache_hdfs_broker.tar.gz && \
        mv apache_hdfs_broker /opt/apache-doris/broker
    
    ADD ./resource/init_broker.sh /opt/apache-doris/broker/bin
