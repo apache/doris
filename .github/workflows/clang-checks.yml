@@ -19,7 +19,7 @@
 ---
 name: BE Code Checks
 
-on: [push, pull_request_target]
+on: [push, pull_request, pull_request_target]
 
 jobs:
   clang-format:
