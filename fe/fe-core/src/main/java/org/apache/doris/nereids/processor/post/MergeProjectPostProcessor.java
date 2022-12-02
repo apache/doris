@@ -18,16 +18,11 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * merge consecutive projects
@@ -39,22 +34,9 @@ public class MergeProjectPostProcessor extends PlanPostProcessor {
         Plan child = project.child();
         child = child.accept(this, ctx);
         if (child instanceof PhysicalProject) {
-            Map<Expression, Expression> aliasMap = getAliasProjections((PhysicalProject) child);
-            List<NamedExpression> projections = project.getProjects();
-            projections = projections.stream()
-                    .map(e -> MergeProjects.ExpressionReplacer.INSTANCE.replace(e, aliasMap))
-                    .map(NamedExpression.class::cast)
-                    .collect(Collectors.toList());
+            List<NamedExpression> projections = project.mergeProjections((PhysicalProject) child);
             return project.withProjectionsAndChild(projections, child.child(0));
         }
         return project;
-    }
-
-    private Map<Expression, Expression> getAliasProjections(PhysicalProject project) {
-        List<NamedExpression> projections = project.getProjects();
-        return projections.stream()
-                .filter(e -> e instanceof Alias)
-                .collect(Collectors.toMap(
-                        NamedExpression::toSlot, e -> e));
     }
 }
