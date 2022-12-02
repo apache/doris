@@ -276,7 +276,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     private StatsDeriveResult computeAssertNumRows(long desiredNumOfRows) {
         StatsDeriveResult statsDeriveResult = groupExpression.childStatistics(0);
-        statsDeriveResult.updateRowCountByLimit(1);
+        statsDeriveResult.updateByLimit(1);
         return statsDeriveResult;
     }
 
@@ -315,12 +315,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
 
     private StatsDeriveResult computeTopN(TopN topN) {
         StatsDeriveResult stats = groupExpression.childStatistics(0);
-        return stats.updateRowCountByLimit(topN.getLimit());
+        return stats.updateByLimit(topN.getLimit());
     }
 
     private StatsDeriveResult computeLimit(Limit limit) {
         StatsDeriveResult stats = groupExpression.childStatistics(0);
-        return stats.updateRowCountByLimit(limit.getLimit());
+        return stats.updateByLimit(limit.getLimit());
     }
 
     private StatsDeriveResult computeAggregate(Aggregate aggregate) {
