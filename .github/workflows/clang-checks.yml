@@ -14,31 +14,57 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+#
 
-name: BE UT (Clang)
+---
+name: BE Code Checks
 
-on:
-  pull_request:
-  schedule:
-    - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
-
-concurrency:
-  group: ${{ github.ref }} (BE UT Clang)
-  cancel-in-progress: true
+on: [push, pull_request]
 
 jobs:
-  run-ut:
-    name: BE UT (Clang)
-    runs-on: ubuntu-20.04
+  clang-format:
+    name: "Clang Formatter"
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/src/**'
+              - 'be/test/**'
+
+      - name: "Format it!"
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/clang-format-lint-action
+        id: be_clang_format
+        with:
+          source: "be/src be/test"
+          clangFormatVersion: 15
+          inplace: False
+
+      - name: Ignore it!
+        if: ${{ steps.filter.outputs.be_changes == 'false' }}
+        run: echo 'No need to check.'
+
+  clang-tidy:
+    name: "Clang Tidy"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         uses: actions/checkout@v3
         with:
           persist-credentials: false
           submodules: recursive
 
       - name: Paths Filter
-        if: ${{ github.event_name != 'schedule' }}
         uses: ./.github/actions/paths-filter
         id: filter
         with:
@@ -48,16 +74,8 @@ jobs:
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
-      - name: Ccache ${{ github.ref }}
-        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
-        uses: ./.github/actions/ccache-action
-        with:
-          key: BE-UT-Clang
-          max-size: "2G"
-          restore-keys: BE-UT-Clang-
-
-      - name: Run UT ${{ github.ref }}
-        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+      - name: Generate compile_commands.json
+        if: ${{ github.event_name == 'pull_request' && steps.filter.outputs.be_changes == 'true'}}
         run: |
           export DEFAULT_DIR='/opt/doris'
 
@@ -81,4 +99,14 @@ jobs:
           popd
 
           export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
-          DORIS_TOOLCHAIN=clang ./run-be-ut.sh -j "$(nproc)" --run --clean
+          DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
+
+      - name: Run clang-tidy review
+        if: ${{ github.event_name == 'pull_request' && steps.filter.outputs.be_changes == 'true'}}
+        uses: ./.github/actions/clang-tidy-review
+        id: review
+        with:
+          build_dir: ./be/build_Release
+
+      - if: steps.review.outputs.total_comments > 0
+        run: exit 1
