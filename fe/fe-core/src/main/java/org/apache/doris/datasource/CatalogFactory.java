@@ -55,7 +55,7 @@ public class CatalogFactory {
         } else if (stmt instanceof RefreshCatalogStmt) {
             log.setCatalogId(catalogId);
         } else {
-            throw new RuntimeException("Unknown stmt for datasource manager " + stmt.getClass().getSimpleName());
+            throw new RuntimeException("Unknown stmt for catalog manager " + stmt.getClass().getSimpleName());
         }
         return log;
     }

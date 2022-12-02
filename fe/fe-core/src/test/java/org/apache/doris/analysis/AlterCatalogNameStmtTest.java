@@ -50,40 +50,40 @@ public class AlterCatalogNameStmtTest {
     public void testNormalCase() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", "testNewCatalog");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCatalog",  stmt.getCatalogName());
-        Assert.assertEquals("testNewCatalog",  stmt.getNewCatalogName());
+        Assert.assertEquals("testCatalog", stmt.getCatalogName());
+        Assert.assertEquals("testNewCatalog", stmt.getNewCatalogName());
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyDs1() throws  UserException {
+    public void testEmptyDs1() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("", "testNewCatalog");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyDs2() throws  UserException {
+    public void testEmptyDs2() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", "");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBuildIn1() throws  UserException {
+    public void testBuildIn1() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt(InternalCatalog.INTERNAL_CATALOG_NAME, "testNewCatalog");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBuildIn2() throws  UserException {
+    public void testBuildIn2() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", InternalCatalog.INTERNAL_CATALOG_NAME);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNameFormat() throws  UserException {
+    public void testNameFormat() throws UserException {
         AlterCatalogNameStmt stmt = new AlterCatalogNameStmt("testCatalog", InternalCatalog.INTERNAL_CATALOG_NAME);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
