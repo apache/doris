@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "cross-env NODE_ENV=dev webpack-dev-server --progress --profile ",
-    "build": "cross-env NODE_ENV=prod webpack"
+    "build": "cross-env NODE_ENV=prod webpack",
+    "postinstall": "node ./check_version.js"
   },
   "lint-staged": {
     "src/**/*.js": [
@@ -61,7 +62,6 @@
     "ajv": "^7.2.4",
     "autoprefixer": "^9.6.0",
     "babel-loader": "^9.1.0",
-    "cache-loader": "^4.1.0",
     "clean-webpack-plugin": "^3.0.0",
     "codemirror": "^5.54.0",
     "cross-env": "^7.0.1",
@@ -86,5 +86,9 @@
     "webpack-cli": "5.0.0",
     "webpack-dev-server": "4.11.1",
     "webpack-merge": "5.8.0"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
   }
 }
