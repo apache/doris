@@ -531,7 +531,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<E_END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;
@@ -639,7 +639,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<E_END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;
@@ -740,7 +740,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<E_END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(),
               num_input_rowset * num_segments * rows_per_segment - num_input_rowset * 100);
@@ -835,7 +835,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
             output_data.emplace_back(columns[0].column->get_int(i), columns[1].column->get_int(i));
         }
     } while (s == Status::OK());
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
+    EXPECT_EQ(Status::Error<E_END_OF_FILE>(), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
     std::vector<uint32_t> segment_num_rows;
