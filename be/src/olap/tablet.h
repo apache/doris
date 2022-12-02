@@ -27,7 +27,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "common/config.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
