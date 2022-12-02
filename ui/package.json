@@ -1,6 +1,6 @@
 {
-  "name": "Doris",
-  "version": "1.0.0",
+  "name": "doris-ui",
+  "version": "1.1.0",
   "description": "{{description}}",
   "main": "index.js",
   "scripts": {
