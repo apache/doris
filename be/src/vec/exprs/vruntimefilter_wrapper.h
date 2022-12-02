@@ -40,8 +40,8 @@ public:
     }
     const std::string& expr_name() const override;
 
-    ColumnPtrWrapper* get_const_col(VExprContext* context) override {
-        return _impl->get_const_col(context);
+    Status get_const_col(VExprContext* context, ColumnPtrWrapper** res) override {
+        return _impl->get_const_col(context, res);
     }
 
     const VExpr* get_impl() const override { return _impl; }

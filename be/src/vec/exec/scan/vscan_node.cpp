@@ -571,8 +571,13 @@ bool VScanNode::_is_predicate_acting_on_slot(
 void VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt) {
     char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        if (const ColumnConst* const_column =
-                    check_and_get_column<ColumnConst>(vexpr->get_const_col(expr_ctx)->column_ptr)) {
+        ColumnPtrWrapper* const_col_wrapper = nullptr;
+        vexpr->get_const_col(expr_ctx, &const_col_wrapper);
+        if (!const_col_wrapper) {
+            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+                         << "] should return a const column but actually is null";
+        } else if (const ColumnConst* const_column =
+                           check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
             constant_val = const_cast<char*>(const_column->get_data_at(0).data);
             if (constant_val == nullptr || *reinterpret_cast<bool*>(constant_val) == false) {
                 *pdt = PushDownType::ACCEPTABLE;
@@ -580,14 +585,14 @@ void VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Push
             }
         } else if (const ColumnVector<UInt8>* bool_column =
                            check_and_get_column<ColumnVector<UInt8>>(
-                                   vexpr->get_const_col(expr_ctx)->column_ptr)) {
+                                   const_col_wrapper->column_ptr)) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
             //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
             LOG(WARNING) << "Expr[" << vexpr->debug_string()
                          << "] should return a const column but actually is "
-                         << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
+                         << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
             if (bool_column->size() == 1) {
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
@@ -603,7 +608,7 @@ void VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Push
         } else {
             LOG(WARNING) << "Expr[" << vexpr->debug_string()
                          << "] should return a const column but actually is "
-                         << vexpr->get_const_col(expr_ctx)->column_ptr->get_name();
+                         << const_col_wrapper->column_ptr->get_name();
         }
     }
 }
@@ -974,8 +979,12 @@ VScanNode::PushDownType VScanNode::_should_push_down_binary_predicate(
             // only handle constant value
             return PushDownType::UNACCEPTABLE;
         } else {
-            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
-                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
+            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper);
+            if (!const_col_wrapper) {
+                return PushDownType::UNACCEPTABLE;
+            } else if (const ColumnConst* const_column =
+                               check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *slot_ref_child = i;
                 *constant_val = const_column->get_data_at(0);
             } else {

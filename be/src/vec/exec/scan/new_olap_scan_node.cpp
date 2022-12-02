@@ -277,8 +277,12 @@ VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
             return PushDownType::UNACCEPTABLE;
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            if (const ColumnConst* const_column = check_and_get_column<ColumnConst>(
-                        children[1 - i]->get_const_col(expr_ctx)->column_ptr)) {
+            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper);
+            if (!const_col_wrapper) {
+                return PushDownType::UNACCEPTABLE;
+            } else if (const ColumnConst* const_column =
+                               check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();
             } else {
                 return PushDownType::UNACCEPTABLE;
