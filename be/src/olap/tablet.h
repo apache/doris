@@ -395,10 +395,12 @@ inline const int64_t Tablet::cumulative_layer_point() const {
 
 inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     // cumulative point should only be reset to -1, or be increased
-    CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
-            << "Unexpected cumulative point: " << new_point
+    if (new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point){
+        _cumulative_point = new_point;
+    } else {
+        LOG(WARNING) << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
-    _cumulative_point = new_point;
+    }
 }
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
