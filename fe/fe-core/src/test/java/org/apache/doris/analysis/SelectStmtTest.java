@@ -789,9 +789,8 @@ public class SelectStmtTest {
                 + ") t";
         SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
         stmt1.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
-        Assert.assertEquals("SELECT `t`.`k1` AS `k1` "
-                + "FROM (WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t1),"
-                + "v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2) "
+        Assert.assertEquals("SELECT `t`.`k1` AS `k1` FROM (WITH v1 AS (SELECT `t1`.`k1` "
+                + "FROM `default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` FROM `default_cluster:db1`.`tbl1` t2) "
                 + "SELECT `v1`.`k1` AS `k1` FROM `v1` UNION SELECT `v2`.`k1` AS `k1` FROM `v2`) t", stmt1.toSql());
 
         String sql2 =
@@ -807,8 +806,8 @@ public class SelectStmtTest {
                 + ") t";
         SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
         stmt2.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM "
-                + "`default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2)"));
+        Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` FROM `default_cluster:db1`.`tbl1` t1),"
+                + "v2 AS (SELECT `t2`.`k1` FROM `default_cluster:db1`.`tbl1` t2)"));
     }
 
     @Test

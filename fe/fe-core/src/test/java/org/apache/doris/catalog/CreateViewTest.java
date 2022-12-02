@@ -189,9 +189,9 @@ public class CreateViewTest {
 
         alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "WITH test1_cte(w1, w2) "
-                        + "AS (SELECT `k1` AS `k1`, `k2` AS `k2` FROM `default_cluster:test`.`tbl1`) "
-                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1` ASC",
+                "WITH test1_cte(w1, w2) AS (SELECT `k1`, `k2` FROM `default_cluster:test`.`tbl1`) "
+                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` "
+                        + "ORDER BY `w1` ASC",
                 alter1.getInlineViewDef());
     }
 }

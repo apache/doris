@@ -1834,7 +1834,7 @@ public class SelectStmt extends QueryStmt {
             strBuilder.append("DISTINCT ");
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || ctx.getSessionVariable().internalSession) {
+        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList) {
             for (int i = 0; i < selectList.getItems().size(); i++) {
                 strBuilder.append(selectList.getItems().get(i).toSql());
                 strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
