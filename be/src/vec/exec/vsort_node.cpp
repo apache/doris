@@ -87,6 +87,9 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
+        if (!_reuse_mem) {
+            input_block->clear();
+        }
     }
 
     if (eos) {
@@ -111,9 +114,6 @@ Status VSortNode::open(RuntimeState* state) {
                 child(0)->get_next_after_projects(state, upstream_block.get(), &eos),
                 child(0)->get_next_span(), eos);
         RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
-        if (!_reuse_mem) {
-            upstream_block.reset(new Block());
-        }
     } while (!eos);
 
     child(0)->close(state);
