@@ -84,8 +84,6 @@ jobs:
             -q -O /tmp/ldb_toolchain_gen.sh
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
 
-          sudo apt update
-          sudo apt upgrade --yes
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
 
           # set timezone
