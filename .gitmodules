@@ -7,3 +7,6 @@
 [submodule ".github/actions/clang-format-lint-action"]
 	path = .github/actions/clang-format-lint-action
 	url = https://github.com/DoozyX/clang-format-lint-action.git
+[submodule ".github/actions/paths-filter"]
+	path = .github/actions/paths-filter
+	url = https://github.com/dorny/paths-filter
