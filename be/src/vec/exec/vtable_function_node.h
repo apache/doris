@@ -31,7 +31,7 @@ public:
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
-    bool need_more_input_data() { return !_child_eos && (!_child_block || !_child_block->rows()); }
+    bool need_more_input_data() { return !_child_block || !_child_block->rows(); }
 
     Status push(RuntimeState*, vectorized::Block* input_block, bool eos) override {
         if (eos) {
