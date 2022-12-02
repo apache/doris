@@ -385,19 +385,18 @@ class MemoTest implements PatternMatchSupported {
 
         UnboundRelation a2 = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
         LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, a2);
-
-        Assertions.assertThrows(IllegalStateException.class, () -> PlanChecker.from(connectContext, a)
+        PlanChecker.from(connectContext, a)
                 .setMaxInvokeTimesPerRule(1000)
                 .applyBottomUp(
-                        unboundRelation().then(
-                                unboundRelation ->
-                                        limit.withChildren(new UnboundRelation(a2.getId(), unboundRelation.getNameParts()))))
+                        unboundRelation()
+                                .when(unboundRelation -> unboundRelation.getId().equals(a.getId()))
+                                .then(unboundRelation -> limit.withChildren(
+                                        new UnboundRelation(a2.getId(), unboundRelation.getNameParts()))))
                 .checkGroupNum(2)
                 .matchesFromRoot(
                         logicalLimit(
                                 unboundRelation().when(a2::equals)
-                        ).when(limit::equals)
-        ));
+                        ).when(limit::equals));
     }
 
     /*

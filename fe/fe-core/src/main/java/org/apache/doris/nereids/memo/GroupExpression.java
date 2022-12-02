@@ -234,7 +234,6 @@ public class GroupExpression {
         }
         GroupExpression that = (GroupExpression) o;
         if (this.plan instanceof UnboundRelation) {
-            // return false;
             return plan.equals(that.plan);
         }
         return children.equals(that.children) && plan.equals(that.plan)
