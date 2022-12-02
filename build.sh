@@ -427,6 +427,7 @@ fi
 CUSTOM_NPM_REGISTRY="https://registry.npmmirror.com/"
 function build_ui() {
     NPM='npm'
+    node -v
     if ! ${NPM} --version; then
         echo "Error: npm is not found"
         exit 1
