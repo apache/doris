@@ -483,7 +483,7 @@ This problem can be solved by creating a materialized view with k3 as the first 
 5. For the Unique Key data model, the materialized view can only change the column order and cannot play the role of aggregation. Therefore, in the Unique Key model, it is not possible to perform coarse-grained aggregation operations on the data by creating a materialized view.
 
 ## Error
-1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data"
+1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data"
 Materialized view creation failed due to data quality issues or Schema Change memory usage exceeding the limit. If it is a memory problem, increase the `memory_limitation_per_thread_for_schema_change_bytes` parameter.
 Note: The bitmap type only supports positive integers. If there are negative Numbers in the original data, the materialized view will fail to be created
 
