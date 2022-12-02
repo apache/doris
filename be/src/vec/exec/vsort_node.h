@@ -31,7 +31,7 @@ namespace doris::vectorized {
 // In get_next(), VSortNode do the merge sort to gather data to a new block
 
 // support spill to disk in the future
-class VSortNode : public doris::ExecNode {
+class VSortNode final : public doris::ExecNode {
 public:
     VSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
@@ -40,6 +40,8 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     virtual Status prepare(RuntimeState* state) override;
+
+    virtual Status alloc_resource(RuntimeState* state) override;
 
     virtual Status open(RuntimeState* state) override;
 
@@ -50,6 +52,12 @@ public:
     virtual Status reset(RuntimeState* state) override;
 
     virtual Status close(RuntimeState* state) override;
+
+    virtual void release_resource(RuntimeState* state) override;
+
+    virtual Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+
+    virtual Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
 protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;

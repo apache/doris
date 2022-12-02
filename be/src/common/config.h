@@ -846,6 +846,8 @@ CONF_Bool(enable_java_support, "true");
 // Set config randomly to check more issues in github workflow
 CONF_Bool(enable_fuzzy_mode, "false");
 
+CONF_Int32(pipeline_executor_size, "0");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

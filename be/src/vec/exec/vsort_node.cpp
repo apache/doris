@@ -18,14 +18,13 @@
 #include "vec/exec/vsort_node.h"
 
 #include "common/config.h"
-#include "exec/sort_exec_exprs.h"
+#include "pipeline/pipeline.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "vec/common/sort/heap_sorter.h"
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/core/sort_block.h"
-#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -66,10 +65,34 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
+    return Status::OK();
+}
+
+Status VSortNode::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
+    RETURN_IF_CANCELLED(state);
+    RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
+
+    return Status::OK();
+}
+
+Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+    if (input_block->rows() > 0) {
+        RETURN_IF_ERROR(_sorter->append_block(input_block));
+        RETURN_IF_CANCELLED(state);
+        RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
+    }
+
+    if (eos) {
+        RETURN_IF_ERROR(_sorter->prepare_for_read());
+        _can_read = true;
+    }
     return Status::OK();
 }
 
@@ -77,10 +100,6 @@ Status VSortNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-    RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
-    RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
     RETURN_IF_ERROR(child(0)->open(state));
 
     // The child has been opened and the sorter created. Sort the input.
@@ -91,17 +110,13 @@ Status VSortNode::open(RuntimeState* state) {
         RETURN_IF_ERROR_AND_CHECK_SPAN(
                 child(0)->get_next_after_projects(state, upstream_block.get(), &eos),
                 child(0)->get_next_span(), eos);
-        if (upstream_block->rows() != 0) {
-            RETURN_IF_ERROR(_sorter->append_block(upstream_block.get()));
-            RETURN_IF_CANCELLED(state);
-            RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
-            if (!_reuse_mem) {
-                upstream_block.reset(new Block());
-            }
+        RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
+        if (!_reuse_mem) {
+            upstream_block.reset(new Block());
         }
     } while (!eos);
+
     child(0)->close(state);
-    RETURN_IF_ERROR(_sorter->prepare_for_read());
     return Status::OK();
 }
 
@@ -110,27 +125,35 @@ Status VSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
     return Status::NotSupported("Not Implemented VSortNode::get_next scalar");
 }
 
+Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    RETURN_IF_ERROR(_sorter->get_next(state, output_block, eos));
+    reached_limit(output_block, eos);
+    return Status::OK();
+}
+
 Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSortNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
-    RETURN_IF_ERROR(_sorter->get_next(state, block, eos));
-    reached_limit(block, eos);
-    return Status::OK();
+    return pull(state, block, eos);
 }
 
 Status VSortNode::reset(RuntimeState* state) {
     return Status::OK();
 }
 
+void VSortNode::release_resource(doris::RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
+    _vsort_exec_exprs.close(state);
+    _sorter = nullptr;
+    ExecNode::release_resource(state);
+}
+
 Status VSortNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSortNode::close");
-    _vsort_exec_exprs.close(state);
-    _sorter = nullptr;
     return ExecNode::close(state);
 }
 

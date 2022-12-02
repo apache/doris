@@ -18,6 +18,7 @@
 #pragma once
 
 #include "exec/table_function_node.h"
+#include "exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
 
@@ -29,6 +30,29 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+
+    bool need_more_input_data() { return !_child_block || !_child_block->rows(); }
+
+    Status push(RuntimeState*, vectorized::Block* input_block, bool eos) override {
+        if (eos) {
+            return Status::OK();
+        }
+
+        if (input_block != _child_block.get()) {
+            _child_block.reset(input_block);
+        }
+        for (TableFunction* fn : _fns) {
+            RETURN_IF_ERROR(fn->process_init(_child_block.get()));
+        }
+        RETURN_IF_ERROR(_process_next_child_row());
+        return Status::OK();
+    }
+
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override {
+        RETURN_IF_ERROR(get_expanded_block(state, output_block, eos));
+        reached_limit(output_block, eos);
+        return Status::OK();
+    }
 
 private:
     Status _process_next_child_row() override;
