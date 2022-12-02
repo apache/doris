@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from dbt.adapters.base.relation import BaseRelation, Policy
 from dbt.exceptions import RuntimeException
 
-
 @dataclass
 class DorisQuotePolicy(Policy):
     database: bool = False

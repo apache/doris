@@ -29,10 +29,14 @@ prompts:
     hint: 'port for your instance(your doris fe query_port)'
   schema:
     default: 'dbt'
-    hint: 'the schema name as stored in the database'
+    hint: 'the schema name as stored in the database,doris have not schema to make a collection of table or view'
   username:
     hint: 'your doris username'
   password:
     hint: 'your doris password, if no password, just Enter'
     hide_input: true
     default: ''
+  threads:
+    hint: "1 or more"
+    type: "int"
+    default: 1

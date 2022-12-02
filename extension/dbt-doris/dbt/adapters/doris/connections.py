@@ -34,7 +34,7 @@ logger = AdapterLogger("doris")
 
 
 @dataclass
-class DorisAdapterCredentials(Credentials):
+class DorisCredentials(Credentials):
     host: str = "127.0.0.1"
     port: int = 9030
     username: str = "root"
@@ -63,7 +63,7 @@ class DorisAdapterCredentials(Credentials):
             )
 
 
-class DorisAdapterConnectionManager(SQLConnectionManager):
+class DorisConnectionManager(SQLConnectionManager):
     TYPE = "doris"
 
     @classmethod
@@ -114,10 +114,11 @@ class DorisAdapterConnectionManager(SQLConnectionManager):
                 raise e
             raise exceptions.RuntimeException(str(e)) from e
 
+
     def begin(self):
         """
-        https://doris.apache.org/zh-CN/sql-reference/sql-statements/Data%20Manipulation/BEGIN.html#description
-        Doris only support transaction in insert, just ignore it
+        https://doris.apache.org/docs/data-operate/import/import-scenes/load-atomicity/
+        Doris's inserting always transaction, ignore it
         """
         pass
 

@@ -19,7 +19,8 @@
 # under the License.
 
 name: dbt_doris
-version: 1.0
+version: 1.3.0
 config-version: 2
 
 macro-paths: ["macros"]
+clean-targets: [target, dbt_packages, logs]

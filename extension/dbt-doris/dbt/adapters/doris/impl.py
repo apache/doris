@@ -18,6 +18,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+
+from dbt.adapters.sql import SQLAdapter
+
 from concurrent.futures import Future
 from enum import Enum
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -25,12 +28,11 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 import agate
 import dbt.exceptions
 from dbt.adapters.base.impl import _expect_row_value, catch_as_completed
-from dbt.adapters.base.relation import InformationSchema
+from dbt.adapters.base.relation import InformationSchema, BaseRelation
 from dbt.adapters.doris.column import DorisColumn
-from dbt.adapters.doris.connections import DorisAdapterConnectionManager
+from dbt.adapters.doris.connections import DorisConnectionManager
 from dbt.adapters.doris.relation import DorisRelation
 from dbt.adapters.protocol import AdapterConfig
-from dbt.adapters.sql import SQLAdapter
 from dbt.adapters.sql.impl import LIST_RELATIONS_MACRO_NAME, LIST_SCHEMAS_MACRO_NAME
 from dbt.clients.agate_helper import table_from_rows
 from dbt.contracts.graph.manifest import Manifest
@@ -50,7 +52,6 @@ class PartitionType(str, Enum):
     list = "LIST"
     range = "RANGE"
 
-
 class DorisConfig(AdapterConfig):
     engine: Engine
     duplicate_key: Tuple[str]
@@ -61,9 +62,8 @@ class DorisConfig(AdapterConfig):
     buckets: int
     properties: Dict[str, str]
 
-
 class DorisAdapter(SQLAdapter):
-    ConnectionManager = DorisAdapterConnectionManager
+    ConnectionManager = DorisConnectionManager
     Relation = DorisRelation
     AdapterSpecificConfigs = DorisConfig
     Column = DorisColumn
@@ -94,6 +94,15 @@ class DorisAdapter(SQLAdapter):
             database = None
 
         return super().get_relation(database, schema, identifier)
+
+    def drop_schema(self, relation: BaseRelation):
+        relations = self.list_relations(
+            database=relation.database,
+            schema=relation.schema
+        )
+        for relation in relations:
+            self.drop_relation(relation)
+        super().drop_schema(relation)
 
     def list_relations_without_caching(self, schema_relation: DorisRelation) -> List[DorisRelation]:
         kwargs = {"schema_relation": schema_relation}

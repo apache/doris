@@ -17,7 +17,7 @@
 
 {% macro doris__engine() -%}
     {% set label = 'ENGINE' %}
-    {% set engine = config.get('engine', 'OLAP', validator=validation.any[basestring]) %}
+    {% set engine = config.get('engine', 'OLAP') %}
     {{ label }} = {{ engine }}
 {%- endmacro %}
 
@@ -92,8 +92,12 @@
 {%- endmacro%}
 
 {% macro doris__drop_relation(relation) -%}
+    {% set relation_type = relation.type %}
+    {% if relation_type is none %}
+        {% set relation_type = 'table' %}
+    {% endif %}
     {% call statement('drop_relation', auto_begin=False) %}
-    drop {{ relation.type }} if exists {{ relation }}
+      drop {{ relation_type }} if exists {{ relation }}
     {% endcall %}
 {%- endmacro %}
 
