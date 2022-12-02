@@ -71,7 +71,7 @@ private:
             for (auto iter = _cache.begin(), last = _cache.end(); iter != last;) {
                 if (iter->second.unique()) {
                     DorisMetrics::instance()->tablet_schema_cache_memory_bytes->increment(
-                            iter->second->mem_size());
+                            -iter->second->mem_size());
                     DorisMetrics::instance()->tablet_schema_cache_count->increment(-1);
                     iter = _cache.erase(iter);
                 } else {
