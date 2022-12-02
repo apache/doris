@@ -34,10 +34,8 @@ Status AnalyticSourceOperator::close(RuntimeState* state) {
 Status AnalyticSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
                                          SourceState& source_state) {
     bool eos = false;
-    LOG(INFO)<<"AnalyticSourceOperator::get_block1: "<<block->columns()<<" "<<block->rows();
     RETURN_IF_ERROR(_analytic_eval_node->pull(state, block, &eos));
     source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
-    LOG(INFO)<<"AnalyticSourceOperator::get_block2: "<<block->columns()<<" "<<block->rows()<<" "<<eos;
     return Status::OK();
 }
 

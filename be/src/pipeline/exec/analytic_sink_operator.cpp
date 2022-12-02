@@ -33,9 +33,7 @@ Status AnalyticSinkOperator::open(RuntimeState* state) {
 
 Status AnalyticSinkOperator::sink(RuntimeState* state, vectorized::Block* block,
                                   SourceState source_state) {
-    LOG(INFO)<<"AnalyticSinkOperator::sink1: "<<block->columns()<<" "<<block->rows();
     RETURN_IF_ERROR(_analytic_eval_node->sink(state, block, source_state == SourceState::FINISHED));
-    LOG(INFO)<<"AnalyticSinkOperator::sink2: "<<block->columns()<<" "<<block->rows();
     return Status::OK();
 }
 
