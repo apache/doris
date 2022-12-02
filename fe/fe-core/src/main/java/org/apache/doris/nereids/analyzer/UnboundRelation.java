@@ -122,6 +122,10 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
         throw new UnsupportedOperationException(this.getClass().getSimpleName() + " don't support getExpression()");
     }
 
+    public RelationId getId() {
+        return id;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

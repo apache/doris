@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -78,7 +79,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Table table = cascadesContext.getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
+            return new LogicalOlapScan(RelationUtil.newRelationId(),
                     (OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
@@ -96,7 +97,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         Table table = cascadesContext.getTable(dbName, nameParts.get(1), connectContext.getEnv());
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
+            return new LogicalOlapScan(RelationUtil.newRelationId(),
                     (OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);

@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -54,10 +53,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 class MemoTest implements PatternMatchSupported {
 
@@ -384,59 +381,23 @@ class MemoTest implements PatternMatchSupported {
         });
 
         // use relation id to divide different unbound relation.
-
-        // valid case: 5 steps
-        class A extends UnboundRelation {
-            // 1: declare the Plan has some states
-            final State state;
-
-            public A(List<String> nameParts, State state) {
-                this(nameParts, state, Optional.empty());
-            }
-
-            public A(List<String> nameParts, State state, Optional<GroupExpression> groupExpression) {
-                super(RelationUtil.newRelationId(), nameParts, groupExpression, Optional.empty());
-                this.state = state;
-            }
-
-            // 2: overwrite the 'equals' method that compare state
-            @Override
-            public boolean equals(Object o) {
-                return super.equals(o) && state == ((A) o).state;
-            }
-
-            // 3: declare 'withState' method, and clear groupExpression(means create new group when rewrite)
-            public A withState(State state) {
-                return new A(getNameParts(), state, Optional.empty());
-            }
-
-            @Override
-            public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-                return new A(getNameParts(), state, groupExpression);
-            }
-
-            @Override
-            public String toString() {
-                return "A{namePart=" + getNameParts() + ", state=" + state + '}';
-            }
-        }
-
         UnboundRelation a = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
 
-        UnboundRelation a2 = new UnboundRelation(new RelationId(1), ImmutableList.of("student"));
+        UnboundRelation a2 = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("student"));
         LogicalLimit<UnboundRelation> limit = new LogicalLimit<>(1, 0, a2);
 
-        PlanChecker.from(connectContext, a)
+        Assertions.assertThrows(IllegalStateException.class, () -> PlanChecker.from(connectContext, a)
+                .setMaxInvokeTimesPerRule(1000)
                 .applyBottomUp(
                         unboundRelation().then(
                                 unboundRelation ->
-                                        limit.withChildren(new UnboundRelation(RelationUtil.newRelationId(), unboundRelation.getNameParts()))))
+                                        limit.withChildren(new UnboundRelation(a2.getId(), unboundRelation.getNameParts()))))
                 .checkGroupNum(2)
                 .matchesFromRoot(
                         logicalLimit(
                                 unboundRelation().when(a2::equals)
                         ).when(limit::equals)
-                );
+        ));
     }
 
     /*
