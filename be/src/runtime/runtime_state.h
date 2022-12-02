@@ -176,9 +176,9 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    bool is_cancelled() const { return _is_cancelled; }
+    bool is_cancelled() const { return _is_cancelled.load(); }
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) { _is_cancelled = v; }
+    void set_is_cancelled(bool v) { _is_cancelled.store(v); }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
     int64_t backend_id() const { return _backend_id; }
@@ -326,6 +326,7 @@ public:
         }
         return _query_options.be_exec_version;
     }
+    bool enable_pipeline_exec() const { return _query_options.enable_pipeline_engine; }
 
     bool trim_tailing_spaces_for_external_table_query() const {
         return _query_options.trim_tailing_spaces_for_external_table_query;
@@ -464,7 +465,7 @@ private:
     ThreadResourceMgr::ResourcePool* _resource_pool;
 
     // if true, execution should stop with a CANCELLED status
-    bool _is_cancelled;
+    std::atomic<bool> _is_cancelled;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;

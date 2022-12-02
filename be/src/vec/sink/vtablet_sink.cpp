@@ -494,7 +494,7 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
     return status;
 }
 
-Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
+Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();

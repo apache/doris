@@ -23,19 +23,25 @@
 #include "vec/common/sort/vsort_exec_exprs.h"
 
 namespace doris {
+namespace pipeline {
+class ExchangeSourceOperator;
+}
 namespace vectorized {
 class VDataStreamRecvr;
 
 class VExchangeNode : public ExecNode {
 public:
+    friend class doris::pipeline::ExchangeSourceOperator;
     VExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~VExchangeNode() {}
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
     virtual Status prepare(RuntimeState* state) override;
+    virtual Status alloc_resource(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     virtual Status get_next(RuntimeState* state, Block* row_batch, bool* eos) override;
+    virtual void release_resource(RuntimeState* state) override;
     virtual Status close(RuntimeState* state) override;
 
     // Status collect_query_statistics(QueryStatistics* statistics) override;

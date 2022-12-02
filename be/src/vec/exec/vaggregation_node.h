@@ -34,6 +34,13 @@ class TPlanNode;
 class DescriptorTbl;
 class MemPool;
 
+namespace pipeline {
+class AggSinkOperator;
+class AggregationSourceOperator;
+class StreamingAggSinkOperator;
+class StreamingAggSourceOperator;
+} // namespace pipeline
+
 namespace vectorized {
 class VExprContext;
 
@@ -754,20 +761,31 @@ private:
 };
 
 // not support spill
-class AggregationNode : public ::doris::ExecNode {
+class AggregationNode final : public ::doris::ExecNode {
 public:
     using Sizes = std::vector<size_t>;
 
     AggregationNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~AggregationNode();
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status get_next(RuntimeState* state, Block* block, bool* eos);
-    virtual Status close(RuntimeState* state);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare_profile(RuntimeState* state);
+    virtual Status prepare(RuntimeState* state) override;
+    virtual Status open(RuntimeState* state) override;
+    virtual Status alloc_resource(RuntimeState* state) override;
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+    virtual Status close(RuntimeState* state) override;
+    virtual void release_resource(RuntimeState* state) override;
+    Status pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+    Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+    Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
+    bool is_streaming_preagg() { return _is_streaming_preagg; }
 
 private:
+    friend class pipeline::AggSinkOperator;
+    friend class pipeline::StreamingAggSinkOperator;
+    friend class pipeline::AggregationSourceOperator;
+    friend class pipeline::StreamingAggSourceOperator;
     // group by k1,k2
     std::vector<VExprContext*> _probe_expr_ctxs;
     // left / full join will change the key nullable make output/input solt
@@ -832,6 +850,7 @@ private:
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
 private:
+    void _release_self_resource(RuntimeState* state);
     /// Return true if we should keep expanding hash tables in the preagg. If false,
     /// the preagg should pass through any rows it can't fit in its tables.
     bool _should_expand_preagg_hash_tables();

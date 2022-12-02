@@ -103,7 +103,7 @@ Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentPara
 void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                                           const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << params.fragment_instance_id;
-    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id).set_t_status(&return_val);
+    _exec_env->fragment_mgr()->cancel(params.fragment_instance_id);
 }
 
 void BackendService::transmit_data(TTransmitDataResult& return_val,

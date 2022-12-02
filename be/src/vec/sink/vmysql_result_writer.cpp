@@ -664,6 +664,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
     return status;
 }
 
+bool VMysqlResultWriter::can_sink() {
+    return _sinker->can_sink();
+}
+
 Status VMysqlResultWriter::close() {
     COUNTER_SET(_sent_rows_counter, _written_rows);
     return Status::OK();
