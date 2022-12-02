@@ -1442,9 +1442,8 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
             if (row_block_arr.empty()) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change: "
                              << "memory_limitation=" << _memory_limitation
-                             << ". You can increase the memory "
-                             << "by changing the "
-                                "Config: memory_limitation_per_thread_for_schema_change_bytes";
+                             << ". You can increase the memory by changing the config: "
+                             << "memory_limitation_per_thread_for_schema_change_bytes";
                 return Status::OLAPInternalError(OLAP_ERR_FETCH_MEMORY_EXCEEDED);
             }
 
