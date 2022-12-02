@@ -279,7 +279,7 @@ VScanNode::PushDownType NewOlapScanNode::_should_push_down_function_filter(
             DCHECK(children[1 - i]->type().is_string_type());
             ColumnPtrWrapper* const_col_wrapper = nullptr;
             children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper);
-            if (!const_col_wrapper) {
+            if (const_col_wrapper == nullptr) {
                 return PushDownType::UNACCEPTABLE;
             } else if (const ColumnConst* const_column =
                                check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {

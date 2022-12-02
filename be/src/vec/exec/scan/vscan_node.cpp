@@ -573,7 +573,7 @@ void VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Push
     if (vexpr->is_constant()) {
         ColumnPtrWrapper* const_col_wrapper = nullptr;
         vexpr->get_const_col(expr_ctx, &const_col_wrapper);
-        if (!const_col_wrapper) {
+        if (const_col_wrapper == nullptr) {
             LOG(WARNING) << "Expr[" << vexpr->debug_string()
                          << "] should return a const column but actually is null";
         } else if (const ColumnConst* const_column =
@@ -981,7 +981,7 @@ VScanNode::PushDownType VScanNode::_should_push_down_binary_predicate(
         } else {
             ColumnPtrWrapper* const_col_wrapper = nullptr;
             children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper);
-            if (!const_col_wrapper) {
+            if (const_col_wrapper == nullptr) {
                 return PushDownType::UNACCEPTABLE;
             } else if (const ColumnConst* const_column =
                                check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
