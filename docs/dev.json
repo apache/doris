@@ -259,6 +259,10 @@
     "message": "监控指标",
     "description": "The label for category Monitor Metrics in sidebar docs"
   },
+  "sidebar.docs.category.Memory Management": {
+    "message": "内存管理",
+    "description": "The label for category Memory Management in sidebar docs"
+  },
   "sidebar.docs.category.Config": {
     "message": "配置管理",
     "description": "The label for category Config in sidebar docs"
