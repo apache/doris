@@ -164,9 +164,7 @@ public class EsUtil {
         // 3. Equal 6.8.x and before user not passed
         if (mappingType == null) {
             // remove dynamic templates, for ES 7.x and 8.x
-            if (mappings.containsKey("dynamic_templates")) {
-                mappings.remove("dynamic_templates");
-            }
+            mappings.remove("dynamic_templates");
             if (mappings.isEmpty()) {
                 throw new DorisEsException("Do not support index without explicit mapping.");
             }
@@ -175,7 +173,8 @@ public class EsUtil {
                 // If type is not passed in takes the first type.
                 JSONObject firstData = (JSONObject) mappings.get(firstType);
                 // check for ES 6.x and before
-                if (firstData.size() == 1 && firstData.containsKey("dynamic_templates")) {
+                firstData.remove("dynamic_templates");
+                if (firstData.isEmpty()) {
                     throw new DorisEsException("Do not support index without explicit mapping.");
                 }
                 return firstData;
@@ -186,7 +185,8 @@ public class EsUtil {
             if (mappings.containsKey(mappingType)) {
                 JSONObject jsonData = (JSONObject) mappings.get(mappingType);
                 // check for ES 6.x and before
-                if (jsonData.size() == 1 && jsonData.containsKey("dynamic_templates")) {
+                jsonData.remove("dynamic_templates");
+                if (jsonData.isEmpty()) {
                     throw new DorisEsException("Do not support index without explicit mapping.");
                 }
                 return jsonData;
