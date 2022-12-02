@@ -63,7 +63,7 @@ import java.util.Set;
 public class NormalizeAggregate extends OneRewriteRuleFactory implements NormalizeToSlot {
     @Override
     public Rule build() {
-        return logicalAggregate(any()).whenNot(LogicalAggregate::isNormalized).then(aggregate -> {
+        return logicalAggregate().whenNot(LogicalAggregate::isNormalized).then(aggregate -> {
             // push expression to bottom project
             Set<Alias> existsAliases = ExpressionUtils.collect(
                     aggregate.getOutputExpressions(), Alias.class::isInstance);
