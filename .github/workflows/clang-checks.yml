@@ -19,6 +19,10 @@
 ---
 name: BE Code Checks
 
+permissions:
+  pull-requests: write
+  issues: write
+
 on: [push, pull_request]
 
 jobs:
