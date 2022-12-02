@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -276,6 +277,7 @@ public class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
                 AggPhase.LOCAL,
+                AggMode.INPUT_TO_BUFFER,
                 true,
                 true,
                 logicalProperties,
@@ -301,6 +303,7 @@ public class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(partition),
                 AggPhase.GLOBAL,
+                AggMode.BUFFER_TO_RESULT,
                 true,
                 true,
                 logicalProperties,
@@ -331,6 +334,7 @@ public class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(),
                 Lists.newArrayList(),
                 AggPhase.GLOBAL,
+                AggMode.BUFFER_TO_RESULT,
                 true,
                 true,
                 logicalProperties,

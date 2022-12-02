@@ -38,6 +38,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -46,7 +47,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -184,15 +184,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ArrayList<Expr> execGroupingExpressions = groupByExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toCollection(ArrayList::new));
-        // 2. collect agg functions and generate agg function to slot reference map
+        // 2. collect agg expressions and generate agg function to slot reference map
         List<Slot> aggFunctionOutput = Lists.newArrayList();
-        List<AggregateFunction> aggregateFunctionList = outputExpressionList.stream()
-                .filter(o -> o.anyMatch(AggregateFunction.class::isInstance))
+        List<AggregateExpression> aggregateExpressionList = outputExpressionList.stream()
+                .filter(o -> o.anyMatch(AggregateExpression.class::isInstance))
                 .peek(o -> aggFunctionOutput.add(o.toSlot()))
-                .map(o -> o.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance))
+                .map(o -> o.<Set<AggregateExpression>>collect(AggregateExpression.class::isInstance))
                 .flatMap(Set::stream)
                 .collect(Collectors.toList());
-        ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateFunctionList.stream()
+        ArrayList<FunctionCallExpr> execAggregateFunctions = aggregateExpressionList.stream()
                 .map(aggregateFunction -> (FunctionCallExpr) ExpressionTranslator.translate(aggregateFunction, context))
                 .collect(Collectors.toCollection(ArrayList::new));
 

@@ -40,7 +40,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepe
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.DisassembleAggregate;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggregateDisassemble;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
@@ -73,7 +73,7 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
-            .add(new AggregateDisassemble())
+            .add(new DisassembleAggregate())
             .add(new DistinctAggregateDisassemble())
             .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())

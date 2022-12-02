@@ -15,20 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.annotation;
 
-/** AggregateMode */
-public enum AggregateMode {
-    INPUT_TO_BUFFER(true, false),
-    INPUT_TO_RESULT(false, false),
-    BUFFER_TO_BUFFER(true, true),
-    BUFFER_TO_RESULT(false, true);
+import org.apache.doris.nereids.rules.RuleFactory;
 
-    public final boolean productAggregateBuffer;
-    public final boolean consumeAggregateBuffer;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-    AggregateMode(boolean productAggregateBuffer, boolean consumeAggregateBuffer) {
-        this.productAggregateBuffer = productAggregateBuffer;
-        this.consumeAggregateBuffer = consumeAggregateBuffer;
-    }
+/**
+ * Indicating that the current rule depends on other rules.
+ */
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE})
+public @interface DependsRules {
+    /** depends rules */
+    Class<? extends RuleFactory>[] value() default {};
 }

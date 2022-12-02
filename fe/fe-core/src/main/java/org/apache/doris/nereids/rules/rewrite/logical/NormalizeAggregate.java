@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.plans.AggregateMode;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -142,10 +142,10 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
         if (expr instanceof AggregateExpression) {
             AggregateExpression aggregateExpression = (AggregateExpression) expr;
             AggregateParam aggregateParam = aggregateExpression.getAggregateParam();
-            AggregateMode aggregateMode = aggregateParam.aggregateMode;
-            Preconditions.checkState(aggregateMode == AggregateMode.INPUT_TO_RESULT,
+            AggMode aggMode = aggregateParam.aggMode;
+            Preconditions.checkState(aggMode == AggMode.INPUT_TO_RESULT,
                     "When normalize the AggregateExpression, the aggregate mode"
-                            + " of AggregateExpression should be INPUT_TO_RESULT: " + aggregateMode);
+                            + " of AggregateExpression should be INPUT_TO_RESULT: " + aggMode);
             Expression child = aggregateExpression.child();
             Preconditions.checkState(child instanceof AggregateFunction,
                     "When normalize the AggregateExpression,"

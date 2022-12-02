@@ -119,8 +119,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return agg;
                 }
                 return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,
-                        agg.isDisassembled(), agg.isNormalized(), agg.isFinalPhase(), agg.getAggPhase(),
-                        agg.getSourceRepeat(), agg.child());
+                        agg.isDisassembled(), agg.isNormalized(), agg.isFinalPhase(),
+                        agg.getAggPhase(), agg.getAggMode(), agg.getSourceRepeat(), agg.child());
             }).toRule(RuleType.REWRITE_AGG_EXPRESSION);
         }
     }

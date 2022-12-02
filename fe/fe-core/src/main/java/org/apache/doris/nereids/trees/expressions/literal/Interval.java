@@ -17,26 +17,26 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 
 /**
  * Interval for timestamp calculation.
  */
-public class IntervalLiteral extends Expression implements AlwaysNotNullable {
+public class Interval extends Expression implements AlwaysNotNullable {
     private final Expression value;
     private final TimeUnit timeUnit;
 
-    public IntervalLiteral(Expression value, String desc) {
+    public Interval(Expression value, String desc) {
         this.value = value;
         this.timeUnit = TimeUnit.valueOf(desc.toUpperCase());
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
+    public DataType getDataType() {
         return DateType.INSTANCE;
     }
 
@@ -46,6 +46,11 @@ public class IntervalLiteral extends Expression implements AlwaysNotNullable {
 
     public TimeUnit timeUnit() {
         return timeUnit;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitInterval(this, context);
     }
 
     /**

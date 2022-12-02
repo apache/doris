@@ -39,8 +39,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
-import org.apache.doris.nereids.trees.plans.AggregateMode;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -192,7 +192,8 @@ public class BindFunction implements AnalysisRuleFactory {
                 }
                 if (arguments.size() == 1) {
                     AggregateParam aggregateParam = new AggregateParam(
-                            unboundFunction.isDistinct(), true, AggPhase.LOCAL, false);
+                            unboundFunction.isDistinct(), true,
+                            AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, false);
                     boundFunction = new Count(aggregateParam, unboundFunction.getArguments().get(0));
                 }
             }
@@ -207,7 +208,8 @@ public class BindFunction implements AnalysisRuleFactory {
 
             if (boundFunction instanceof AggregateFunction) {
                 AggregateParam aggregateParam = new AggregateParam(
-                        unboundFunction.isDistinct(), AggregateMode.INPUT_TO_RESULT);
+                        unboundFunction.isDistinct(), true,
+                        AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, false);
                 return new AggregateExpression((AggregateFunction) boundFunction, aggregateParam);
             }
 

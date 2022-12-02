@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -148,6 +149,7 @@ public class RequestPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
                 AggPhase.LOCAL,
+                AggMode.INPUT_TO_RESULT,
                 true,
                 false,
                 logicalProperties,
@@ -171,6 +173,7 @@ public class RequestPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(partition),
                 AggPhase.GLOBAL,
+                AggMode.BUFFER_TO_RESULT,
                 true,
                 true,
                 logicalProperties,
@@ -196,6 +199,7 @@ public class RequestPropertyDeriverTest {
                 Lists.newArrayList(key),
                 Lists.newArrayList(),
                 AggPhase.GLOBAL,
+                AggMode.BUFFER_TO_RESULT,
                 true,
                 true,
                 logicalProperties,

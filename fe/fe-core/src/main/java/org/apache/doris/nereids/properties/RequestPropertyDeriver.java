@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
@@ -104,7 +105,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
         if (agg.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
             // use slots in distinct agg as shuffle slots
-            List<ExprId> shuffleSlots = extractFromDistinctFunction(agg.getOutputExpressions());
+            List<ExprId> shuffleSlots = extractExprIdFromDistinctFunction(agg.getOutputExpressions());
             Preconditions.checkState(!shuffleSlots.isEmpty());
             addRequestPropertyToChildren(
                     PhysicalProperties.createHash(new DistributionSpecHash(shuffleSlots, ShuffleType.AGGREGATE)));
@@ -183,19 +184,16 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         requestPropertyToChildren.add(Lists.newArrayList(physicalProperties));
     }
 
-    private List<ExprId> extractFromDistinctFunction(List<NamedExpression> outputExpression) {
+    private List<ExprId> extractExprIdFromDistinctFunction(List<NamedExpression> outputExpression) {
+        Set<AggregateFunction> distinctAggregateFunctions = ExpressionUtils.collect(outputExpression, expr ->
+                expr instanceof AggregateFunction && ((AggregateFunction) expr).isDistinct()
+        );
         List<ExprId> exprIds = Lists.newArrayList();
-        for (NamedExpression originOutputExpr : outputExpression) {
-            Set<AggregateFunction> aggregateFunctions
-                    = originOutputExpr.collect(AggregateFunction.class::isInstance);
-            for (AggregateFunction aggregateFunction : aggregateFunctions) {
-                if (aggregateFunction.isDistinct()) {
-                    for (Expression expr : aggregateFunction.children()) {
-                        Preconditions.checkState(expr instanceof SlotReference, "normalize aggregate failed to"
-                                + " normalize aggregate function " + aggregateFunction.toSql());
-                        exprIds.add(((SlotReference) expr).getExprId());
-                    }
-                }
+        for (AggregateFunction aggregateFunction : distinctAggregateFunctions) {
+            for (Expression expr : aggregateFunction.children()) {
+                Preconditions.checkState(expr instanceof SlotReference, "normalize aggregate failed to"
+                        + " normalize aggregate function " + aggregateFunction.toSql());
+                exprIds.add(((SlotReference) expr).getExprId());
             }
         }
         return exprIds;

@@ -17,28 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.plans.AggPhase;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.util.ExpressionUtils;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Used to generate the merge agg node for distributed execution.
@@ -60,14 +40,20 @@ public class DistinctAggregateDisassemble extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
+        /*
         return logicalAggregate()
                 .when(LogicalAggregate::needDistinctDisassemble)
                 .then(this::disassembleAggregateFunction).toRule(RuleType.DISTINCT_AGGREGATE_DISASSEMBLE);
+
+         */
+        return logicalAggregate().then(a -> a).toRule(RuleType.DISTINCT_AGGREGATE_DISASSEMBLE);
     }
 
-    private LogicalAggregate<LogicalAggregate<LogicalAggregate<LogicalAggregate<GroupPlan>>>>
+    /*private LogicalAggregate<LogicalAggregate<LogicalAggregate<LogicalAggregate<? extends Plan>>>>
             disassembleAggregateFunction(
             LogicalAggregate<GroupPlan> aggregate) {
+        return aggregate;
+
         // Double-check to prevent incorrect changes
         Preconditions.checkArgument(aggregate.getAggPhase() == AggPhase.LOCAL);
         Preconditions.checkArgument(aggregate.isFinalPhase());
@@ -186,5 +172,5 @@ public class DistinctAggregateDisassemble extends OneRewriteRuleFactory {
             }
         }
         return result;
-    }
+    }*/
 }

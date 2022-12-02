@@ -25,7 +25,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.DisassembleAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnAgg;
 import org.apache.doris.nereids.rules.rewrite.logical.ApplyPullFilterOnProjectUnderAgg;
 import org.apache.doris.nereids.rules.rewrite.logical.ExistsApplyToJoin;
@@ -126,7 +126,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements Patte
         new MockUp<RuleSet>() {
             @Mock
             public List<Rule> getExplorationRules() {
-                return Lists.newArrayList(new AggregateDisassemble().build());
+                return Lists.newArrayList(new DisassembleAggregate().build());
             }
         };
 

@@ -21,6 +21,8 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -36,14 +38,14 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
     private final AggregateParam aggregateParam;
 
     /** local aggregate */
-    public AggregateExpression(AggregateFunction localAggregate, AggregateParam aggregateParam) {
-        this(localAggregate, aggregateParam, localAggregate);
+    public AggregateExpression(AggregateFunction aggregate, AggregateParam aggregateParam) {
+        this(aggregate, aggregateParam, aggregate);
     }
 
     /** aggregate maybe consume a buffer, so the child could be a slot, not an aggregate function */
-    public AggregateExpression(AggregateFunction localAggregate, AggregateParam aggregateParam, Expression child) {
+    public AggregateExpression(AggregateFunction aggregate, AggregateParam aggregateParam, Expression child) {
         super(child);
-        this.function = Objects.requireNonNull(localAggregate, "function cannot be null");
+        this.function = Objects.requireNonNull(aggregate, "function cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregateParam cannot be null");
     }
 
@@ -55,9 +57,13 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
         return aggregateParam;
     }
 
+    public boolean isDistinct() {
+        return aggregateParam.isDistinct;
+    }
+
     @Override
     public DataType getDataType() {
-        if (aggregateParam.aggregateMode.productAggregateBuffer) {
+        if (aggregateParam.aggMode.productAggregateBuffer) {
             // buffer type
             return VarcharType.SYSTEM_DEFAULT;
         } else {
@@ -67,12 +73,17 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
     }
 
     @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitAggregateExpression(this, context);
+    }
+
+    @Override
     public AggregateExpression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         Expression child = children.get(0);
-        if (!aggregateParam.aggregateMode.consumeAggregateBuffer) {
+        if (!aggregateParam.aggMode.consumeAggregateBuffer) {
             Preconditions.checkArgument(child instanceof AggregateFunction,
-                    "when aggregateMode is " + aggregateParam.aggregateMode.name()
+                    "when aggregateMode is " + aggregateParam.aggMode.name()
                             + ", the child of AggregateExpression should be AggregateFunction, but "
                             + child.getClass());
             return new AggregateExpression((AggregateFunction) child, aggregateParam);
@@ -83,17 +94,21 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
 
     @Override
     public String toSql() {
-        // alias come from the origin aggregate function
-        return function.toSql();
+        if (aggregateParam.aggMode.productAggregateBuffer) {
+            return "partial_" + function.toSql();
+        } else {
+            return function.toSql();
+        }
     }
 
     @Override
     public String toString() {
-        if (aggregateParam.aggregateMode.consumeAggregateBuffer) {
-            String functionName = function.getName();
-            return functionName + "(buffer " + child().toString() + ")";
+        AggMode aggMode = aggregateParam.aggMode;
+        String prefix = aggMode.productAggregateBuffer ? "partial_" : "";
+        if (aggMode.consumeAggregateBuffer) {
+            return prefix + function.getName() + "(" + child().toString() + ")";
         } else {
-            return function.toString();
+            return prefix + child().toString();
         }
     }
 

@@ -36,6 +36,7 @@ public class LogicalAggToPhysicalHashAgg extends OneImplementationRuleFactory {
                     ctx.root.getOutputExpressions(),
                     ctx.root.getPartitionExpressions(),
                     ctx.root.getAggPhase(),
+                    ctx.root.getAggMode(),
                     useStreamAgg,
                     ctx.root.isFinalPhase(),
                     ctx.root.getLogicalProperties(),

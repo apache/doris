@@ -158,7 +158,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntervalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -543,15 +543,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression right = getExpression(ctx.right);
 
             int type = ctx.operator.getType();
-            if (left instanceof IntervalLiteral) {
+            if (left instanceof Interval) {
                 if (type != DorisParser.PLUS) {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
-                IntervalLiteral interval = (IntervalLiteral) left;
+                Interval interval = (Interval) left;
                 return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
             }
 
-            if (right instanceof IntervalLiteral) {
+            if (right instanceof Interval) {
                 Operator op;
                 if (type == DorisParser.PLUS) {
                     op = Operator.ADD;
@@ -560,7 +560,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
-                IntervalLiteral interval = (IntervalLiteral) right;
+                Interval interval = (Interval) right;
                 return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
             }
 
@@ -766,7 +766,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitInterval(IntervalContext ctx) {
-        return new IntervalLiteral(getExpression(ctx.value), visitUnitIdentifier(ctx.unit));
+        return new Interval(getExpression(ctx.value), visitUnitIdentifier(ctx.unit));
     }
 
     @Override

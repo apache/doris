@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.rules.rewrite.AggregateDisassemble;
+import org.apache.doris.nereids.rules.rewrite.DisassembleAggregate;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggregateDisassemble;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -49,7 +50,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class AggregateDisassembleTest implements PatternMatchSupported {
+public class DisassembleAggregateTest implements PatternMatchSupported {
     private Plan rStudent;
 
     @BeforeAll
@@ -83,7 +84,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new AggregateDisassemble())
+                .applyTopDown(new DisassembleAggregate())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalAggregate(
@@ -133,7 +134,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         Sum localOutput0 = new Sum(rStudent.getOutput().get(0).toSlot());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new AggregateDisassemble())
+                .applyTopDown(new DisassembleAggregate())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalAggregate(
@@ -179,7 +180,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         Expression localGroupBy = rStudent.getOutput().get(2).toSlot();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new AggregateDisassemble())
+                .applyTopDown(new DisassembleAggregate())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalAggregate(
@@ -225,7 +226,7 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList, rStudent);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new AggregateDisassemble())
+                .applyTopDown(new DisassembleAggregate())
                 .matchesFromRoot(
                     logicalAggregate(
                             logicalAggregate()
@@ -250,14 +251,14 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         // id
         Expression localOutput0 = rStudent.getOutput().get(0);
         // count
-        Count localOutput1 = new Count(new AggregateParam(true, false, AggPhase.LOCAL, true), rStudent.getOutput().get(2).toSlot());
+        Count localOutput1 = new Count(new AggregateParam(true, false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true), rStudent.getOutput().get(2).toSlot());
         // sum
-        Sum localOutput2 = new Sum(new AggregateParam(false, false, AggPhase.LOCAL, true), rStudent.getOutput().get(0).toSlot());
+        Sum localOutput2 = new Sum(new AggregateParam(false, false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true), rStudent.getOutput().get(0).toSlot());
         // id
         Expression localGroupBy0 = rStudent.getOutput().get(0);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyTopDown(new AggregateDisassemble())
+                .applyTopDown(new DisassembleAggregate())
                 .matchesFromRoot(
                     logicalAggregate(
                             logicalAggregate()
@@ -294,9 +295,9 @@ public class AggregateDisassembleTest implements PatternMatchSupported {
         // id
         Expression localOutput0 = rStudent.getOutput().get(0);
         // count
-        Count localOutput1 = new Count(new AggregateParam(true, false, AggPhase.LOCAL, true), rStudent.getOutput().get(2).toSlot());
+        Count localOutput1 = new Count(new AggregateParam(true, false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true), rStudent.getOutput().get(2).toSlot());
         // sum
-        Sum localOutput2 = new Sum(new AggregateParam(false, false, AggPhase.LOCAL, true), rStudent.getOutput().get(0).toSlot());
+        Sum localOutput2 = new Sum(new AggregateParam(false, false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true), rStudent.getOutput().get(0).toSlot());
         // id
         Expression localGroupBy0 = rStudent.getOutput().get(0);
 

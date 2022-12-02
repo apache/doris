@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
@@ -480,7 +481,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
     }
 
     /** BoundStar is used to wrap list of slots for temporary. */
-    private class BoundStar extends NamedExpression implements PropagateNullable {
+    public static class BoundStar extends NamedExpression implements PropagateNullable {
         public BoundStar(List<Slot> children) {
             super(children.toArray(new Slot[0]));
             Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
@@ -494,6 +495,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         public List<Slot> getSlots() {
             return (List) children();
+        }
+
+        @Override
+        public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+            return visitor.visitBoundStar(this, context);
         }
     }
 
