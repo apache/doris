@@ -145,12 +145,16 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             AggregateMode aggregateMode = aggregateParam.aggregateMode;
             Preconditions.checkState(aggregateMode == AggregateMode.INPUT_TO_RESULT,
                     "When normalize the AggregateExpression, the aggregate mode"
-                            + " of AggregateExpression should be INPUT_TO_RESULT");
-            Preconditions.checkState(aggregateExpression.child() instanceof AggregateFunction,
+                            + " of AggregateExpression should be INPUT_TO_RESULT: " + aggregateMode);
+            Expression child = aggregateExpression.child();
+            Preconditions.checkState(child instanceof AggregateFunction,
                     "When normalize the AggregateExpression,"
-                            + "the child of AggregateExpression should be AggregateFunction");
+                            + " the child of AggregateExpression should be AggregateFunction: " + child);
+            Preconditions.checkState(child == aggregateExpression.getFunction(),
+                    "When normalize the AggregateExpression,"
+                            + " the child of AggregateExpression should be equal to the function of AggregateFunction");
 
-            AggregateFunction aggregateFunction = (AggregateFunction) aggregateExpression.child();
+            AggregateFunction aggregateFunction = (AggregateFunction) child;
             List<Expression> normalizedArgumentsOfAggregateFunction =
                     context.normalizeToUseSlotRef(aggregateFunction.getArguments());
             AggregateFunction normalizedAggregateFunction =
