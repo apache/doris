@@ -164,19 +164,13 @@ public class EsUtil {
         // 3. Equal 6.8.x and before user not passed
         if (mappingType == null) {
             // remove dynamic templates, for ES 7.x and 8.x
-            mappings.remove("dynamic_templates");
-            if (mappings.isEmpty()) {
-                throw new DorisEsException("Do not support index without explicit mapping.");
-            }
+            checkDynamicTemplates(mappings);
             String firstType = (String) mappings.keySet().iterator().next();
             if (!"properties".equals(firstType)) {
                 // If type is not passed in takes the first type.
                 JSONObject firstData = (JSONObject) mappings.get(firstType);
                 // check for ES 6.x and before
-                firstData.remove("dynamic_templates");
-                if (firstData.isEmpty()) {
-                    throw new DorisEsException("Do not support index without explicit mapping.");
-                }
+                checkDynamicTemplates(firstData);
                 return firstData;
             }
             // Equal 7.x and after
@@ -185,14 +179,22 @@ public class EsUtil {
             if (mappings.containsKey(mappingType)) {
                 JSONObject jsonData = (JSONObject) mappings.get(mappingType);
                 // check for ES 6.x and before
-                jsonData.remove("dynamic_templates");
-                if (jsonData.isEmpty()) {
-                    throw new DorisEsException("Do not support index without explicit mapping.");
-                }
+                checkDynamicTemplates(jsonData);
                 return jsonData;
             }
             // Compatible type error
             return getRootSchema(mappings, null);
+        }
+    }
+
+    /**
+     * Remove `dynamic_templates` and check explicit mapping
+     * @param mappings
+     */
+    private static void checkDynamicTemplates(JSONObject mappings) {
+        mappings.remove("dynamic_templates");
+        if (mappings.isEmpty()) {
+            throw new DorisEsException("Do not support index without explicit mapping.");
         }
     }
 
