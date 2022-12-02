@@ -16,6 +16,8 @@
 // under the License.
 #pragma once
 
+#include <mutex>
+
 #include "common/status.h"
 
 namespace doris {
