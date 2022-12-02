@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-name: Comment Actions
+name: Code Checks
 
 on: [push, pull_request_target]
 
