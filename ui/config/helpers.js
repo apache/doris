@@ -17,13 +17,8 @@
  * under the License.
  */
 
-/**
- * @file test cron
- * @author lpx
- * @since 2020/08/19
- */
-const path = require('path');
+const path = require("path");
 
-const rootPath = path.resolve(__dirname, '..');
+const rootPath = path.resolve(__dirname, "..");
 const root = (...args) => path.join(...[rootPath].concat(args));
-module.exports = {root};
+module.exports = { root };

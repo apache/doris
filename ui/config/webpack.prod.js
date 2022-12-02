@@ -17,17 +17,11 @@
  * under the License.
  */
 
-/**
- * @file test cron
- * @author lpx
- * @since 2020/08/19
- */
 const { merge } = require("webpack-merge");
 const baseConfig = require("./webpack.common.js");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 
 module.exports = merge(baseConfig, {
-  // 设置为生产模式
   mode: "production",
   plugins: [
     new MiniCssExtractPlugin({

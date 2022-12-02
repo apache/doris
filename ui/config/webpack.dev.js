@@ -17,23 +17,16 @@
  * under the License.
  */
 
-/**
- * @file test cron
- * @author lpx
- * @since 2020/08/19
- */
 const { merge } = require("webpack-merge");
 const baseConfig = require("./webpack.common.js");
 const path = require("path");
 
 module.exports = merge(baseConfig, {
-  // 设置为开发模式
   mode: "development",
   devtool: "inline-source-map",
   optimization: {
     minimize: false,
   },
-  // 配置服务端目录和端口
   devServer: {
     historyApiFallback: true,
     compress: true,

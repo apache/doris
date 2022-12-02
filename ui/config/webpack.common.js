@@ -17,11 +17,6 @@
  * under the License.
  */
 
-/**
- * @file test cron
- * @author lpx
- * @since 2020/08/19
- */
 const path = require("path");
 const paths = require("./paths");
 const HtmlWebpackPlugin = require("html-webpack-plugin");

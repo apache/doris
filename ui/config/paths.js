@@ -17,25 +17,20 @@
  * under the License.
  */
 
-/**
- * @file test cron
- * @author lpx
- * @since 2020/08/19
- */
-const helpers = require('./helpers');
+const helpers = require("./helpers");
 
 module.exports = {
-    entryApp: helpers.root('/src/index.tsx'),
-    entryHTML: helpers.root('/src/index.ejs'),
-    entryJSP: helpers.root('/src/index.jsp'),
-    distSrc: helpers.root('/dist'),
-    staticPath: helpers.root('/public'),
-    Components: helpers.root('/src/components'),
-    Src: helpers.root('/src'),
-    Utils: helpers.root('/src/utils'),
-    Models: helpers.root('/src/models'),
-    Services: helpers.root('/src/services'),
-    Constants: helpers.root('/src/constants'),
-    '@hooks': helpers.root('/src/hooks'),
-    '@src': helpers.root('/src'),
+  entryApp: helpers.root("/src/index.tsx"),
+  entryHTML: helpers.root("/src/index.ejs"),
+  entryJSP: helpers.root("/src/index.jsp"),
+  distSrc: helpers.root("/dist"),
+  staticPath: helpers.root("/public"),
+  Components: helpers.root("/src/components"),
+  Src: helpers.root("/src"),
+  Utils: helpers.root("/src/utils"),
+  Models: helpers.root("/src/models"),
+  Services: helpers.root("/src/services"),
+  Constants: helpers.root("/src/constants"),
+  "@hooks": helpers.root("/src/hooks"),
+  "@src": helpers.root("/src"),
 };
