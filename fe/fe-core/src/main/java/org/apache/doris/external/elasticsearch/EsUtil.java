@@ -163,16 +163,33 @@ public class EsUtil {
         // 2. Multi-catalog auto infer
         // 3. Equal 6.8.x and before user not passed
         if (mappingType == null) {
+            // remove dynamic templates, for ES 7.x and 8.x
+            if (mappings.containsKey("dynamic_templates")) {
+                mappings.remove("dynamic_templates");
+            }
+            if (mappings.isEmpty()) {
+                throw new DorisEsException("Do not support index without explicit mapping.");
+            }
             String firstType = (String) mappings.keySet().iterator().next();
             if (!"properties".equals(firstType)) {
                 // If type is not passed in takes the first type.
-                return (JSONObject) mappings.get(firstType);
+                JSONObject firstData = (JSONObject) mappings.get(firstType);
+                // check for ES 6.x and before
+                if (firstData.size() == 1 && firstData.containsKey("dynamic_templates")) {
+                    throw new DorisEsException("Do not support index without explicit mapping.");
+                }
+                return firstData;
             }
             // Equal 7.x and after
             return mappings;
         } else {
             if (mappings.containsKey(mappingType)) {
-                return (JSONObject) mappings.get(mappingType);
+                JSONObject jsonData = (JSONObject) mappings.get(mappingType);
+                // check for ES 6.x and before
+                if (jsonData.size() == 1 && jsonData.containsKey("dynamic_templates")) {
+                    throw new DorisEsException("Do not support index without explicit mapping.");
+                }
+                return jsonData;
             }
             // Compatible type error
             return getRootSchema(mappings, null);
