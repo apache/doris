@@ -211,7 +211,7 @@ Status NodeChannel::open_wait() {
                                            -1);
             Status st = _index_channel->check_intolerable_failure();
             if (!st.ok()) {
-                _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st));
+                _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
             } else if (is_last_rpc) {
                 // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
                 // will be blocked.
@@ -279,7 +279,7 @@ Status NodeChannel::open_wait() {
             } else {
                 _cancel_with_msg(
                         fmt::format("{}, add batch req success but status isn't ok, err: {}",
-                                    channel_info(), status));
+                                    channel_info(), status.to_string()));
             }
 
             if (result.has_execution_time_us()) {
@@ -556,7 +556,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
                                          &compressed_bytes, _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
-            cancel(fmt::format("{}, err: {}", channel_info(), st));
+            cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
             _add_batch_closure->clear_in_flight();
             return;
         }
@@ -626,7 +626,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
                 PTabletWriterAddBatchRequest, ReusableClosure<PTabletWriterAddBatchResult>>(
                 &request, _add_batch_closure);
         if (!st.ok()) {
-            cancel(fmt::format("{}, err: {}", channel_info(), st));
+            cancel(fmt::format("{}, err: {}", channel_info(), st.to_string()));
             _add_batch_closure->clear_in_flight();
             return;
         }
@@ -992,7 +992,8 @@ Status OlapTableSink::open(RuntimeState* state) {
                 // Therefore, if the open() phase fails, all tablets corresponding to the node need to be marked as failed.
                 index_channel->mark_as_failed(
                         ch->node_id(), ch->host(),
-                        fmt::format("{}, open failed, err: {}", ch->channel_info(), st), -1);
+                        fmt::format("{}, open failed, err: {}", ch->channel_info(), st.to_string()),
+                        -1);
             }
         });
 

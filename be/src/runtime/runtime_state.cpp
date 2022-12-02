@@ -250,14 +250,6 @@ bool RuntimeState::log_error(const std::string& error) {
     return false;
 }
 
-void RuntimeState::log_error(const Status& status) {
-    if (status.ok()) {
-        return;
-    }
-
-    log_error(status);
-}
-
 void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 

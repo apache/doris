@@ -256,7 +256,7 @@ Status PlanFragmentExecutor::open() {
         // Log error message in addition to returning in Status. Queries that do not
         // fetch results (e.g. insert) may not receive the message directly and can
         // only retrieve the log.
-        _runtime_state->log_error(status);
+        _runtime_state->log_error(status.to_string());
     }
     if (status.is<E_CANCELLED>()) {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {

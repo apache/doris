@@ -179,17 +179,17 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     _closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
     _closure->addFailedHandler(
             [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
-    _closure->addSuccessHandler(
-            [&](const InstanceLoId& id, const bool& eos, const PTransmitDataResult& result) {
-                Status s = Status(result.status());
-                if (!s.ok()) {
-                    _failed(id, fmt::format("exchange req success but status isn't ok: {}", s));
-                } else if (eos) {
-                    _ended(id);
-                } else {
-                    _send_rpc(id);
-                }
-            });
+    _closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
+                                    const PTransmitDataResult& result) {
+        Status s = Status(result.status());
+        if (!s.ok()) {
+            _failed(id, fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
+        } else if (eos) {
+            _ended(id);
+        } else {
+            _send_rpc(id);
+        }
+    });
 
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());

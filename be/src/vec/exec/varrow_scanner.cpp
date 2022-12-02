@@ -87,7 +87,7 @@ Status VArrowScanner::_open_next_reader() {
             continue;
         } else {
             if (!status.ok()) {
-                return Status::InternalError(" file: {} error:{}", range.path, status);
+                return Status::InternalError(" file: {} error:{}", range.path, status.to_string());
             } else {
                 update_profile(_cur_file_reader->statistics());
                 return status;

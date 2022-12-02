@@ -651,7 +651,8 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     "failed to prepare compaction task and calculate permits, "
                     "tablet_id={}, compaction_type={}, "
                     "permit={}, current_permit={}, status={}",
-                    tablet->tablet_id(), compaction_type, permits, _permit_limiter.usage(), st);
+                    tablet->tablet_id(), compaction_type, permits, _permit_limiter.usage(),
+                    st.to_string());
         }
         return st;
     }

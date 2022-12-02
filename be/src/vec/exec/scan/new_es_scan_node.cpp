@@ -54,7 +54,7 @@ NewEsScanNode::NewEsScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
 }
 
 std::string NewEsScanNode::get_name() {
-    return fmt::format("VNewEsScanNode");
+    return "VNewEsScanNode";
 }
 
 Status NewEsScanNode::init(const TPlanNode& tnode, RuntimeState* state) {

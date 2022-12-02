@@ -790,7 +790,7 @@ void BufferedBlockMgr2::write_complete(Block* block, const Status& write_status)
                 DCHECK(block->_tmp_file != nullptr);
                 block->_tmp_file->report_io_error(write_status.to_string());
                 VLOG_QUERY << "Query: " << _query_id << " write complete callback with error.";
-                state->log_error(write_status);
+                state->log_error(write_status.to_string());
             }
             if (!status.ok()) {
                 VLOG_QUERY << "Query: " << _query_id << " error while writing unpinned blocks.";

@@ -166,7 +166,7 @@ arrow::Status ParquetOutputStream::Write(const void* data, int64_t nbytes) {
     size_t written_len = 0;
     Status st = _file_writer->write(static_cast<const uint8_t*>(data), nbytes, &written_len);
     if (!st.ok()) {
-        return arrow::Status::IOError(st);
+        return arrow::Status::IOError(st.to_string());
     }
     _cur_pos += written_len;
     _written_len += written_len;
@@ -184,7 +184,7 @@ arrow::Status ParquetOutputStream::Close() {
     Status st = _file_writer->close();
     if (!st.ok()) {
         LOG(WARNING) << "close parquet output stream failed: " << st;
-        return arrow::Status::IOError(st);
+        return arrow::Status::IOError(st.to_string());
     }
     _is_closed = true;
     return arrow::Status::OK();
