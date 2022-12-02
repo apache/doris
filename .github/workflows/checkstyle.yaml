@@ -20,8 +20,30 @@ name: FE Code Style Checker
 on:
   pull_request:
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      broker_changes: ${{ steps.filter.outputs.broker_changes }}
+      docs_changes: ${{ steps.filter.outputs.docs_changes }}
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            fe_changes:
+              - 'fe/**'
   java-checkstyle:
     name: "CheckStyle"
+    needs: changes
+    if: ${{ needs.changes.outputs.fe_changes == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
