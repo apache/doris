@@ -22,6 +22,8 @@
 #include "exec/agg_context.h"
 #include "exec/aggregation_sink_operator.h"
 #include "exec/aggregation_source_operator.h"
+#include "exec/analytic_sink_operator.h"
+#include "exec/analytic_source_operator.h"
 #include "exec/data_sink.h"
 #include "exec/datagen_operator.h"
 #include "exec/empty_set_operator.h"
@@ -347,6 +349,20 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr sort_source =
                 std::make_shared<SortSourceOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(sort_source));
+        break;
+    }
+    case TPlanNodeType::ANALYTIC_EVAL_NODE: {
+        auto* analytic_eval_node = assert_cast<vectorized::VAnalyticEvalNode*>(node);
+        auto new_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
+
+        OperatorBuilderPtr analytic_sink = std::make_shared<AnalyticSinkOperatorBuilder>(
+                next_operator_builder_id(), "AnalyticSinkOperator", analytic_eval_node);
+        RETURN_IF_ERROR(new_pipeline->set_sink(analytic_sink));
+
+        OperatorBuilderPtr analytic_source = std::make_shared<AnalyticSourceOperatorBuilder>(
+                next_operator_builder_id(), "AnalyticSourceOperator", analytic_eval_node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(analytic_source));
         break;
     }
     case TPlanNodeType::REPEAT_NODE: {
