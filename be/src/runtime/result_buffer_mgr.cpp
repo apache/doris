@@ -17,6 +17,8 @@
 
 #include "runtime/result_buffer_mgr.h"
 
+#include <memory>
+
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/types.pb.h"
 #include "runtime/buffer_control_block.h"
@@ -58,15 +60,22 @@ Status ResultBufferMgr::init() {
 }
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
-                                      std::shared_ptr<BufferControlBlock>* sender) {
+                                      std::shared_ptr<BufferControlBlock>* sender,
+                                      bool enable_pipeline) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
         return Status::OK();
     }
 
-    std::shared_ptr<BufferControlBlock> control_block(
-            new BufferControlBlock(query_id, buffer_size));
+    std::shared_ptr<BufferControlBlock> control_block = nullptr;
+
+    if (enable_pipeline) {
+        control_block = std::make_shared<PipBufferControlBlock>(query_id, buffer_size);
+    } else {
+        control_block = std::make_shared<BufferControlBlock>(query_id, buffer_size);
+    }
+
     {
         std::lock_guard<std::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));

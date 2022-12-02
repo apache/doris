@@ -20,6 +20,10 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.analysis.CTEContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -28,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
@@ -48,6 +53,9 @@ import javax.annotation.Nullable;
  */
 public class Memo {
     // generate group id in memo is better for test, since we can reproduce exactly same Memo.
+    private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(GroupMergeEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
+    private static long stateId = 0;
     private final IdGenerator<GroupId> groupIdGenerator = GroupId.createGenerator();
     private final Map<GroupId, Group> groups = Maps.newLinkedHashMap();
     // we could not use Set, because Set does not have get method.
@@ -75,6 +83,10 @@ public class Memo {
         return groupExpressions;
     }
 
+    public static long getStateId() {
+        return stateId;
+    }
+
     /**
      * Add plan to Memo.
      *
@@ -86,10 +98,21 @@ public class Memo {
      *                       is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite) {
+        CopyInResult result;
         if (rewrite) {
-            return doRewrite(plan, target);
+            result = doRewrite(plan, target);
         } else {
-            return doCopyIn(plan, target);
+            result = doCopyIn(plan, target);
+        }
+        maybeAddStateId(result);
+        return result;
+    }
+
+    private void maybeAddStateId(CopyInResult result) {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
+                && result.generateNewExpression) {
+            stateId++;
         }
     }
 
@@ -407,6 +430,7 @@ public class Memo {
                 needReplaceChild.add(groupExpression);
             }
         }
+        GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
         for (GroupExpression groupExpression : needReplaceChild) {
             // After change GroupExpression children, the hashcode will change,
             // so need to reinsert into map.
@@ -458,6 +482,16 @@ public class Memo {
             eliminateFromGroupAndMoveToTargetGroup(existedGroup, targetGroup, existedPlan.getLogicalProperties());
         }
         return CopyInResult.of(false, existedLogicalExpression);
+    }
+
+    // This function is used to copy new group expression
+    // It's used in DPHyp after construct new group expression
+    public Group copyInGroupExpression(GroupExpression newGroupExpression) {
+        Group newGroup = new Group(groupIdGenerator.getNextId(), newGroupExpression,
+                newGroupExpression.getPlan().getLogicalProperties());
+        groups.put(newGroup.getGroupId(), newGroup);
+        groupExpressions.put(newGroupExpression, newGroupExpression);
+        return newGroup;
     }
 
     private CopyInResult rewriteByNewGroupExpression(Group targetGroup, Plan newPlan,

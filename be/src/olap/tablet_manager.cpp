@@ -641,14 +641,16 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
-    double highest_score = 0.0;
+    uint32_t highest_score = 0;
     uint32_t compaction_score = 0;
-    double tablet_scan_frequency = 0.0;
     TabletSharedPtr best_tablet;
     for (const auto& tablets_shard : _tablets_shards) {
         std::shared_lock rdlock(tablets_shard.lock);
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             const TabletSharedPtr& tablet_ptr = tablet_map.second;
+            if (tablet_ptr->should_skip_compaction(compaction_type, UnixSeconds())) {
+                continue;
+            }
             if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
                 continue;
             }
@@ -662,7 +664,11 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             if (compaction_type == CompactionType::BASE_COMPACTION) {
                 last_failure_ms = tablet_ptr->last_base_compaction_failure_time();
             }
-            if (now_ms - last_failure_ms <= config::min_compaction_failure_interval_sec * 1000) {
+            if (now_ms - last_failure_ms <= 5000) {
+                VLOG_DEBUG << "Too often to check compaction, skip it. "
+                           << "compaction_type=" << compaction_type_str
+                           << ", last_failure_time_ms=" << last_failure_ms
+                           << ", tablet_id=" << tablet_ptr->tablet_id();
                 continue;
             }
 
@@ -684,19 +690,13 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
                     compaction_type, cumulative_compaction_policy);
-
-            double scan_frequency = 0.0;
-            if (config::compaction_tablet_scan_frequency_factor != 0) {
-                scan_frequency = tablet_ptr->calculate_scan_frequency();
+            if (current_compaction_score < 5) {
+                LOG(INFO) << "tablet set skip compaction, tablet_id: " << tablet_ptr->tablet_id();
+                tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
             }
-
-            double tablet_score =
-                    config::compaction_tablet_scan_frequency_factor * scan_frequency +
-                    config::compaction_tablet_compaction_score_factor * current_compaction_score;
-            if (tablet_score > highest_score) {
-                highest_score = tablet_score;
+            if (current_compaction_score > highest_score) {
+                highest_score = current_compaction_score;
                 compaction_score = current_compaction_score;
-                tablet_scan_frequency = scan_frequency;
                 best_tablet = tablet_ptr;
             }
         }
@@ -707,7 +707,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                       << "compaction_type=" << compaction_type_str
                       << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
                       << ", compaction_score=" << compaction_score
-                      << ", tablet_scan_frequency=" << tablet_scan_frequency
                       << ", highest_score=" << highest_score;
         *score = compaction_score;
     }

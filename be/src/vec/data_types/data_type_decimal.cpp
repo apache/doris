@@ -203,30 +203,6 @@ Decimal128I DataTypeDecimal<Decimal128I>::get_scale_multiplier(UInt32 scale) {
 }
 
 template <typename T>
-void convert_to_decimal(T* from_value, T* to_value, int32_t from_scale, int32_t to_scale,
-                        bool* loss_accuracy) {
-    if (from_scale == to_scale) {
-        *to_value = *from_value;
-        return;
-    }
-    if (from_scale > to_scale) {
-        *to_value =
-                (*from_value) / static_cast<T>(DataTypeDecimal<Decimal<T>>::get_scale_multiplier(
-                                        from_scale - to_scale));
-        *loss_accuracy =
-                ((*from_value) % static_cast<T>(DataTypeDecimal<Decimal<T>>::get_scale_multiplier(
-                                         from_scale - to_scale))) != 0;
-    } else {
-        if (common::mul_overflow(*from_value,
-                                 static_cast<T>(DataTypeDecimal<Decimal<T>>::get_scale_multiplier(
-                                         to_scale - from_scale)),
-                                 *to_value)) {
-            LOG(WARNING) << "Decimal convert overflow";
-        }
-    }
-}
-
-template <typename T>
 typename T::NativeType max_decimal_value(UInt32 precision) {
     return 0;
 }

@@ -288,12 +288,9 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             _agg_data->init(AggregatedDataVariants::Type::serialized);
         }
     }
-} // namespace doris::vectorized
+}
 
-Status AggregationNode::prepare(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+Status AggregationNode::prepare_profile(RuntimeState* state) {
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
@@ -311,7 +308,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
     _hash_table_input_counter = ADD_COUNTER(runtime_profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(runtime_profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
-    _data_mem_tracker = std::make_unique<MemTracker>("AggregationNode:Data");
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
@@ -446,11 +442,15 @@ Status AggregationNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AggregationNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+Status AggregationNode::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::prepare(state));
+    RETURN_IF_ERROR(prepare_profile(state));
+    return Status::OK();
+}
+
+Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
 
@@ -458,10 +458,6 @@ Status AggregationNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->open(state));
     }
 
-    RETURN_IF_ERROR(_children[0]->open(state));
-
-    // Streaming preaggregations do all processing in GetNext().
-    if (_is_streaming_preagg) return Status::OK();
     // move _create_agg_status to open not in during prepare,
     // because during prepare and open thread is not the same one,
     // this could cause unable to get JVM
@@ -469,6 +465,18 @@ Status AggregationNode::open(RuntimeState* state) {
         _create_agg_status(_agg_data->without_key);
         _agg_data_created_without_key = true;
     }
+
+    return Status::OK();
+}
+
+Status AggregationNode::open(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::open");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(ExecNode::open(state));
+    RETURN_IF_ERROR(_children[0]->open(state));
+
+    // Streaming preaggregations do all processing in GetNext().
+    if (_is_streaming_preagg) return Status::OK();
     bool eos = false;
     Block block;
     while (!eos) {
@@ -476,11 +484,7 @@ Status AggregationNode::open(RuntimeState* state) {
         release_block_memory(block);
         RETURN_IF_ERROR_AND_CHECK_SPAN(_children[0]->get_next_after_projects(state, &block, &eos),
                                        _children[0]->get_next_span(), eos);
-        if (block.rows() == 0) {
-            continue;
-        }
-        RETURN_IF_ERROR(_executor.execute(&block));
-        _executor.update_memusage();
+        RETURN_IF_ERROR(sink(state, &block, eos));
     }
     _children[0]->close(state);
 
@@ -491,10 +495,22 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
     return Status::NotSupported("Not Implemented Aggregation Node::get_next scalar");
 }
 
+Status AggregationNode::do_pre_agg(vectorized::Block* input_block,
+                                   vectorized::Block* output_block) {
+    RETURN_IF_ERROR(_executor.pre_agg(input_block, output_block));
+
+    // pre stream agg need use _num_row_return to decide whether to do pre stream agg
+    _num_rows_returned += output_block->rows();
+    _make_nullable_output_key(output_block);
+    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    _executor.update_memusage();
+    return Status::OK();
+}
+
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "AggregationNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_is_streaming_preagg) {
         bool child_eos = false;
@@ -506,32 +522,37 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                     _children[0]->get_next_after_projects(state, &_preagg_block, &child_eos),
                     _children[0]->get_next_span(), child_eos);
         } while (_preagg_block.rows() == 0 && !child_eos);
-
         if (_preagg_block.rows() != 0) {
-            RETURN_IF_ERROR(_executor.pre_agg(&_preagg_block, block));
+            RETURN_IF_ERROR(do_pre_agg(&_preagg_block, block));
         } else {
-            RETURN_IF_ERROR(_executor.get_result(state, block, eos));
+            RETURN_IF_ERROR(pull(state, block, eos));
         }
-        // pre stream agg need use _num_row_return to decide whether to do pre stream agg
-        _num_rows_returned += block->rows();
-        _make_nullable_output_key(block);
-        COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     } else {
-        RETURN_IF_ERROR(_executor.get_result(state, block, eos));
-        _make_nullable_output_key(block);
-        // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
-        reached_limit(block, eos);
+        RETURN_IF_ERROR(pull(state, block, eos));
     }
-
-    _executor.update_memusage();
     return Status::OK();
 }
 
-Status AggregationNode::close(RuntimeState* state) {
-    if (is_closed()) return Status::OK();
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
+Status AggregationNode::pull(doris::RuntimeState* state, vectorized::Block* block, bool* eos) {
+    RETURN_IF_ERROR(_executor.get_result(state, block, eos));
+    _make_nullable_output_key(block);
+    // dispose the having clause, should not be execute in prestreaming agg
+    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
+    reached_limit(block, eos);
 
+    return Status::OK();
+}
+
+Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    if (in_block->rows() > 0) {
+        RETURN_IF_ERROR(_executor.execute(in_block));
+        _executor.update_memusage();
+    }
+    if (eos) _can_read = true;
+    return Status::OK();
+}
+
+void AggregationNode::release_resource(RuntimeState* state) {
     for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
     VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
@@ -545,7 +566,12 @@ Status AggregationNode::close(RuntimeState* state) {
                 _agg_data->_aggregated_method_variant);
     }
     _release_mem();
+    ExecNode::release_resource(state);
+}
 
+Status AggregationNode::close(RuntimeState* state) {
+    if (is_closed()) return Status::OK();
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
     return ExecNode::close(state);
 }
 
@@ -716,7 +742,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
 }
 
 void AggregationNode::_update_memusage_without_key() {
-    _data_mem_tracker->consume(_agg_arena_pool->size() - _mem_usage_record.used_in_arena);
+    mem_tracker_held()->consume(_agg_arena_pool->size() - _mem_usage_record.used_in_arena);
     _mem_usage_record.used_in_arena = _agg_arena_pool->size();
 }
 
@@ -1321,10 +1347,10 @@ void AggregationNode::_update_memusage_with_serialized_key() {
     std::visit(
             [&](auto&& agg_method) -> void {
                 auto& data = agg_method.data;
-                _data_mem_tracker->consume(_agg_arena_pool->size() -
-                                           _mem_usage_record.used_in_arena);
-                _data_mem_tracker->consume(data.get_buffer_size_in_bytes() -
-                                           _mem_usage_record.used_in_state);
+                mem_tracker_held()->consume(_agg_arena_pool->size() -
+                                            _mem_usage_record.used_in_arena);
+                mem_tracker_held()->consume(data.get_buffer_size_in_bytes() -
+                                            _mem_usage_record.used_in_state);
                 _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
                 _mem_usage_record.used_in_arena = _agg_arena_pool->size();
             },
@@ -1347,7 +1373,7 @@ void AggregationNode::_close_with_serialized_key() {
 }
 
 void AggregationNode::release_tracker() {
-    _data_mem_tracker->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
+    mem_tracker_held()->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 }
 
 void AggregationNode::_release_mem() {

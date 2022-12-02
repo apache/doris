@@ -17,6 +17,7 @@
 
 #include "exec/table_function_node.h"
 
+#include "exec/exec_node.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/table_function/table_function_factory.h"
@@ -33,7 +34,7 @@ TableFunctionNode::TableFunctionNode(ObjectPool* pool, const TPlanNode& tnode,
                                      const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs) {}
 
-TableFunctionNode::~TableFunctionNode() {}
+TableFunctionNode::~TableFunctionNode() = default;
 
 Status TableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -90,7 +91,7 @@ bool TableFunctionNode::_is_inner_and_empty() {
 
 Status TableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
 
@@ -101,12 +102,12 @@ Status TableFunctionNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status TableFunctionNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::open");
+Status TableFunctionNode::alloc_resource(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+
+    ExecNode::alloc_resource(state);
 
     RETURN_IF_ERROR(Expr::open(_fn_ctxs, state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_vfn_ctxs, state));
@@ -115,7 +116,6 @@ Status TableFunctionNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(fn->open());
     }
 
-    RETURN_IF_ERROR(_children[0]->open(state));
     return Status::OK();
 }
 
@@ -198,7 +198,7 @@ bool TableFunctionNode::_roll_table_functions(int last_eos_idx) {
 // And the inner loop is to expand the row by table functions, and output row by row.
 Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     const RowDescriptor& parent_rowdesc = row_batch->row_desc();
     const RowDescriptor& child_rowdesc = _children[0]->row_desc();
@@ -379,21 +379,6 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
     }
 
     return Status::OK();
-}
-
-Status TableFunctionNode::close(RuntimeState* state) {
-    if (is_closed()) {
-        return Status::OK();
-    }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "TableFunctionNode::close");
-    Expr::close(_fn_ctxs, state);
-    vectorized::VExpr::close(_vfn_ctxs, state);
-
-    if (_num_rows_filtered_counter != nullptr) {
-        COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
-    }
-
-    return ExecNode::close(state);
 }
 
 }; // namespace doris

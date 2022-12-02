@@ -17,12 +17,11 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.List;
 
 /**
@@ -38,16 +37,16 @@ public class CircleDetector {
     // record the node in certain order, named i2n in paper
     List<Integer> nodes = new ArrayList<>();
     // stored the dependency of each node
-    List<BitSet> directedEdges = new ArrayList<>();
+    List<Long> directedEdges = new ArrayList<>();
     // the nodes are after than this node
-    List<BitSet> subNodes = new ArrayList<>();
+    List<Long> subNodes = new ArrayList<>();
 
     CircleDetector(int size) {
         for (int i = 0; i < size; i++) {
             orders.add(i);
             nodes.add(i);
-            directedEdges.add(Bitmap.newBitmap());
-            subNodes.add(Bitmap.newBitmap(i));
+            directedEdges.add(LongBitmap.newBitmap());
+            subNodes.add(LongBitmap.newBitmap(i));
         }
     }
 
@@ -63,19 +62,21 @@ public class CircleDetector {
         if (checkCircleWithEdge(node1, node2)) {
             return false;
         }
-        Bitmap.set(directedEdges.get(node1), node2);
+        directedEdges.set(node1, LongBitmap.set(directedEdges.get(node1), node2));
         int order1 = orders.get(node1);
         int order2 = orders.get(node2);
         if (order1 >= order2) {
             shift(order2, order1 + 1, subNodes.get(node2));
         }
-        for (BitSet nodes : subNodes) {
-            // add all subNodes which contains node1 into subNodes of node2.
-            if (Bitmap.get(nodes, node1)) {
-                Bitmap.or(nodes, subNodes.get(node2));
+        int size = subNodes.size();
+        for (int i = 0; i < size; i++) {
+            // add the subNodes which contains node1 with subNodes of node2.
+            long nodes = subNodes.get(i);
+            if (LongBitmap.get(nodes, node1)) {
+                subNodes.set(i, LongBitmap.or(nodes, subNodes.get(node2)));
             }
         }
-        Bitmap.or(subNodes.get(node1), subNodes.get(node2));
+        subNodes.set(node1, LongBitmap.or(subNodes.get(node1), subNodes.get(node2)));
         return true;
     }
 
@@ -86,13 +87,14 @@ public class CircleDetector {
      * @param node2 the end node of the edge
      */
     public void deleteDirectedEdge(int node1, int node2) {
-        Preconditions.checkArgument(Bitmap.get(directedEdges.get(node1), node2),
+        Preconditions.checkArgument(LongBitmap.get(directedEdges.get(node1), node2),
                 String.format("The edge %d -> %d is not existed", node1, node2));
-        for (BitSet nodes : subNodes) {
-            Bitmap.clear(nodes);
+        int size = subNodes.size();
+        for (int i = 0; i < size; i++) {
+            subNodes.set(i, LongBitmap.newBitmap());
         }
 
-        int size = orders.size();
+        size = orders.size();
         for (int i = 0; i < size; i++) {
             getSubNodes(i);
         }
@@ -111,30 +113,30 @@ public class CircleDetector {
      */
     public boolean checkCircleWithEdge(int node1, int node2) {
         // return true when there is a circle
-        return Bitmap.get(subNodes.get(node2), node1);
+        return LongBitmap.get(subNodes.get(node2), node1);
     }
 
-    private BitSet getSubNodes(int node) {
-        if (Bitmap.getCardinality(subNodes.get(node)) != 0) {
+    private long getSubNodes(int node) {
+        if (LongBitmap.getCardinality(subNodes.get(node)) != 0) {
             return subNodes.get(node);
         }
 
-        for (int nextNode : Bitmap.getIterator(directedEdges.get(node))) {
+        for (int nextNode : LongBitmap.getIterator(directedEdges.get(node))) {
             Preconditions.checkArgument(orders.get(nextNode) > orders.get(node),
                     String.format("node %d must come after node %d", nextNode, node));
-            Bitmap.or(subNodes.get(node), getSubNodes(nextNode));
+            subNodes.set(node, LongBitmap.or(subNodes.get(node), getSubNodes(nextNode)));
         }
         return subNodes.get(node);
     }
 
-    private void shift(int startOrder, int endOrder, BitSet visited) {
+    private void shift(int startOrder, int endOrder, long visited) {
         // Reorder the nodes between order1 and order2. We always keep the nodes visited comes
         // before the other nodes and their relative order is not changed. Because those two parts
         // is not connected, we can do it safely.
         List<Integer> shiftNodes = new ArrayList<>();
         for (int o = startOrder; o < endOrder; o++) {
             int node = nodes.get(o);
-            if (Bitmap.get(visited, node)) {
+            if (LongBitmap.get(visited, node)) {
                 shiftNodes.add(node);
             } else {
                 // the relative orders of visited nodes are not changed
@@ -158,7 +160,7 @@ public class CircleDetector {
         StringBuilder builder = new StringBuilder();
         int size = directedEdges.size();
         for (int i = 0; i < size; i++) {
-            if (Bitmap.getCardinality(directedEdges.get(i)) != 0) {
+            if (LongBitmap.getCardinality(directedEdges.get(i)) != 0) {
                 builder.append(String.format("%d -> %s; ", i, directedEdges.get(i)));
             }
         }

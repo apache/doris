@@ -1,0 +1,112 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+---
+name: BE Code Checks
+
+on: [push, pull_request]
+
+jobs:
+  clang-format:
+    name: "Clang Formatter"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/src/**'
+              - 'be/test/**'
+
+      - name: "Format it!"
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/clang-format-lint-action
+        id: be_clang_format
+        with:
+          source: "be/src be/test"
+          clangFormatVersion: 15
+          inplace: False
+
+      - name: Ignore it!
+        if: ${{ steps.filter.outputs.be_changes == 'false' }}
+        run: echo 'No need to check.'
+
+  clang-tidy:
+    name: "Clang Tidy"
+    runs-on: ubuntu-22.04
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths Filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
+
+      - name: Generate compile_commands.json
+        if: ${{ github.event_name == 'pull_request' && steps.filter.outputs.be_changes == 'true'}}
+        run: |
+          export DEFAULT_DIR='/opt/doris'
+
+          mkdir "${DEFAULT_DIR}"
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.14.2/ldb_toolchain_gen.sh \
+            -q -O /tmp/ldb_toolchain_gen.sh
+          bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
+
+          sudo apt update
+          sudo apt upgrade --yes
+          sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
+
+          # set timezone
+          sudo ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+          sudo dpkg-reconfigure --frontend noninteractive tzdata
+
+          pushd thirdparty
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+            -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          popd
+
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+          DISABLE_JAVA_UDF=ON DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
+
+      - name: Run clang-tidy review
+        if: ${{ github.event_name == 'pull_request' && steps.filter.outputs.be_changes == 'true'}}
+        uses: ./.github/actions/clang-tidy-review
+        id: review
+        with:
+          build_dir: ./be/build_Release
+
+      - if: steps.review.outputs.total_comments > 0
+        run: exit 1

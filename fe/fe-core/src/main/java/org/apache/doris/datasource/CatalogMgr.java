@@ -85,6 +85,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         initInternalCatalog();
     }
 
+    public static CatalogMgr read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
+    }
+
     private void initInternalCatalog() {
         internalCatalog = new InternalCatalog();
         addCatalog(internalCatalog);
@@ -269,7 +274,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
-            if (!catalog.getType().equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
+            if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
+                    .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
@@ -477,11 +483,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    public static CatalogMgr read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
     @Override

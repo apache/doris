@@ -19,6 +19,10 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+namespace doris::pipeline {
+class OlapScanOperator;
+}
+
 namespace doris::vectorized {
 
 class NewOlapScanner;
@@ -26,6 +30,7 @@ class NewOlapScanNode : public VScanNode {
 public:
     NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     friend class NewOlapScanner;
+    friend class doris::pipeline::OlapScanOperator;
 
     Status prepare(RuntimeState* state) override;
 

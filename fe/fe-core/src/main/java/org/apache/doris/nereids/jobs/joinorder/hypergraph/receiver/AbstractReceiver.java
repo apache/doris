@@ -20,20 +20,19 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.memo.Group;
 
-import java.util.BitSet;
 import java.util.List;
 
 /**
  * A interface of receiver
  */
 public interface AbstractReceiver {
-    public boolean emitCsgCmp(BitSet csg, BitSet cmp, List<Edge> edges);
+    public boolean emitCsgCmp(long csg, long cmp, List<Edge> edges);
 
-    public void addGroup(BitSet bitSet, Group group);
+    public void addGroup(long bitSet, Group group);
 
-    public boolean contain(BitSet bitSet);
+    public boolean contain(long bitSet);
 
     public void reset();
 
-    public Group getBestPlan(BitSet bitSet);
+    public Group getBestPlan(long bitSet);
 }

@@ -22,12 +22,19 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.stats.StatsCalculator;
 
 /**
  * Job to derive stats for {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
 public class DeriveStatsJob extends Job {
+    private static final EventProducer STATS_STATE_TRACER = new EventProducer(
+            StatsStateEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(StatsStateEvent.class, EventChannel.LOG)));
     private final GroupExpression groupExpression;
     private boolean deriveChildren;
 
@@ -56,6 +63,7 @@ public class DeriveStatsJob extends Job {
 
     @Override
     public void execute() {
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
         if (!deriveChildren) {
             deriveChildren = true;
             pushJob(new DeriveStatsJob(this));
@@ -66,6 +74,8 @@ public class DeriveStatsJob extends Job {
             }
         } else {
             StatsCalculator.estimate(groupExpression);
+            STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
+                    groupExpression.getOwnerGroup().getStatistics()));
         }
     }
 }

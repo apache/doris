@@ -74,7 +74,8 @@ public:
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1,
-                      RuntimeProfile* profile = nullptr);
+                      RuntimeProfile* profile = nullptr,
+                      const std::string& profile_counter_name = "PeakMemoryUsage");
 
     ~MemTrackerLimiter();
 

@@ -27,6 +27,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -36,6 +37,16 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected int backendNum() {
         return 3;
+    }
+
+    @Override
+    protected void beforeCluster() {
+        FeConstants.runningUnitTest = true;
+    }
+
+    @BeforeAll
+    public void beforeClass() {
+        FeConstants.runningUnitTest = true;
     }
 
     @Override

@@ -186,7 +186,6 @@ public:
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
-    Status submit_quick_compaction_task(TabletSharedPtr tablet);
     Status submit_seg_compaction_task(BetaRowsetWriter* writer,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -266,8 +265,6 @@ private:
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
-
-    Status _handle_quick_compaction(TabletSharedPtr);
 
     void _adjust_compaction_thread_num();
 
@@ -366,7 +363,6 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
