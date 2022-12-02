@@ -68,7 +68,6 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
 }
 
 MemTrackerLimiter::~MemTrackerLimiter() {
-    consume(_untracked_mem);
     // mem hook record tracker cannot guarantee that the final consumption is 0,
     // nor can it guarantee that the memory alloc and free are recorded in a one-to-one correspondence.
     // In order to ensure `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`
