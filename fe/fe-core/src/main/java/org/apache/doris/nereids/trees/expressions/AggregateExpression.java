@@ -69,7 +69,16 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
     @Override
     public AggregateExpression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new AggregateExpression(function, aggregateParam, children.get(0));
+        Expression child = children.get(0);
+        if (!aggregateParam.aggregateMode.consumeAggregateBuffer) {
+            Preconditions.checkArgument(child instanceof AggregateFunction,
+                    "when aggregateMode is " + aggregateParam.aggregateMode.name()
+                            + ", the child of AggregateExpression should be AggregateFunction, but "
+                            + child.getClass());
+            return new AggregateExpression((AggregateFunction) child, aggregateParam);
+        } else {
+            return new AggregateExpression(function, aggregateParam, child);
+        }
     }
 
     @Override
@@ -80,7 +89,7 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
 
     @Override
     public String toString() {
-        if (aggregateParam.aggregateMode.productAggregateBuffer) {
+        if (aggregateParam.aggregateMode.consumeAggregateBuffer) {
             String functionName = function.getName();
             return functionName + "(buffer " + child().toString() + ")";
         } else {
