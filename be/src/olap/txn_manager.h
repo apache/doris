@@ -79,7 +79,7 @@ public:
                           const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
     OLAPStatus publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                           TTransactionId transaction_id, const Version& version);
+                           TTransactionId transaction_id, const Version& version, PublishStatistic* stat = nullptr);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     OLAPStatus rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -103,7 +103,7 @@ public:
     // not persist rowset meta because
     OLAPStatus publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                           const Version& version);
+                           const Version& version, PublishStatistic* stat = nullptr);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     OLAPStatus rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,

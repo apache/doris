@@ -308,6 +308,7 @@ CONF_mInt64(row_step_for_compaction_merge_log, "0");
 // Threshold to logging compaction trace, in seconds.
 CONF_mInt32(base_compaction_trace_threshold, "60");
 CONF_mInt32(cumulative_compaction_trace_threshold, "10");
+CONF_mInt32(publish_task_trace_threshold, "2");
 CONF_mBool(disable_compaction_trace_log, "true");
 
 // Threshold to logging agent task trace, in seconds.
@@ -553,7 +554,7 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-CONF_Int32(tablet_map_shard_size, "1");
+CONF_Int32(tablet_map_shard_size, "4");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
