@@ -48,6 +48,7 @@ using std::shared_ptr;
 using std::unique_lock;
 
 namespace doris {
+using namespace ErrorCode;
 
 BufferedBlockMgr2::BlockMgrsMap BufferedBlockMgr2::_s_query_to_block_mgrs;
 SpinLock BufferedBlockMgr2::_s_block_mgrs_lock;
@@ -784,7 +785,7 @@ void BufferedBlockMgr2::write_complete(Block* block, const Status& write_status)
                   << write_status << ", status=" << status << ". _is_cancelled=" << _is_cancelled;
 
         // If the instance is already cancelled, don't confuse things with these errors.
-        if (!write_status.is<E_CANCELLED>() && !state->is_cancelled()) {
+        if (!write_status.is<CANCELLED>() && !state->is_cancelled()) {
             if (!write_status.ok()) {
                 // Report but do not attempt to recover from write error.
                 DCHECK(block->_tmp_file != nullptr);

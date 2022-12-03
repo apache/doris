@@ -21,6 +21,7 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
         : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
@@ -29,7 +30,7 @@ BaseCompaction::~BaseCompaction() {}
 
 Status BaseCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);

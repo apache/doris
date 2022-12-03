@@ -26,6 +26,7 @@
 #include "olap/file_helper.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class TestByteBuffer : public testing::Test {
 public:
@@ -98,11 +99,11 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     EXPECT_EQ(Status::OK(), buf1->set_limit(11));
     EXPECT_EQ(11u, buf1->limit());
     EXPECT_EQ(11u, buf1->position());
-    EXPECT_EQ(Status::Error<E_INVALID_ARGUMENT>(), buf1->set_limit(101));
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(), buf1->set_limit(101));
     EXPECT_EQ(Status::OK(), buf1->set_position(10));
     EXPECT_EQ(Status::OK(), buf1->get(&byte));
     EXPECT_EQ('x', byte);
-    EXPECT_EQ(Status::Error<E_INVALID_ARGUMENT>(), buf1->set_position(12));
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(), buf1->set_position(12));
 
     SAFE_DELETE(buf1);
 }

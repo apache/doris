@@ -32,6 +32,7 @@
 #include "util/file_utils.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";
@@ -178,7 +179,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
     std::vector<std::string> dbs;
     Status status = FileUtils::list_files(env, path, &dbs);
     // path may not exist
-    if (!status.ok() && !status.is<E_NOT_FOUND>()) {
+    if (!status.ok() && !status.is<NOT_FOUND>()) {
         LOG(WARNING) << "scan one path to delete directory failed. path=" << path;
         return;
     }

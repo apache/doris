@@ -28,6 +28,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 namespace vectorized {
 VStatisticsIterator::~VStatisticsIterator() {
@@ -292,7 +293,7 @@ Status VMergeIteratorContext::_load_next_block() {
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {
             _valid = false;
-            if (st.is<E_END_OF_FILE>()) {
+            if (st.is<END_OF_FILE>()) {
                 return Status::OK();
             } else {
                 return st;
@@ -381,7 +382,7 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
 Status VUnionIterator::next_batch(Block* block) {
     while (_cur_iter != nullptr) {
         auto st = _cur_iter->next_batch(block);
-        if (st.is<E_END_OF_FILE>()) {
+        if (st.is<END_OF_FILE>()) {
             delete _cur_iter;
             _origin_iters.pop_front();
             if (!_origin_iters.empty()) {

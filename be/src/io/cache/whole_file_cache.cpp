@@ -21,6 +21,7 @@
 #include "olap/iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace io {
 
 const static std::string WHOLE_FILE_CACHE_NAME = "WHOLE_FILE_CACHE";

@@ -30,6 +30,7 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
         : _context(nullptr), _rowset(std::move(rowset)), _stats(&_owned_stats) {
@@ -272,9 +273,9 @@ Status BetaRowsetReader::next_block(RowBlock** block) {
     {
         auto s = _iterator->next_batch(_input_block.get());
         if (!s.ok()) {
-            if (s.is<E_END_OF_FILE>()) {
+            if (s.is<END_OF_FILE>()) {
                 *block = nullptr;
-                return Status::Error<E_END_OF_FILE>();
+                return Status::Error<END_OF_FILE>();
             }
             LOG(WARNING) << "failed to read next block: " << s.to_string();
             return Status::Error<ROWSET_READ_FAILED>();
@@ -297,8 +298,8 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
         do {
             auto s = _iterator->next_batch(block);
             if (!s.ok()) {
-                if (s.is<E_END_OF_FILE>()) {
-                    return Status::Error<E_END_OF_FILE>();
+                if (s.is<END_OF_FILE>()) {
+                    return Status::Error<END_OF_FILE>();
                 } else {
                     LOG(WARNING) << "failed to read next block: " << s.to_string();
                     return Status::Error<ROWSET_READ_FAILED>();
@@ -315,9 +316,9 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
                 {
                     auto s = _iterator->next_batch(_input_block.get());
                     if (!s.ok()) {
-                        if (s.is<E_END_OF_FILE>()) {
+                        if (s.is<END_OF_FILE>()) {
                             if (is_first) {
-                                return Status::Error<E_END_OF_FILE>();
+                                return Status::Error<END_OF_FILE>();
                             } else {
                                 break;
                             }
@@ -353,8 +354,8 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
         do {
             auto s = _iterator->next_block_view(block_view);
             if (!s.ok()) {
-                if (s.is<E_END_OF_FILE>()) {
-                    return Status::Error<E_END_OF_FILE>();
+                if (s.is<END_OF_FILE>()) {
+                    return Status::Error<END_OF_FILE>();
                 } else {
                     LOG(WARNING) << "failed to read next block: " << s.to_string();
                     return Status::Error<ROWSET_READ_FAILED>();

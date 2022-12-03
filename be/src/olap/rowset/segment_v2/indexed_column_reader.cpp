@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace segment_v2 {
 
 using strings::Substitute;
@@ -174,7 +175,7 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
         std::string encoded_key;
         _reader->_value_key_coder->full_encode_ascending(key, &encoded_key);
         Status st = _value_iter.seek_at_or_before(encoded_key);
-        if (st.is<E_NOT_FOUND>()) {
+        if (st.is<NOT_FOUND>()) {
             // all keys in page is greater than `encoded_key`, point to the first page.
             // otherwise, we may missing some pages.
             // For example, the predicate is `col1 > 2`, and the index page is [3,5,7].
@@ -203,7 +204,7 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     // seek inside data page
     Status st = _data_page.data_decoder->seek_at_or_after_value(key, exact_match);
     // return the first row of next page when not found
-    if (st.is<E_NOT_FOUND>() && _reader->_has_index_page) {
+    if (st.is<NOT_FOUND>() && _reader->_has_index_page) {
         if (_value_iter.has_next()) {
             _seeked = true;
             *exact_match = false;

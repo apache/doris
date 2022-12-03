@@ -33,6 +33,7 @@ using std::unordered_map;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                           uint64_t shard_id, uint32_t next_unique_id,
@@ -295,7 +296,7 @@ Status TabletMeta::create_from_file(const string& file_path) {
 
     if (file_handler.open(file_path, O_RDONLY) != Status::OK()) {
         LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
@@ -371,14 +372,14 @@ Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta
 
     if (!file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR)) {
         LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     try {
         file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return Status::Error<E_INTERNAL_ERROR>();
+        return Status::Error<ErrorCode::INTERNAL_ERROR>();
     }
 
     if (file_header.prepare(&file_handler) != Status::OK() ||

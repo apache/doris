@@ -30,6 +30,7 @@
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
         : _tablet(tablet),

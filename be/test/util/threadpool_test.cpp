@@ -61,6 +61,7 @@ using strings::Substitute;
 DECLARE_int32(thread_inject_start_latency_ms);
 
 namespace doris {
+using namespace ErrorCode;
 
 static const char* kDefaultPoolName = "test";
 
@@ -288,8 +289,7 @@ TEST_F(ThreadPoolTest, TestMaxQueueSize) {
     EXPECT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch)).ok());
     EXPECT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch)).ok());
     Status s = _pool->submit(SlowTask::new_slow_task(&latch));
-    CHECK(s.is<E_SERVICE_UNAVAILABLE>())
-            << "Expected failure due to queue blowout:" << s.to_string();
+    CHECK(s.is<SERVICE_UNAVAILABLE>()) << "Expected failure due to queue blowout:" << s.to_string();
     latch.count_down();
     _pool->wait();
     _pool->shutdown();
@@ -309,7 +309,7 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
         EXPECT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch)).ok());
     }
     Status s = _pool->submit(SlowTask::new_slow_task(&latch));
-    EXPECT_TRUE(s.is<E_SERVICE_UNAVAILABLE>()) << s.to_string();
+    EXPECT_TRUE(s.is<SERVICE_UNAVAILABLE>()) << s.to_string();
     latch.count_down();
     _pool->wait();
     _pool->shutdown();
@@ -496,7 +496,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenShutdown) {
     t1->shutdown();
 
     // We can no longer submit to t1 but we can still submit to t2.
-    EXPECT_TRUE(t1->submit_func([]() {}).is<E_SERVICE_UNAVAILABLE>());
+    EXPECT_TRUE(t1->submit_func([]() {}).is<SERVICE_UNAVAILABLE>());
     EXPECT_TRUE(t2->submit_func([]() {}).ok());
 
     // Unblock t2's tasks.
@@ -574,7 +574,7 @@ TEST_F(ThreadPoolTest, TestFuzz) {
                 // Sleep a little first to increase task overlap.
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
             });
-            EXPECT_TRUE(s.ok() || s.is<E_SERVICE_UNAVAILABLE>());
+            EXPECT_TRUE(s.ok() || s.is<SERVICE_UNAVAILABLE>());
         } else if (op < 85) {
             // Allocate a token with a randomly selected policy.
             ThreadPool::ExecutionMode mode = r.Next() % 2 ? ThreadPool::ExecutionMode::SERIAL
@@ -633,7 +633,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmissionsAdhereToMaxQueueSize) {
     EXPECT_TRUE(t->submit(SlowTask::new_slow_task(&latch)).ok());
     EXPECT_TRUE(t->submit(SlowTask::new_slow_task(&latch)).ok());
     Status s = t->submit(SlowTask::new_slow_task(&latch));
-    EXPECT_TRUE(s.is<E_SERVICE_UNAVAILABLE>());
+    EXPECT_TRUE(s.is<SERVICE_UNAVAILABLE>());
 }
 
 TEST_F(ThreadPoolTest, TestTokenConcurrency) {
@@ -742,7 +742,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
                     // Sleep a little first so that tasks are running during other events.
                     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
                 });
-                CHECK(s.ok() || s.is<E_SERVICE_UNAVAILABLE>());
+                CHECK(s.ok() || s.is<SERVICE_UNAVAILABLE>());
                 num_tokens_submitted++;
             }
             total_num_tokens_submitted += num_tokens_submitted;

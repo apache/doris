@@ -33,6 +33,7 @@
 using namespace std;
 
 namespace doris {
+using namespace ErrorCode;
 
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
@@ -407,20 +408,20 @@ TEST_F(TestTablet, rowset_tree_update) {
 
     RowLocation loc;
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("99", &rowset_ids, &loc, 7).is<E_NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("99", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 3).is<E_NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 3).is<NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
     LOG(INFO) << tablet->lookup_row_key("101", &rowset_ids, &loc, 7).to_string();
     ASSERT_TRUE(tablet->lookup_row_key("101", &rowset_ids, &loc, 7).is<ROWSET_LOAD_FAILED>());
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is<E_NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("201", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     ASSERT_TRUE(tablet->lookup_row_key("300", &rowset_ids, &loc, 7).is<ROWSET_LOAD_FAILED>());
     // Key not in range.
-    ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is<E_NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("499", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Version too low.
-    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is<E_NOT_FOUND>());
+    ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 7).is<NOT_FOUND>());
     // Hit a segment, but since we don't have real data, return an internal error when loading the
     // segment.
     ASSERT_TRUE(tablet->lookup_row_key("500", &rowset_ids, &loc, 8).is<ROWSET_LOAD_FAILED>());

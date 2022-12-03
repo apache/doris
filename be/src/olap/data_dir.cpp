@@ -57,6 +57,7 @@
 using strings::Substitute;
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
@@ -147,7 +148,7 @@ Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, in
         } else {
             *cluster_id = -1;
         }
-    } else if (exist_status.is<E_NOT_FOUND>()) {
+    } else if (exist_status.is<NOT_FOUND>()) {
         *cluster_id = -1;
     } else {
         RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -176,7 +177,7 @@ Status DataDir::_init_capacity() {
     auto data_path = fmt::format("{}/{}", _path, DATA_PREFIX);
     Status exist_status = Env::Default()->path_exists(data_path);
     if (!exist_status.ok() &&
-        (!exist_status.is<E_NOT_FOUND>() || !Env::Default()->create_dirs(data_path).ok())) {
+        (!exist_status.is<NOT_FOUND>() || !Env::Default()->create_dirs(data_path).ok())) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::IOError("failed to create data root path {}", data_path),
                 "create_dirs failed");

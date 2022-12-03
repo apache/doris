@@ -25,6 +25,7 @@
 #include "util/time.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class MemtableFlushTask final : public Runnable {
 public:
@@ -58,8 +59,8 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 }
 
 Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
-    ErrorCode s = _flush_status.load();
-    if (s != E_OK) {
+    auto s = _flush_status.load();
+    if (s != OK) {
         return Status::Error(s);
     }
     int64_t submit_task_time = MonotonicNanos();
@@ -74,14 +75,14 @@ void FlushToken::cancel() {
 
 Status FlushToken::wait() {
     _flush_token->wait();
-    ErrorCode s = _flush_status.load();
-    return s == E_OK ? Status::OK() : Status::Error(s);
+    auto s = _flush_status.load();
+    return s == OK ? Status::OK() : Status::Error(s);
 }
 
 void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
     // If previous flush has failed, return directly
-    if (_flush_status.load() != E_OK) {
+    if (_flush_status.load() != OK) {
         return;
     }
 
@@ -92,8 +93,8 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
     }
     // If s is not ok, ignore the code, just use other code is ok
-    _flush_status.store(s.ok() ? E_OK : E_INTERNAL_ERROR);
-    if (_flush_status.load() != E_OK) {
+    _flush_status.store(s.ok() ? OK : ErrorCode::INTERNAL_ERROR);
+    if (_flush_status.load() != OK) {
         return;
     }
 

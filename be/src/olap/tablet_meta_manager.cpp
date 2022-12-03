@@ -45,6 +45,7 @@ using rocksdb::Status;
 using rocksdb::kDefaultColumnFamilyName;
 
 namespace doris {
+using namespace ErrorCode;
 
 // should use tablet->generate_tablet_meta_copy() method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta

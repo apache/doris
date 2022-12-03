@@ -67,6 +67,7 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 using std::pair;
 using std::nothrow;
@@ -1717,7 +1718,7 @@ Status Tablet::cooldown() {
     }
     auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
     DCHECK(dest_fs->type() == io::FileSystemType::S3);
     auto old_rowset = pick_cooldown_rowset();
@@ -1919,7 +1920,7 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
         auto& segments = segment_cache_handle.get_segments();
         DCHECK_GT(segments.size(), rs.second);
         Status s = segments[rs.second]->lookup_row_key(encoded_key, &loc);
-        if (s.is<E_NOT_FOUND>()) {
+        if (s.is<NOT_FOUND>()) {
             continue;
         }
         if (!s.ok()) {
@@ -2005,21 +2006,21 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                                            loc.row_id);
                         ++row_id;
                         continue;
-                    } else if (st.is<E_ALREADY_EXIST>()) {
+                    } else if (st.is<ALREADY_EXIST>()) {
                         delete_bitmap->add({rowset_id, seg->id(), dummy_version.first}, row_id);
                         ++row_id;
                         continue;
                     }
                 }
                 auto st = lookup_row_key(*key, specified_rowset_ids, &loc, dummy_version.first - 1);
-                CHECK(st.ok() || st.is<E_NOT_FOUND>() || st.is<E_ALREADY_EXIST>());
-                if (st.is<E_NOT_FOUND>()) {
+                CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
+                if (st.is<NOT_FOUND>()) {
                     ++row_id;
                     continue;
                 }
 
                 // sequence id smaller than the previous one, so delete current row
-                if (st.is<E_ALREADY_EXIST>()) {
+                if (st.is<ALREADY_EXIST>()) {
                     loc.rowset_id = rowset_id;
                     loc.segment_id = seg->id();
                     loc.row_id = row_id;
@@ -2047,8 +2048,8 @@ Status Tablet::_check_pk_in_pre_segments(
         const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
         auto st = (*it)->lookup_row_key(key, loc);
-        CHECK(st.ok() || st.is<E_NOT_FOUND>() || st.is<E_ALREADY_EXIST>());
-        if (st.is<E_NOT_FOUND>()) {
+        CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
+        if (st.is<NOT_FOUND>()) {
             continue;
         } else if (st.ok() && _schema->has_sequence_col() &&
                    delete_bitmap->contains({loc->rowset_id, loc->segment_id, version.first},

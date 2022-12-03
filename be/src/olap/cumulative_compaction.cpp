@@ -22,6 +22,7 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
         : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}

@@ -38,6 +38,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class StorageEngine;
 
@@ -52,7 +53,7 @@ BetaRowsetWriter::BetaRowsetWriter()
           _total_index_size(0),
           _raw_num_rows_written(0),
           _is_doing_segcompaction(false) {
-    _segcompaction_status.store(E_OK);
+    _segcompaction_status.store(OK);
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -306,7 +307,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         auto status = reader_ptr->next_batch(&block);
         row_count += block.rows();
         if (status != Status::OK()) {
-            if (LIKELY(status.is<E_END_OF_FILE>())) {
+            if (LIKELY(status.is<END_OF_FILE>())) {
                 RETURN_NOT_OK_LOG(_add_block_for_segcompaction(&block, &writer),
                                   "write block failed");
                 break;
@@ -370,7 +371,7 @@ void BetaRowsetWriter::compact_segments(SegCompactionCandidatesSharedPtr segment
                          << " tablet_id:" << _context.tablet_id
                          << " rowset_id:" << _context.rowset_id << " status:" << status;
             // status will be checked by the next trigger of segcompaction or the final wait
-            _segcompaction_status.store(E_INTERNAL_ERROR);
+            _segcompaction_status.store(ErrorCode::INTERNAL_ERROR);
         }
     }
     DCHECK_EQ(_is_doing_segcompaction, true);
@@ -499,7 +500,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
         !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
-    if (_segcompaction_status.load() != E_OK) {
+    if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>();
     } else if ((_num_segment - _segcompacted_point) >=
                config::segcompaction_threshold_segment_num) {
@@ -529,7 +530,7 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     if (!config::enable_segcompaction || !config::enable_storage_vectorization) {
         return Status::OK();
     }
-    if (_segcompaction_status.load() != E_OK) {
+    if (_segcompaction_status.load() != OK) {
         return Status::Error<SEGCOMPACTION_FAILED>();
     }
     if (!_is_segcompacted() || _segcompacted_point == _num_segment) {
@@ -710,7 +711,7 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
     if (elapsed >= MICROS_PER_SEC) {
         LOG(INFO) << "wait flying segcompaction finish time:" << elapsed << "us";
     }
-    if (_segcompaction_status.load() != E_OK) {
+    if (_segcompaction_status.load() != OK) {
         return Status::Error<SEGCOMPACTION_FAILED>();
     }
     return Status::OK();

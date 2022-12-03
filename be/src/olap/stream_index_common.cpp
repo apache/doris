@@ -21,6 +21,7 @@
 #include "olap/wrapper_field.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 ColumnStatistics::ColumnStatistics()
         : _minimum(nullptr), _maximum(nullptr), _ignored(true), _null_supported(false) {}

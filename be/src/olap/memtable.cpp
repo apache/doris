@@ -31,6 +31,7 @@
 #include "vec/core/field.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
@@ -459,7 +460,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     if (_skip_list) {
         Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);
-        if (st.is<E_NOT_IMPLEMENTED_ERROR>()) {
+        if (st.is<NOT_IMPLEMENTED_ERROR>()) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
             Table::Iterator it(_skip_list.get());

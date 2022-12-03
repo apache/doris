@@ -34,6 +34,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 using io::FileCacheManager;
 
@@ -246,7 +247,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
             LOG(WARNING) << "file already exist: " << dst_path;
             return Status::Error<FILE_ALREADY_EXIST>();
         }
-        if (!status.is<E_NOT_FOUND>()) {
+        if (!status.is<NOT_FOUND>()) {
             LOG(WARNING) << "file check exist error: " << dst_path;
             return Status::Error<OS_ERROR>();
         }

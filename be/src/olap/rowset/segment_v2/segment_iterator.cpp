@@ -34,6 +34,7 @@
 #include "util/simd/bits.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace segment_v2 {
 
 // A fast range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
@@ -519,7 +520,7 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     Status status = index_iterator->seek_at_or_after(&index_key, &exact_match);
     if (UNLIKELY(!status.ok())) {
         *rowid = num_rows();
-        if (status.is<E_NOT_FOUND>()) {
+        if (status.is<NOT_FOUND>()) {
             return Status::OK();
         }
         return status;

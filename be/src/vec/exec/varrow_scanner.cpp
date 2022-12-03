@@ -26,6 +26,7 @@
 #include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 VArrowScanner::VArrowScanner(RuntimeState* state, RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params,
@@ -83,7 +84,7 @@ Status VArrowScanner::_open_next_reader() {
         Status status =
                 _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
 
-        if (status.is<E_END_OF_FILE>()) {
+        if (status.is<END_OF_FILE>()) {
             continue;
         } else {
             if (!status.ok()) {
@@ -199,7 +200,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
     {
         Status st = _init_arrow_batch_if_necessary();
         if (!st.ok()) {
-            if (!st.is<E_END_OF_FILE>()) {
+            if (!st.is<END_OF_FILE>()) {
                 return st;
             }
             *eof = true;
@@ -223,7 +224,7 @@ Status VArrowScanner::get_next(vectorized::Block* block, bool* eof) {
             continue;
         }
         // return error if not EOF
-        if (!status.is<E_END_OF_FILE>()) {
+        if (!status.is<END_OF_FILE>()) {
             return status;
         }
         _cur_file_eof = true;

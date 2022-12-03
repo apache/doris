@@ -79,6 +79,7 @@ using std::vector;
 using strings::Substitute;
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
@@ -834,7 +835,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
         }
     } catch (...) {
         LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root;
-        res = Status::Error<E_IO_ERROR>();
+        res = Status::Error<IO_ERROR>();
     }
 
     return res;

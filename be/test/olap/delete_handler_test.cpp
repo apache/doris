@@ -41,6 +41,7 @@ using namespace doris;
 using google::protobuf::RepeatedPtrField;
 
 namespace doris {
+using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;

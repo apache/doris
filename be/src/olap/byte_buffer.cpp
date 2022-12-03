@@ -23,6 +23,7 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 StorageByteBuffer::StorageByteBuffer()
         : _array(nullptr), _capacity(0), _limit(0), _position(0), _is_mmap(false) {}

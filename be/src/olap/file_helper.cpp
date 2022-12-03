@@ -34,6 +34,7 @@
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 FileHandler::FileHandler() : _fd(-1), _wr_length(0), _file_name("") {}
 
@@ -47,7 +48,7 @@ Status FileHandler::open(const string& file_name, int flag) {
     }
 
     if (!this->close()) {
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     _fd = ::open(file_name.c_str(), flag);
@@ -59,7 +60,7 @@ Status FileHandler::open(const string& file_name, int flag) {
         if (errno == EEXIST) {
             return Status::Error<FILE_ALREADY_EXIST>();
         }
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "success to open file. file_name=" << file_name << ", mode=" << flag
@@ -74,7 +75,7 @@ Status FileHandler::open_with_mode(const string& file_name, int flag, int mode) 
     }
 
     if (!this->close()) {
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     _fd = ::open(file_name.c_str(), flag, mode);
@@ -86,7 +87,7 @@ Status FileHandler::open_with_mode(const string& file_name, int flag, int mode) 
         if (errno == EEXIST) {
             return Status::Error<FILE_ALREADY_EXIST>();
         }
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "success to open file. file_name=" << file_name << ", mode=" << mode
@@ -119,7 +120,7 @@ Status FileHandler::close() {
         char errmsg[64];
         LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' fd=" << _fd << "]";
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "finished to close file. "
@@ -141,7 +142,7 @@ Status FileHandler::pread(void* buf, size_t size, size_t offset) {
             LOG(WARNING) << "failed to pread from file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << size
                          << " offset=" << offset << "]";
-            return Status::Error<E_IO_ERROR>();
+            return Status::Error<IO_ERROR>();
         } else if (0 == rd_size) {
             char errmsg[64];
             LOG(WARNING) << "read unenough from file. [err= " << strerror_r(errno, errmsg, 64)
@@ -169,13 +170,13 @@ Status FileHandler::write(const void* buf, size_t buf_size) {
             LOG(WARNING) << "failed to write to file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << "]";
-            return Status::Error<E_IO_ERROR>();
+            return Status::Error<IO_ERROR>();
         } else if (0 == wr_size) {
             char errmsg[64];
             LOG(WARNING) << "write unenough to file. [err=" << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << "]";
-            return Status::Error<E_IO_ERROR>();
+            return Status::Error<IO_ERROR>();
         }
 
         buf_size -= wr_size;
@@ -208,13 +209,13 @@ Status FileHandler::pwrite(const void* buf, size_t buf_size, size_t offset) {
             LOG(WARNING) << "failed to pwrite to file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << " offset=" << offset << "]";
-            return Status::Error<E_IO_ERROR>();
+            return Status::Error<IO_ERROR>();
         } else if (0 == wr_size) {
             char errmsg[64];
             LOG(WARNING) << "pwrite unenough to file. [err= " << strerror_r(errno, errmsg, 64)
                          << " file_name='" << _file_name << "' fd=" << _fd << " size=" << buf_size
                          << " offset=" << offset << "]";
-            return Status::Error<E_IO_ERROR>();
+            return Status::Error<IO_ERROR>();
         }
 
         buf_size -= wr_size;
@@ -249,7 +250,7 @@ Status FileHandlerWithBuf::open(const string& file_name, const char* mode) {
     }
 
     if (!this->close()) {
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     _fp = ::fopen(file_name.c_str(), mode);
@@ -261,7 +262,7 @@ Status FileHandlerWithBuf::open(const string& file_name, const char* mode) {
         if (errno == EEXIST) {
             return Status::Error<FILE_ALREADY_EXIST>();
         }
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     VLOG_NOTICE << "success to open file. "
@@ -284,7 +285,7 @@ Status FileHandlerWithBuf::close() {
         char errmsg[64];
         LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "']";
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     _fp = nullptr;
@@ -295,7 +296,7 @@ Status FileHandlerWithBuf::close() {
 Status FileHandlerWithBuf::read(void* buf, size_t size) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     size_t rd_size = ::fread(buf, 1, size, _fp);
@@ -312,14 +313,14 @@ Status FileHandlerWithBuf::read(void* buf, size_t size) {
         char errmsg[64];
         LOG(WARNING) << "failed to read from file. [err=" << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << size << "]";
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 }
 
 Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     if (0 != ::fseek(_fp, offset, SEEK_SET)) {
@@ -327,7 +328,7 @@ Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
         LOG(WARNING) << "failed to seek file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << size << " offset=" << offset
                      << "]";
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     return this->read(buf, size);
@@ -336,7 +337,7 @@ Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
 Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     size_t wr_size = ::fwrite(buf, 1, buf_size, _fp);
@@ -345,7 +346,7 @@ Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
         char errmsg[64];
         LOG(WARNING) << "failed to write to file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << buf_size << "]";
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     return Status::OK();
@@ -354,7 +355,7 @@ Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
 Status FileHandlerWithBuf::pwrite(const void* buf, size_t buf_size, size_t offset) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
         LOG(WARNING) << "Fail to write, fp is nullptr!";
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     if (0 != ::fseek(_fp, offset, SEEK_SET)) {
@@ -362,7 +363,7 @@ Status FileHandlerWithBuf::pwrite(const void* buf, size_t buf_size, size_t offse
         LOG(WARNING) << "failed to seek file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << _file_name << "' size=" << buf_size
                      << " offset=" << offset << "]";
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     return this->write(buf, buf_size);

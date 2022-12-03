@@ -12,8 +12,8 @@
 namespace doris {
 
 Status::Status(const TStatus& s) {
-    _code = static_cast<ErrorCode>(s.status_code);
-    if (s.status_code != TStatusCode::OK) {
+    _code = static_cast<int>(s.status_code);
+    if (_code != ErrorCode::OK) {
         if (!s.error_msgs.empty()) {
             if (_err_msg == nullptr) {
                 _err_msg = std::make_unique<ErrMsg>();
@@ -29,8 +29,8 @@ Status::Status(const TStatus& s) {
 }
 
 Status::Status(const PStatus& s) {
-    _code = (ErrorCode)s.status_code();
-    if (_code != E_OK) {
+    _code = s.status_code();
+    if (_code != ErrorCode::OK) {
         if (s.error_msgs_size() > 0) {
             if (_err_msg == nullptr) {
                 _err_msg = std::make_unique<ErrMsg>();

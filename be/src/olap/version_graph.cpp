@@ -26,6 +26,7 @@
 #include "util/time.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 void TimestampedVersionTracker::_construct_versioned_tracker(
         const std::vector<RowsetMetaSharedPtr>& rs_metas) {
@@ -563,7 +564,7 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specified version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     int64_t cur_idx = -1;

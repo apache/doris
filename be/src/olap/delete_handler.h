@@ -89,7 +89,7 @@ public:
     //     * version: maximum version
     // return:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
-    //     * Status::Error<E_MEM_ALLOC_FAILED>(): alloc memory failed
+    //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
     Status init(TabletSchemaSPtr tablet_schema,
                 const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version);
 

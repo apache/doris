@@ -32,6 +32,7 @@
 #include "io/s3_writer.h"
 
 namespace doris {
+using namespace ErrorCode;
 static const std::string AK = "";
 static const std::string SK = "";
 static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
@@ -89,13 +90,13 @@ TEST_F(S3ReaderTest, normal) {
     EXPECT_TRUE(st.ok());
     std::unique_ptr<S3Writer> writer1(new S3Writer(_aws_properties, path, 0));
     st = writer1->open();
-    EXPECT_TRUE(st.is<E_ALREADY_EXIST>());
+    EXPECT_TRUE(st.is<ALREADY_EXIST>());
     std::unique_ptr<S3Reader> reader(new S3Reader(_aws_properties, path, 0));
     st = reader->open();
     EXPECT_TRUE(st.ok());
     std::unique_ptr<S3Reader> reader1(new S3Reader(_aws_properties, path + "xx", 0));
     st = reader1->open();
-    EXPECT_TRUE(st.is<E_NOT_FOUND>());
+    EXPECT_TRUE(st.is<NOT_FOUND>());
     EXPECT_EQ(_content.length(), reader->size());
     std::string verification_contents;
     verification_contents.resize(_content.length());

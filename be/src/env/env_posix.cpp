@@ -38,6 +38,7 @@
 #include "util/slice.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 using std::string;
 using strings::Substitute;
@@ -600,7 +601,7 @@ Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
     }
 
     // Check that dirname is actually a directory.
-    if (s.is<E_ALREADY_EXIST>()) {
+    if (s.is<ALREADY_EXIST>()) {
         bool is_dir = false;
         RETURN_IF_ERROR(is_directory(dirname, &is_dir));
         if (is_dir) {

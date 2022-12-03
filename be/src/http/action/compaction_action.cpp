@@ -35,6 +35,7 @@
 #include "olap/storage_engine.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 const static std::string HEADER_JSON = "application/json";
 

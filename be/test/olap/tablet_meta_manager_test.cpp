@@ -35,6 +35,7 @@
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 const std::string meta_path = "./be/test/olap/test_data/header_without_inc_rs.txt";
 

@@ -22,6 +22,7 @@
 #include "olap/iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace io {
 
 Status FileCache::download_cache_to_local(const Path& cache_file, const Path& cache_done_file,

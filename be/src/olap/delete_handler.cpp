@@ -47,6 +47,7 @@ using std::smatch;
 using google::protobuf::RepeatedPtrField;
 
 namespace doris {
+using namespace ErrorCode;
 
 Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                                                 const std::vector<TCondition>& conditions,

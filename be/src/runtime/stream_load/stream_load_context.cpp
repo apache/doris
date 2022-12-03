@@ -20,6 +20,7 @@
 #include <sstream>
 
 namespace doris {
+using namespace ErrorCode;
 
 std::string StreamLoadContext::to_json() const {
     rapidjson::StringBuffer s;
@@ -41,13 +42,13 @@ std::string StreamLoadContext::to_json() const {
     // status
     writer.Key("Status");
     switch (status.code()) {
-    case E_OK:
+    case OK:
         writer.String("Success");
         break;
-    case E_PUBLISH_TIMEOUT:
+    case PUBLISH_TIMEOUT:
         writer.String("Publish Timeout");
         break;
-    case E_LABEL_ALREADY_EXISTS:
+    case LABEL_ALREADY_EXISTS:
         writer.String("Label Already Exists");
         writer.Key("ExistingJobStatus");
         writer.String(existing_job_status.c_str());
@@ -267,10 +268,10 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
     bool show_ok = true;
     writer.Key("status");
     switch (status.code()) {
-    case E_OK:
+    case OK:
         writer.String("Success");
         break;
-    case E_PUBLISH_TIMEOUT:
+    case PUBLISH_TIMEOUT:
         // treat PUBLISH_TIMEOUT as OK in mini load
         writer.String("Success");
         break;

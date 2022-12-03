@@ -49,6 +49,7 @@ using std::vector;
 using std::list;
 
 namespace doris {
+using namespace ErrorCode;
 
 SnapshotManager* SnapshotManager::_s_instance = nullptr;
 std::mutex SnapshotManager::_mlock;
@@ -69,7 +70,7 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     TabletSharedPtr ref_tablet =
@@ -277,7 +278,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     RowsetSharedPtr new_rowset = rs_writer->build();
     if (new_rowset == nullptr) {
         LOG(WARNING) << "failed to build rowset when rename rowset id";
-        return Status::Error<E_MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     RETURN_NOT_OK(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
@@ -292,7 +293,7 @@ Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, in
     Status res = Status::OK();
     if (out_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     // get current timestamp string
@@ -348,7 +349,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     // snapshot_id_path:
@@ -391,7 +392,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             LOG(WARNING) << "fail to malloc TabletMeta.";
-            res = Status::Error<E_MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
         std::vector<RowsetSharedPtr> consistent_rowsets;
@@ -449,7 +450,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         LOG(WARNING) << "invalid make snapshot request. "
                                      << " version=" << last_version->end_version()
                                      << " req_version=" << request.version;
-                        res = Status::Error<E_INVALID_ARGUMENT>();
+                        res = Status::Error<INVALID_ARGUMENT>();
                         break;
                     }
                     version = request.version;

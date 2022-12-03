@@ -31,6 +31,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
@@ -249,14 +250,14 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 
 void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool* consumer_pool,
                                         ExecFinishCallback cb) {
-#define HANDLE_ERROR(stmt, err_msg)                                          \
-    do {                                                                     \
-        Status _status_ = (stmt);                                            \
-        if (UNLIKELY(!_status_.ok() && !_status_.is<E_PUBLISH_TIMEOUT>())) { \
-            err_handler(ctx, _status_, err_msg);                             \
-            cb(ctx);                                                         \
-            return;                                                          \
-        }                                                                    \
+#define HANDLE_ERROR(stmt, err_msg)                                        \
+    do {                                                                   \
+        Status _status_ = (stmt);                                          \
+        if (UNLIKELY(!_status_.ok() && !_status_.is<PUBLISH_TIMEOUT>())) { \
+            err_handler(ctx, _status_, err_msg);                           \
+            cb(ctx);                                                       \
+            return;                                                        \
+        }                                                                  \
     } while (false);
 
     LOG(INFO) << "begin to execute routine load task: " << ctx->brief();

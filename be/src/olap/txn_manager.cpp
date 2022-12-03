@@ -70,6 +70,7 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
         : _txn_map_shard_size(txn_map_shard_size), _txn_shard_size(txn_shard_size) {

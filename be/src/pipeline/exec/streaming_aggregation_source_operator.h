@@ -16,6 +16,8 @@
 // under the License.
 #pragma once
 
+#include <atomic>
+
 #include "agg_context.h"
 #include "operator.h"
 

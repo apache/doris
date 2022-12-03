@@ -31,6 +31,7 @@
 #include "olap/utils.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 const std::string ROWSET_PREFIX = "rst_";
 
@@ -54,7 +55,7 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     } else if (!s.ok()) {
         std::string error_msg = "load rowset id:" + key + " failed.";
         LOG(WARNING) << error_msg;
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
     bool ret = rowset_meta->init(value);
     if (!ret) {

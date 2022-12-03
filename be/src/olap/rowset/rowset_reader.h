@@ -50,8 +50,8 @@ public:
 
     // read next block data into *block.
     // Returns
-    //      E_OK when read successfully.
-    //      Status::Error<E_END_OF_FILE>() and set *block to null when there is no more block.
+    //      OK when read successfully.
+    //      Status::Error<END_OF_FILE>() and set *block to null when there is no more block.
     //      Others when error happens.
     virtual Status next_block(RowBlock** block) = 0;
 

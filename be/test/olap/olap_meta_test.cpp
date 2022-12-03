@@ -33,6 +33,7 @@
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 class OlapMetaTest : public testing::Test {
 public:

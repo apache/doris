@@ -18,6 +18,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 namespace vectorized {
 
@@ -313,7 +314,7 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         Status st = _iter->next_batch(_block.get());
         if (!st.ok()) {
             _valid = false;
-            if (st.is<E_END_OF_FILE>()) {
+            if (st.is<END_OF_FILE>()) {
                 return Status::OK();
             } else {
                 return st;
@@ -417,7 +418,7 @@ Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
     DCHECK(_row_sources_buf);
     auto st = _row_sources_buf->has_remaining();
     if (!st.ok()) {
-        if (st.is<E_END_OF_FILE>()) {
+        if (st.is<END_OF_FILE>()) {
             for (auto iter : _origin_iter_ctx) {
                 RETURN_IF_ERROR(iter->advance());
                 DCHECK(!iter->valid());
@@ -469,7 +470,7 @@ Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef
         }
         st = _row_sources_buf->has_remaining();
     }
-    if (st.is<E_END_OF_FILE>()) {
+    if (st.is<END_OF_FILE>()) {
         for (auto iter : _origin_iter_ctx) {
             RETURN_IF_ERROR(iter->advance());
             DCHECK(!iter->valid());
@@ -497,7 +498,7 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
         rows += same_source_cnt;
         st = _row_sources_buf->has_remaining();
     }
-    if (st.is<E_END_OF_FILE>()) {
+    if (st.is<END_OF_FILE>()) {
         for (auto iter : _origin_iter_ctx) {
             RETURN_IF_ERROR(iter->advance());
             DCHECK(!iter->valid());

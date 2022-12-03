@@ -57,6 +57,7 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 

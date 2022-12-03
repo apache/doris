@@ -42,6 +42,7 @@ using rocksdb::kDefaultColumnFamilyName;
 using rocksdb::NewFixedPrefixTransform;
 
 namespace doris {
+using namespace ErrorCode;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 

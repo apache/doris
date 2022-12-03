@@ -24,6 +24,7 @@
 #include "util/path_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 extern MetricPrototype METRIC_query_scan_bytes;
 extern MetricPrototype METRIC_query_scan_rows;

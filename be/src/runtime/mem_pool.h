@@ -277,7 +277,7 @@ private:
     Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret) {
         uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment);
         if (result == nullptr) {
-            return Status::Error<E_MEM_ALLOC_FAILED>();
+            return Status::Error<ErrorCode::MEM_ALLOC_FAILED>();
         }
         ret = result;
         return Status::OK();

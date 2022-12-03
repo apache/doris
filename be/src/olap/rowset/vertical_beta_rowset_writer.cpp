@@ -20,6 +20,7 @@
 #include "olap/rowset/beta_rowset.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {

@@ -35,6 +35,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 // Process push command, the main logical is as follows:
 //    a. related tablets not exist:
@@ -214,7 +215,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             std::unique_ptr<PushBrokerReader> reader(new (std::nothrow) PushBrokerReader());
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name();
-                res = Status::Error<E_MEM_ALLOC_FAILED>();
+                res = Status::Error<MEM_ALLOC_FAILED>();
                 break;
             }
 
@@ -222,7 +223,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
                 LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
-                res = Status::Error<E_MEM_ALLOC_FAILED>();
+                res = Status::Error<MEM_ALLOC_FAILED>();
                 break;
             }
 
@@ -277,7 +278,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         *cur_rowset = rowset_writer->build();
         if (*cur_rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";
-            res = Status::Error<E_MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
@@ -311,7 +312,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
             if (!(res = raw_file.init(_request.http_file_path.c_str()))) {
                 LOG(WARNING) << "failed to read raw file. res=" << res
                              << ", file=" << _request.http_file_path;
-                res = Status::Error<E_INVALID_ARGUMENT>();
+                res = Status::Error<INVALID_ARGUMENT>();
                 break;
             }
 
@@ -333,7 +334,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name()
                              << ", file=" << _request.http_file_path;
-                res = Status::Error<E_MEM_ALLOC_FAILED>();
+                res = Status::Error<MEM_ALLOC_FAILED>();
                 break;
             }
 
@@ -405,7 +406,7 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_ro
 
         if (*cur_rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";
-            res = Status::Error<E_MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
@@ -423,7 +424,7 @@ Status BinaryFile::init(const char* path) {
     // open file
     if (!open(path, "rb")) {
         LOG(WARNING) << "fail to open file. file=" << path;
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
 
     // load header
@@ -461,13 +462,13 @@ Status BinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
         _row_buf = new (std::nothrow) char[_row_buf_size];
         if (_row_buf == nullptr) {
             LOG(WARNING) << "fail to malloc one row buf. size=" << _row_buf_size;
-            res = Status::Error<E_MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
         if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
             LOG(WARNING) << "skip header, seek fail.";
-            res = Status::Error<E_IO_ERROR>();
+            res = Status::Error<IO_ERROR>();
             break;
         }
 
@@ -492,7 +493,7 @@ Status BinaryReader::next(RowCursor* row) {
 
     if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     const TabletSchema& schema = *_tablet_schema;
@@ -603,13 +604,13 @@ Status LzoBinaryReader::init(TabletSchemaSPtr tablet_schema, BinaryFile* file) {
         _row_info_buf = new (std::nothrow) char[row_info_buf_size];
         if (_row_info_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows info buf. size=" << row_info_buf_size;
-            res = Status::Error<E_MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>();
             break;
         }
 
         if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
             LOG(WARNING) << "skip header, seek fail.";
-            res = Status::Error<E_IO_ERROR>();
+            res = Status::Error<IO_ERROR>();
             break;
         }
 
@@ -636,7 +637,7 @@ Status LzoBinaryReader::next(RowCursor* row) {
 
     if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     if (_row_num == 0) {
@@ -741,7 +742,7 @@ Status LzoBinaryReader::_next_block() {
         _row_buf = new (std::nothrow) char[_max_row_buf_size];
         if (_row_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows buf. size=" << _max_row_buf_size;
-            res = Status::Error<E_MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>();
             return res;
         }
     }
@@ -754,7 +755,7 @@ Status LzoBinaryReader::_next_block() {
         _row_compressed_buf = new (std::nothrow) char[_max_compressed_buf_size];
         if (_row_compressed_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows compressed buf. size=" << _max_compressed_buf_size;
-            res = Status::Error<E_MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>();
             return res;
         }
     }
@@ -924,7 +925,7 @@ Status PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, boo
 
 Status PushBrokerReader::next(ContiguousRow* row) {
     if (!_ready || row == nullptr) {
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     memset(_tuple, 0, _tuple_desc->num_null_bytes());

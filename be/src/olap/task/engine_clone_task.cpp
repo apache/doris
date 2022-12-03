@@ -41,6 +41,7 @@ using strings::Split;
 using strings::SkipWhitespace;
 
 namespace doris {
+using namespace ErrorCode;
 
 const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
 const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";

@@ -29,6 +29,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 ExchangeNode::ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
@@ -125,7 +126,7 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
     }
     VLOG_FILE << "exch: has batch=" << (_input_batch == nullptr ? "false" : "true")
               << " #rows=" << (_input_batch != nullptr ? _input_batch->num_rows() : 0)
-              << " is_cancelled=" << (ret_status.is<E_CANCELLED>() ? "true" : "false")
+              << " is_cancelled=" << (ret_status.is<CANCELLED>() ? "true" : "false")
               << " instance_id=" << state->fragment_instance_id();
     return ret_status;
 }

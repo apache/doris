@@ -43,6 +43,7 @@
 using std::nothrow;
 
 namespace doris {
+using namespace ErrorCode;
 
 constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
 
@@ -580,19 +581,19 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                                          const uint64_t* filtered_rows) const {
     if (mutable_block == nullptr) {
         LOG(FATAL) << "mutable block is uninitialized.";
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     } else if (mutable_block->tablet_schema()->num_columns() != _schema_mapping.size()) {
         LOG(WARNING) << "mutable block does not match with schema mapping rules. "
                      << "block_schema_size=" << mutable_block->tablet_schema()->num_columns()
                      << ", mapping_schema_size=" << _schema_mapping.size();
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     if (mutable_block->capacity() < ref_block->row_block_info().row_num) {
         LOG(WARNING) << "mutable block is not large enough for storing the changed block. "
                      << "mutable_block_size=" << mutable_block->capacity()
                      << ", ref_block_row_num=" << ref_block->row_block_info().row_num;
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     mutable_block->clear();
@@ -600,13 +601,13 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
     RowCursor write_helper;
     if (write_helper.init(mutable_block->tablet_schema()) != Status::OK()) {
         LOG(WARNING) << "fail to init rowcursor.";
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     RowCursor read_helper;
     if (read_helper.init(ref_block->tablet_schema()) != Status::OK()) {
         LOG(WARNING) << "fail to init rowcursor.";
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     // a.1 First determine whether the data needs to be filtered, and finally only those marked as 1 are left as needed
@@ -784,7 +785,7 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
         LOG(WARNING) << "block does not match with schema mapping rules. "
                      << "block_schema_size=" << new_block->columns()
                      << ", mapping_schema_size=" << _schema_mapping.size();
-        return Status::Error<E_UNINITIALIZED>();
+        return Status::Error<UNINITIALIZED>();
     }
 
     ObjectPool pool;
@@ -1025,7 +1026,7 @@ Status RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool n
 
     if (*row_block == nullptr) {
         LOG(WARNING) << "failed to malloc RowBlock. size=" << sizeof(RowBlock);
-        return Status::Error<E_MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
 
     RowBlockInfo row_block_info(0U, num_rows);
@@ -1263,7 +1264,7 @@ Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
         _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), 0);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
-            return Status::Error<E_INVALID_ARGUMENT>();
+            return Status::Error<INVALID_ARGUMENT>();
         }
     }
 
@@ -1271,12 +1272,12 @@ Status SchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader,
         _cursor = new (nothrow) RowCursor();
         if (nullptr == _cursor) {
             LOG(WARNING) << "fail to allocate row cursor.";
-            return Status::Error<E_INVALID_ARGUMENT>();
+            return Status::Error<INVALID_ARGUMENT>();
         }
 
         if (!_cursor->init(new_tablet->tablet_schema())) {
             LOG(WARNING) << "fail to init row cursor.";
-            return Status::Error<E_INVALID_ARGUMENT>();
+            return Status::Error<INVALID_ARGUMENT>();
         }
     }
 
@@ -1380,7 +1381,7 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
                 new (nothrow) RowBlockAllocator(new_tablet->tablet_schema(), _memory_limitation);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
-            return Status::Error<E_INVALID_ARGUMENT>();
+            return Status::Error<INVALID_ARGUMENT>();
         }
     }
 
@@ -1424,7 +1425,7 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
         // that mean RowBlockAllocator::alocate() memory exceeded.
         // But we can flush row_block_arr if row_block_arr is not empty.
         // Don't return directly.
-        if (st.is<E_MEM_ALLOC_FAILED>()) {
+        if (st.is<MEM_ALLOC_FAILED>()) {
             return st;
         } else if (st) {
             // do memory check for sorting, in case schema change task fail at row block sorting because of
@@ -1603,7 +1604,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
                              << " _memory_limitation=" << _memory_limitation
                              << ", new_block->allocated_bytes()=" << new_block->allocated_bytes()
                              << ", consumption=" << _mem_tracker->consumption();
-                return Status::Error<E_INVALID_ARGUMENT>();
+                return Status::Error<INVALID_ARGUMENT>();
             }
         }
         _mem_tracker->consume(new_block->allocated_bytes());
@@ -1729,7 +1730,7 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 
 Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
     if (!request.__isset.desc_tbl) {
-        return Status::Error<E_INVALID_ARGUMENT>().append(
+        return Status::Error<INVALID_ARGUMENT>().append(
                 "desc_tbl is not set. Maybe the FE version is not equal to the BE "
                 "version.");
     }
@@ -2400,7 +2401,7 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
     column_mapping->default_value = WrapperField::create(column_schema);
 
     if (column_mapping->default_value == nullptr) {
-        return Status::Error<E_MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
 
     if (column_schema.is_nullable() && value.length() == 0) {

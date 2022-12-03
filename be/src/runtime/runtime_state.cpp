@@ -42,6 +42,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 // for ut only
 RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
@@ -266,7 +267,7 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
             _process_status = Status::MemoryLimitExceeded(msg);
         }
     }
-    DCHECK(_process_status.is<E_MEM_LIMIT_EXCEEDED>());
+    DCHECK(_process_status.is<MEM_LIMIT_EXCEEDED>());
     return _process_status;
 }
 

@@ -68,6 +68,7 @@ using std::vector;
 using strings::Substitute;
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "tablet_meta"}}));

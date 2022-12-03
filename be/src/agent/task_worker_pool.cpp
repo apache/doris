@@ -56,6 +56,7 @@
 #include "util/trace.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
@@ -554,7 +555,7 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         }
     }
 
-    if (!status.ok() && !status.is<E_NOT_IMPLEMENTED_ERROR>()) {
+    if (!status.ok() && !status.is<NOT_IMPLEMENTED_ERROR>()) {
         LOG_WARNING("failed to {}", process_name)
                 .tag("signature", agent_task_req.signature)
                 .tag("base_tablet_id", agent_task_req.alter_tablet_req_v2.base_tablet_id)

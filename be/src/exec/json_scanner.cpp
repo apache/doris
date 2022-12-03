@@ -28,6 +28,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
@@ -623,7 +624,7 @@ Status JsonReader::_handle_simple_json(Tuple* tuple, const std::vector<SlotDescr
         if (_next_line >= _total_lines) { // parse json and generic document
             size_t size = 0;
             Status st = _parse_json_doc(&size, eof);
-            if (st.is<E_DATA_QUALITY_ERROR>()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);     // terminate if encounter other errors
@@ -765,7 +766,7 @@ Status JsonReader::_handle_nested_complex_json(Tuple* tuple,
     while (true) {
         size_t size = 0;
         Status st = _parse_json_doc(&size, eof);
-        if (st.is<E_DATA_QUALITY_ERROR>()) {
+        if (st.is<DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
@@ -804,7 +805,7 @@ Status JsonReader::_handle_flat_array_complex_json(Tuple* tuple,
         if (_next_line >= _total_lines) {
             size_t size = 0;
             Status st = _parse_json_doc(&size, eof);
-            if (st.is<E_DATA_QUALITY_ERROR>()) {
+            if (st.is<DATA_QUALITY_ERROR>()) {
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);     // terminate if encounter other errors

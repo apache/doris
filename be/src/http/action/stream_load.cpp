@@ -62,6 +62,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_requests_total, MetricUnit::REQUESTS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
@@ -151,14 +152,14 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // status already set to fail
     if (ctx->status.ok()) {
         ctx->status = _handle(ctx);
-        if (!ctx->status.ok() && !ctx->status.is<E_PUBLISH_TIMEOUT>()) {
+        if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
             LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
                          << ", errmsg=" << ctx->status;
         }
     }
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
-    if (!ctx->status.ok() && !ctx->status.is<E_PUBLISH_TIMEOUT>()) {
+    if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
         if (ctx->need_rollback) {
             _exec_env->stream_load_executor()->rollback_txn(ctx);
             ctx->need_rollback = false;

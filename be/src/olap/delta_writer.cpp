@@ -33,6 +33,7 @@
 #include "util/ref_count_closure.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id,
                          bool is_vec) {
@@ -242,7 +243,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
         // This writer is not initialized before flushing. Do nothing
-        // But we return E_OK instead of Status::Error<ALREADY_CANCELLED>(),
+        // But we return OK instead of Status::Error<ALREADY_CANCELLED>(),
         // Because this method maybe called when trying to reduce mem consumption,
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return Status::OK();
@@ -271,7 +272,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 Status DeltaWriter::wait_flush() {
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
-        // return E_OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
+        // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
         // as described in flush_memtable_and_wait()
         return Status::OK();
     }
@@ -360,7 +361,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
         LOG(WARNING) << "fail to build rowset";
-        return Status::Error<E_MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
                                                             _req.load_id, _cur_rowset, false);

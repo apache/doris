@@ -27,6 +27,8 @@
 
 namespace doris {
 
+using namespace ErrorCode;
+
 using std::map;
 
 EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,

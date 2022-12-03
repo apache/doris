@@ -24,6 +24,7 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
@@ -110,7 +111,7 @@ Status ParquetScanner::open_next_reader() {
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
         Status status =
                 _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
-        if (status.is<E_END_OF_FILE>()) {
+        if (status.is<END_OF_FILE>()) {
             continue;
         } else {
             if (!status.ok()) {

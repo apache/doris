@@ -45,7 +45,7 @@ public:
 
     // Read next row into *row.
     // Returns
-    //      Status::Error<E_END_OF_FILE>() and set *row to nullptr when EOF is reached.
+    //      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
     //      Others when error happens
     Status next(const RowCursor** row, bool* delete_flag);
 

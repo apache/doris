@@ -57,6 +57,7 @@ using std::set;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                      size_t* written_len, OLAPCompressionType compression_type) {
@@ -64,7 +65,7 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
                      << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
 
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     *written_len = dest_len;
@@ -134,7 +135,7 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
         LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
                      << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
 
-        return Status::Error<E_INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>();
     }
 
     *written_len = dest_len;
@@ -576,7 +577,7 @@ Status read_write_test_file(const string& test_file_path) {
             LOG(WARNING) << "fail to delete test file. "
                          << "path=" << test_file_path << ", errno=" << errno
                          << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::Error<E_IO_ERROR>();
+            return Status::Error<IO_ERROR>();
         }
     } else {
         if (errno != ENOENT) {
@@ -584,7 +585,7 @@ Status read_write_test_file(const string& test_file_path) {
             LOG(WARNING) << "fail to access test file. "
                          << "path=" << test_file_path << ", errno=" << errno
                          << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::Error<E_IO_ERROR>();
+            return Status::Error<IO_ERROR>();
         }
     }
     Status res = Status::OK();
@@ -600,12 +601,12 @@ Status read_write_test_file(const string& test_file_path) {
     char* read_test_buff = nullptr;
     if (posix_memalign((void**)&write_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate write buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::Error<E_MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     std::unique_ptr<char, decltype(&std::free)> write_buff(write_test_buff, &std::free);
     if (posix_memalign((void**)&read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate read buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::Error<E_MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers
@@ -635,7 +636,7 @@ Status read_write_test_file(const string& test_file_path) {
         char errmsg[64];
         VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64)
                     << "' path='" << test_file_path << "']";
-        return Status::Error<E_IO_ERROR>();
+        return Status::Error<IO_ERROR>();
     }
     return res;
 }

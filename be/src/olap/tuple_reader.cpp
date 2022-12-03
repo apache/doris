@@ -33,6 +33,7 @@ using std::set;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 Status TupleReader::_init_collect_iter(const ReaderParams& read_params,
                                        std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
@@ -51,7 +52,7 @@ Status TupleReader::_init_collect_iter(const ReaderParams& read_params,
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         Status res = _collect_iter.add_child(rs_reader);
-        if (!res.ok() && !res.is<E_END_OF_FILE>()) {
+        if (!res.ok() && !res.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
@@ -110,7 +111,7 @@ Status TupleReader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
     }
     direct_copy_row(row_cursor, *_next_key);
     auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-    if (UNLIKELY(!res.ok() && !res.is<E_END_OF_FILE>())) {
+    if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
     }
     return Status::OK();
@@ -124,7 +125,7 @@ Status TupleReader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem
     }
     init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
     auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-    if (UNLIKELY(!res.ok() && !res.is<E_END_OF_FILE>())) {
+    if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
     }
     if (_need_agg_finalize) {
@@ -143,7 +144,7 @@ Status TupleReader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
     int64_t merged_count = 0;
     do {
         auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-        if (UNLIKELY(res.is<E_END_OF_FILE>())) {
+        if (UNLIKELY(res.is<END_OF_FILE>())) {
             break;
         }
 
@@ -189,7 +190,7 @@ Status TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_poo
         while (_next_key) {
             // skip the lower version rows;
             auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-            if (LIKELY(!res.is<E_END_OF_FILE>())) {
+            if (LIKELY(!res.is<END_OF_FILE>())) {
                 if (UNLIKELY(!res.ok())) {
                     LOG(WARNING) << "next failed: " << res;
                     return res;

@@ -45,6 +45,7 @@ using std::string;
 using std::vector;
 
 namespace doris {
+using namespace ErrorCode;
 
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos)
         : _push_req(push_req), _tablet_infos(tablet_infos) {

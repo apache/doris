@@ -26,6 +26,7 @@
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 Status RowsetFactory::create_rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                                     RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
