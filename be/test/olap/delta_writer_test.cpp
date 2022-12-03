@@ -488,11 +488,12 @@ TEST_F(TestDeltaWriter, write) {
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    PublishStatistic stat;
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version);
+                                                   tablet_rs.first.tablet_uid, version, &stat);
         EXPECT_EQ(OLAP_SUCCESS, res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(OLAP_SUCCESS, res);
@@ -559,11 +560,12 @@ TEST_F(TestDeltaWriter, sequence_col) {
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
+    PublishStatistic stat;
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version);
+                                                   tablet_rs.first.tablet_uid, version, &stat);
         EXPECT_EQ(OLAP_SUCCESS, res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(OLAP_SUCCESS, res);
