@@ -76,6 +76,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final Map<Long, CatalogIf> idToCatalog = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
     private final Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
+    // record last used database of every catalog
+    private final Map<String, String> lastDBOfCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
     // internalDataSource still exists in idToDataSource and nameToDataSource
@@ -144,6 +146,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return getCatalogOrException(name,
                 catalog -> new AnalysisException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
                         ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
+    public void addLastDBOfCatalog(String catalog, String db) {
+        lastDBOfCatalog.put(catalog, db);
+    }
+
+    public String getLastDB(String catalog) {
+        return lastDBOfCatalog.get(catalog);
     }
 
     public List<Long> getCatalogIds() {
