@@ -270,6 +270,9 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         transient_size += 1;
         input_rowsets->push_back(rowset);
     }
+    LOG(INFO) << "condidate rowset size: " << candidate_rowsets.size() << " input rowset size: "
+        << input_rowsets->size() << " total_disk_size: " << total_size
+        << " total_score: " << *compaction_score;
 
     if (total_size >= promotion_size) {
         return transient_size;
@@ -305,7 +308,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         rs_iter = input_rowsets->erase(rs_iter);
     }
 
-    VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
+    LOG(INFO) << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
             << ", total_size = " << total_size << ", calc promotion size value = " << promotion_size
             << ", tablet = " << tablet->full_name() << ", input_rowset size "
             << input_rowsets->size();
