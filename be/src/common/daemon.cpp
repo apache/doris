@@ -121,9 +121,11 @@ void Daemon::tcmalloc_gc_thread() {
 
         int64_t memory_pressure = 0;
         int64_t memory_pressure_no_cache = 0;
+        int64_t rss_pressure = 0;
         int64_t alloc_bytes = std::max(rss, tc_alloc_bytes);
         memory_pressure = alloc_bytes * 100 / physical_limit_bytes;
         memory_pressure_no_cache = (alloc_bytes - tc_cached_bytes) * 100 / physical_limit_bytes;
+        rss_pressure = rss / physical_limit_bytes;
 
         expected_aggressive_decommit = init_aggressive_decommit;
         if (memory_pressure > pressure_limit) {
@@ -132,12 +134,14 @@ void Daemon::tcmalloc_gc_thread() {
             // however, it is hard to set limit on cache of tcmalloc and doris
             // use mmap in vectorized mode.
             // Limit cache capactiy is enough.
-            int64_t min_free_bytes = alloc_bytes - physical_limit_bytes * 9 / 10;
-            to_free_bytes = std::max(to_free_bytes, min_free_bytes);
-            to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 30 / 100);
-            // We assure that we have at least 500M bytes in cache.
-            to_free_bytes = std::min(to_free_bytes, tc_cached_bytes - 500 * 1024 * 1024);
-            expected_aggressive_decommit = (memory_pressure_no_cache > pressure_limit);
+            if (rss_pressure > pressure_limit) {
+                int64_t min_free_bytes = alloc_bytes - physical_limit_bytes * 9 / 10;
+                to_free_bytes = std::max(to_free_bytes, min_free_bytes);
+                to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 30 / 100);
+                // We assure that we have at least 500M bytes in cache.
+                to_free_bytes = std::min(to_free_bytes, tc_cached_bytes - 500 * 1024 * 1024);
+                expected_aggressive_decommit = 1;
+            }
             last_ms = kMaxLastMs;
         } else if (memory_pressure > (pressure_limit - 10)) {
             // In most cases, adjusting release rate is enough, if memory are consumed quickly
@@ -149,7 +153,7 @@ void Daemon::tcmalloc_gc_thread() {
 
         int release_rate_index = memory_pressure / 10;
         double release_rate = 1.0;
-        if (release_rate_index >= sizeof(release_rates)) {
+        if (release_rate_index >= sizeof(release_rates) / sizeof(release_rates[0])) {
             release_rate = 2000.0;
         } else {
             release_rate = release_rates[release_rate_index];
@@ -164,7 +168,7 @@ void Daemon::tcmalloc_gc_thread() {
 
         last_memory_pressure = memory_pressure;
         // We release at least 2% bytes once, frequent releasing hurts performance.
-        if (to_free_bytes > physical_limit_bytes * 2 / 100) {
+        if (to_free_bytes > (physical_limit_bytes * 2 / 100)) {
             last_ms += kIntervalMs;
             if (last_ms >= kMaxLastMs) {
                 LOG(INFO) << "generic.current_allocated_bytes " << tc_used_bytes
