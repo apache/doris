@@ -21,6 +21,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
 ## array_with_constant
 
@@ -71,3 +72,5 @@ mysql> select array_with_constant(3, null);
 ### keywords
 
 ARRAY,WITH_CONSTANT,ARRAY_WITH_CONSTANT
+
+</version>
