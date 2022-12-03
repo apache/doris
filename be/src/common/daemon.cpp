@@ -80,7 +80,7 @@ void Daemon::tcmalloc_gc_thread() {
     double release_rates[10] = {1.0, 1.0, 1.0, 5.0, 5.0, 20.0, 50.0, 100.0, 500.0, 2000.0};
     int64_t pressure_limit = 90;
     bool is_performance_mode = false;
-    size_t physical_limit_bytes =
+    int64_t physical_limit_bytes =
             std::min(MemInfo::physical_mem() - MemInfo::sys_mem_available_low_water_mark(),
                      MemInfo::mem_limit());
 
@@ -115,9 +115,10 @@ void Daemon::tcmalloc_gc_thread() {
                                                         &tc_alloc_bytes);
         MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
                                                         &tc_used_bytes);
-        int64_t tc_cached_bytes = tc_alloc_bytes - tc_used_bytes;
+        int64_t tc_cached_bytes = (int64_t)tc_alloc_bytes - (int64_t)tc_used_bytes;
         int64_t to_free_bytes =
-                (int64_t)tc_cached_bytes - (tc_used_bytes * max_cache_percent / 100);
+                (int64_t)tc_cached_bytes - ((int64_t)tc_used_bytes * max_cache_percent / 100);
+        to_free_bytes = std::max(to_free_bytes, (int64_t)0);
 
         int64_t memory_pressure = 0;
         int64_t rss_pressure = 0;
