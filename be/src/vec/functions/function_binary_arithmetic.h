@@ -105,9 +105,7 @@ struct BinaryOperationImplBase {
 
     static void vector_constant(const PaddedPODArray<A>& a, B b, PaddedPODArray<ResultType>& c) {
         size_t size = a.size();
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = Op::template apply<ResultType>(a[i], b);
-        }
+        for (size_t i = 0; i < size; ++i) c[i] = Op::template apply<ResultType>(a[i], b);
     }
 
     static void vector_constant(const PaddedPODArray<A>& a, B b, PaddedPODArray<ResultType>& c,
