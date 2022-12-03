@@ -248,6 +248,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
 
+    // support unicode in label, table, column, common name check
+    public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -663,6 +666,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NEREIDS_TRACE_EVENT_MODE, checker = "checkNereidsTraceEventMode")
     public String nereidsTraceEventMode = "all";
+
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
+    public boolean enableUnicodeNameSupport = false;
 
     private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
 
@@ -1303,6 +1309,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
+    }
+
+    public boolean isEnableUnicodeNameSupport() {
+        return enableUnicodeNameSupport;
+    }
+
+    public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
+        this.enableUnicodeNameSupport = enableUnicodeNameSupport;
     }
 
     /**
