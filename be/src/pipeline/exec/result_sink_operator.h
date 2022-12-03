@@ -26,43 +26,18 @@ class VResultSink;
 
 namespace pipeline {
 
-class ResultSinkOperator : public Operator {
+class ResultSinkOperatorBuilder final : public DataSinkOperatorBuilder<vectorized::VResultSink> {
 public:
-    ResultSinkOperator(OperatorBuilder* operator_builder, vectorized::VResultSink* sink);
+    ResultSinkOperatorBuilder(int32_t id, DataSink* sink);
 
-    Status init(const TDataSink& tsink) override;
-
-    Status prepare(RuntimeState* state) override;
-
-    Status open(RuntimeState* state) override;
-
-    bool can_write() override;
-
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-
-    Status finalize(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-
-private:
-    vectorized::VResultSink* _sink;
-    bool _finalized = false;
+    OperatorPtr build_operator() override;
 };
 
-class ResultSinkOperatorBuilder : public OperatorBuilder {
+class ResultSinkOperator final : public DataSinkOperator<ResultSinkOperatorBuilder> {
 public:
-    ResultSinkOperatorBuilder(int32_t id, const std::string& name, ExecNode* exec_node,
-                              vectorized::VResultSink* sink)
-            : OperatorBuilder(id, name, exec_node), _sink(sink) {}
+    ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
 
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override {
-        return std::make_shared<ResultSinkOperator>(this, _sink);
-    }
-
-private:
-    vectorized::VResultSink* _sink;
+    bool can_write() override;
 };
 
 } // namespace pipeline

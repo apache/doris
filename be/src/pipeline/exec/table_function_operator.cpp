@@ -15,32 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <utility>
-
-#include "scan_operator.h"
-#include "vec/exec/scan/new_olap_scan_node.h"
+#include "table_function_operator.h"
 
 namespace doris::pipeline {
 
-class OlapScanOperatorBuilder;
-class OlapScanOperator : public ScanOperator {
-public:
-    OlapScanOperator(OperatorBuilder* operator_builder, vectorized::NewOlapScanNode* scan_node);
-};
-
-class OlapScanOperatorBuilder : public ScanOperatorBuilder {
-public:
-    OlapScanOperatorBuilder(uint32_t id, const std::string& name,
-                            vectorized::NewOlapScanNode* new_olap_scan_node);
-
-    OperatorPtr build_operator() override {
-        return std::make_shared<OlapScanOperator>(this, _new_olap_scan_node);
-    }
-
-private:
-    vectorized::NewOlapScanNode* _new_olap_scan_node;
-};
+OPERATOR_CODE_GENERATOR(TableFunctionOperator, DataStateOperator)
 
 } // namespace doris::pipeline

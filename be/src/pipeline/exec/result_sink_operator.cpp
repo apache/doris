@@ -21,49 +21,18 @@
 #include "vec/sink/vresult_sink.h"
 
 namespace doris::pipeline {
-ResultSinkOperator::ResultSinkOperator(OperatorBuilder* operator_builder,
-                                       vectorized::VResultSink* sink)
-        : Operator(operator_builder), _sink(sink) {}
 
-Status ResultSinkOperator::init(const TDataSink& tsink) {
-    return Status::OK();
+ResultSinkOperatorBuilder::ResultSinkOperatorBuilder(int32_t id, DataSink* sink)
+        : DataSinkOperatorBuilder(id, "ResultSinkOperator", sink) {};
+
+OperatorPtr ResultSinkOperatorBuilder::build_operator() {
+    return std::make_shared<ResultSinkOperator>(this, _sink);
 }
 
-Status ResultSinkOperator::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::prepare(state));
-    return _sink->prepare(state);
-}
-
-Status ResultSinkOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    return _sink->open(state);
-}
+ResultSinkOperator::ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
+        : DataSinkOperator(operator_builder, sink) {};
 
 bool ResultSinkOperator::can_write() {
     return _sink->_sender->can_sink();
-}
-
-Status ResultSinkOperator::sink(RuntimeState* state, vectorized::Block* block,
-                                SourceState source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    if (!block) {
-        DCHECK(source_state == SourceState::FINISHED)
-                << "block is null, eos should invoke in finalize.";
-        return Status::OK();
-    }
-    return _sink->send(state, block);
-}
-
-Status ResultSinkOperator::finalize(RuntimeState* state) {
-    _finalized = true;
-    return _sink->close(state, Status::OK());
-}
-
-// TODO: Support fresh exec time for sink
-Status ResultSinkOperator::close(RuntimeState* state) {
-    if (!_finalized) {
-        RETURN_IF_ERROR(_sink->close(state, Status::InternalError("Not finalized")));
-    }
-    return Status::OK();
 }
 } // namespace doris::pipeline
