@@ -85,7 +85,6 @@ enum ErrorCode : int16_t {
     TABLE_NOT_FOUND = -215,
     TRY_LOCK_FAILED = -216,
     OUT_OF_BOUND = -218,
-    UNDERFLOW = -219,
     FILE_DATA_ERROR = -220,
     TEST_FILE_ERROR = -221,
     INVALID_ROOT_PATH = -222,
