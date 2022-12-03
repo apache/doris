@@ -123,7 +123,7 @@ void Daemon::tcmalloc_gc_thread() {
         int64_t rss_pressure = 0;
         int64_t alloc_bytes = std::max(rss, tc_alloc_bytes);
         memory_pressure = alloc_bytes * 100 / physical_limit_bytes;
-        rss_pressure = rss / physical_limit_bytes;
+        rss_pressure = rss * 100 / physical_limit_bytes;
 
         expected_aggressive_decommit = init_aggressive_decommit;
         if (memory_pressure > pressure_limit) {
