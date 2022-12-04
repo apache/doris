@@ -648,7 +648,8 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         std::shared_lock rdlock(tablets_shard.lock);
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             const TabletSharedPtr& tablet_ptr = tablet_map.second;
-            if (tablet_ptr->should_skip_compaction(compaction_type, UnixSeconds())) {
+            if (config::enable_skip_tablet_compaction &&
+                tablet_ptr->should_skip_compaction(compaction_type, UnixSeconds())) {
                 continue;
             }
             if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
@@ -691,7 +692,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
                     compaction_type, cumulative_compaction_policy);
             if (current_compaction_score < 5) {
-                LOG(INFO) << "tablet set skip compaction, tablet_id: " << tablet_ptr->tablet_id();
                 tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
             }
             if (current_compaction_score > highest_score) {
