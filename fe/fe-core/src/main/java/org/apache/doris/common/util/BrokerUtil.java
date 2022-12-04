@@ -179,43 +179,52 @@ public class BrokerUtil {
                 }
             }
         } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.HDFS) {
-            if (!brokerDesc.getProperties().containsKey(HADOOP_FS_NAME)
-                    || !brokerDesc.getProperties().containsKey(HADOOP_USER_NAME)) {
-                throw new UserException(String.format(
-                    "The properties of hdfs is invalid. %s and %s are needed", HADOOP_FS_NAME, HADOOP_USER_NAME));
-            }
-            String fsName = brokerDesc.getProperties().get(HADOOP_FS_NAME);
-            String userName = brokerDesc.getProperties().get(HADOOP_USER_NAME);
-            Configuration conf = new HdfsConfiguration();
-            boolean isSecurityEnabled = false;
-            for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
-                conf.set(propEntry.getKey(), propEntry.getValue());
-                if (propEntry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
-                        && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
-                    isSecurityEnabled = true;
-                }
-            }
+            ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
             try {
-                if (isSecurityEnabled) {
-                    UserGroupInformation.setConfiguration(conf);
-                    UserGroupInformation.loginUserFromKeytab(
-                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
-                            brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
+                Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+                if (!brokerDesc.getProperties().containsKey(HADOOP_FS_NAME)
+                        || !brokerDesc.getProperties().containsKey(HADOOP_USER_NAME)) {
+                    throw new UserException(String.format(
+                            "The properties of hdfs is invalid. %s and %s are needed", HADOOP_FS_NAME,
+                            HADOOP_USER_NAME));
                 }
-                FileSystem fs = FileSystem.get(new URI(fsName), conf, userName);
-                FileStatus[] statusList = fs.globStatus(new Path(path));
-                if (statusList == null) {
-                    throw new UserException("failed to get files from path: " + path);
-                }
-                for (FileStatus status : statusList) {
-                    if (status.isFile()) {
-                        fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
-                                status.isDirectory(), status.getLen(), status.isFile()));
+                String fsName = brokerDesc.getProperties().get(HADOOP_FS_NAME);
+                String userName = brokerDesc.getProperties().get(HADOOP_USER_NAME);
+                Configuration conf = new HdfsConfiguration();
+                boolean isSecurityEnabled = false;
+                for (Map.Entry<String, String> propEntry : brokerDesc.getProperties().entrySet()) {
+                    conf.set(propEntry.getKey(), propEntry.getValue());
+                    if (propEntry.getKey().equals(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION)
+                            && propEntry.getValue().equals(AuthType.KERBEROS.getDesc())) {
+                        isSecurityEnabled = true;
                     }
                 }
-            } catch (IOException | InterruptedException | URISyntaxException e) {
-                LOG.warn("hdfs check error: ", e);
-                throw new UserException(e.getMessage());
+                conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
+                conf.set("fs.file.impl", org.apache.hadoop.fs.LocalFileSystem.class.getName());
+                try {
+                    if (isSecurityEnabled) {
+                        UserGroupInformation.setConfiguration(conf);
+                        UserGroupInformation.loginUserFromKeytab(
+                                brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL),
+                                brokerDesc.getProperties().get(BrokerUtil.HADOOP_KERBEROS_KEYTAB));
+                    }
+                    FileSystem fs = FileSystem.get(new URI(fsName), conf, userName);
+                    FileStatus[] statusList = fs.globStatus(new Path(path));
+                    if (statusList == null) {
+                        throw new UserException("failed to get files from path: " + path);
+                    }
+                    for (FileStatus status : statusList) {
+                        if (status.isFile()) {
+                            fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
+                                    status.isDirectory(), status.getLen(), status.isFile()));
+                        }
+                    }
+                } catch (IOException | InterruptedException | URISyntaxException e) {
+                    LOG.warn("hdfs check error: ", e);
+                    throw new UserException(e.getMessage());
+                }
+            } finally {
+                Thread.currentThread().setContextClassLoader(classLoader);
             }
         }
     }
@@ -686,3 +695,4 @@ public class BrokerUtil {
 
     }
 }
+
