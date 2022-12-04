@@ -23,9 +23,12 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## countequal
+
+<version since="1.2.0">
+countequal
+</version>
 
 ### description
 
@@ -65,4 +68,3 @@ mysql> select *, countEqual(c_array,5) from array_test;
 
 ARRAY,COUNTEQUAL,
 
-</version>

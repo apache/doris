@@ -23,9 +23,13 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_join
+
+<version since="1.2.0">
+array_join
+</version>
+
 
 ### description
 
@@ -103,5 +107,3 @@ mysql> select k1, k2, array_join(k2, '_') from array_test01 order by k1;
 ### keywords
 
 ARRAY, JOIN, ARRAY_JOIN
-
-</version>

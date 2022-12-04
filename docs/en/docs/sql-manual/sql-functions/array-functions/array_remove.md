@@ -21,9 +21,12 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_remove
+
+<version since="1.2.0">
+array_remove
+</version>
 
 ### description
 
@@ -97,4 +100,3 @@ mysql> select k1, k2, array_remove(k2, k1) from array_type_table_nullable;
 
 ARRAY,REMOVE,ARRAY_REMOVE
 
-</version>

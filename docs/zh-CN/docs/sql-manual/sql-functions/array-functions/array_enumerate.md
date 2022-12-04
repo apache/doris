@@ -26,6 +26,10 @@ under the License.
 
 ## array_enumerate
 
+<version since="1.2.0">
+array_enumerate
+</version>
+
 ### description
 
 返回数组下标, 例如  [1, 2, 3, …, length (arr) ]

@@ -23,9 +23,12 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_union
+
+<version since="1.2.0">
+array_union
+</version>
 
 ### description
 
@@ -89,4 +92,3 @@ mysql> select k1,k2,k3,array_union(k2,k3) from array_type_table_decimal;
 
 ARRAY,UNION,ARRAY_UNION
 
-</version>

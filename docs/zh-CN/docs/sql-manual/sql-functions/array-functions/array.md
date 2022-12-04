@@ -24,6 +24,10 @@ under the License.
 
 ## array()
 
+<version since="1.2.0">
+array()
+</version>
+
 ### description
 
 #### Syntax

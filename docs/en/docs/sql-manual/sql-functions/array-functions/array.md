@@ -21,9 +21,12 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array()
+
+<version since="1.2.0">
+array()
+</version>
 
 ### description
 
@@ -84,4 +87,3 @@ mysql>  select array(qid, creationDate, null) from nested  limit 4;
 
 ARRAY,ARRAY,CONSTRUCTOR
 
-</version>

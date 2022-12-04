@@ -23,9 +23,12 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_min
+
+<version since="1.2.0">
+array_min
+</version>
 
 ### description
 
@@ -55,5 +58,3 @@ mysql> select k2, array_min(k2) from array_type_table;
 ### keywords
 
 ARRAY,MIN,ARRAY_MIN
-
-</version>
