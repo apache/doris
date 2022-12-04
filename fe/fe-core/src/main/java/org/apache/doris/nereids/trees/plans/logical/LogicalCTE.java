@@ -54,6 +54,11 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
         return aliasQueries;
     }
 
+    @Override
+    public List<Plan> extraPlans() {
+        return (List) aliasQueries;
+    }
+
     /**
      * In fact, the action of LogicalCTE is to store and register with clauses, and this logical node will be
      * eliminated immediately after finishing the process of with-clause registry; This process is executed before

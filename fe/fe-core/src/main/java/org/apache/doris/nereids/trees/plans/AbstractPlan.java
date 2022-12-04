@@ -97,7 +97,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public String treeString() {
         return TreeStringUtils.treeString(this,
                 plan -> plan.toString(),
-                plan -> (List) ((Plan) plan).children());
+                plan -> (List) ((Plan) plan).children(),
+                plan -> (List) ((Plan) plan).extraPlans());
     }
 
     @Override

@@ -29,34 +29,42 @@ import java.util.function.Function;
 public class TreeStringUtils {
 
     public static String treeString(Object object, Function<Object, String> objectToString,
-            Function<Object, List<Object>> childSupplier) {
+            Function<Object, List<Object>> childSupplier,
+            Function<Object, List<Object>> extraPlansSupplier) {
         List<String> lines = new ArrayList<>();
-        treeString(lines, 0, new ArrayList<>(), object, objectToString, childSupplier);
+        treeString(lines, new ArrayList<>(), object, objectToString, childSupplier, extraPlansSupplier, false);
         return StringUtils.join(lines, "\n");
     }
 
-    private static void treeString(List<String> lines, int depth, List<Boolean> lastChildren, Object object,
-            Function<Object, String> objectToString, Function<Object, List<Object>> childrenSupplier) {
+    private static void treeString(List<String> lines, List<Boolean> lastChildren, Object object,
+            Function<Object, String> objectToString, Function<Object, List<Object>> childrenSupplier,
+            Function<Object, List<Object>> extraPlansSupplier,
+            boolean extra) {
         StringBuilder sb = new StringBuilder();
-        if (depth > 0) {
-            if (lastChildren.size() > 1) {
-                for (int i = 0; i < lastChildren.size() - 1; i++) {
-                    sb.append(lastChildren.get(i) ? "   " : "|  ");
-                }
-            }
-            if (lastChildren.size() > 0) {
-                Boolean last = lastChildren.get(lastChildren.size() - 1);
-                sb.append(last ? "+--" : "|--");
-            }
+
+        for (int i = 0; i < lastChildren.size() - 1; i++) {
+            sb.append(lastChildren.get(i) ? "   " : "|  ");
         }
+
+        if (lastChildren.size() > 0) {
+            Boolean last = lastChildren.get(lastChildren.size() - 1);
+            sb.append(last ? "+-" : "|-");
+            sb.append(extra ? "*" : "-");
+        }
+
         sb.append(objectToString.apply(object));
         lines.add(sb.toString());
 
+        List<Object> allObjects = new ArrayList<>();
         List<Object> children = childrenSupplier.apply(object);
-        for (int i = 0; i < children.size(); i++) {
+        List<Object> extraPlans = extraPlansSupplier.apply(object);
+        allObjects.addAll(extraPlans);
+        allObjects.addAll(children);
+        for (int i = 0; i < allObjects.size(); i++) {
             List<Boolean> newLasts = new ArrayList<>(lastChildren);
-            newLasts.add(i + 1 == children.size());
-            treeString(lines, depth + 1, newLasts, children.get(i), objectToString, childrenSupplier);
+            newLasts.add(i + 1 == allObjects.size());
+            treeString(lines, newLasts, allObjects.get(i),
+                    objectToString, childrenSupplier, extraPlansSupplier, i < extraPlans.size());
         }
     }
 }

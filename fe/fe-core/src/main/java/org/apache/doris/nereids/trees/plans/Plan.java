@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
@@ -68,6 +69,13 @@ public interface Plan extends TreeNode<Plan> {
 
     default LogicalProperties computeLogicalProperties() {
         throw new IllegalStateException("Not support compute logical properties for " + getClass().getName());
+    }
+
+    /**
+     * Get extra plans.
+     */
+    default List<Plan> extraPlans() {
+        return ImmutableList.of();
     }
 
     /**
