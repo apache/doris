@@ -25,6 +25,9 @@ under the License.
 -->
 
 ## DATEV2
+<version since="1.2">
+JSONB
+</version>
 ### description
     JSONB (JSON Binary) datatype.
         Use binary JSON format for storage and jsonb function to extract field.

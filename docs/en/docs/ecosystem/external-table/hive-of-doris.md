@@ -25,6 +25,7 @@ under the License.
 -->
 
 # Hive External Table of Doris
+<version deprecated="1.2" comment="Please use the multi-directory function to access Hive">
 
 Hive External Table of Doris provides Doris with direct access to Hive external tables, which eliminates the need for cumbersome data import and solves the problem of analyzing Hive tables with the help of Doris' OLAP capabilities: 
 
@@ -33,7 +34,7 @@ Hive External Table of Doris provides Doris with direct access to Hive external 
  3. Support access to kerberos-enabled Hive data sources
 
 This document introduces how to use this feature and the considerations.
-
+</version>
 ## Glossary
 
 ### Noun in Doris

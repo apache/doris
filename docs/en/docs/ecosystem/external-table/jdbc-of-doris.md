@@ -23,7 +23,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
+<version since="1.2.0">
 # JDBC External Table Of Doris
 
 JDBC External Table Of Doris provides Doris to access external tables through the standard interface (JDBC) of database access. External tables save the tedious data import work, allowing Doris to have the ability to access various databases, and with the help of Doris's capabilities to solve data analysis problems with external tables:
@@ -283,3 +283,4 @@ ALTER TABLE table_name CHARSET=utf8mb4;
 SET NAMES utf8mb4
 
 ```
+</version>

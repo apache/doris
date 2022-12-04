@@ -28,7 +28,9 @@ under the License.
 
 ### Name
 
-SWITC
+<version since="1.2">
+SWITCH
+</version>
 
 ### Description
 
