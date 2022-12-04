@@ -645,6 +645,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
+    public boolean enableUnicodeNameSupport = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -666,9 +669,6 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NEREIDS_TRACE_EVENT_MODE, checker = "checkNereidsTraceEventMode")
     public String nereidsTraceEventMode = "all";
-
-    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
-    public boolean enableUnicodeNameSupport = false;
 
     private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
 
