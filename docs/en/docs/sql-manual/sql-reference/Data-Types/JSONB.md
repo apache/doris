@@ -25,7 +25,7 @@ under the License.
 -->
 
 ## DATEV2
-<version since="1.2">
+<version since="1.2.0">
 JSONB
 </version>
 ### description

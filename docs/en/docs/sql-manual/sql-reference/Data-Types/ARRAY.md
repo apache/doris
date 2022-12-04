@@ -25,7 +25,7 @@ under the License.
 -->
 
 ## ARRAY
-<version since="1.2">
+<version since="1.2.0">
 ARRAY
 </version>
 ### description

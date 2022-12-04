@@ -26,7 +26,7 @@ under the License.
 
 # Java UDF
 
-<version since="1.2">
+<version since="1.2.0">
 
 Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言进行自定义函数的执行。相比于 Native 的 UDF 实现，Java UDF 有如下优势和限制：
 1. 优势

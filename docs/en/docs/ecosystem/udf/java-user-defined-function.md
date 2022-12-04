@@ -26,7 +26,7 @@ under the License.
 
 # Java UDF
 
-<version since="1.2">
+<version since="1.2.0">
 Java UDF
 </version>
 

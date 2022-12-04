@@ -26,7 +26,7 @@ under the License.
 
 # Iceberg External Table of Doris
 
-<version deprecated="1.2" comment="Please use the multi-directory function to access Iceberg">
+<version deprecated="1.2.0" comment="Please use the multi-directory function to access Iceberg">
 Iceberg External Table of Doris provides Doris with the ability to access Iceberg external tables directly, eliminating the need for cumbersome data import and leveraging Doris' own OLAP capabilities to solve Iceberg table data analysis problems.
 
  1. support Iceberg data sources to access Doris

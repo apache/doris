@@ -27,7 +27,7 @@ under the License.
 
 # ODBC External Table Of Doris
 
-<version deprecated="1.2" comment="Please use the JDBC External table">
+<version deprecated="1.2.0" comment="Please use the JDBC External table">
 ODBC external table of Doris provides Doris access to external tables through the standard interface for database access (ODBC). The external table eliminates the tedious data import work and enables Doris to have the ability to access all kinds of databases. It solves the data analysis problem of external tables with Doris' OLAP capability.
 
 1. Support various data sources to access Doris
