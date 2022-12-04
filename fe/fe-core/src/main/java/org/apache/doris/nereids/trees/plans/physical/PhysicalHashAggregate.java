@@ -48,7 +48,7 @@ import java.util.Set;
  * Physical hash aggregation plan.
  */
 public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE>
-        implements Aggregate<CHILD_TYPE>, RequestPropertiesSupplier {
+        implements Aggregate<CHILD_TYPE>, RequestPropertiesSupplier<PhysicalHashAggregate<CHILD_TYPE>> {
 
     private final List<Expression> groupByExpressions;
 
@@ -163,6 +163,13 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
+    public PhysicalHashAggregate<Plan> withRequestAndChildren(
+            RequestProperties requestProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return withRequestPropertiesAndChild(requestProperties, children.get(0));
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalHashAggregate(this, context);
     }
@@ -255,6 +262,13 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggPhase, aggMode, usingStream, Optional.empty(), getLogicalProperties(),
                 requestProperties, physicalProperties, statsDeriveResult, child());
+    }
+
+    public <C extends Plan> PhysicalHashAggregate<C> withRequestPropertiesAndChild(
+            RequestProperties requestProperties, C newChild) {
+        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
+                aggPhase, aggMode, usingStream, Optional.empty(), getLogicalProperties(),
+                requestProperties, physicalProperties, statsDeriveResult, newChild);
     }
 
     /** localPhaseRequestProperties */

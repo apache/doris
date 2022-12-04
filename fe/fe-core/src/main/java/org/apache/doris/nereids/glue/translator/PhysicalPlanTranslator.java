@@ -39,6 +39,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -135,6 +136,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     public PlanFragment translatePlan(PhysicalPlan physicalPlan, PlanTranslatorContext context) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
+        if (physicalPlan instanceof PhysicalDistribute) {
+            PhysicalDistribute distribute = (PhysicalDistribute) physicalPlan;
+            DataPartition dataPartition;
+            if (distribute.getPhysicalProperties().equals(PhysicalProperties.GATHER)) {
+                dataPartition = DataPartition.UNPARTITIONED;
+            } else {
+                throw new AnalysisException("Unsupported PhysicalDistribute in the root plan: " + distribute);
+            }
+
+            ExchangeNode exchangeNode = (ExchangeNode) rootFragment.getPlanRoot();
+            PlanFragment currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
+            rootFragment.setOutputPartition(dataPartition);
+            rootFragment.setPlanRoot(exchangeNode.getChild(0));
+            rootFragment.setDestination(exchangeNode);
+            context.addPlanFragment(currentFragment);
+            rootFragment = currentFragment;
+        }
         if (rootFragment.isPartitioned() && rootFragment.getPlanRoot().getNumInstances() > 1) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }

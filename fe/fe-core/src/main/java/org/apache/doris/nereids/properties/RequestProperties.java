@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -48,6 +49,17 @@ public class RequestProperties {
 
     public static RequestProperties followParent() {
         return new RequestProperties(true);
+    }
+
+    public RequestPropertiesTree withChildren(RequestProperties... requestProperties) {
+        List<RequestPropertiesTree> children = Arrays.stream(requestProperties)
+                .map(child -> new RequestPropertiesTree(child, ImmutableList.of()))
+                .collect(ImmutableList.toImmutableList());
+        return new RequestPropertiesTree(this, children);
+    }
+
+    public RequestPropertiesTree withChildren(RequestPropertiesTree... children) {
+        return new RequestPropertiesTree(this, ImmutableList.copyOf(children));
     }
 
     /** computeRequestPhysicalProperties */
@@ -95,5 +107,16 @@ public class RequestProperties {
     @Override
     public int hashCode() {
         return Objects.hash(followParentProperties, properties);
+    }
+
+    /** RequestTree */
+    public static class RequestPropertiesTree {
+        public final RequestProperties requestProperties;
+        public final List<RequestPropertiesTree> children;
+
+        private RequestPropertiesTree(RequestProperties requestProperties, List<RequestPropertiesTree> children) {
+            this.requestProperties = requestProperties;
+            this.children = children;
+        }
     }
 }

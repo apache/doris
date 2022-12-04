@@ -90,8 +90,7 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
 
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
-        boolean isQuery = !(parsedPlan instanceof Command) || (parsedPlan instanceof ExplainCommand);
-        PhysicalProperties requestProperties = isQuery ? PhysicalProperties.GATHER : PhysicalProperties.ANY;
+        PhysicalProperties requestProperties = buildInitRequestProperties(parsedPlan);
         Plan resultPlan = plan(parsedPlan, requestProperties, explainLevel);
         if (explainLevel.isPlanLevel) {
             return;
@@ -150,7 +149,8 @@ public class NereidsPlanner extends Planner {
         // pre-process logical plan out of memo, e.g. process SET_VAR hint
         plan = preprocess(plan);
 
-        initCascadesContext(plan);
+        initCascadesContext(plan, requestProperties);
+
         try (Lock lock = new Lock(plan, cascadesContext)) {
             // resolve column, table and function
             analyze();
@@ -196,8 +196,8 @@ public class NereidsPlanner extends Planner {
         return new PlanPreprocessors(statementContext).process(logicalPlan);
     }
 
-    private void initCascadesContext(LogicalPlan plan) {
-        cascadesContext = CascadesContext.newContext(statementContext, plan);
+    private void initCascadesContext(LogicalPlan plan, PhysicalProperties requestProperties) {
+        cascadesContext = CascadesContext.newContext(statementContext, plan, requestProperties);
     }
 
     private void analyze() {
@@ -339,6 +339,11 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public CascadesContext getCascadesContext() {
         return cascadesContext;
+    }
+
+    public static PhysicalProperties buildInitRequestProperties(Plan initPlan) {
+        boolean isQuery = !(initPlan instanceof Command) || (initPlan instanceof ExplainCommand);
+        return isQuery ? PhysicalProperties.GATHER : PhysicalProperties.ANY;
     }
 
     private ExplainLevel getExplainLevel(ExplainOptions explainOptions) {

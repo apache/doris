@@ -22,12 +22,12 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -166,8 +166,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 // so we should check whether the expression is valid.
                 if (expression instanceof SlotReference) {
                     throw new AnalysisException(expression.toSql() + " in having clause should be grouped by.");
-                } else if (expression instanceof AggregateFunction) {
-                    if (checkWhetherNestedAggregateFunctionsExist((AggregateFunction) expression)) {
+                } else if (expression instanceof AggregateExpression) {
+                    if (checkWhetherNestedAggregateFunctionsExist((AggregateExpression) expression)) {
                         throw new AnalysisException("Aggregate functions in having clause can't be nested: "
                                 + expression.toSql() + ".");
                     }
@@ -217,8 +217,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             return false;
         }
 
-        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateFunction function) {
-            return function.children().stream().anyMatch(child -> child.anyMatch(AggregateFunction.class::isInstance));
+        private boolean checkWhetherNestedAggregateFunctionsExist(AggregateExpression aggregateExpression) {
+            return aggregateExpression.children()
+                    .stream()
+                    .anyMatch(child -> child.anyMatch(AggregateExpression.class::isInstance));
         }
 
         private void generateAliasForNewOutputSlots(Expression expression) {
@@ -259,6 +261,6 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                 .anyMatch(s -> !logicalSort.child().getOutputSet().contains(s))
                 || logicalSort.getOrderKeys().stream()
                 .map(OrderKey::getExpr)
-                .anyMatch(e -> e.containsType(AggregateFunction.class));
+                .anyMatch(e -> e.containsType(AggregateExpression.class));
     }
 }
