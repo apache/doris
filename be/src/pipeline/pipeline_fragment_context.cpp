@@ -316,7 +316,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
                     std::make_shared<AggSinkOperatorBuilder>(next_operator_builder_id(), agg_node);
             RETURN_IF_ERROR(new_pipe->set_sink(agg_sink));
 
-            OperatorBuilderPtr agg_source = std::make_shared<AggregationSourceOperatorBuilder>(
+            OperatorBuilderPtr agg_source = std::make_shared<AggSourceOperatorBuilder>(
                     next_operator_builder_id(), agg_node);
             RETURN_IF_ERROR(cur_pipe->add_operator(agg_source));
         }

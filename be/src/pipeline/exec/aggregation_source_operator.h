@@ -25,18 +25,18 @@ class AggregationNode;
 
 namespace pipeline {
 
-class AggregationSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
+class AggSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
 public:
-    AggregationSourceOperatorBuilder(int32_t, ExecNode*);
+    AggSourceOperatorBuilder(int32_t, ExecNode*);
 
     bool is_source() const override { return true; }
 
     OperatorPtr build_operator() override;
 };
 
-class AggregationSourceOperator final : public Operator<AggregationSourceOperatorBuilder> {
+class AggSourceOperator final : public Operator<AggSourceOperatorBuilder> {
 public:
-    AggregationSourceOperator(OperatorBuilderBase*, ExecNode*);
+    AggSourceOperator(OperatorBuilderBase*, ExecNode*);
 };
 
 } // namespace pipeline

@@ -97,7 +97,7 @@ public:
     OperatorBuilder(int32_t id, const std::string& name, ExecNode* exec_node = nullptr)
             : OperatorBuilderBase(id, name), _node(reinterpret_cast<NodeType*>(exec_node)) {}
 
-    virtual ~OperatorBuilder() override = default;
+    virtual ~OperatorBuilder() = default;
 
     const RowDescriptor& row_desc() override { return _node->row_desc(); }
 
@@ -113,7 +113,7 @@ public:
     DataSinkOperatorBuilder(int32_t id, const std::string& name, DataSink* sink = nullptr)
             : OperatorBuilderBase(id, name), _sink(reinterpret_cast<SinkType*>(sink)) {}
 
-    virtual ~DataSinkOperatorBuilder() override = default;
+    virtual ~DataSinkOperatorBuilder() = default;
 
     bool is_sink() const override { return true; }
 
@@ -231,7 +231,7 @@ public:
     DataSinkOperator(OperatorBuilderBase* builder, DataSink* sink)
             : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {};
 
-    virtual ~DataSinkOperator() override = default;
+    virtual ~DataSinkOperator() = default;
 
     virtual Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
@@ -283,7 +283,7 @@ public:
     Operator(OperatorBuilderBase* builder, ExecNode* node)
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {};
 
-    virtual ~Operator() override = default;
+    virtual ~Operator() = default;
 
     virtual Status prepare(RuntimeState* state) override {
         _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
@@ -347,7 +347,7 @@ public:
               _child_block(new vectorized::Block),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {};
 
-    virtual ~DataStateOperator() override = default;
+    virtual ~DataStateOperator() = default;
 
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                              SourceState& source_state) override {
