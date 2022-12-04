@@ -251,6 +251,12 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 requestProperties, physicalProperties, statsDeriveResult, child());
     }
 
+    public PhysicalHashAggregate<CHILD_TYPE> withRequestProperties(RequestProperties requestProperties) {
+        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
+                aggPhase, aggMode, usingStream, Optional.empty(), getLogicalProperties(),
+                requestProperties, physicalProperties, statsDeriveResult, child());
+    }
+
     /** localPhaseRequestProperties */
     public static RequestProperties localPhaseRequestProperties(AggMode aggMode) {
         if (aggMode.isFinalPhase) {
