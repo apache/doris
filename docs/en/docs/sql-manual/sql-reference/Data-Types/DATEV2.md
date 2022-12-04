@@ -24,7 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DATE
+## DATEV2
+
+<version since="1.2.0">
+
+DATEV2
+
+</version>
+
 ### Description
 #### Syntax
 datev2
