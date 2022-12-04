@@ -167,17 +167,18 @@ suite("test_hive_parquet", "p0") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
+            String catalog_name = "hive_test_parquet"
             sql """admin set frontend config ("enable_multi_catalog" = "true")"""
             sql """admin set frontend config ("enable_new_load_scan_node" = "true");"""
             set_be_config.call('true')
-            sql """drop catalog if exists hive"""
+            sql """drop catalog if exists ${catalog_name}"""
             sql """
-            create catalog if not exists hive properties (
+            create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );
             """
-            sql """use `hive`.`default`"""
+            sql """use `${catalog_name}`.`default`"""
 
             q01()
             q02()
