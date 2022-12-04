@@ -27,7 +27,9 @@ under the License.
 # Java UDF
 
 <version since="1.2.0">
+
 Java UDF
+
 </version>
 
 Java UDF provides users with a Java interface written in UDF to facilitate the execution of user-defined functions in Java language. Compared with native UDF implementation, Java UDF has the following advantages and limitations:
