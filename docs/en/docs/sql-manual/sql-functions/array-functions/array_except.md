@@ -23,6 +23,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
 ## array_except
 
@@ -87,3 +88,5 @@ mysql> select k1,k2,k3,array_except(k2,k3) from array_type_table_decimal;
 ### keywords
 
 ARRAY,EXCEPT,ARRAY_EXCEPT
+
+</version>
