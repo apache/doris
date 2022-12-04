@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
@@ -62,6 +63,9 @@ public class ModifyColumnClause extends AlterTableClause {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in modify column clause.");
+        }
+        if (table != null && table.getKeysType() == KeysType.AGG_KEYS && columnDef.getAggregateType() == null) {
+            columnDef.setIsKey(true);
         }
         columnDef.analyze(true);
         if (colPos != null) {

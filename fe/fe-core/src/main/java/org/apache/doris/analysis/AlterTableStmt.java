@@ -77,7 +77,12 @@ public class AlterTableStmt extends DdlStmt {
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
+        Table table =
+                Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb()).getTableOrDdlException(tbl.getTbl());
         for (AlterClause op : ops) {
+            if (op instanceof AlterTableClause && table instanceof OlapTable) {
+                ((AlterTableClause) op).setTableName((OlapTable) table);
+            }
             op.analyze(analyzer);
         }
     }

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.OlapTable;
 
 // alter table clause
 public abstract class AlterTableClause extends AlterClause {
@@ -29,7 +30,13 @@ public abstract class AlterTableClause extends AlterClause {
     // if set to true, the corresponding table should be stable before processing this operation on it.
     protected boolean needTableStable = true;
 
+    protected OlapTable table;
+
     public boolean isNeedTableStable() {
         return needTableStable;
+    }
+
+    public void setTableName(OlapTable table) {
+        this.table = table;
     }
 }
