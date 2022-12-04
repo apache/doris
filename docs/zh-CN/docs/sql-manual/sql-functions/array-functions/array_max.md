@@ -27,7 +27,9 @@ under the License.
 ## array_max
 
 <version since="1.2.0">
+
 array_max
+
 </version>
 
 ### description

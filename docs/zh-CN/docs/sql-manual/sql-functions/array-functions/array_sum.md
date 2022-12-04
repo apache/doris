@@ -27,7 +27,9 @@ under the License.
 ## array_sum
 
 <version since="1.2.0">
+
 array_sum
+
 </version>
 
 ### description

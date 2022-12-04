@@ -27,7 +27,9 @@ under the License.
 ## arrays_overlap
 
 <version since="1.2.0">
+
 arrays_overlap
+
 </version>
 
 ### description

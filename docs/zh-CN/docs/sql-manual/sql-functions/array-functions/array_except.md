@@ -27,7 +27,9 @@ under the License.
 ## array_except
 
 <version since="1.2.0">
+
 array_except
+
 </version>
 
 ### description

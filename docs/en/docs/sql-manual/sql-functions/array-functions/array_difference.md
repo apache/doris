@@ -27,7 +27,9 @@ under the License.
 ## array_difference
 
 <version since="1.2.0">
+
 array_difference
+
 </version>
 
 ### description
