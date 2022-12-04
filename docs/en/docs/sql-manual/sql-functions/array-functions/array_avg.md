@@ -25,6 +25,7 @@ under the License.
 -->
 
 ## array_avg
+
 <version since="1.2.0">
 array_avg
 </version>
