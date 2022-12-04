@@ -22,10 +22,10 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -72,10 +72,15 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
     }
 
     @Override
-    public Double visitPhysicalAggregate(PhysicalAggregate<? extends Plan> agg, Void context) {
-        if (agg.isFinalPhase()
-                && agg.getAggPhase() == AggPhase.LOCAL
+    public Double visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
+        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return -1.0;
+        }
+        // invalid plan
+        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
+                && agg.getGroupByExpressions().isEmpty()
+                && !agg.getDistinctArguments().isEmpty()) {
             return -1.0;
         }
         return 0.0;

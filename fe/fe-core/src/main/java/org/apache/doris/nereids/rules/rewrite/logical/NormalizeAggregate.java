@@ -72,8 +72,9 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     NormalizeToSlotContext.buildContext(existsAliases, needToSlots);
             Set<NamedExpression> bottomProjects =
                     groupByAndArgumentToSlotContext.pushDownToNamedExpression(needToSlots);
-            LogicalProject<Plan> normalizedChild =
-                    new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
+            Plan normalizedChild = bottomProjects.isEmpty()
+                    ? aggregate.child()
+                    : new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
 
             // begin normalize aggregate
 

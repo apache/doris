@@ -17,12 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
+import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Common interface for logical/physical Aggregate.
@@ -37,4 +42,15 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
 
     @Override
     Aggregate<Plan> withChildren(List<Plan> children);
+
+    default Set<AggregateExpression> getAggregateExpressions() {
+        return ExpressionUtils.collect(getOutputExpressions(), AggregateExpression.class::isInstance);
+    }
+
+    default Set<Expression> getDistinctArguments() {
+        return getAggregateExpressions().stream()
+                .filter(aggregateExpression -> aggregateExpression.isDistinct())
+                .flatMap(aggregateExpression -> aggregateExpression.getFunction().children().stream())
+                .collect(ImmutableSet.toImmutableSet());
+    }
 }

@@ -30,8 +30,8 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.types.IntegerType;
@@ -144,15 +144,14 @@ public class RequestPropertyDeriverTest {
     @Test
     public void testLocalAggregate() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        PhysicalAggregate<GroupPlan> aggregate = new PhysicalAggregate<>(
-                Lists.newArrayList(key),
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
                 AggPhase.LOCAL,
                 AggMode.INPUT_TO_RESULT,
                 true,
-                false,
                 logicalProperties,
+                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_RESULT),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -168,15 +167,14 @@ public class RequestPropertyDeriverTest {
     public void testGlobalAggregate() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         SlotReference partition = new SlotReference("partition", IntegerType.INSTANCE);
-        PhysicalAggregate<GroupPlan> aggregate = new PhysicalAggregate<>(
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
-                Lists.newArrayList(partition),
                 AggPhase.GLOBAL,
                 AggMode.BUFFER_TO_RESULT,
                 true,
-                true,
                 logicalProperties,
+                PhysicalHashAggregate.globalPhaseRequestProperties(AggMode.BUFFER_TO_RESULT),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -194,15 +192,14 @@ public class RequestPropertyDeriverTest {
     @Test
     public void testGlobalAggregateWithoutPartition() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        PhysicalAggregate<GroupPlan> aggregate = new PhysicalAggregate<>(
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(),
                 Lists.newArrayList(key),
-                Lists.newArrayList(),
                 AggPhase.GLOBAL,
                 AggMode.BUFFER_TO_RESULT,
                 true,
-                true,
                 logicalProperties,
+                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.BUFFER_TO_RESULT),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);

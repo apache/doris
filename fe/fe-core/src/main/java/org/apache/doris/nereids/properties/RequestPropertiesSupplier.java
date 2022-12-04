@@ -15,23 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.properties;
 
-/** AggregateMode */
-public enum AggMode {
-    INPUT_TO_BUFFER(true, false, false),
-    INPUT_TO_RESULT(false, false, true),
-    BUFFER_TO_BUFFER(true, true, false),
-    BUFFER_TO_RESULT(false, true, true);
-
-    public final boolean productAggregateBuffer;
-    public final boolean consumeAggregateBuffer;
-
-    public final boolean isFinalPhase;
-
-    AggMode(boolean productAggregateBuffer, boolean consumeAggregateBuffer, boolean isFinalPhase) {
-        this.productAggregateBuffer = productAggregateBuffer;
-        this.consumeAggregateBuffer = consumeAggregateBuffer;
-        this.isFinalPhase = isFinalPhase;
-    }
+/** RequestPropertiesSupplier */
+public interface RequestPropertiesSupplier {
+    RequestProperties getRequestProperties();
 }

@@ -28,7 +28,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.rewrite.DisassembleAggregate;
+import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
@@ -120,7 +120,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
         new MockUp<RuleSet>() {
             @Mock
             public List<Rule> getExplorationRules() {
-                return Lists.newArrayList(new DisassembleAggregate().build());
+                return Lists.newArrayList(new AggregateStrategies().buildRules());
             }
         };
 

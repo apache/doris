@@ -161,7 +161,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     Map<String, Expression> aliasNameToExpr = output.stream()
                             .filter(ne -> ne instanceof Alias)
                             .map(Alias.class::cast)
-                            .collect(Collectors.toMap(Alias::getName, UnaryNode::child));
+                            .collect(Collectors.toMap(Alias::getName, UnaryNode::child, (oldExpr, newExpr) -> oldExpr));
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
                                 if (groupBy instanceof UnboundSlot) {
@@ -191,7 +191,7 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     Map<String, Expression> aliasNameToExpr = output.stream()
                             .filter(ne -> ne instanceof Alias)
                             .map(Alias.class::cast)
-                            .collect(Collectors.toMap(Alias::getName, UnaryNode::child));
+                            .collect(Collectors.toMap(Alias::getName, UnaryNode::child, (oldExpr, newExpr) -> oldExpr));
                     List<List<Expression>> replacedGroupingSets = repeat.getGroupingSets().stream()
                             .map(groupBy ->
                                 groupBy.stream().map(expr -> {

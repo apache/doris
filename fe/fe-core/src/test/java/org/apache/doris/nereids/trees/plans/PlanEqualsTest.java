@@ -34,8 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -73,17 +73,17 @@ public class PlanEqualsTest {
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                true, false, true, AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT, Optional.empty(), child);
+                true, false, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, true, true, AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT, Optional.empty(), child);
+                false, true, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, false, true, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, Optional.empty(), child);
+                false, false, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
@@ -183,21 +183,24 @@ public class PlanEqualsTest {
     public void testPhysicalAggregate(@Mocked Plan child, @Mocked LogicalProperties logicalProperties) {
         List<NamedExpression> outputExpressionList = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
-        PhysicalAggregate<Plan> actual = new PhysicalAggregate<>(Lists.newArrayList(), outputExpressionList,
-                Lists.newArrayList(), AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true, true, logicalProperties, child);
+        PhysicalHashAggregate<Plan> actual = new PhysicalHashAggregate<>(Lists.newArrayList(), outputExpressionList,
+                AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true, logicalProperties,
+                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_RESULT), child);
 
         List<NamedExpression> outputExpressionList1 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
-        PhysicalAggregate<Plan> expected = new PhysicalAggregate<>(Lists.newArrayList(),
+        PhysicalHashAggregate<Plan> expected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList1,
-                Lists.newArrayList(), AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true, true, logicalProperties, child);
+                AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true, logicalProperties,
+                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_RESULT), child);
         Assertions.assertEquals(expected, actual);
 
         List<NamedExpression> outputExpressionList2 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
-        PhysicalAggregate<Plan> unexpected = new PhysicalAggregate<>(Lists.newArrayList(),
+        PhysicalHashAggregate<Plan> unexpected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList2,
-                Lists.newArrayList(), AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, false, true, logicalProperties, child);
+                AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, false, logicalProperties,
+                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_RESULT), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

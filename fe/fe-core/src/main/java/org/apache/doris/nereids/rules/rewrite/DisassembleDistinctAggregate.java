@@ -17,8 +17,30 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Used to generate the merge agg node for distributed execution.
@@ -36,74 +58,56 @@ import org.apache.doris.nereids.rules.RuleType;
  *               +-- childPlan
  * </pre>
  */
-public class DistinctAggregateDisassemble extends OneRewriteRuleFactory {
+@DependsRules(NormalizeAggregate.class)
+public class DisassembleDistinctAggregate extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        /*
         return logicalAggregate()
-                .when(LogicalAggregate::needDistinctDisassemble)
-                .then(this::disassembleAggregateFunction).toRule(RuleType.DISTINCT_AGGREGATE_DISASSEMBLE);
-
-         */
-        return logicalAggregate().then(a -> a).toRule(RuleType.DISTINCT_AGGREGATE_DISASSEMBLE);
+                .then(this::disassembleAggregateFunction)
+                .toRule(RuleType.DISTINCT_AGGREGATE_DISASSEMBLE);
     }
 
-    /*private LogicalAggregate<LogicalAggregate<LogicalAggregate<LogicalAggregate<? extends Plan>>>>
-            disassembleAggregateFunction(
-            LogicalAggregate<GroupPlan> aggregate) {
-        return aggregate;
-
+    private LogicalAggregate<Plan> disassembleAggregateFunction(LogicalAggregate<? extends Plan> aggregate) {
         // Double-check to prevent incorrect changes
-        Preconditions.checkArgument(aggregate.getAggPhase() == AggPhase.LOCAL);
-        Preconditions.checkArgument(aggregate.isFinalPhase());
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         if (groupByExpressions == null || groupByExpressions.isEmpty()) {
             // If there are no group by expressions, in order to parallelize,
             // we need to manually use the distinct function argument as group by expressions
-            groupByExpressions = new ArrayList<>(getDistinctFunctionParams(aggregate));
+            groupByExpressions = getDistinctFunctionParams(aggregate);
         }
         Pair<List<NamedExpression>, List<NamedExpression>> localAndGlobal =
-                disassemble(aggregate.getOutputExpressions(),
-                        groupByExpressions,
+                disassemble(aggregate.getOutputExpressions(), groupByExpressions,
                         AggPhase.LOCAL, AggPhase.GLOBAL);
         Pair<List<NamedExpression>, List<NamedExpression>> globalAndDistinctLocal =
-                disassemble(localAndGlobal.second,
-                        groupByExpressions,
+                disassemble(localAndGlobal.second, groupByExpressions,
                         AggPhase.GLOBAL, AggPhase.DISTINCT_LOCAL);
         Pair<List<NamedExpression>, List<NamedExpression>> distinctLocalAndDistinctGlobal =
-                disassemble(globalAndDistinctLocal.second,
-                        aggregate.getGroupByExpressions(),
+                disassemble(globalAndDistinctLocal.second, aggregate.getGroupByExpressions(),
                         AggPhase.DISTINCT_LOCAL, AggPhase.DISTINCT_GLOBAL);
         // generate new plan
-        LogicalAggregate<GroupPlan> localAggregate = new LogicalAggregate<>(
+        LogicalAggregate<Plan> localAggregate = new LogicalAggregate<>(
                 groupByExpressions,
                 localAndGlobal.first,
                 true,
                 aggregate.isNormalized(),
-                false,
-                AggPhase.LOCAL,
                 aggregate.getSourceRepeat(),
                 aggregate.child()
         );
-        LogicalAggregate<LogicalAggregate<GroupPlan>> globalAggregate = new LogicalAggregate<>(
+        LogicalAggregate<LogicalAggregate<Plan>> globalAggregate = new LogicalAggregate<>(
                 groupByExpressions,
                 globalAndDistinctLocal.first,
                 true,
                 aggregate.isNormalized(),
-                false,
-                AggPhase.GLOBAL,
                 aggregate.getSourceRepeat(),
                 localAggregate
         );
-        LogicalAggregate<LogicalAggregate<LogicalAggregate<GroupPlan>>> distinctLocalAggregate =
+        LogicalAggregate<LogicalAggregate<LogicalAggregate<Plan>>> distinctLocalAggregate =
                 new LogicalAggregate<>(
                         aggregate.getGroupByExpressions(),
                         distinctLocalAndDistinctGlobal.first,
                         true,
                         aggregate.isNormalized(),
-                        false,
-                        AggPhase.DISTINCT_LOCAL,
                         aggregate.getSourceRepeat(),
                         globalAggregate
                 );
@@ -112,16 +116,14 @@ public class DistinctAggregateDisassemble extends OneRewriteRuleFactory {
                 distinctLocalAndDistinctGlobal.second,
                 true,
                 aggregate.isNormalized(),
-                true,
-                AggPhase.DISTINCT_GLOBAL,
                 aggregate.getSourceRepeat(),
                 distinctLocalAggregate
         );
     }
 
     private Pair<List<NamedExpression>, List<NamedExpression>> disassemble(
-            List<NamedExpression> originOutputExprs,
-            List<Expression> childGroupByExprs,
+            List<NamedExpression> originOutputExprs, // agg.output
+            List<Expression> childGroupByExprs, // distinct params
             AggPhase childPhase,
             AggPhase parentPhase) {
         Map<Expression, Expression> inputSubstitutionMap = Maps.newHashMap();
@@ -160,17 +162,17 @@ public class DistinctAggregateDisassemble extends OneRewriteRuleFactory {
         return Pair.of(childOutputExprs, parentOutputExprs);
     }
 
-    private List<Expression> getDistinctFunctionParams(LogicalAggregate<GroupPlan> agg) {
-        List<Expression> result = new ArrayList<>();
+    private List<Expression> getDistinctFunctionParams(LogicalAggregate<? extends Plan> agg) {
+        Builder<Expression> params = ImmutableList.builder();
         for (NamedExpression originOutputExpr : agg.getOutputExpressions()) {
             Set<AggregateFunction> aggregateFunctions
                     = originOutputExpr.collect(AggregateFunction.class::isInstance);
             for (AggregateFunction aggregateFunction : aggregateFunctions) {
                 if (aggregateFunction.isDistinct()) {
-                    result.addAll(aggregateFunction.children());
+                    params.addAll(aggregateFunction.children());
                 }
             }
         }
-        return result;
-    }*/
+        return params.build();
+    }
 }

@@ -71,7 +71,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -348,10 +347,18 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(arg -> arg.accept(this, context))
                 .collect(ImmutableList.toImmutableList());
 
+        FunctionParams fnParams;
         FunctionParams aggFnParams;
         if (function instanceof Count && ((Count) function).isStar()) {
+            if (catalogArguments.isEmpty()) {
+                // for explain display the label: count(*)
+                fnParams = FunctionParams.createStarParam();
+            } else {
+                fnParams = new FunctionParams(function.isDistinct(), catalogArguments);
+            }
             aggFnParams = FunctionParams.createStarParam();
         } else {
+            fnParams = new FunctionParams(function.isDistinct(), catalogArguments);
             aggFnParams = new FunctionParams(function.isDistinct(), aggFnArguments);
         }
 
@@ -364,15 +371,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
         boolean isAnalyticFunction = false;
-        String functionName = function.isDistinct() ? "MULTI_DISTINCT_" + function.getName() : function.getName();
-        if (aggregateParam.aggPhase == AggPhase.DISTINCT_LOCAL
-                || aggregateParam.aggPhase == AggPhase.DISTINCT_GLOBAL) {
-            if (function.getName().equalsIgnoreCase("count")) {
-                functionName = "SUM";
-            } else {
-                functionName = function.getName();
-            }
-        }
+        String functionName = function.getName();
+        // String functionName = function.isDistinct() ? "MULTI_DISTINCT_" + function.getName() : function.getName();
+        // if (aggregateParam.aggPhase == AggPhase.DISTINCT_LOCAL
+        //         || aggregateParam.aggPhase == AggPhase.DISTINCT_GLOBAL) {
+        //     if (function.getName().equalsIgnoreCase("count")) {
+        //         functionName = "SUM";
+        //     } else {
+        //         functionName = function.getName();
+        //     }
+        // }
         org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
                 new FunctionName(functionName), argTypes,
                 function.getDataType().toCatalogDataType(),
@@ -387,7 +395,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         boolean isMergeFn = aggregateParam.aggPhase.isGlobal();
 
         // create catalog FunctionCallExpr without analyze again
-        return new FunctionCallExpr(catalogFunction, aggFnParams, aggFnParams, isMergeFn, catalogArguments);
+        return new FunctionCallExpr(catalogFunction, fnParams, aggFnParams, isMergeFn, catalogArguments);
     }
 
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(

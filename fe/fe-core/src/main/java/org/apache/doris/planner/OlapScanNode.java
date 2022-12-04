@@ -1216,4 +1216,19 @@ public class OlapScanNode extends ScanNode {
     public String getSelectedIndexName() {
         return olapTable.getIndexNameById(selectedIndexId);
     }
+
+    public void finalizeForNerieds() {
+        computeNumNodes();
+        computeStatsForNerieds();
+    }
+
+    private void computeStatsForNerieds() {
+        if (cardinality > 0 && avgRowSize <= 0) {
+            avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
+            capCardinalityAtLimit();
+        }
+        // when node scan has no data, cardinality should be 0 instead of a invalid
+        // value after computeStats()
+        cardinality = cardinality == -1 ? 0 : cardinality;
+    }
 }

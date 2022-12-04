@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.PushDownAggOperator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -45,7 +46,7 @@ import java.util.Optional;
 /**
  * Logical OlapScan.
  */
-public class LogicalOlapScan extends LogicalRelation implements CatalogRelation {
+public class LogicalOlapScan extends LogicalRelation implements CatalogRelation, OlapScan {
 
     private final long selectedIndexId;
     private final List<Long> selectedTabletIds;
@@ -200,6 +201,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
         return selectedTabletIds;
     }
 
+    @Override
     public long getSelectedIndexId() {
         return selectedIndexId;
     }

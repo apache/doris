@@ -78,6 +78,11 @@ public class AggregateParam {
         return new AggregateParam(isDistinct, isFinalPhase, aggPhase, aggMode, isDisassembled);
     }
 
+    public AggregateParam withPhaseAndDisassembled(boolean isFinalPhase, AggPhase aggPhase,
+            boolean isDisassembled) {
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, AggMode.INPUT_TO_RESULT, isDisassembled);
+    }
+
     public AggregateParam withPhaseAndModeAndDisassembled(
             boolean isFinalPhase, AggPhase aggPhase, AggMode aggMode, boolean isDisassembled) {
         return new AggregateParam(isDistinct, isFinalPhase, aggPhase, aggMode, isDisassembled);

@@ -15,23 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.pattern;
 
-/** AggregateMode */
-public enum AggMode {
-    INPUT_TO_BUFFER(true, false, false),
-    INPUT_TO_RESULT(false, false, true),
-    BUFFER_TO_BUFFER(true, true, false),
-    BUFFER_TO_RESULT(false, true, true);
+import org.apache.doris.nereids.trees.plans.Plan;
 
-    public final boolean productAggregateBuffer;
-    public final boolean consumeAggregateBuffer;
+import java.util.List;
 
-    public final boolean isFinalPhase;
+/**
+ * Define a callback action when match a pattern, and then transform to a batch of plans,
+ *  usually implement as a rule body.
+ * e.g. DisassembleAggregate
+ */
+public interface MatchedMultiAction<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
 
-    AggMode(boolean productAggregateBuffer, boolean consumeAggregateBuffer, boolean isFinalPhase) {
-        this.productAggregateBuffer = productAggregateBuffer;
-        this.consumeAggregateBuffer = consumeAggregateBuffer;
-        this.isFinalPhase = isFinalPhase;
-    }
+    List<OUTPUT_TYPE> apply(MatchingContext<INPUT_TYPE> ctx);
 }
