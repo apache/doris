@@ -22,6 +22,7 @@
 #include "olap/data_dir.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/tablet_manager.h"
+#include "util/scoped_cleanup.h"
 
 namespace doris {
 
@@ -37,9 +38,20 @@ EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publi
 OLAPStatus EnginePublishVersionTask::finish() {
     OLAPStatus res = OLAP_SUCCESS;
     int64_t transaction_id = _publish_version_req.transaction_id;
-    OlapStopWatch watch;
+    // OlapStopWatch watch;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
+    PublishStatistic stat;
+    MonotonicStopWatch watch;
+    watch.start();
+    SCOPED_CLEANUP({
+            if (watch.elapsed_time() / 1e9 > config::publish_task_trace_threshold) {
+            LOG(WARNING) << "Trace " << transaction_id << " publish stat(ns): get lock time: "
+                         << stat.get_lock_time << ", save meta time: " << stat.save_meta_time;
+            }
+            });
+
+    size_t tablet_num = 0;
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -59,6 +71,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
         Version version(par_ver_info.version, par_ver_info.version);
 
+        tablet_num += tablet_related_rs.size();
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
             OLAPStatus publish_status = OLAP_SUCCESS;
@@ -90,7 +103,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
             }
 
             publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
-                    partition_id, tablet, transaction_id, version);
+                    partition_id, tablet, transaction_id, version, &stat);
             if (publish_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                              << ", tablet_id=" << tablet_info.tablet_id
@@ -155,8 +168,10 @@ OLAPStatus EnginePublishVersionTask::finish() {
     }
 
     LOG(INFO) << "finish to publish version on transaction."
-              << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
-              << ", error_tablet_size=" << _error_tablet_ids->size();
+              << "transaction_id=" << transaction_id << ", cost(us): " << watch.elapsed_time() / 1000
+              << ", error_tablet_size=" << _error_tablet_ids->size()
+              << ", partition num: " << _publish_version_req.partition_version_infos.size()
+              << ", tablet num: " << tablet_num;
     return res;
 }
 

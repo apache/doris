@@ -97,9 +97,10 @@ OLAPStatus TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedP
 }
 
 OLAPStatus TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                                   TTransactionId transaction_id, const Version& version) {
+                                   TTransactionId transaction_id, const Version& version,
+                                   PublishStatistic* stat) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), version);
+                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), version, stat);
 }
 
 // delete the txn from manager if it is not committed(not have a valid rowset)
@@ -257,13 +258,16 @@ OLAPStatus TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                    TTransactionId transaction_id, TTabletId tablet_id,
                                    SchemaHash schema_hash, TabletUid tablet_uid,
-                                   const Version& version) {
+                                   const Version& version, PublishStatistic* stat) {
+    MonotonicStopWatch watch;
+    watch.start();
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset_ptr = nullptr;
     MutexLock txn_lock(&_get_txn_lock(transaction_id));
     {
         ReadLock rlock(_get_txn_map_lock(transaction_id));
+        stat->get_lock_time += watch.elapsed_time();
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
         if (it != txn_tablet_map.end()) {
@@ -281,6 +285,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     if (rowset_ptr != nullptr) {
         // TODO(ygl): rowset is already set version here, memory is changed, if save failed
         // it maybe a fatal error
+        watch.reset();
         rowset_ptr->make_visible(version);
         OLAPStatus save_status =
                 RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
@@ -291,6 +296,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                          << ", txn id:" << transaction_id;
             return OLAP_ERR_ROWSET_SAVE_FAILED;
         }
+        stat->save_meta_time += watch.elapsed_time();
     } else {
         return OLAP_ERR_TRANSACTION_NOT_EXIST;
     }

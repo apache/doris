@@ -40,6 +40,11 @@ class TabletManager;
 class TabletMeta;
 class TxnManager;
 
+struct PublishStatistic {
+    size_t get_lock_time = 0;
+    size_t save_meta_time = 0;
+};
+
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
