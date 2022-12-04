@@ -26,6 +26,8 @@ under the License.
 
 ## array_avg
 
+<version since="1.2">array_avg</version>
+
 ### description
 
 返回数组中所有元素的平均值，数组中的`NULL`值会被跳过。空数组以及元素全为`NULL`值的数组，结果返回`NULL`值。
