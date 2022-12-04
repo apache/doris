@@ -77,9 +77,7 @@ ALTER CATALOG hive SET PROPERTIES ('hive.metastore.uris'='thrift://172.21.0.1:90
 
 ### Keywords
 
-```text
 ALTER,CATALOG,RENAME,PROPERTY
-```
 
 ### Best Practice
 
