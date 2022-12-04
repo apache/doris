@@ -27,9 +27,11 @@ under the License.
 ## SWITCH
 
 ### Name
+<version since="1.2.0">
 
-SWITC
+SWITCH
 
+</version>
 ### Description
 
 该语句用于切换数据目录（catalog）
