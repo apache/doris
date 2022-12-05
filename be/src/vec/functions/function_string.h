@@ -1452,7 +1452,8 @@ private:
                 for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
-                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref.data[0]);
+                    const size_t split_part_size =
+                            split_str(str_pos, str_ref, delimiter_ref.data[0]);
                     str_pos++;
                     const size_t new_size = old_size + split_part_size;
                     column_string_chars.resize(new_size);
