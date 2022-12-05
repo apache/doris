@@ -45,7 +45,7 @@ suite("test_hdfs_json_load", "p0") {
     def load_from_hdfs1 = {new_json_reader_flag, strip_flag, fuzzy_flag, testTablex, label, fileName,
                             fsPath, hdfsUser, exprs, jsonpaths, json_root, columns_parameter, where ->
         // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
+        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         
         def hdfsFilePath = "${fsPath}/user/doris/preinstalled_data/json_format_test/${fileName}"
         def result1= sql """
@@ -78,7 +78,7 @@ suite("test_hdfs_json_load", "p0") {
         assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
 
         // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
+        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
     }
 
     def check_load_result = {checklabel, testTablex ->

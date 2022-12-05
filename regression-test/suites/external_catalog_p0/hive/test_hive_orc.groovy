@@ -66,29 +66,6 @@ suite("test_hive_orc", "all_types") {
         qt_only_partition_col """select count(p1_col), count(p2_col) from orc_all_types;"""
     }
 
-    def set_be_config = { flag ->
-        String[][] backends = sql """ show backends; """
-        assertTrue(backends.size() > 0)
-        for (String[] backend in backends) {
-            StringBuilder setConfigCommand = new StringBuilder();
-            setConfigCommand.append("curl -X POST http://")
-            setConfigCommand.append(backend[2])
-            setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
-            setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=$flag"
-            logger.info(command1)
-            String command2 = setConfigCommand.toString() + "enable_new_file_scanner=$flag"
-            logger.info(command2)
-            def process1 = command1.execute()
-            int code = process1.waitFor()
-            assertEquals(code, 0)
-            def process2 = command2.execute()
-            code = process1.waitFor()
-            assertEquals(code, 0)
-        }
-    }
-
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -96,7 +73,6 @@ suite("test_hive_orc", "all_types") {
             String catalog_name = "hive_test_orc"
             sql """admin set frontend config ("enable_multi_catalog" = "true")"""
             sql """admin set frontend config ("enable_new_load_scan_node" = "true");"""
-            set_be_config.call('true')
             sql """drop catalog if exists ${catalog_name}"""
             sql """
             create catalog if not exists ${catalog_name} properties (
@@ -114,8 +90,7 @@ suite("test_hive_orc", "all_types") {
             only_partition_col()
 
         } finally {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
-            set_be_config.call('false')
+            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         }
     }
 }

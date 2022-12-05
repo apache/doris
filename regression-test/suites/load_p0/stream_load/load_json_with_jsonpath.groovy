@@ -44,7 +44,7 @@ suite("test_load_json_with_jsonpath", "p0") {
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
         
         // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
+        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
 
         // load the json data
         streamLoad {
@@ -80,7 +80,7 @@ suite("test_load_json_with_jsonpath", "p0") {
         }
 
         // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
+        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
     }
 
     def check_data_correct = {table_name ->
