@@ -56,6 +56,8 @@ public:
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
+    const RowDescriptor& row_desc() { return _row_desc; }
+
 private:
     Status prepare_exprs(RuntimeState* state);
     TResultSinkType::type _sink_type;

@@ -55,7 +55,7 @@ class VExpr;
 namespace pipeline {
 class PipelineFragmentContext;
 class Pipeline;
-class Operator;
+class OperatorBase;
 } // namespace pipeline
 
 using std::string;
@@ -118,14 +118,11 @@ public:
     // new interface to compatible new optimizers in FE
     Status get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
 
-    // Process data
-    // Eg: Projection, Union All, HashProbe
-    virtual Status execute(RuntimeState* state, vectorized::Block* input_block,
-                           vectorized::Block* output_block, bool* eos);
-
     // Emit data, both need impl with method: sink
-    // Eg: Aggregation, Sort
-    virtual Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos);
+    // Eg: Aggregation, Sort, Scan
+    virtual Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+        return get_next(state, output_block, eos);
+    }
 
     virtual Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
         return Status::OK();
@@ -247,7 +244,6 @@ public:
 
 protected:
     friend class DataSink;
-    friend class doris::pipeline::Operator;
 
     /// Initialize 'buffer_pool_client_' and claim the initial reservation for this
     /// ExecNode. Only needs to be called by ExecNodes that will use the client.
@@ -411,7 +407,7 @@ protected:
     std::atomic<bool> _can_read = false;
 
 private:
-    friend class pipeline::Operator;
+    friend class pipeline::OperatorBase;
     bool _is_closed;
     bool _is_resource_released = false;
     std::atomic_int _ref; // used by pipeline operator to release resource.
