@@ -237,7 +237,7 @@ echo "Get params:
     BUILD_BE            -- $BUILD_BE
     BUILD_FE            -- $BUILD_FE
     BUILD_BROKER        -- $BUILD_BROKER
-    BUILD_BROKER        -- $BUILD_AUDIT
+    BUILD_AUDIT         -- $BUILD_AUDIT
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     PARALLEL            -- $PARALLEL
