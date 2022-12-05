@@ -90,7 +90,6 @@ public class DisassembleDistinctAggregate extends OneRewriteRuleFactory {
         LogicalAggregate<Plan> localAggregate = new LogicalAggregate<>(
                 groupByExpressions,
                 localAndGlobal.first,
-                true,
                 aggregate.isNormalized(),
                 aggregate.getSourceRepeat(),
                 aggregate.child()
@@ -98,7 +97,6 @@ public class DisassembleDistinctAggregate extends OneRewriteRuleFactory {
         LogicalAggregate<LogicalAggregate<Plan>> globalAggregate = new LogicalAggregate<>(
                 groupByExpressions,
                 globalAndDistinctLocal.first,
-                true,
                 aggregate.isNormalized(),
                 aggregate.getSourceRepeat(),
                 localAggregate
@@ -107,7 +105,6 @@ public class DisassembleDistinctAggregate extends OneRewriteRuleFactory {
                 new LogicalAggregate<>(
                         aggregate.getGroupByExpressions(),
                         distinctLocalAndDistinctGlobal.first,
-                        true,
                         aggregate.isNormalized(),
                         aggregate.getSourceRepeat(),
                         globalAggregate
@@ -115,7 +112,6 @@ public class DisassembleDistinctAggregate extends OneRewriteRuleFactory {
         return new LogicalAggregate<>(
                 aggregate.getGroupByExpressions(),
                 distinctLocalAndDistinctGlobal.second,
-                true,
                 aggregate.isNormalized(),
                 aggregate.getSourceRepeat(),
                 distinctLocalAggregate

@@ -76,17 +76,17 @@ public class PlanEqualsTest {
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                true, false, Optional.empty(), child);
+                false, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, true, Optional.empty(), child);
+                true, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
 
         unexpected = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
                 new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList())),
-                false, false, Optional.empty(), child);
+                false, Optional.empty(), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
@@ -187,14 +187,14 @@ public class PlanEqualsTest {
         List<NamedExpression> outputExpressionList = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> actual = new PhysicalHashAggregate<>(Lists.newArrayList(), outputExpressionList,
-                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
                 RequestProperties.of(PhysicalProperties.GATHER), child);
 
         List<NamedExpression> outputExpressionList1 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> expected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList1,
-                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
                 RequestProperties.of(PhysicalProperties.GATHER), child);
         Assertions.assertEquals(expected, actual);
 
@@ -202,7 +202,7 @@ public class PlanEqualsTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> unexpected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList2,
-                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), false, logicalProperties,
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), false, logicalProperties,
                 RequestProperties.of(PhysicalProperties.GATHER), child);
         Assertions.assertNotEquals(unexpected, actual);
     }

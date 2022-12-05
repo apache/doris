@@ -183,12 +183,11 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalHashAggregate",
-                "aggregateParam", aggregateParam,
+                "aggPhase", aggregateParam.aggPhase,
+                "aggMode", aggregateParam.aggMode,
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
-                "aggPhase", aggregateParam.aggPhase,
-                "aggMode", aggregateParam.aggMode,
                 "requestProperties", requestProperties,
                 "stats", statsDeriveResult
         );
