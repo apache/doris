@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.analyzer.identifier.TableIdentifier;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -27,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -41,9 +42,8 @@ import java.util.Optional;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
+public class UnboundRelation extends LogicalRelation implements Unbound {
     private final List<String> nameParts;
-    private final RelationId id;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
         this(id, nameParts, Optional.empty(), Optional.empty());
@@ -51,9 +51,8 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
 
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
+        super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = nameParts;
-        this.id = id;
     }
 
     public UnboundRelation(RelationId id, TableIdentifier identifier) {
@@ -67,13 +66,17 @@ public class UnboundRelation extends LogicalLeaf implements Relation, Unbound {
      */
     public UnboundRelation(RelationId id, TableIdentifier identifier, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
+        super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = Lists.newArrayList();
         if (identifier.getDatabaseName().isPresent()) {
             nameParts.add(identifier.getDatabaseName().get());
         }
         nameParts.add(identifier.getTableName());
-        this.id = id;
+    }
+
+    @Override
+    public Table getTable() {
+        throw new UnsupportedOperationException("unbound relation cannot get table");
     }
 
     public List<String> getNameParts() {

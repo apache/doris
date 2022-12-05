@@ -51,6 +51,11 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         this(id, type, table, qualifier, Optional.empty(), Optional.empty(), Collections.emptyList());
     }
 
+    public LogicalRelation(RelationId id, PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
+        this(id, type, null, Collections.emptyList(), groupExpression, logicalProperties, Collections.emptyList());
+    }
+
     /**
      * Constructor for LogicalRelationPlan.
      *

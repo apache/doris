@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.cost.CostEstimate;
 import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
@@ -233,9 +232,6 @@ public class GroupExpression {
             return false;
         }
         GroupExpression that = (GroupExpression) o;
-        if (this.plan instanceof UnboundRelation) {
-            return plan.equals(that.plan);
-        }
         return children.equals(that.children) && plan.equals(that.plan)
                 && plan.getLogicalProperties().equals(that.plan.getLogicalProperties());
     }
