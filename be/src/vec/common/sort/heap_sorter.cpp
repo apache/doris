@@ -24,6 +24,7 @@ HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offs
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+          _data_size(0),
           _heap_size(limit + offset),
           _heap(std::make_unique<SortingHeap>()),
           _topn_filter_rows(0),
@@ -92,6 +93,9 @@ Status HeapSorter::append_block(Block* block) {
             HeapSortCursorImpl cursor(i, block_view);
             _heap->replace_top_if_less(std::move(cursor));
         }
+    }
+    if (block_view->ref_count() > 1) {
+        _data_size += block_view->value().block.allocated_bytes();
     }
     return Status::OK();
 }
@@ -169,6 +173,10 @@ Status HeapSorter::_prepare_sort_descs(Block* block) {
     }
     _init_sort_descs = true;
     return Status::OK();
+}
+
+size_t HeapSorter::data_size() const {
+    return _data_size;
 }
 
 } // namespace doris::vectorized
