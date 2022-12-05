@@ -73,6 +73,8 @@ import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFeResult;
+import org.apache.doris.thrift.TFetchProcsDataRequest;
+import org.apache.doris.thrift.TFetchProcsDataResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
@@ -80,6 +82,8 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TFunction;
+import org.apache.doris.thrift.TFunctionName;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetStoragePolicy;
@@ -116,6 +120,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
@@ -137,11 +142,13 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 // Frontend service used to serve all request for this frontend through
 // thrift protocol
@@ -1103,6 +1110,33 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    @Override
+    public TFetchProcsDataResult fetchProcsData(TFetchProcsDataRequest request) {
+        LOG.info("fetch procs data");
+        switch (request.getSchemaTableName()) {
+            case PROCS:
+                return getProcsData();
+            default:
+                break;
+        }
+        TFetchProcsDataResult result = new TFetchProcsDataResult();
+        result.setStatus(new TStatus(TStatusCode.INTERNAL_ERROR));
+        return result;
+    }
+
+    private TFetchProcsDataResult getProcsData() {
+        TFetchProcsDataResult result = new TFetchProcsDataResult();
+        List<TFunction> dataBatch = Env.getCurrentEnv().getBuiltinFunctions().stream().map(function -> {
+            List<TTypeDesc> retTypes = Arrays.stream(function.getArgs()).map(type -> type.toThrift())
+                    .collect(Collectors.toList());
+            return new TFunction(new TFunctionName(function.functionName()), function.getBinaryType(), retTypes,
+                    function.getReturnType().toThrift(), false).setSignature(function.signatureString());
+        }).collect(Collectors.toList());
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
     private TNetworkAddress getClientAddr() {
         ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
         // For NonBlockingServer, we can not get client ip.
@@ -1141,45 +1175,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
 
         List<Policy> policyList = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
-        policyList.stream().filter(p -> p instanceof StoragePolicy).map(p -> (StoragePolicy) p).forEach(
-                iter -> {
-                    // default policy not init.
-                    if (iter.getStorageResource() == null) {
-                        return;
-                    }
-                    TGetStoragePolicy rEntry = new TGetStoragePolicy();
-                    rEntry.setPolicyName(iter.getPolicyName());
-                    //java 8 not support ifPresentOrElse
-                    final long[] ttlCoolDown = {-1};
-                    Optional.ofNullable(iter.getCooldownTtl()).ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
-                    rEntry.setCooldownTtl(ttlCoolDown[0]);
+        policyList.stream().filter(p -> p instanceof StoragePolicy).map(p -> (StoragePolicy) p).forEach(iter -> {
+            // default policy not init.
+            if (iter.getStorageResource() == null) {
+                return;
+            }
+            TGetStoragePolicy rEntry = new TGetStoragePolicy();
+            rEntry.setPolicyName(iter.getPolicyName());
+            //java 8 not support ifPresentOrElse
+            final long[] ttlCoolDown = {-1};
+            Optional.ofNullable(iter.getCooldownTtl()).ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
+            rEntry.setCooldownTtl(ttlCoolDown[0]);
 
-                    rEntry.setCooldownDatetime(
-                            iter.getCooldownTimestampMs() == -1 ? -1 : iter.getCooldownTimestampMs() / 100);
+            rEntry.setCooldownDatetime(iter.getCooldownTimestampMs() == -1 ? -1 : iter.getCooldownTimestampMs() / 100);
 
-                    Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
-                    TS3StorageParam s3Info = new TS3StorageParam();
-                    Optional.ofNullable(iter.getStorageResource()).ifPresent(resource -> {
-                        Map<String, String> storagePolicyProperties = Env.getCurrentEnv().getResourceMgr()
-                                .getResource(resource).getCopiedProperties();
-                        s3Info.setS3Endpoint(storagePolicyProperties.get(S3Resource.S3_ENDPOINT));
-                        s3Info.setS3Region(storagePolicyProperties.get(S3Resource.S3_REGION));
-                        s3Info.setRootPath(storagePolicyProperties.get(S3Resource.S3_ROOT_PATH));
-                        s3Info.setS3Ak(storagePolicyProperties.get(S3Resource.S3_ACCESS_KEY));
-                        s3Info.setS3Sk(storagePolicyProperties.get(S3Resource.S3_SECRET_KEY));
-                        s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
-                        s3Info.setS3MaxConn(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
-                        s3Info.setS3RequestTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
-                        s3Info.setS3ConnTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
-                    });
+            Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
+            TS3StorageParam s3Info = new TS3StorageParam();
+            Optional.ofNullable(iter.getStorageResource()).ifPresent(resource -> {
+                Map<String, String> storagePolicyProperties = Env.getCurrentEnv().getResourceMgr().getResource(resource)
+                        .getCopiedProperties();
+                s3Info.setS3Endpoint(storagePolicyProperties.get(S3Resource.S3_ENDPOINT));
+                s3Info.setS3Region(storagePolicyProperties.get(S3Resource.S3_REGION));
+                s3Info.setRootPath(storagePolicyProperties.get(S3Resource.S3_ROOT_PATH));
+                s3Info.setS3Ak(storagePolicyProperties.get(S3Resource.S3_ACCESS_KEY));
+                s3Info.setS3Sk(storagePolicyProperties.get(S3Resource.S3_SECRET_KEY));
+                s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
+                s3Info.setS3MaxConn(Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
+                s3Info.setS3RequestTimeoutMs(
+                        Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
+                s3Info.setS3ConnTimeoutMs(
+                        Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
+            });
 
-                    rEntry.setS3StorageParam(s3Info);
-                    result.addToResultEntrys(rEntry);
-                }
-        );
+            rEntry.setS3StorageParam(s3Info);
+            result.addToResultEntrys(rEntry);
+        });
         if (!result.isSetResultEntrys()) {
             result.setResultEntrys(new ArrayList<>());
         }

@@ -457,6 +457,10 @@ std::string type_to_string(PrimitiveType t) {
     return "";
 }
 
+std::string thrift_to_string(TPrimitiveType::type ttype) {
+    return type_to_string(thrift_to_type(ttype));
+}
+
 std::string type_to_odbc_string(PrimitiveType t) {
     // ODBC driver requires types in lower case
     switch (t) {

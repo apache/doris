@@ -425,7 +425,7 @@ public class GenerateScalarFunction {
     }
 
     private Map<String, String> collectFunctionCodes() {
-        FunctionSet<Object> functionSet = new FunctionSet<>();
+        FunctionSet functionSet = new FunctionSet();
         functionSet.init();
 
         ArrayListMultimap<String, Function> functionMap = ArrayListMultimap.create();

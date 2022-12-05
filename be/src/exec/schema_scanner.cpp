@@ -17,6 +17,8 @@
 
 #include "exec/schema_scanner.h"
 
+#include <gen_cpp/Descriptors_types.h>
+
 #include "exec/schema_scanner/schema_backends_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
@@ -24,6 +26,7 @@
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
+#include "exec/schema_scanner/schema_procs_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
@@ -91,7 +94,8 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
         return Status::InternalError("invalid parameter");
     }
 
-    if (_schema_table_type == TSchemaTableType::SCH_BACKENDS) {
+    if (_schema_table_type == TSchemaTableType::SCH_BACKENDS ||
+        _schema_table_type == TSchemaTableType::SCH_PROCS) {
         RETURN_IF_ERROR(create_columns(param->table_structure, pool));
     }
 
@@ -139,6 +143,8 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
         return new (std::nothrow) SchemaRowsetsScanner();
     case TSchemaTableType::SCH_BACKENDS:
         return new (std::nothrow) SchemaBackendsScanner();
+    case TSchemaTableType::SCH_PROCS:
+        return new (std::nothrow) SchemaProcsScanner();
     default:
         return new (std::nothrow) SchemaDummyScanner();
         break;

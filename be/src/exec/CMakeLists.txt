@@ -83,6 +83,7 @@ set(EXEC_FILES
     schema_scanner/schema_views_scanner.cpp
     schema_scanner/schema_statistics_scanner.cpp
     schema_scanner/schema_table_privileges_scanner.cpp
+    schema_scanner/schema_procs_scanner.cpp
     schema_scanner/schema_schema_privileges_scanner.cpp
     schema_scanner/schema_user_privileges_scanner.cpp
     schema_scanner/schema_files_scanner.cpp

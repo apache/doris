@@ -426,11 +426,18 @@ public class SchemaTable extends Table {
                             .column("Version", ScalarType.createVarchar(64))
                             .column("Status", ScalarType.createVarchar(1024))
                             .build()))
+            .put("procs",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "procs", TableType.SCHEMA,
+                            builder().column("FuncName", ScalarType.createVarchar(64))
+                                    .column("RetType", ScalarType.createVarchar(32))
+                                    .column("ArgTypes", ScalarType.createVarchar(32))
+                                    .column("Signature", ScalarType.createVarchar(128)).build()))
             .build();
 
     public static List<TSchemaTableStructure> getTableStructure(String tableName) {
         List<TSchemaTableStructure> tSchemaTableStructureList = Lists.newArrayList();
         switch (tableName) {
+            case "procs":
             case "backends": {
                 Table table = TABLE_MAP.get(tableName);
                 for (Column column : table.getFullSchema()) {

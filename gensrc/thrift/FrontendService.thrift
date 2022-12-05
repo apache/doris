@@ -691,6 +691,7 @@ struct TInitExternalCtlMetaResult {
 
 enum TSchemaTableName{
   BACKENDS = 0,
+  PROCS = 1,
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -701,6 +702,15 @@ struct TFetchSchemaTableDataRequest {
 struct TFetchSchemaTableDataResult {
   1: required Status.TStatus status
   2: optional list<Data.TRow> data_batch;
+}
+
+struct TFetchProcsDataRequest {
+  1: optional TSchemaTableName schema_table_name
+}
+
+struct TFetchProcsDataResult {
+  1: required Status.TStatus status
+  2: optional list<Types.TFunction> data_batch;
 }
 
 service FrontendService {
@@ -741,4 +751,5 @@ service FrontendService {
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+    TFetchProcsDataResult fetchProcsData(1: TFetchProcsDataRequest request)
 }

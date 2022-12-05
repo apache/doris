@@ -42,7 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class FunctionSet<T> {
+public class FunctionSet {
     private static final Logger LOG = LogManager.getLogger(FunctionSet.class);
 
     // All of the registered user functions. The key is the user facing name (e.g. "myUdf"),
