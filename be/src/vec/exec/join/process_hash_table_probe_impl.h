@@ -173,7 +173,10 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
     if (probe_index == 0) {
-        size_t old_probe_keys_memory_usage = _arena->size();
+        size_t old_probe_keys_memory_usage = 0;
+        if (_arena) {
+            old_probe_keys_memory_usage = _arena->size();
+        }
         _arena.reset(new Arena());
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
             if (_probe_keys.size() < probe_rows) {
@@ -351,7 +354,10 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         KeyGetter key_getter(probe_raw_ptrs, _join_node->_probe_key_sz, nullptr);
 
         if (probe_index == 0) {
-            size_t old_probe_keys_memory_usage = _arena->size();
+            size_t old_probe_keys_memory_usage = 0;
+            if (_arena) {
+                old_probe_keys_memory_usage = _arena->size();
+            }
             _arena.reset(new Arena());
             if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
                 if (_probe_keys.size() < probe_rows) {

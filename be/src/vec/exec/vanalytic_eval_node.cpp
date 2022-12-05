@@ -153,8 +153,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
 
     auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
-    _blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
+    _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     SCOPED_TIMER(_evaluation_timer);
 

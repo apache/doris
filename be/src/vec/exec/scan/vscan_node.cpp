@@ -146,8 +146,7 @@ Status VScanNode::_init_profile() {
     _runtime_profile->add_child(memory_usage, false, nullptr);
     _queued_blocks_memory_usage =
             memory_usage->AddHighWaterMarkCounter("QueuedBlocks", TUnit::BYTES);
-    _free_blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
+    _free_blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("FreeBlocks", TUnit::BYTES);
 
     _rows_read_counter = ADD_COUNTER(_runtime_profile, "RowsRead", TUnit::UNIT);
     _total_throughput_counter =

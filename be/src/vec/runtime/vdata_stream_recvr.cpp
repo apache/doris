@@ -113,8 +113,8 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         if (iter != _packet_seq_map.end()) {
             if (iter->second >= packet_seq) {
                 LOG(WARNING) << fmt::format(
-                        "packet already exist [cur_packet_id= {} receive_packet_id={}]", iter->second,
-                        packet_seq);
+                        "packet already exist [cur_packet_id= {} receive_packet_id={}]",
+                        iter->second, packet_seq);
                 return;
             }
             iter->second = packet_seq;
@@ -318,8 +318,7 @@ VDataStreamRecvr::VDataStreamRecvr(
     // Initialize the counters
     auto* memory_usage = _profile->create_child("MemoryUsage", true, true);
     _profile->add_child(memory_usage, false, nullptr);
-    _blocks_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
+    _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
     _local_bytes_received_counter = ADD_COUNTER(_profile, "LocalBytesReceived", TUnit::BYTES);
 
