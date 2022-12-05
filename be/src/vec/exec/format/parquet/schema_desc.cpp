@@ -16,7 +16,6 @@
 // under the License.
 
 #include "schema_desc.h"
-#include <thrift/protocol/TDebugProtocol.h>
 
 #include "common/logging.h"
 
@@ -101,7 +100,6 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
         if (_name_to_field.find(_fields[i].name) != _name_to_field.end()) {
             return Status::InvalidArgument("Duplicated field name: {}", _fields[i].name);
         }
-        LOG(INFO) << "yy debug parse_from_thrift " << _fields[i].name << ", " << _fields[i].debug_string();
         _name_to_field.emplace(_fields[i].name, &_fields[i]);
     }
 
@@ -160,7 +158,6 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
 TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& physical_schema) {
     TypeDescriptor type;
     type.type = INVALID_TYPE;
-    LOG(INFO) << "yy debug get_doris_type0 :" << physical_schema.__isset.logicalType << ", " << physical_schema.__isset.converted_type;
     if (physical_schema.__isset.logicalType) {
         type = convert_to_doris_type(physical_schema.logicalType);
     } else if (physical_schema.__isset.converted_type) {
@@ -193,7 +190,6 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
             break;
         }
     }
-    LOG(INFO) << "yy debug get_doris_type: " << type.debug_string();
     return type;
 }
 
@@ -226,7 +222,6 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
     } else if (logicalType.__isset.TIMESTAMP) {
         type.type = TYPE_DATETIMEV2;
     } else {
-        LOG(INFO) << "yy debug convert_to_doris_type: " << apache::thrift::ThriftDebugString(logicalType);
         type.type = INVALID_TYPE;
     }
     return type;

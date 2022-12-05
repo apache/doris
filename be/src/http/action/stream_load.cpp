@@ -286,7 +286,6 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
     parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
                  &ctx->compress_type);
-    LOG(INFO) << "yy debug get format type: " << ctx->format << ", compress: " << ctx->compress_type;
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
         return Status::InternalError("unknown data format, format={}",
                                      http_req->header(HTTP_FORMAT_KEY));

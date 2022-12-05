@@ -222,9 +222,14 @@ public class DataDescription {
     public DataDescription(String tableName, LoadTaskInfo taskInfo) {
         this.tableName = tableName;
         this.partitionNames = taskInfo.getPartitions();
-        // Add a dummy path to just make analyze() happy.
-        // Stream load does not need this field.
-        this.filePaths = Lists.newArrayList(taskInfo.getPath());
+
+        if (!Strings.isNullOrEmpty(taskInfo.getPath())) {
+            this.filePaths = Lists.newArrayList(taskInfo.getPath());
+        } else {
+            // Add a dummy path to just make analyze() happy.
+            this.filePaths = Lists.newArrayList("dummy");
+        }
+
         this.fileFieldNames = taskInfo.getColumnExprDescs().getFileColNames();
         this.columnSeparator = taskInfo.getColumnSeparator();
         this.lineDelimiter = taskInfo.getLineDelimiter();

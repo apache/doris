@@ -27,7 +27,6 @@
 #include "io/s3_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
-#include "util/stack_util.h"
 
 doris::Status doris::FileFactory::create_file_writer(
         TFileType::type type, doris::ExecEnv* env,
@@ -144,7 +143,6 @@ doris::Status doris::FileFactory::create_pipe_reader(const TUniqueId& load_id,
                                                      std::shared_ptr<FileReader>& file_reader) {
     file_reader = ExecEnv::GetInstance()->load_stream_mgr()->get(load_id);
     if (!file_reader) {
-        LOG(INFO) << "yy debug: " << get_stack_trace();
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     return Status::OK();
