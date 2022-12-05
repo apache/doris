@@ -33,7 +33,7 @@ public:
     static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
                          AggFnEvaluator** result);
 
-    Status prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
+    Status prepare(RuntimeState* state, const RowDescriptor& desc,
                    const SlotDescriptor* intermediate_slot_desc,
                    const SlotDescriptor* output_slot_desc);
 

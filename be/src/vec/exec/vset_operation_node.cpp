@@ -45,7 +45,7 @@ struct HashTableBuild {
 
         KeyGetter key_getter(_build_raw_ptrs, _operation_node->_build_key_sz, nullptr);
 
-        if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
             hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
             key_getter.set_serialized_keys(hash_table_ctx.keys.data());
         }

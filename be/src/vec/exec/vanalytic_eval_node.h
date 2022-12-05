@@ -125,7 +125,6 @@ private:
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
-    std::unique_ptr<MemPool> _mem_pool;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;
@@ -146,6 +145,7 @@ private:
     std::vector<int64_t> _origin_cols;
 
     RuntimeProfile::Counter* _evaluation_timer;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
 
     std::vector<bool> _change_to_nullable_flags;
 };

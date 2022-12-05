@@ -69,13 +69,12 @@ struct ProcessHashTableBuild {
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
-        int64_t old_bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
 
         Defer defer {[&]() {
             int64_t bucket_size = hash_table_ctx.hash_table.get_buffer_size_in_cells();
             int64_t filled_bucket_size = hash_table_ctx.hash_table.size();
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _join_node->_mem_used += bucket_bytes - old_bucket_bytes;
+            COUNTER_SET(_join_node->_hash_table_memory_usage, bucket_bytes);
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
             COUNTER_SET(_join_node->_build_buckets_fill_counter, filled_bucket_size);
 
@@ -113,11 +112,15 @@ struct ProcessHashTableBuild {
 
         _build_side_hash_values.resize(_rows);
         auto& arena = *(_join_node->_arena);
+        auto old_build_arena_memory = arena.size();
         {
             SCOPED_TIMER(_build_side_compute_hash_timer);
-            if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+            if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
+                auto old_keys_memory = hash_table_ctx.keys_memory_usage;
                 hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
                 key_getter.set_serialized_keys(hash_table_ctx.keys.data());
+                _join_node->_build_arena_memory_usage->add(hash_table_ctx.keys_memory_usage -
+                                                           old_keys_memory);
             }
 
             for (size_t k = 0; k < _rows; ++k) {
@@ -135,7 +138,8 @@ struct ProcessHashTableBuild {
                         return Status::OK();
                     }
                 }
-                if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+                if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
+                                      KeyGetter>::value) {
                     _build_side_hash_values[k] =
                             hash_table_ctx.hash_table.hash(key_getter.get_key_holder(k, arena).key);
                 } else {
@@ -191,6 +195,8 @@ struct ProcessHashTableBuild {
                     });
         }
 #undef EMPLACE_IMPL
+
+        _join_node->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
 
         COUNTER_UPDATE(_join_node->_build_table_expanse_timer,
                        hash_table_ctx.hash_table.get_resize_timer_value());
@@ -248,7 +254,6 @@ private:
 
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : VJoinNodeBase(pool, tnode, descs),
-          _mem_used(0),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
                              tnode.hash_join_node.is_broadcast_join),
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
@@ -349,6 +354,16 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+
+    auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
+    runtime_profile()->add_child(memory_usage, false, nullptr);
+    _build_blocks_memory_usage = ADD_COUNTER(memory_usage, "BuildBlocks", TUnit::BYTES);
+    _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
+    _build_arena_memory_usage =
+            memory_usage->AddHighWaterMarkCounter("BuildKeyArena", TUnit::BYTES);
+    _probe_arena_memory_usage =
+            memory_usage->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES);
+
     // Build phase
     _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
     runtime_profile()->add_child(_build_phase_profile, false, nullptr);
@@ -647,6 +662,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     MutableBlock mutable_block(child(1)->row_desc().tuple_descriptors());
 
     uint8_t index = 0;
+    int64_t mem_used = 0;
     int64_t last_mem_used = 0;
     bool eos = false;
 
@@ -664,27 +680,30 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
             RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
                                            child(1)->get_next_span(), eos);
 
-            _mem_used += block.allocated_bytes();
+            mem_used += block.allocated_bytes();
 
             if (block.rows() != 0) {
                 SCOPED_TIMER(_build_side_merge_block_timer);
                 RETURN_IF_CATCH_BAD_ALLOC(mutable_block.merge(block));
             }
 
-            if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
+            if (UNLIKELY(mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
                 if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
                     return Status::NotSupported(
                             strings::Substitute("data size of right table in hash join > $0",
                                                 BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
                 }
                 _build_blocks->emplace_back(mutable_block.to_block());
+
+                COUNTER_UPDATE(_build_blocks_memory_usage, (*_build_blocks)[index].bytes());
+
                 // TODO:: Rethink may we should do the process after we receive all build blocks ?
                 // which is better.
                 RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[index], index));
 
                 mutable_block = MutableBlock();
                 ++index;
-                last_mem_used = _mem_used;
+                last_mem_used = mem_used;
             }
         }
 
@@ -695,6 +714,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                                             BUILD_BLOCK_MAX_SIZE * _MAX_BUILD_BLOCK_COUNT));
             }
             _build_blocks->emplace_back(mutable_block.to_block());
+            COUNTER_UPDATE(_build_blocks_memory_usage, (*_build_blocks)[index].bytes());
             RETURN_IF_ERROR(_process_build_block(state, (*_build_blocks)[index], index));
         }
     }
