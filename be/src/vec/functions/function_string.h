@@ -1477,12 +1477,40 @@ private:
                 if(src_null_map){
                     dest_nested_null_map.push_back(false);
                 }
+                src_pos+= str_size;
                 dest_pos+=str_size;
             } else if (delimiter.size == 1) {
-                
+                for(size_t str_pos = 0;str_pos < str.size();) {
+                    const size_t old_size = column_string_chars.size();
+                    const size_t split_part_size = split_str(str_pos,str,delimiter);
+                    const size_t new_size = old_size + split_part_size + 1;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size> 0) {
+                        memcpy(column_string_chars.data() + old_size, str,
+                               split_part_size);
+                    }
+                    column_string_chars[old_size + split_part_size] = 0;
+                    column_string_offsets.push_back(new_size);
+                    if(src_null_map){
+                        dest_nested_null_map.push_back(false);
+                    }
+                    src_pos+= split_part_size;
+                    dest_pos+=split_part_size;
+                }
             }
             dest_offsets.push_back(dest_pos);
         }
+    }
+
+    size_t split_str(size_t &pos, const string str, string delimiter){
+        char delimiter_char = delimiter[0];
+        size_t old_size = pos;
+        size_t str_size= str.size();
+        bool flag = true;
+		while (pos < len && s[pos] != delimiter_char) {
+	        pos++;
+        }
+        return pos - old_size;
     }
 };
 
