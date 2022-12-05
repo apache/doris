@@ -18,7 +18,8 @@
  */
 
 suite("test_view_with_with_clause") {
-
+    sql """ DROP VIEW IF EXISTS  viewtest_test_view_with_with_clause (b,cnt); """
+    sql """ DROP TABLE IF EXISTS test_view_with_with_clause; """
     sql """
         CREATE TABLE IF NOT EXISTS test_view_with_with_clause (`a` date, `b` varchar(30) ,`c` varchar(30) )
             DUPLICATE KEY(`a`)
