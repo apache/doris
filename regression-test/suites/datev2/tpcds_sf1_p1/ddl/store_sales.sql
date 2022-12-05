@@ -10,18 +10,18 @@ CREATE TABLE IF NOT EXISTS store_sales (
     ss_promo_sk bigint,
     ss_ticket_number bigint,
     ss_quantity integer,
-    ss_wholesale_cost decimal(7,2),
-    ss_list_price decimal(7,2),
-    ss_sales_price decimal(7,2),
-    ss_ext_discount_amt decimal(7,2),
-    ss_ext_sales_price decimal(7,2),
-    ss_ext_wholesale_cost decimal(7,2),
-    ss_ext_list_price decimal(7,2),
-    ss_ext_tax decimal(7,2),
-    ss_coupon_amt decimal(7,2),
-    ss_net_paid decimal(7,2),
-    ss_net_paid_inc_tax decimal(7,2),
-    ss_net_profit decimal(7,2)
+    ss_wholesale_cost decimalv3(7,2),
+    ss_list_price decimalv3(7,2),
+    ss_sales_price decimalv3(7,2),
+    ss_ext_discount_amt decimalv3(7,2),
+    ss_ext_sales_price decimalv3(7,2),
+    ss_ext_wholesale_cost decimalv3(7,2),
+    ss_ext_list_price decimalv3(7,2),
+    ss_ext_tax decimalv3(7,2),
+    ss_coupon_amt decimalv3(7,2),
+    ss_net_paid decimalv3(7,2),
+    ss_net_paid_inc_tax decimalv3(7,2),
+    ss_net_profit decimalv3(7,2)
 )
 DUPLICATE KEY(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk)
 DISTRIBUTED BY HASH(ss_customer_sk) BUCKETS 3

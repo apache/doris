@@ -645,7 +645,11 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
 
     4. Elasticsearch
 
-        TODO
+        包括 ES6，ES7，ES8 三个版本的 docker 镜像。docker/thirdparties/docker-compose/elasticsearch/ 下。
+
+        * `es.yaml`：Docker compose文件。包括 ES6，ES7，ES8 三个版本。无需修改。
+        * `es.env`：配置文件，需配置 ES 的端口号。
+        * `scripts` 目录下存放了启动镜像后的初始化脚本。
 
 2. 运行回归测试
 
@@ -655,6 +659,10 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
     * `mysql_57_port` 和 `pg_14_port` 分别对应 MySQL 和 Postgresql 的对外端口，默认为 3316 和 5442。
     * `enableHiveTest`：开启 hive 外表测试，需要启动 hive 的 container。
     * `hms_port` 对应 hive metastore 的对外端口，默认为 9183。
+    * `enableEsTest`：开启 es 外表测试。需要启动 es 的 container。
+    * `es_6_port`：ES6 的端口。
+    * `es_7_port`：ES7 的端口。
+    * `es_8_port`：ES8 的端口。
 
 3. 如何在同一台机器上启动多套 Container。
 

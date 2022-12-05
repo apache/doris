@@ -23,6 +23,64 @@
 -- !sql --
 \N
 
+-- !sql1 --
+1	2019-08-01T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-01T13:21:03
+2	2019-08-01T13:21:03	Asia/Singapore	Asia/Shanghai	2019-08-01T13:21:03
+3	2019-08-01T13:21:03	Asia/Taipei	Asia/Shanghai	2019-08-01T13:21:03
+4	2019-08-02T13:21:03	Australia/Queensland	Asia/Shanghai	2019-08-02T11:21:03
+5	2019-08-02T13:21:03	Australia/Lindeman	Asia/Shanghai	2019-08-02T11:21:03
+6	2019-08-03T13:21:03	America/Aruba	Asia/Shanghai	2019-08-04T01:21:03
+7	2019-08-03T13:21:03	America/Blanc-Sablon	Asia/Shanghai	2019-08-04T01:21:03
+8	2019-08-04T13:21:03	America/Dawson	Africa/Lusaka	2019-08-04T22:21:03
+9	2019-08-04T13:21:03	America/Creston	Africa/Lusaka	2019-08-04T22:21:03
+10	2019-08-05T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-05T13:21:03
+11	2019-08-05T13:21:03	Asia/Shanghai	Asia/Singapore	2019-08-05T13:21:03
+12	2019-08-05T13:21:03	Asia/Shanghai	Asia/Taipei	2019-08-05T13:21:03
+13	2019-08-06T13:21:03	Asia/Shanghai	Australia/Queensland	2019-08-06T15:21:03
+14	2019-08-06T13:21:03	Asia/Shanghai	Australia/Lindeman	2019-08-06T15:21:03
+15	2019-08-07T13:21:03	Asia/Shanghai	America/Aruba	2019-08-07T01:21:03
+16	2019-08-07T13:21:03	Asia/Shanghai	America/Blanc-Sablon	2019-08-07T01:21:03
+17	2019-08-08T13:21:03	Africa/Lusaka	America/Dawson	2019-08-08T04:21:03
+18	2019-08-08T13:21:03	Africa/Lusaka	America/Creston	2019-08-08T04:21:03
+
+-- !sql2 --
+2019-08-01T13:21:03	2019-08-01T13:21:03	2019-08-01T13:21:03
+
+-- !sql3 --
+2019-08-02T11:21:03	2019-08-02T11:21:03	2019-08-02T11:21:03
+
+-- !sql4 --
+2019-08-04T22:21:03	2019-08-04T22:21:03	2019-08-04T22:21:03
+
+-- !sql_vec1 --
+1	2019-08-01T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-01T13:21:03
+2	2019-08-01T13:21:03	Asia/Singapore	Asia/Shanghai	2019-08-01T13:21:03
+3	2019-08-01T13:21:03	Asia/Taipei	Asia/Shanghai	2019-08-01T13:21:03
+4	2019-08-02T13:21:03	Australia/Queensland	Asia/Shanghai	2019-08-02T11:21:03
+5	2019-08-02T13:21:03	Australia/Lindeman	Asia/Shanghai	2019-08-02T11:21:03
+6	2019-08-03T13:21:03	America/Aruba	Asia/Shanghai	2019-08-04T01:21:03
+7	2019-08-03T13:21:03	America/Blanc-Sablon	Asia/Shanghai	2019-08-04T01:21:03
+8	2019-08-04T13:21:03	America/Dawson	Africa/Lusaka	2019-08-04T22:21:03
+9	2019-08-04T13:21:03	America/Creston	Africa/Lusaka	2019-08-04T22:21:03
+10	2019-08-05T13:21:03	Asia/Shanghai	Asia/Shanghai	2019-08-05T13:21:03
+11	2019-08-05T13:21:03	Asia/Shanghai	Asia/Singapore	2019-08-05T13:21:03
+12	2019-08-05T13:21:03	Asia/Shanghai	Asia/Taipei	2019-08-05T13:21:03
+13	2019-08-06T13:21:03	Asia/Shanghai	Australia/Queensland	2019-08-06T15:21:03
+14	2019-08-06T13:21:03	Asia/Shanghai	Australia/Lindeman	2019-08-06T15:21:03
+15	2019-08-07T13:21:03	Asia/Shanghai	America/Aruba	2019-08-07T01:21:03
+16	2019-08-07T13:21:03	Asia/Shanghai	America/Blanc-Sablon	2019-08-07T01:21:03
+17	2019-08-08T13:21:03	Africa/Lusaka	America/Dawson	2019-08-08T04:21:03
+18	2019-08-08T13:21:03	Africa/Lusaka	America/Creston	2019-08-08T04:21:03
+
+-- !sql_vec2 --
+2019-08-01T13:21:03	2019-08-01T13:21:03	2019-08-01T13:21:03
+
+-- !sql_vec3 --
+2019-08-02T11:21:03	2019-08-02T11:21:03	2019-08-02T11:21:03
+
+-- !sql_vec4 --
+2019-08-04T22:21:03	2019-08-04T22:21:03	2019-08-04T22:21:03
+
 -- !sql --
 2012-11-30T23:59:59
 

@@ -174,13 +174,18 @@ extern std::mutex custom_conf_lock;
 bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = true,
           bool set_to_default = true);
 
-Status set_config(const std::string& field, const std::string& value, bool need_persist = false);
+Status set_config(const std::string& field, const std::string& value, bool need_persist = false,
+                  bool force = false);
 
 bool persist_config(const std::string& field, const std::string& value);
 
 std::mutex* get_mutable_string_config_lock();
 
 std::vector<std::vector<std::string>> get_config_info();
+
+Status set_fuzzy_config(const std::string& field, const std::string& value);
+
+void set_fuzzy_configs();
 
 } // namespace config
 } // namespace doris

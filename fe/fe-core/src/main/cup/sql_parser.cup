@@ -3456,14 +3456,14 @@ show_param ::=
         RESULT = new ShowDbStmt(null, null, catalogName);
     :}
     /* Catalog */
-    | KW_CATALOGS
+    | KW_CATALOGS opt_wild_where
     {:
-        RESULT = new ShowCatalogStmt();
+        RESULT = new ShowCatalogStmt(null, parser.wild);
     :}
     /* show Catalog name */
     | KW_CATALOG ident:catalogName
     {:
-        RESULT = new ShowCatalogStmt(catalogName);
+        RESULT = new ShowCatalogStmt(catalogName, null);
     :}
     /* Dynamic Partition */
     | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db
@@ -5861,6 +5861,13 @@ non_pred_expr ::=
   {: RESULT = new CastExpr(targetType, e); :}
   | KW_KEY encryptkey_name:name
   {: RESULT = new EncryptKeyRef(name); :}
+  | KW_CONVERT LPAREN expr:e KW_USING ident:character RPAREN
+  {: 
+    ArrayList<Expr> exprs = new ArrayList<>();
+    exprs.add(e);
+    exprs.add(new StringLiteral(character));
+    RESULT = new FunctionCallExpr("convert_to", new FunctionParams(exprs)); 
+  :}
   ;
 
 expr_pipe_list ::=

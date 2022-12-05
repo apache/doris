@@ -21,6 +21,7 @@ import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -427,7 +428,7 @@ public final class SparkDpp implements java.io.Serializable {
     private JavaPairRDD<List<Object>, Object[]> fillTupleWithPartitionColumn(Dataset<Row> dataframe,
             EtlJobConfig.EtlPartitionInfo partitionInfo, List<Integer> partitionKeyIndex,
             List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys,
-            List<String> keyColumnNames, List<String> valueColumnNames, StructType dstTableSchema,
+            List<String> keyAndPartitionColumnNames, List<String> valueColumnNames, StructType dstTableSchema,
             EtlJobConfig.EtlIndex baseIndex, List<Long> validPartitionIds) throws SparkDppException {
         List<String> distributeColumns = partitionInfo.distributionColumnRefs;
         Partitioner partitioner = new DorisRangePartitioner(partitionInfo, partitionKeyIndex, partitionRangeKeys);
@@ -444,9 +445,9 @@ public final class SparkDpp implements java.io.Serializable {
             }
         }
 
-        List<ColumnParser> parsers = new ArrayList<>();
+        Map<String, ColumnParser> parsers = Maps.newHashMap();
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
-            parsers.add(ColumnParser.create(column));
+            parsers.put(column.columnName, ColumnParser.create(column));
         }
 
         // use PairFlatMapFunction instead of PairMapFunction because the there will be
@@ -454,30 +455,36 @@ public final class SparkDpp implements java.io.Serializable {
         JavaPairRDD<List<Object>, Object[]> resultPairRDD = dataframe.toJavaRDD().flatMapToPair(
                 (PairFlatMapFunction<Row, List<Object>, Object[]>) row -> {
                     List<Tuple2<List<Object>, Object[]>> result = new ArrayList<>();
+                    List<Object> keyAndPartitionColumns = new ArrayList<>();
                     List<Object> keyColumns = new ArrayList<>();
                     List<Object> valueColumns = new ArrayList<>(valueColumnNames.size());
-                    for (int i = 0; i < keyColumnNames.size(); i++) {
-                        String columnName = keyColumnNames.get(i);
+                    for (int i = 0; i < keyAndPartitionColumnNames.size(); i++) {
+                        String columnName = keyAndPartitionColumnNames.get(i);
                         Object columnObject = row.get(row.fieldIndex(columnName));
-                        if (!validateData(columnObject, baseIndex.getColumn(columnName), parsers.get(i), row)) {
+                        if (!validateData(columnObject, baseIndex.getColumn(columnName),
+                                parsers.get(columnName), row)) {
                             abnormalRowAcc.add(1);
                             return result.iterator();
                         }
-                        keyColumns.add(columnObject);
+                        keyAndPartitionColumns.add(columnObject);
+
+                        if (baseIndex.getColumn(columnName).isKey) {
+                            keyColumns.add(columnObject);
+                        }
                     }
 
                     for (int i = 0; i < valueColumnNames.size(); i++) {
                         String columnName = valueColumnNames.get(i);
                         Object columnObject = row.get(row.fieldIndex(columnName));
                         if (!validateData(columnObject, baseIndex.getColumn(columnName),
-                                parsers.get(i + keyColumnNames.size()), row)) {
+                                parsers.get(columnName), row)) {
                             abnormalRowAcc.add(1);
                             return result.iterator();
                         }
                         valueColumns.add(columnObject);
                     }
 
-                    DppColumns key = new DppColumns(keyColumns);
+                    DppColumns key = new DppColumns(keyAndPartitionColumns);
                     int pid = partitioner.getPartition(key);
                     if (!validPartitionIndex.contains(pid)) {
                         LOG.warn("invalid partition for row:" + row + ", pid:" + pid);
@@ -1032,13 +1039,16 @@ public final class SparkDpp implements java.io.Serializable {
                     }
                 }
 
-                // get key column names and value column names separately
-                List<String> keyColumnNames = new ArrayList<>();
+                // get key and partition column names and value column names separately
+                List<String> keyAndPartitionColumnNames = new ArrayList<>();
                 List<String> valueColumnNames = new ArrayList<>();
                 for (EtlJobConfig.EtlColumn etlColumn : baseIndex.columns) {
                     if (etlColumn.isKey) {
-                        keyColumnNames.add(etlColumn.columnName);
+                        keyAndPartitionColumnNames.add(etlColumn.columnName);
                     } else {
+                        if (etlTable.partitionInfo.partitionColumnRefs.contains(etlColumn.columnName)) {
+                            keyAndPartitionColumnNames.add(etlColumn.columnName);
+                        }
                         valueColumnNames.add(etlColumn.columnName);
                     }
                 }
@@ -1050,7 +1060,7 @@ public final class SparkDpp implements java.io.Serializable {
                     for (int i = 0; i < baseIndex.columns.size(); ++i) {
                         EtlJobConfig.EtlColumn column = baseIndex.columns.get(i);
                         if (column.columnName.equals(key)) {
-                            partitionKeyIndex.add(i);
+                            partitionKeyIndex.add(keyAndPartitionColumnNames.indexOf(key));
                             partitionKeySchema.add(DppUtils.getClassFromColumn(column));
                             break;
                         }
@@ -1087,7 +1097,7 @@ public final class SparkDpp implements java.io.Serializable {
                             fileGroupDataframe,
                             partitionInfo, partitionKeyIndex,
                             partitionRangeKeys,
-                            keyColumnNames, valueColumnNames,
+                            keyAndPartitionColumnNames, valueColumnNames,
                             dstTableSchema, baseIndex, fileGroup.partitions);
                     if (tablePairRDD == null) {
                         tablePairRDD = ret;

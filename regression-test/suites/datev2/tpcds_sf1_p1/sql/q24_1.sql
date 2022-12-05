@@ -39,7 +39,7 @@ FROM
 WHERE (i_color = 'pale')
 GROUP BY c_last_name, c_first_name, s_store_name
 HAVING (sum(netpaid) > (
-      SELECT (CAST('0.05' AS DECIMAL) * avg(netpaid))
+      SELECT (0.05 * avg(netpaid))
       FROM
         ssales
    ))
