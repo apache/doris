@@ -1749,7 +1749,7 @@ public class Config extends ConfigBase {
      * Temp config, should be removed when new file scan node is ready.
      */
     @ConfField(mutable = true)
-    public static boolean enable_new_load_scan_node = false;
+    public static boolean enable_new_load_scan_node = true;
 
     /**
      * Max data version of backends serialize block.
