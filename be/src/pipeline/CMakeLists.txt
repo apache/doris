@@ -28,6 +28,7 @@ set(PIPELINE_FILES
         task_scheduler.cpp
         exec/operator.cpp
         exec/scan_operator.cpp
+        exec/datagen_operator.cpp
         exec/empty_set_operator.cpp
         exec/exchange_source_operator.cpp
         exec/exchange_sink_operator.cpp
