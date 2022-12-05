@@ -148,6 +148,8 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+
+            LOG(INFO) << "yy debug read rows: " << read_rows;
         }
 
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
@@ -206,11 +208,13 @@ Status VFileScanner::_init_src_block(Block* block) {
             // not exist in file, using type from _input_tuple_desc
             data_type =
                     DataTypeFactory::instance().create_data_type(slot->type(), slot->is_nullable());
+            LOG(INFO) << "yy debug _init_src_block: " << slot->col_name() << ", type: " << slot->type().debug_string();
         } else {
             data_type = DataTypeFactory::instance().create_data_type(it->second, true);
+            LOG(INFO) << "yy debug _init_src_block2: " << slot->col_name() << ", type: " << it->second.debug_string();
         }
         if (data_type == nullptr) {
-            return Status::NotSupported(fmt::format("Not support arrow type:{}", slot->col_name()));
+            return Status::NotSupported(fmt::format("Not support data type:{} for column: {}", (it == _name_to_col_type.end() ? slot->type().debug_string() : it->second.debug_string()), slot->col_name()));
         }
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
@@ -497,6 +501,8 @@ Status VFileScanner::_get_next_reader() {
             } else {
                 _cur_reader.reset((GenericReader*)parquet_reader);
             }
+            LOG(INFO) << "yy debug parquet reader path: " << range.path << ", is load: " << _is_load
+                << ", start: " << range.start_offset << ", size: " << range.file_size;
             break;
         }
         case TFileFormatType::FORMAT_ORC: {

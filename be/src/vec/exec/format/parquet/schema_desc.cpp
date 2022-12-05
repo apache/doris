@@ -16,6 +16,7 @@
 // under the License.
 
 #include "schema_desc.h"
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include "common/logging.h"
 
@@ -100,6 +101,7 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
         if (_name_to_field.find(_fields[i].name) != _name_to_field.end()) {
             return Status::InvalidArgument("Duplicated field name: {}", _fields[i].name);
         }
+        LOG(INFO) << "yy debug parse_from_thrift " << _fields[i].name << ", " << _fields[i].debug_string();
         _name_to_field.emplace(_fields[i].name, &_fields[i]);
     }
 
@@ -158,6 +160,7 @@ void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physic
 TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& physical_schema) {
     TypeDescriptor type;
     type.type = INVALID_TYPE;
+    LOG(INFO) << "yy debug get_doris_type0 :" << physical_schema.__isset.logicalType << ", " << physical_schema.__isset.converted_type;
     if (physical_schema.__isset.logicalType) {
         type = convert_to_doris_type(physical_schema.logicalType);
     } else if (physical_schema.__isset.converted_type) {
@@ -168,24 +171,29 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
         switch (physical_schema.type) {
         case tparquet::Type::BOOLEAN:
             type.type = TYPE_BOOLEAN;
-            return type;
+            break;
         case tparquet::Type::INT32:
             type.type = TYPE_INT;
-            return type;
+            break;
         case tparquet::Type::INT64:
         case tparquet::Type::INT96:
             type.type = TYPE_BIGINT;
-            return type;
+            break;
         case tparquet::Type::FLOAT:
             type.type = TYPE_FLOAT;
-            return type;
+            break;
         case tparquet::Type::DOUBLE:
             type.type = TYPE_DOUBLE;
-            return type;
+            break;
+        case tparquet::Type::BYTE_ARRAY:
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            type.type = TYPE_STRING;
+            break;
         default:
             break;
         }
     }
+    LOG(INFO) << "yy debug get_doris_type: " << type.debug_string();
     return type;
 }
 
@@ -218,6 +226,7 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
     } else if (logicalType.__isset.TIMESTAMP) {
         type.type = TYPE_DATETIMEV2;
     } else {
+        LOG(INFO) << "yy debug convert_to_doris_type: " << apache::thrift::ThriftDebugString(logicalType);
         type.type = INVALID_TYPE;
     }
     return type;
