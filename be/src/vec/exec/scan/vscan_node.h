@@ -132,18 +132,21 @@ protected:
     //      2. in/not in predicate
     //      3. function predicate
     //  TODO: these interfaces should be change to become more common.
-    virtual PushDownType _should_push_down_binary_predicate(
+    virtual Status _should_push_down_binary_predicate(
             VectorizedFnCall* fn_call, VExprContext* expr_ctx, StringRef* constant_val,
-            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker);
+            int* slot_ref_child, const std::function<bool(const std::string&)>& fn_checker,
+            PushDownType& pdt);
 
     virtual PushDownType _should_push_down_in_predicate(VInPredicate* in_pred,
                                                         VExprContext* expr_ctx, bool is_not_in);
 
-    virtual PushDownType _should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                           VExprContext* expr_ctx,
-                                                           StringVal* constant_str,
-                                                           doris_udf::FunctionContext** fn_ctx) {
-        return PushDownType::UNACCEPTABLE;
+    virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                     VExprContext* expr_ctx,
+                                                     StringVal* constant_str,
+                                                     doris_udf::FunctionContext** fn_ctx,
+                                                     PushDownType& pdt) {
+        pdt = PushDownType::UNACCEPTABLE;
+        return Status::OK();
     }
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
@@ -270,8 +273,8 @@ private:
     Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
 
     Status _normalize_conjuncts();
-    VExpr* _normalize_predicate(VExpr* conjunct_expr_root);
-    void _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
+    Status _normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr);
+    Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                    PushDownType* pdt);
