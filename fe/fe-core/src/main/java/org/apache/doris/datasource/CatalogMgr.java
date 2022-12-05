@@ -251,6 +251,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayDropCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
+
+            lastDBOfCatalog.remove(stmt.getCatalogName());
         } finally {
             writeUnlock();
         }
@@ -269,6 +271,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogName(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);
+
+            String db = lastDBOfCatalog.get(stmt.getCatalogName());
+            if (db != null) {
+                lastDBOfCatalog.remove(stmt.getCatalogName());
+                lastDBOfCatalog.put(log.getNewCatalogName(), db);
+            }
         } finally {
             writeUnlock();
         }

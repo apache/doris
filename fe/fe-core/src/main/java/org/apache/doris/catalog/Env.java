@@ -4452,7 +4452,8 @@ public class Env {
         String lastDb = catalogMgr.getLastDB(catalogName);
         if (StringUtils.isNotEmpty(lastDb)) {
             ctx.setDatabase(lastDb);
-        } else if (catalogIf instanceof EsExternalCatalog) {
+        }
+        if (catalogIf instanceof EsExternalCatalog) {
             ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
                     + EsExternalCatalog.DEFAULT_DB);
         }

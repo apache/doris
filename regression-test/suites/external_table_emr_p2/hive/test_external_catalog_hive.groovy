@@ -89,6 +89,25 @@ suite("test_external_catalog_hive", "p2") {
             sql """ use tpch_1000_orc; """
             q03()
 
+
+            // test remember last used database after switch / rename catalog
+            sql """switch ${catalog_name};"""
+
+            sql """use test;"""
+
+            def res2 = sql """select count(*) from hive_test limit 10;"""
+            logger.info("recoding select: " + res2.toString())
+
+            sql """switch internal;"""
+
+            sql """alter catalog ${catalog_name} rename hms;"""
+
+            sql """switch hms;"""
+
+            def res3 = sql """select count(*) from hive_test limit 10;"""
+            logger.info("recoding select: " + res3.toString())
+
+            sql """alter catalog hms rename ${catalog_name};"""
         } finally {
             // sql """admin set frontend config ("enable_multi_catalog" = "false")"""
         }
