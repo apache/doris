@@ -18,13 +18,12 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.common.Id;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
 
 /**
  * This structure is maintained in each operator to store the statistical information results obtained by the operator.
@@ -37,9 +36,6 @@ public class StatsDeriveResult {
     private double penalty = 0.0;
     // TODO: Should we use immutable type for this field?
     private final Map<Id, ColumnStatistic> slotIdToColumnStats;
-
-    //TODO: isReduced to be removed after remove StatsCalculatorV1
-    public boolean isReduced = false;
 
     public StatsDeriveResult(double rowCount, int width, double penalty,
             Map<Id, ColumnStatistic> slotIdToColumnStats) {
@@ -74,7 +70,6 @@ public class StatsDeriveResult {
     public StatsDeriveResult(StatsDeriveResult another) {
         this.rowCount = another.rowCount;
         slotIdToColumnStats = new HashMap<>(another.slotIdToColumnStats);
-        this.isReduced = another.isReduced;
         this.width = another.width;
         this.penalty = another.penalty;
     }
@@ -118,17 +113,13 @@ public class StatsDeriveResult {
         return slotIdToColumnStats;
     }
 
-    public StatsDeriveResult updateBySelectivity(double selectivity, Set<Id> exclude) {
+    public StatsDeriveResult withSelectivity(double selectivity) {
         StatsDeriveResult statsDeriveResult = new StatsDeriveResult(rowCount * selectivity, width, penalty);
         for (Entry<Id, ColumnStatistic> entry : slotIdToColumnStats.entrySet()) {
             statsDeriveResult.addColumnStats(entry.getKey(),
                         entry.getValue().updateBySelectivity(selectivity, rowCount));
         }
         return statsDeriveResult;
-    }
-
-    public StatsDeriveResult updateBySelectivity(double selectivity) {
-        return updateBySelectivity(selectivity, Collections.emptySet());
     }
 
     public StatsDeriveResult updateRowCountByLimit(long limit) {
@@ -156,8 +147,7 @@ public class StatsDeriveResult {
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
-        builder.append("(rows=").append((long) rowCount)
-                .append(", isReduced=").append(isReduced)
+        builder.append("(rows=").append((long) Math.ceil(rowCount))
                 .append(", width=").append(width)
                 .append(", penalty=").append(penalty).append(")");
         return builder.toString();
@@ -188,8 +178,12 @@ public class StatsDeriveResult {
         return this;
     }
 
-    public ColumnStatistic getColumnStatsBySlotId(Id slot) {
-        return slotIdToColumnStats.get(slot);
+    public ColumnStatistic getColumnStatsBySlotId(Id slotId) {
+        return slotIdToColumnStats.get(slotId);
+    }
+
+    public ColumnStatistic getColumnStatsBySlot(Slot slot) {
+        return slotIdToColumnStats.get(slot.getExprId());
     }
 
     public int getWidth() {

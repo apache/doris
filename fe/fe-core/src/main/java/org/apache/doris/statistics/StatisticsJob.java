@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -258,21 +257,6 @@ public class StatisticsJob {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * get statisticsJob from analyzeStmt.
-     * AnalyzeStmt: analyze t1(c1,c2,c3)
-     * tableId: [t1]
-     * tableIdToColumnName: {t1: [c1,c2,c3]}
-     */
-    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt stmt) throws AnalysisException {
-        long dbId = stmt.getDbId();
-        Set<Long> tblIds = stmt.getTblIds();
-        Map<Long, List<String>> tableIdToPartitionName = stmt.getTableIdToPartitionName();
-        Map<Long, List<String>> tableIdToColumnName = stmt.getTableIdToColumnName();
-        Map<String, String> properties = stmt.getProperties();
-        return new StatisticsJob(dbId, tblIds, tableIdToPartitionName, tableIdToColumnName, properties);
     }
 
     public List<Comparable> getShowInfo(@Nullable Long tableId) throws AnalysisException {

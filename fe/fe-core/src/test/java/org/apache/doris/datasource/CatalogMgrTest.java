@@ -44,6 +44,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -57,13 +58,12 @@ import java.util.List;
 import java.util.Map;
 
 public class CatalogMgrTest extends TestWithFeService {
-    private CatalogMgr mgr;
     private static final String MY_CATALOG = "my_catalog";
-
     private static PaloAuth auth;
     private static Env env;
     private static UserIdentity user1;
     private static UserIdentity user2;
+    private CatalogMgr mgr;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -158,6 +158,10 @@ public class CatalogMgrTest extends TestWithFeService {
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(5, showResultSet.getResultRows().size());
 
+        //test result order
+        Assertions.assertEquals("es", showResultSet.getResultRows().get(0).get(1));
+        Assertions.assertEquals("internal", showResultSet.getResultRows().get(4).get(1));
+
         showCatalogSql = "SHOW CATALOGS LIKE 'hms%'";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         showResultSet = mgr.showCatalogs(showStmt);
@@ -167,23 +171,37 @@ public class CatalogMgrTest extends TestWithFeService {
         AlterCatalogNameStmt alterNameStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameSql);
         mgr.alterCatalogName(alterNameStmt);
 
+        // test modify property
         String alterCatalogProps = "ALTER CATALOG " + MY_CATALOG + " SET PROPERTIES"
-                + " (\"type\" = \"hms\", \"k\" = \"v\");";
+                + " (\"type\" = \"hms\", \"hive.metastore.uris\" = \"thrift://172.16.5.9:9083\");";
         AlterCatalogPropertyStmt alterPropStmt = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogProps);
         mgr.alterCatalogProps(alterPropStmt);
+
+        CatalogIf catalog = env.getCatalogMgr().getCatalog(MY_CATALOG);
+        Assert.assertEquals(2, catalog.getProperties().size());
+        Assert.assertEquals("thrift://172.16.5.9:9083", catalog.getProperties().get("hive.metastore.uris"));
+
+        // test add property
+        Map<String, String> alterProps2 = Maps.newHashMap();
+        alterProps2.put("dfs.nameservices", "service1");
+        alterProps2.put("dfs.ha.namenodes.service1", "nn1,nn2");
+        AlterCatalogPropertyStmt alterStmt = new AlterCatalogPropertyStmt(MY_CATALOG, alterProps2);
+        mgr.alterCatalogProps(alterStmt);
+        catalog = env.getCatalogMgr().getCatalog(MY_CATALOG);
+        Assert.assertEquals(4, catalog.getProperties().size());
+        Assert.assertEquals("service1", catalog.getProperties().get("dfs.nameservices"));
 
         String showDetailCatalog = "SHOW CATALOG my_catalog";
         ShowCatalogStmt showDetailStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showDetailCatalog);
         showResultSet = mgr.showCatalogs(showDetailStmt);
 
+        Assert.assertEquals(4, showResultSet.getResultRows().size());
         for (List<String> row : showResultSet.getResultRows()) {
             Assertions.assertEquals(2, row.size());
             if (row.get(0).equalsIgnoreCase("type")) {
                 Assertions.assertEquals("hms", row.get(1));
-            } else if (row.get(0).equalsIgnoreCase("k")) {
-                Assertions.assertEquals("v", row.get(1));
-            } else {
-                Assertions.fail();
+            } else if (row.get(0).equalsIgnoreCase("dfs.ha.namenodes.service1")) {
+                Assertions.assertEquals("nn1,nn2", row.get(1));
             }
         }
 
@@ -234,9 +252,9 @@ public class CatalogMgrTest extends TestWithFeService {
 
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
         properties = hms.getProperties();
-        Assert.assertEquals(2, properties.size());
+        Assert.assertEquals(4, properties.size());
         Assert.assertEquals("hms", properties.get("type"));
-        Assert.assertEquals("v", properties.get("k"));
+        Assert.assertEquals("thrift://172.16.5.9:9083", properties.get("hive.metastore.uris"));
 
         // 3. delete files
         dis.close();
@@ -265,6 +283,12 @@ public class CatalogMgrTest extends TestWithFeService {
         // user2 can switch to internal catalog
         parseAndAnalyzeStmt("switch " + InternalCatalog.INTERNAL_CATALOG_NAME + ";", user2Ctx);
         Assert.assertEquals(InternalCatalog.INTERNAL_CATALOG_NAME, user2Ctx.getDefaultCatalog());
+
+        String showCatalogSql = "SHOW CATALOGS";
+        ShowCatalogStmt showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
+        ShowResultSet showResultSet = mgr.showCatalogs(showStmt, user2Ctx.getCurrentCatalog().getName());
+        Assertions.assertEquals("yes", showResultSet.getResultRows().get(1).get(3));
+
         // user2 can switch to hive
         SwitchStmt switchHive = (SwitchStmt) parseAndAnalyzeStmt("switch hive;", user2Ctx);
         env.changeCatalog(user2Ctx, switchHive.getCatalogName());
@@ -273,6 +297,11 @@ public class CatalogMgrTest extends TestWithFeService {
         GrantStmt user2GrantHiveTable = (GrantStmt) parseAndAnalyzeStmt(
                 "grant select_priv on tpch.customer to 'user2'@'%';", user2Ctx);
         auth.grant(user2GrantHiveTable);
+
+        showCatalogSql = "SHOW CATALOGS";
+        showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
+        showResultSet = mgr.showCatalogs(showStmt, user2Ctx.getCurrentCatalog().getName());
+        Assertions.assertEquals("yes", showResultSet.getResultRows().get(0).get(3));
     }
 
     @Test
@@ -318,4 +347,5 @@ public class CatalogMgrTest extends TestWithFeService {
                     "errCode = 2, detailMessage = Access denied for user 'default_cluster:user2' to catalog 'iceberg'");
         }
     }
+
 }

@@ -105,7 +105,7 @@ jobs:
           sed '2,3d' website/versions.json > website/versions.json1
           rm -rf website/versions.json
           mv website/versions.json1 website/versions.json
-          sed '123,128d' website/docusaurus.config.js > website/docusaurus.config.js1
+          sed '123,130d' website/docusaurus.config.js > website/docusaurus.config.js1
           rm -rf website/docusaurus.config.js
           mv website/docusaurus.config.js1 website/docusaurus.config.js
           cd website

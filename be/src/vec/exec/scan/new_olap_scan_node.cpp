@@ -20,6 +20,9 @@
 #include "common/status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "util/to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/exec/scan/new_olap_scanner.h"
@@ -35,14 +38,21 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_scan_bytes(_read_compressed_counter->value());
+    statistics->add_scan_rows(_raw_rows_counter->value());
+    return Status::OK();
+}
+
 Status NewOlapScanNode::prepare(RuntimeState* state) {
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     return Status::OK();
 }
 
 Status NewOlapScanNode::_init_profile() {
-    VScanNode::_init_profile();
+    RETURN_IF_ERROR(VScanNode::_init_profile());
 
     _num_disks_accessed_counter = ADD_COUNTER(_runtime_profile, "NumDiskAccess", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
@@ -66,6 +76,7 @@ Status NewOlapScanNode::_init_profile() {
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
+    _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
 
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");

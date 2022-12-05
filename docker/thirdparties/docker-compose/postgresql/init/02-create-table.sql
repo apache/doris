@@ -114,4 +114,11 @@ CREATE TABLE doris_test.test8 (
   CONSTRAINT "f_a_w_r_p" PRIMARY KEY ("id")
 );
 
+CREATE TABLE doris_test.test9 (
+  id1 smallint,
+  id2 int,
+  id3 bool,
+  id4 varchar(10),
+  id5 bigint
+);
 

@@ -80,7 +80,9 @@ void Daemon::tcmalloc_gc_thread() {
     double release_rates[10] = {1.0, 1.0, 1.0, 5.0, 5.0, 20.0, 50.0, 100.0, 500.0, 2000.0};
     int64_t pressure_limit = 90;
     bool is_performance_mode = false;
-    size_t physical_limit_bytes = std::min(MemInfo::hard_mem_limit(), MemInfo::mem_limit());
+    size_t physical_limit_bytes =
+            std::min(MemInfo::physical_mem() - MemInfo::sys_mem_available_low_water_mark(),
+                     MemInfo::mem_limit());
 
     if (config::memory_mode == std::string("performance")) {
         max_cache_percent = 100;
@@ -133,16 +135,13 @@ void Daemon::tcmalloc_gc_thread() {
                 to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 30 / 100);
                 to_free_bytes = std::min(to_free_bytes, tc_cached_bytes);
                 expected_aggressive_decommit = 1;
-            } else {
-                // release rate is enough.
-                to_free_bytes = 0;
             }
             last_ms = kMaxLastMs;
         } else if (memory_pressure > (pressure_limit - 10)) {
+            // In most cases, adjusting release rate is enough, if memory are consumed quickly
+            // we should release manually.
             if (last_memory_pressure <= (pressure_limit - 10)) {
                 to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 10 / 100);
-            } else {
-                to_free_bytes = 0;
             }
         }
 
@@ -176,6 +175,7 @@ void Daemon::tcmalloc_gc_thread() {
                 last_ms = 0;
             }
         } else {
+            DCHECK(tc_cached_bytes <= tc_used_bytes * max_cache_percent / 100);
             last_ms = 0;
         }
     }

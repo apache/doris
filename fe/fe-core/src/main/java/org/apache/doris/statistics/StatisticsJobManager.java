@@ -17,20 +17,16 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -59,37 +55,6 @@ public class StatisticsJobManager {
 
     public Map<Long, StatisticsJob> getIdToStatisticsJob() {
         return idToStatisticsJob;
-    }
-
-    public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws UserException {
-        // The current statistics are only used for CBO test,
-        // and are not available to users. (work in progress)
-        // TODO(wzt): Further tests are needed
-        boolean enableCboStatistics = ConnectContext.get()
-                .getSessionVariable().getEnableCboStatistics();
-        if (enableCboStatistics) {
-            // step1: init statistics job by analyzeStmt
-            StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
-            synchronized (this) {
-                // step2: check restrict
-                checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
-                // step3: create it
-                createStatisticsJob(statisticsJob);
-            }
-        } else {
-            throw new UserException("Statistics are not yet stable, if you want to enable statistics,"
-                    + " use 'set enable_cbo_statistics=true' to enable it.");
-        }
-    }
-
-    public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
-        idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
-        try {
-            Env.getCurrentEnv().getStatisticsJobScheduler().addPendingJob(statisticsJob);
-        } catch (IllegalStateException e) {
-            LOG.info("The pending statistics job is full. Please submit it again later.");
-            throw new DdlException("The pending statistics job is full, Please submit it again later.");
-        }
     }
 
     /**

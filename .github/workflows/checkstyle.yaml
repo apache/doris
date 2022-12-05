@@ -17,23 +17,39 @@
 #
 ---
 name: FE Code Style Checker
+
 on:
   pull_request:
+
 jobs:
   java-checkstyle:
     name: "CheckStyle"
     runs-on: ubuntu-latest
     steps:
-      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v3
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: Paths Filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            fe_changes:
+              - 'fe/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
+
       - name: Setup Maven Action
+        if: steps.filter.outputs.fe_changes == 'true'
         uses: ./.github/actions/setup-maven
         with:
           maven-version: 3.8.4
+
       - name: Run java checkstyle
+        if: steps.filter.outputs.fe_changes == 'true'
         run:
           cd fe && mvn clean checkstyle:check
 

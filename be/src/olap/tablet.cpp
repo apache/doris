@@ -17,6 +17,8 @@
 
 #include "olap/tablet.h"
 
+#include <bvar/reducer.h>
+#include <bvar/window.h>
 #include <ctype.h>
 #include <fmt/core.h>
 #include <glog/logging.h>
@@ -75,6 +77,10 @@ using std::vector;
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
 
+bvar::Adder<uint64_t> exceed_version_limit_counter;
+bvar::Window<bvar::Adder<uint64_t>> xceed_version_limit_counter_minute(
+        &exceed_version_limit_counter, 60);
+
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                 DataDir* data_dir) {
     return std::make_shared<Tablet>(tablet_meta, data_dir);
@@ -92,8 +98,6 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
           _newly_created_rowset_num(0),
           _last_checkpoint_time(0),
           _cumulative_compaction_type(cumulative_compaction_type),
-          _last_record_scan_count(0),
-          _last_record_scan_count_timestamp(time(nullptr)),
           _is_clone_occurred(false),
           _last_missed_version(-1),
           _last_missed_time_s(0) {
@@ -677,6 +681,14 @@ Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     return capture_consistent_versions(version, nullptr, quiet);
 }
 
+bool Tablet::exceed_version_limit(int32_t limit) const {
+    if (_tablet_meta->version_count() > limit) {
+        exceed_version_limit_counter << 1;
+        return true;
+    }
+    return false;
+}
+
 // If any rowset contains the specific version, it means the version already exist
 bool Tablet::check_version_exist(const Version& version) const {
     for (auto& it : _rs_version_map) {
@@ -937,56 +949,6 @@ void Tablet::calculate_cumulative_point() {
         return;
     }
     set_cumulative_layer_point(ret_cumulative_point);
-}
-
-//find rowsets that rows less then "config::quick_compaction_max_rows"
-Status Tablet::pick_quick_compaction_rowsets(std::vector<RowsetSharedPtr>* input_rowsets,
-                                             int64_t* permits) {
-    int max_rows = config::quick_compaction_max_rows;
-    if (!config::enable_quick_compaction || max_rows <= 0) {
-        return Status::OK();
-    }
-    if (!init_succeeded()) {
-        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
-    }
-    int max_series_num = 1000;
-
-    std::vector<std::vector<RowsetSharedPtr>> quick_compaction_rowsets(max_series_num);
-    int idx = 0;
-    std::shared_lock rdlock(_meta_lock);
-    std::vector<RowsetSharedPtr> sortedRowset;
-    for (auto& rs : _rs_version_map) {
-        sortedRowset.push_back(rs.second);
-    }
-    std::sort(sortedRowset.begin(), sortedRowset.end(), Rowset::comparator);
-    if (tablet_state() == TABLET_RUNNING) {
-        for (int i = 0; i < sortedRowset.size(); i++) {
-            bool is_delete = version_for_delete_predicate(sortedRowset[i]->version());
-            if (!is_delete && sortedRowset[i]->start_version() > 0 &&
-                sortedRowset[i]->start_version() > cumulative_layer_point()) {
-                if (sortedRowset[i]->num_rows() < max_rows) {
-                    quick_compaction_rowsets[idx].push_back(sortedRowset[i]);
-                } else {
-                    idx++;
-                    if (idx > max_series_num) {
-                        break;
-                    }
-                }
-            }
-        }
-        if (quick_compaction_rowsets.size() == 0) return Status::OK();
-        std::vector<RowsetSharedPtr> result = quick_compaction_rowsets[0];
-        for (int i = 0; i < quick_compaction_rowsets.size(); i++) {
-            if (quick_compaction_rowsets[i].size() > result.size()) {
-                result = quick_compaction_rowsets[i];
-            }
-        }
-        for (int i = 0; i < result.size(); i++) {
-            *permits += result[i]->num_segments();
-            input_rowsets->push_back(result[i]);
-        }
-    }
-    return Status::OK();
 }
 
 Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
@@ -1482,18 +1444,6 @@ void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_m
     new_tablet_meta->init_from_pb(tablet_meta_pb);
 }
 
-double Tablet::calculate_scan_frequency() {
-    time_t now = time(nullptr);
-    int64_t current_count = query_scan_count->value();
-    double interval = difftime(now, _last_record_scan_count_timestamp);
-    double scan_frequency = (current_count - _last_record_scan_count) * 60 / interval;
-    if (interval >= config::tablet_scan_frequency_time_node_interval_second) {
-        _last_record_scan_count = current_count;
-        _last_record_scan_count_timestamp = now;
-    }
-    return scan_frequency;
-}
-
 Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
                                                         TabletSharedPtr tablet, int64_t* permits) {
     std::vector<RowsetSharedPtr> compaction_rowsets;
@@ -1661,6 +1611,22 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     return res;
 }
 
+Status Tablet::create_vertical_rowset_writer(
+        const Version& version, const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
+        TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
+        int64_t newest_write_timestamp, std::unique_ptr<RowsetWriter>* rowset_writer) {
+    RowsetWriterContext context;
+    context.version = version;
+    context.rowset_state = rowset_state;
+    context.segments_overlap = overlap;
+    context.oldest_write_timestamp = oldest_write_timestamp;
+    context.newest_write_timestamp = newest_write_timestamp;
+    context.tablet_schema = tablet_schema;
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    _init_context_common_fields(context);
+    return RowsetFactory::create_rowset_writer(context, true, rowset_writer);
+}
+
 Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
                                     const SegmentsOverlapPB& overlap,
                                     TabletSchemaSPtr tablet_schema, int64_t oldest_write_timestamp,
@@ -1686,7 +1652,7 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.fs = fs;
     _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, rowset_writer);
+    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
 }
 
 Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
@@ -1704,7 +1670,7 @@ Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load
     context.tablet_schema = tablet_schema;
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, rowset_writer);
+    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
 }
 
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
@@ -2220,6 +2186,33 @@ bool Tablet::check_all_rowset_segment() {
         }
     }
     return true;
+}
+
+void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int64_t start) {
+    if (!skip) {
+        _skip_cumu_compaction = false;
+        _skip_base_compaction = false;
+        return;
+    }
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        _skip_cumu_compaction = true;
+        _skip_cumu_compaction_ts = start;
+    } else {
+        DCHECK(compaction_type == CompactionType::BASE_COMPACTION);
+        _skip_base_compaction = true;
+        _skip_base_compaction_ts = start;
+    }
+}
+
+bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _skip_cumu_compaction &&
+        now < _skip_cumu_compaction_ts + 120) {
+        return true;
+    } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
+               now < _skip_base_compaction_ts + 120) {
+        return true;
+    }
+    return false;
 }
 
 } // namespace doris

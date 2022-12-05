@@ -1218,7 +1218,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
-                    typeDef = new TypeDef(ScalarType.createDecimalType(resultType.getPrecision(),
+                    typeDef = new TypeDef(ScalarType.createDecimalV3Type(resultType.getPrecision(),
                             ((ScalarType) resultType).getScalarScale()));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());

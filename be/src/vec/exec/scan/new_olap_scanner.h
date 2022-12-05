@@ -18,10 +18,7 @@
 #pragma once
 
 #include "exec/olap_utils.h"
-#include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
-#include "exprs/hybrid_set.h"
 #include "olap/reader.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/vscanner.h"
@@ -45,7 +42,6 @@ public:
 
     Status close(RuntimeState* state) override;
 
-public:
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    VExprContext** vconjunct_ctx_ptr, const std::vector<TCondition>& filters,
                    const FilterPredicates& filter_predicates,
@@ -67,7 +63,6 @@ private:
 
     Status _init_return_columns();
 
-private:
     bool _aggregation;
     bool _need_agg_finalize;
 

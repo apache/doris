@@ -27,7 +27,7 @@
 namespace doris::vectorized {
 
 struct ConvertTzCtx {
-    std::map<StringRef, cctz::time_zone> time_zone_cache;
+    std::map<std::string, cctz::time_zone> time_zone_cache;
 };
 
 template <typename DateValueType, typename ArgType>
@@ -53,7 +53,7 @@ struct ConvertTZImpl {
                         size_t input_rows_count) {
         auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
                 context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        std::map<StringRef, cctz::time_zone> time_zone_cache_;
+        std::map<std::string, cctz::time_zone> time_zone_cache_;
         auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
@@ -61,16 +61,15 @@ struct ConvertTZImpl {
                 continue;
             }
 
-            StringRef from_tz = from_tz_column->get_data_at(i);
-            StringRef to_tz = to_tz_column->get_data_at(i);
+            auto from_tz = from_tz_column->get_data_at(i).to_string();
+            auto to_tz = to_tz_column->get_data_at(i).to_string();
 
             DateValueType ts_value =
                     binary_cast<NativeType, DateValueType>(date_column->get_element(i));
             int64_t timestamp;
 
             if (time_zone_cache.find(from_tz) == time_zone_cache.cend()) {
-                if (!TimezoneUtils::find_cctz_time_zone(from_tz.to_string(),
-                                                        time_zone_cache[from_tz])) {
+                if (!TimezoneUtils::find_cctz_time_zone(from_tz, time_zone_cache[from_tz])) {
                     result_null_map[i] = true;
                     result_column->insert_default();
                     continue;
@@ -78,8 +77,7 @@ struct ConvertTZImpl {
             }
 
             if (time_zone_cache.find(to_tz) == time_zone_cache.cend()) {
-                if (!TimezoneUtils::find_cctz_time_zone(to_tz.to_string(),
-                                                        time_zone_cache[to_tz])) {
+                if (!TimezoneUtils::find_cctz_time_zone(to_tz, time_zone_cache[to_tz])) {
                     result_null_map[i] = true;
                     result_column->insert_default();
                     continue;

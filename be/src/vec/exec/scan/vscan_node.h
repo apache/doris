@@ -26,6 +26,10 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vin_predicate.h"
 
+namespace doris::pipeline {
+class ScanOperator;
+}
+
 namespace doris::vectorized {
 
 class VScanner;
@@ -49,6 +53,7 @@ public:
     friend class NewOlapScanner;
     friend class VFileScanner;
     friend class ScannerContext;
+    friend class doris::pipeline::ScanOperator;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
@@ -253,11 +258,14 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter();
+    Status _acquire_runtime_filter(bool wait = true);
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
 

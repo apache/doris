@@ -77,23 +77,24 @@ suite("test_hive_other", "p0") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_port = context.config.otherConfigs.get("hms_port")
+        String catalog_name = "hive_test_other"
         set_be_config.call()
 
         sql """admin set frontend config ("enable_multi_catalog" = "true")"""
-        sql """drop catalog if exists hive"""
+        sql """drop catalog if exists ${catalog_name}"""
         sql """
-            create catalog hive properties (
+            create catalog ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );
             """
-        sql """switch hive"""
+        sql """switch ${catalog_name}"""
         sql """use `default`"""
         // order_qt_show_tables """show tables"""
 
         q01()
 
-        sql """refresh catalog hive"""
+        sql """refresh catalog ${catalog_name}"""
         q01()
         sql """refresh database `default`"""
         // order_qt_show_tables2 """show tables"""

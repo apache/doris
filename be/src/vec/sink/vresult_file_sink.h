@@ -41,7 +41,7 @@ public:
     // send data in 'batch' to this backend stream mgr
     // Blocks until all rows in batch are placed in the buffer
     Status send(RuntimeState* state, RowBatch* batch) override;
-    Status send(RuntimeState* state, Block* block) override;
+    Status send(RuntimeState* state, Block* block, bool eos = false) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
     Status close(RuntimeState* state, Status exec_status) override;

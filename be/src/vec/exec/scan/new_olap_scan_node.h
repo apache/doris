@@ -19,6 +19,10 @@
 
 #include "vec/exec/scan/vscan_node.h"
 
+namespace doris::pipeline {
+class OlapScanOperator;
+}
+
 namespace doris::vectorized {
 
 class NewOlapScanner;
@@ -26,8 +30,10 @@ class NewOlapScanNode : public VScanNode {
 public:
     NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     friend class NewOlapScanner;
+    friend class doris::pipeline::OlapScanOperator;
 
     Status prepare(RuntimeState* state) override;
+    Status collect_query_statistics(QueryStatistics* statistics) override;
 
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
@@ -95,6 +101,7 @@ private:
     RuntimeProfile::Counter* _block_init_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_timer = nullptr;
     RuntimeProfile::Counter* _block_init_seek_counter = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
     RuntimeProfile::Counter* _first_read_timer = nullptr;
     RuntimeProfile::Counter* _first_read_seek_timer = nullptr;
     RuntimeProfile::Counter* _first_read_seek_counter = nullptr;

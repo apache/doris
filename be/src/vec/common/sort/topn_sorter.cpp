@@ -81,4 +81,12 @@ Status TopNSorter::_do_sort(Block* block) {
     return Status::OK();
 }
 
+size_t TopNSorter::data_size() const {
+    size_t size = _state->unsorted_block->allocated_bytes();
+    for (const auto& block : _state->sorted_blocks) {
+        size += block.allocated_bytes();
+    }
+    return size;
+}
+
 } // namespace doris::vectorized
