@@ -33,6 +33,7 @@ public:
     friend class doris::pipeline::OlapScanOperator;
 
     Status prepare(RuntimeState* state) override;
+    Status collect_query_statistics(QueryStatistics* statistics) override;
 
     void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
