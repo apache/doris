@@ -2167,7 +2167,7 @@ public class ShowExecutor {
                 columnStatistics.add(Pair.of(column.getName(), columnStatistic));
             } else {
                 columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                        colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
                         .stream().map(s -> Pair.of(colName, s))
                         .collect(Collectors.toList()));
             }
@@ -2309,7 +2309,7 @@ public class ShowExecutor {
 
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
-        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt);
+        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog().getName());
     }
 
     private void handleShowAnalyze() throws AnalysisException {

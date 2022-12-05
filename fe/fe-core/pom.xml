@@ -689,6 +689,11 @@ under the License.
             <version>3.10.1</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+
         <!-- for aliyun dlf -->
         <dependency>
             <groupId>com.aliyun.datalake</groupId>

@@ -48,8 +48,8 @@ suite("test_external_hive", "p2") {
 
             sql """drop table if exists external_hive_table;"""
             sql """drop database if exists external_hive_database;"""
-        }finally{
-            sql """admin set frontend config ("enable_multi_catalog" = "false")"""
+        } finally {
+            // sql """admin set frontend config ("enable_multi_catalog" = "false")"""
         }
     }
 }
