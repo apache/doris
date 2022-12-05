@@ -22,19 +22,20 @@ suite("test_external_catalog_hive", "p2") {
         try {
             String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
             String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
+            String catalog_name = "test_external_catalog_hive"
 
             sql """admin set frontend config ("enable_multi_catalog" = "true")"""
 
-            sql """drop catalog if exists hive;"""
+            sql """drop catalog if exists ${catalog_name};"""
 
             sql """
-                create catalog if not exists hive properties (
+                create catalog if not exists ${catalog_name} properties (
                     'type'='hms',
                     'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
                 );
             """
 
-            sql """switch hive;"""
+            sql """switch ${catalog_name};"""
 
             sql """use test;"""
 
@@ -46,8 +47,8 @@ suite("test_external_catalog_hive", "p2") {
             def res1 = sql """show databases;"""
             logger.info("recoding select: " + res1.toString())
 
-        }finally {
-            sql """admin set frontend config ("enable_multi_catalog" = "false")"""
+        } finally {
+            // sql """admin set frontend config ("enable_multi_catalog" = "false")"""
         }
     }
 }
