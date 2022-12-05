@@ -309,11 +309,6 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
     size_t nested_offset = src_concrete.offset_at(start);
     size_t nested_length = src_concrete.get_offsets()[start + length - 1] - nested_offset;
 
-
-    LOG(WARNING) << "---- array src ----"+src.get_name();
-    LOG(WARNING) <<  src_concrete.get_data().get_name();
-    LOG(WARNING) << "---- array data ----"+get_name();
-    LOG(WARNING) << get_data().get_name();
     get_data().insert_range_from(src_concrete.get_data(), nested_offset, nested_length);
 
     auto& cur_offsets = get_offsets();
