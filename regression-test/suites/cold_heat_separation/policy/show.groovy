@@ -36,13 +36,13 @@ suite("show_policy") {
         def create_s3_resource = try_sql """
             CREATE RESOURCE "showPolicy_1_resource"
             PROPERTIES(
-                "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
+                "type"="s3_cooldown",
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket"
             );
         """
         def create_succ_1 = try_sql """
@@ -60,7 +60,7 @@ suite("show_policy") {
     def jsonSlurper = new JsonSlurper()
     if (show_result.size != 0){
         def json_ret = jsonSlurper.parseText(show_result[0][5])
-        assertEquals(json_ret["s3_secret_key"], "******")
+        assertEquals(json_ret["AWS_SECRET_KEY"], "******")
     }
     assertEquals(storage_exist.call("showPolicy_1_policy"), true)
 }
