@@ -71,10 +71,7 @@ public class EventChannel {
         public void run() {
             while (!isStop.get() || !queue.isEmpty()) {
                 try {
-                    Event e = queue.poll();
-                    if (e == null) {
-                        continue;
-                    }
+                    Event e = queue.take();
                     for (EventConsumer consumer : consumers.get(e.getClass())) {
                         if (enhancers.containsKey(e.getClass())) {
                             enhancers.get(e.getClass()).enhance(e);
