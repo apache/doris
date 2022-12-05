@@ -68,7 +68,8 @@ void MemInfo::refresh_allocator_mem() {
 
     // https://jemalloc.net/jemalloc.3.html
     _s_allocator_cache_mem =
-            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL));
+            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL)) +
+            get_je_metrics(fmt::format("stats.metadata", MALLCTL_ARENAS_ALL));
     _s_allocator_cache_mem_str =
             PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
     _s_virtual_memory_used = get_je_metrics("stats.mapped");
