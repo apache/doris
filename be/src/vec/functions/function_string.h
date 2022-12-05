@@ -1396,8 +1396,6 @@ public:
         auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
         IColumn* dest_nested_column = &dest_column_ptr->get_data();
-        LOG(WARNING) << "0000" + dest_column_ptr->get_name();
-        LOG(WARNING) << "1111" + dest_nested_column->get_name();
         auto& dest_offsets = dest_column_ptr->get_offsets();
         DCHECK(dest_nested_column != nullptr);
         dest_nested_column->reserve(0);
@@ -1431,7 +1429,6 @@ private:
 
         for (size_t i = 0; i < src_offsets_size; i++) {
             const auto delimiter = delimiter_column.get_data_at(i).to_string();
-            const auto str = src_column_string->get_data_at(i).to_string();
             StringRef str_ref = src_column_string->get_data_at(i);
 
             if (str.size() == 0) {
@@ -1455,7 +1452,7 @@ private:
                 for (size_t str_pos = 0; str_pos <= str.size();) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
-                    const size_t split_part_size = split_str(str_pos, str, delimiter[0]);
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter[0]);
                     str_pos++;
                     const size_t new_size = old_size + split_part_size;
                     column_string_chars.resize(new_size);
@@ -1473,9 +1470,9 @@ private:
         }
     }
 
-    size_t split_str(size_t& pos, const string str, char delimiter) {
+    size_t split_str(size_t& pos, const StringRef str_ref, char delimiter) {
         size_t old_size = pos;
-        size_t str_size = str.size();
+        size_t str_size = str_ref.size;
         while (pos < str_size && str[pos] != delimiter) {
             pos++;
         }
