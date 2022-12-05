@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -226,5 +227,10 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     public Optional<String> getSelectedMaterializedIndexName() {
         return indexSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
                 : Optional.empty();
+    }
+
+    public boolean supportStorageLayerAggregate() {
+        KeysType keysType = getTable().getKeysType();
+        return keysType == KeysType.AGG_KEYS || keysType == KeysType.DUP_KEYS;
     }
 }

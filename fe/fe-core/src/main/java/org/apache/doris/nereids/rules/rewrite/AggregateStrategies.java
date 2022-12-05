@@ -93,10 +93,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return ImmutableList.of(
             RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT.build(
                 logicalAggregate(
-                    logicalOlapScan().when(olapScan -> {
-                        KeysType keysType = olapScan.getTable().getKeysType();
-                        return keysType == KeysType.AGG_KEYS || keysType == KeysType.DUP_KEYS;
-                    })
+                    logicalOlapScan().when(LogicalOlapScan::supportStorageLayerAggregate)
                 )
                 .when(agg -> agg.isNormalized() && agg.getGroupByExpressions().isEmpty())
                 .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
@@ -104,10 +101,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
                 logicalAggregate(
                     logicalProject(
-                        logicalOlapScan().when(olapScan -> {
-                            KeysType keysType = olapScan.getTable().getKeysType();
-                            return keysType == KeysType.AGG_KEYS || keysType == KeysType.DUP_KEYS;
-                        })
+                        logicalOlapScan().when(LogicalOlapScan::supportStorageLayerAggregate)
                     )
                 )
                 .when(agg -> agg.isNormalized() && agg.getGroupByExpressions().isEmpty())
