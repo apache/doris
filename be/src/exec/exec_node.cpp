@@ -861,15 +861,6 @@ Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block*
     return get_next(state, block, eos);
 }
 
-Status ExecNode::execute(RuntimeState* state, vectorized::Block* input_block,
-                         vectorized::Block* output_block, bool* eos) {
-    return Status::NotSupported("{} not implements execute", get_name());
-}
-
-Status ExecNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    return Status::NotSupported("{} not implements pull", get_name());
-}
-
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     return Status::NotSupported("{} not implements sink", get_name());
 }

@@ -20,73 +20,17 @@
 #include "operator.h"
 #include "vec/exec/vtable_function_node.h"
 
-namespace doris {
+namespace doris::pipeline {
 
-namespace pipeline {
-class TableFunctionOperator;
-
-class TableFunctionOperatorBuilder : public OperatorBuilder {
+class TableFunctionOperatorBuilder final : public OperatorBuilder<vectorized::VTableFunctionNode> {
 public:
-    TableFunctionOperatorBuilder(int32_t id, vectorized::VTableFunctionNode* node)
-            : OperatorBuilder(id, "TableFunctionOperatorBuilder", node), _node(node) {}
+    TableFunctionOperatorBuilder(int32_t id, ExecNode* node);
 
     OperatorPtr build_operator() override;
-
-private:
-    vectorized::VTableFunctionNode* _node;
 };
 
-class TableFunctionOperator : public Operator {
+class TableFunctionOperator final : public DataStateOperator<TableFunctionOperatorBuilder> {
 public:
-    TableFunctionOperator(TableFunctionOperatorBuilder* operator_builder,
-                          vectorized::VTableFunctionNode* node)
-            : Operator(operator_builder), _node(node) {}
-
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Operator::open(state));
-        _child_block.reset(new vectorized::Block);
-        return _node->alloc_resource(state);
-    }
-
-    Status close(RuntimeState* state) override {
-        _node->release_resource(state);
-        _fresh_exec_timer(_node);
-        return Operator::close(state);
-    }
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override {
-        if (_node->need_more_input_data()) {
-            RETURN_IF_ERROR(_child->get_block(state, _child_block.get(), _child_source_state));
-            source_state = _child_source_state;
-            if (_child_block->rows() == 0) {
-                return Status::OK();
-            }
-            _node->push(state, _child_block.get(), source_state == SourceState::FINISHED);
-        }
-
-        bool eos = false;
-        RETURN_IF_ERROR(_node->pull(state, block, &eos));
-        if (eos) {
-            source_state = SourceState::FINISHED;
-            _child_block->clear_column_data();
-        } else if (!_node->need_more_input_data()) {
-            source_state = SourceState::MORE_DATA;
-        } else {
-            _child_block->clear_column_data();
-        }
-        return Status::OK();
-    }
-
-private:
-    vectorized::VTableFunctionNode* _node;
-    std::unique_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
+    TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 };
-
-OperatorPtr TableFunctionOperatorBuilder::build_operator() {
-    return std::make_shared<TableFunctionOperator>(this, _node);
-}
-
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

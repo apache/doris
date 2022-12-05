@@ -26,10 +26,10 @@
 #include "exec/empty_set_operator.h"
 #include "exec/exchange_sink_operator.h"
 #include "exec/exchange_source_operator.h"
-#include "exec/olap_scan_operator.h"
 #include "exec/repeat_operator.h"
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
+#include "exec/scan_operator.h"
 #include "exec/sort_sink_operator.h"
 #include "exec/sort_source_operator.h"
 #include "exec/streaming_aggregation_sink_operator.h"
@@ -257,7 +257,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink
         auto sink = pipeline->sink()->build_operator();
-        RETURN_IF_ERROR(sink->init(pipeline->sink()->exec_node(), _runtime_state.get()));
         // TODO pipeline 1 need to add new interface for exec node and operator
         sink->init(request.fragment.output_sink);
 
@@ -282,23 +281,20 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     switch (node_type) {
     // for source
     case TPlanNodeType::OLAP_SCAN_NODE: {
-        auto* new_olap_scan_node = assert_cast<vectorized::NewOlapScanNode*>(node);
-        OperatorBuilderPtr operator_t = std::make_shared<OlapScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), "OlapScanOperator",
-                new_olap_scan_node);
+        OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
+                fragment_context->next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
     case TPlanNodeType::EXCHANGE_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<ExchangeSourceOperatorBuilder>(
-                next_operator_builder_id(), "ExchangeSourceOperator", node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<ExchangeSourceOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
     case TPlanNodeType::EMPTY_SET_NODE: {
-        auto* empty_set_node = assert_cast<vectorized::VEmptySetNode*>(node);
-        OperatorBuilderPtr operator_t = std::make_shared<EmptySetSourceOperatorBuilder>(
-                next_operator_builder_id(), "EmptySetSourceOperator", empty_set_node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<EmptySetSourceOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -309,50 +305,47 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         if (agg_node->is_streaming_preagg()) {
             auto agg_ctx = std::make_shared<AggContext>();
             OperatorBuilderPtr pre_agg_sink = std::make_shared<StreamingAggSinkOperatorBuilder>(
-                    next_operator_builder_id(), "StreamingAggSinkOperator", agg_node, agg_ctx);
+                    next_operator_builder_id(), agg_node, agg_ctx);
             RETURN_IF_ERROR(new_pipe->set_sink(pre_agg_sink));
 
             OperatorBuilderPtr pre_agg_source = std::make_shared<StreamingAggSourceOperatorBuilder>(
-                    next_operator_builder_id(), "StreamingAggSourceOperator", agg_node, agg_ctx);
+                    next_operator_builder_id(), agg_node, agg_ctx);
             RETURN_IF_ERROR(cur_pipe->add_operator(pre_agg_source));
         } else {
-            OperatorBuilderPtr agg_sink = std::make_shared<AggSinkOperatorBuilder>(
-                    next_operator_builder_id(), "AggSinkOperator", agg_node);
+            OperatorBuilderPtr agg_sink =
+                    std::make_shared<AggSinkOperatorBuilder>(next_operator_builder_id(), agg_node);
             RETURN_IF_ERROR(new_pipe->set_sink(agg_sink));
 
-            OperatorBuilderPtr agg_source = std::make_shared<AggregationSourceOperatorBuilder>(
-                    next_operator_builder_id(), "AggSourceOperator", agg_node);
+            OperatorBuilderPtr agg_source = std::make_shared<AggSourceOperatorBuilder>(
+                    next_operator_builder_id(), agg_node);
             RETURN_IF_ERROR(cur_pipe->add_operator(agg_source));
         }
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        auto* sort_node = assert_cast<vectorized::VSortNode*>(node);
         auto new_pipeline = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
 
-        OperatorBuilderPtr sort_sink = std::make_shared<SortSinkOperatorBuilder>(
-                next_operator_builder_id(), "SortSinkOperator", sort_node);
+        OperatorBuilderPtr sort_sink =
+                std::make_shared<SortSinkOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(new_pipeline->set_sink(sort_sink));
 
-        OperatorBuilderPtr sort_source = std::make_shared<SortSourceOperatorBuilder>(
-                next_operator_builder_id(), "SortSourceOperator", sort_node);
+        OperatorBuilderPtr sort_source =
+                std::make_shared<SortSourceOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(sort_source));
         break;
     }
     case TPlanNodeType::REPEAT_NODE: {
-        auto* repeat_node = assert_cast<vectorized::VRepeatNode*>(node);
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr builder =
-                std::make_shared<RepeatOperatorBuilder>(next_operator_builder_id(), repeat_node);
+                std::make_shared<RepeatOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(builder));
         break;
     }
     case TPlanNodeType::TABLE_FUNCTION_NODE: {
-        auto* repeat_node = assert_cast<vectorized::VTableFunctionNode*>(node);
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
-        OperatorBuilderPtr builder = std::make_shared<TableFunctionOperatorBuilder>(
-                next_operator_builder_id(), repeat_node);
+        OperatorBuilderPtr builder =
+                std::make_shared<TableFunctionOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(builder));
         break;
     }
@@ -380,15 +373,13 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     OperatorBuilderPtr sink_;
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
-        auto* exchange_sink = assert_cast<doris::vectorized::VDataStreamSender*>(_sink.get());
-        sink_ = std::make_shared<ExchangeSinkOperatorBuilder>(
-                next_operator_builder_id(), "ExchangeSinkOperator", nullptr, exchange_sink, this);
+        sink_ = std::make_shared<ExchangeSinkOperatorBuilder>(next_operator_builder_id(),
+                                                              _sink.get(), this);
         break;
     }
     case TDataSinkType::RESULT_SINK: {
-        auto* result_sink = assert_cast<doris::vectorized::VResultSink*>(_sink.get());
-        sink_ = std::make_shared<ResultSinkOperatorBuilder>(
-                next_operator_builder_id(), "ResultSinkOperator", nullptr, result_sink);
+        sink_ = std::make_shared<ResultSinkOperatorBuilder>(next_operator_builder_id(),
+                                                            _sink.get());
         break;
     }
     default:

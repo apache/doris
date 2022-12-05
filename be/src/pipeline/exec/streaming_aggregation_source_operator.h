@@ -25,28 +25,24 @@ class AggregationNode;
 }
 namespace pipeline {
 
-class StreamingAggSourceOperator : public Operator {
+class StreamingAggSourceOperatorBuilder final
+        : public OperatorBuilder<vectorized::AggregationNode> {
 public:
-    StreamingAggSourceOperator(OperatorBuilder*, vectorized::AggregationNode*,
-                               std::shared_ptr<AggContext>);
-    Status prepare(RuntimeState* state) override;
-    bool can_read() override;
-    Status close(RuntimeState* state) override;
-    Status get_block(RuntimeState*, vectorized::Block*, SourceState& source_state) override;
-
-private:
-    vectorized::AggregationNode* _agg_node;
-    std::shared_ptr<AggContext> _agg_context;
-};
-
-class StreamingAggSourceOperatorBuilder : public OperatorBuilder {
-public:
-    StreamingAggSourceOperatorBuilder(int32_t, const std::string&, vectorized::AggregationNode*,
-                                      std::shared_ptr<AggContext>);
+    StreamingAggSourceOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<AggContext>);
 
     bool is_source() const override { return true; }
 
     OperatorPtr build_operator() override;
+
+private:
+    std::shared_ptr<AggContext> _agg_context;
+};
+
+class StreamingAggSourceOperator final : public Operator<StreamingAggSourceOperatorBuilder> {
+public:
+    StreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<AggContext>);
+    bool can_read() override;
+    Status get_block(RuntimeState*, vectorized::Block*, SourceState& source_state) override;
 
 private:
     std::shared_ptr<AggContext> _agg_context;

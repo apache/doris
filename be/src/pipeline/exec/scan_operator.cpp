@@ -22,47 +22,35 @@
 
 namespace doris::pipeline {
 
-ScanOperator::ScanOperator(OperatorBuilder* operator_builder, vectorized::VScanNode* scan_node)
-        : Operator(operator_builder), _scan_node(scan_node) {}
+OPERATOR_CODE_GENERATOR(ScanOperator, Operator)
 
 Status ScanOperator::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(Operator::open(state));
-    return _scan_node->open(state);
+    return _node->open(state);
 }
 
 bool ScanOperator::can_read() {
-    if (_scan_node->_eos || !_scan_node->_scanner_ctx || _scan_node->_scanner_ctx->done() ||
-        _scan_node->_scanner_ctx->can_finish()) {
+    if (_node->_eos || !_node->_scanner_ctx || _node->_scanner_ctx->done() ||
+        _node->_scanner_ctx->can_finish()) {
         // _eos: need eos
         // !_scanner_ctx: need call open
         // _scanner_ctx->done(): need finish
         // _scanner_ctx->can_finish(): should be scheduled
         return true;
     } else {
-        return !_scan_node->_scanner_ctx->empty_in_queue(); // have block to process
+        return !_node->_scanner_ctx->empty_in_queue(); // have block to process
     }
-}
-
-Status ScanOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                               SourceState& result_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    bool eos = false;
-    RETURN_IF_ERROR(_scan_node->get_next(state, block, &eos));
-    result_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
-    return Status::OK();
 }
 
 bool ScanOperator::is_pending_finish() const {
-    return _scan_node->_scanner_ctx && !_scan_node->_scanner_ctx->can_finish();
+    return _node->_scanner_ctx && !_node->_scanner_ctx->can_finish();
 }
 
 Status ScanOperator::close(RuntimeState* state) {
-    if (!is_closed()) {
-        RETURN_IF_ERROR(_scan_node->close(state));
-    }
-    _fresh_exec_timer(_scan_node);
-    return Operator::close(state);
+    RETURN_IF_ERROR(Operator::close(state));
+    _node->close(state);
+    return Status::OK();
 }
 
 } // namespace doris::pipeline
