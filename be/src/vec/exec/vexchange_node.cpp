@@ -116,7 +116,7 @@ void VExchangeNode::release_resource(RuntimeState* state) {
     }
 }
 
-Status ExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
+Status VExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     statistics->merge(_sub_plan_query_statistics_recvr.get());
     return Status::OK();
