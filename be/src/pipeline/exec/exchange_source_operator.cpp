@@ -23,41 +23,14 @@
 
 namespace doris::pipeline {
 
-ExchangeSourceOperator::ExchangeSourceOperator(OperatorBuilder* operator_builder,
-                                               vectorized::VExchangeNode* node)
-        : Operator(operator_builder), _exchange_node(node) {}
-
-Status ExchangeSourceOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    return _exchange_node->alloc_resource(state);
-}
+OPERATOR_CODE_GENERATOR(ExchangeSourceOperator, Operator)
 
 bool ExchangeSourceOperator::can_read() {
-    return _exchange_node->_stream_recvr->ready_to_read();
-}
-
-Status ExchangeSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                                         SourceState& source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    bool eos = false;
-    auto st = _exchange_node->get_next(state, block, &eos);
-    source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
-    return st;
+    return _node->_stream_recvr->ready_to_read();
 }
 
 bool ExchangeSourceOperator::is_pending_finish() const {
     // TODO HappenLee
     return false;
 }
-
-Status ExchangeSourceOperator::close(RuntimeState* state) {
-    if (is_closed()) {
-        return Status::OK();
-    }
-    _fresh_exec_timer(_exchange_node);
-    _exchange_node->release_resource(state);
-
-    return Operator::close(state);
-}
-
 } // namespace doris::pipeline

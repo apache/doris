@@ -20,7 +20,6 @@
 #include "common/status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "util/to_string.h"

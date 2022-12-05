@@ -49,6 +49,8 @@ class VScanNode : public ExecNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
+    virtual ~VScanNode() = default;
+
     friend class VScanner;
     friend class NewOlapScanner;
     friend class VFileScanner;
