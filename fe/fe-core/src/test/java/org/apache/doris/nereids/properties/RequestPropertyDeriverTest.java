@@ -149,7 +149,7 @@ public class RequestPropertyDeriverTest {
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
-                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT),
                 true,
                 logicalProperties,
                 RequestProperties.of(PhysicalProperties.GATHER),
@@ -171,7 +171,7 @@ public class RequestPropertyDeriverTest {
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
-                new AggregateParam(false, AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
                 RequestProperties.of(PhysicalProperties.GATHER),
@@ -195,7 +195,7 @@ public class RequestPropertyDeriverTest {
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(),
                 Lists.newArrayList(key),
-                new AggregateParam(false, AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
                 RequestProperties.of(PhysicalProperties.createHash(ImmutableList.of(key), ShuffleType.AGGREGATE)),
