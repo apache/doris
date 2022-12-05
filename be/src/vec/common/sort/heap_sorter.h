@@ -69,6 +69,8 @@ public:
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
+    size_t data_size() const override;
+
     static constexpr size_t HEAP_SORT_THRESHOLD = 1024;
 
 private:
@@ -76,6 +78,7 @@ private:
 
     Status _prepare_sort_descs(Block* block);
 
+    size_t _data_size;
     size_t _heap_size;
     std::unique_ptr<SortingHeap> _heap;
     Block _return_block;

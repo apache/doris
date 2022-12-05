@@ -85,6 +85,7 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -587,7 +588,7 @@ public class StmtExecutor implements ProfileWriter {
         } catch (Exception e) {
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+                    e.getClass().getSimpleName() + ", msg: " + Util.getRootCauseMessage(e));
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -1791,12 +1792,13 @@ public class StmtExecutor implements ProfileWriter {
 
     public List<ResultRow> executeInternalQuery() {
         try {
+            List<ResultRow> resultRows = new ArrayList<>();
             analyzer = new Analyzer(context.getEnv(), context);
             try {
                 analyze(context.getSessionVariable().toThrift());
             } catch (UserException e) {
                 LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
-                return null;
+                return resultRows;
             }
             planner.getFragments();
             RowBatch batch;
@@ -1821,7 +1823,6 @@ public class StmtExecutor implements ProfileWriter {
             }
             Span fetchResultSpan = context.getTracer().spanBuilder("fetch internal SQL result")
                     .setParent(Context.current()).startSpan();
-            List<ResultRow> resultRows = new ArrayList<>();
             try (Scope scope = fetchResultSpan.makeCurrent()) {
                 while (true) {
                     batch = coord.getNext();
@@ -1834,7 +1835,7 @@ public class StmtExecutor implements ProfileWriter {
             } catch (Exception e) {
                 LOG.warn("Unexpected exception when SQL running", e);
                 fetchResultSpan.recordException(e);
-                return null;
+                return resultRows;
             } finally {
                 fetchResultSpan.end();
             }
@@ -1866,4 +1867,5 @@ public class StmtExecutor implements ProfileWriter {
     }
 
 }
+
 

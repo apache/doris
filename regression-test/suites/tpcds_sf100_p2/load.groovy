@@ -61,6 +61,7 @@ suite('load') {
             // check load state
             while (true) {
                 def stateResult = sql "show load where Label = '${loadLabel}'"
+                logger.info("load result ${stateResult}");
                 def loadState = stateResult[stateResult.size() - 1][2].toString()
                 if ('CANCELLED'.equalsIgnoreCase(loadState)) {
                     throw new IllegalStateException("load ${loadLabel} failed.")

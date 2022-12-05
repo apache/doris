@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
@@ -56,7 +55,7 @@ public class GraphSimplifier {
     // It cached the plan in simplification. we don't store it in hyper graph,
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
-    private HashMap<BitSet, Plan> cachePlan = new HashMap<>();
+    private HashMap<Long, Plan> cachePlan = new HashMap<>();
 
     private Stack<SimplificationStep> appliedSteps = new Stack<SimplificationStep>();
     private Stack<SimplificationStep> unAppliedSteps = new Stack<SimplificationStep>();
@@ -74,7 +73,7 @@ public class GraphSimplifier {
             simplifications.add(bestSimplification);
         }
         for (Node node : graph.getNodes()) {
-            cachePlan.put(node.getBitSet(), node.getPlan());
+            cachePlan.put(node.getNodeMap(), node.getPlan());
         }
         circleDetector = new CircleDetector(edgeSize);
     }
@@ -99,7 +98,7 @@ public class GraphSimplifier {
             for (int j = i + 1; j < edgeSize; j++) {
                 Edge edge1 = graph.getEdge(i);
                 Edge edge2 = graph.getEdge(j);
-                List<BitSet> superset = new ArrayList<>();
+                List<Long> superset = new ArrayList<>();
                 tryGetSuperset(edge1.getLeft(), edge2.getLeft(), superset);
                 tryGetSuperset(edge1.getLeft(), edge2.getRight(), superset);
                 tryGetSuperset(edge1.getRight(), edge2.getLeft(), superset);
@@ -208,12 +207,12 @@ public class GraphSimplifier {
         SimplificationStep bestStep = bestSimplification.getStep();
         while (bestSimplification.bestNeighbor == -1 || !circleDetector.tryAddDirectedEdge(bestStep.beforeIndex,
                 bestStep.afterIndex)) {
+            processNeighbors(bestStep.afterIndex, 0, edgeSize);
             if (priorityQueue.isEmpty()) {
                 return null;
             }
             bestSimplification = priorityQueue.poll();
             bestSimplification.isInQueue = false;
-            processNeighbors(bestStep.afterIndex, 0, edgeSize);
             bestStep = bestSimplification.getStep();
         }
         return bestStep;
@@ -300,13 +299,13 @@ public class GraphSimplifier {
                 || circleDetector.checkCircleWithEdge(edgeIndex2, edgeIndex1)) {
             return Optional.empty();
         }
-        BitSet left1 = edge1.getLeft();
-        BitSet right1 = edge1.getRight();
-        BitSet left2 = edge2.getLeft();
-        BitSet right2 = edge2.getRight();
+        long left1 = edge1.getLeft();
+        long right1 = edge1.getRight();
+        long left2 = edge2.getLeft();
+        long right2 = edge2.getRight();
         Edge edge1Before2;
         Edge edge2Before1;
-        List<BitSet> superBitset = new ArrayList<>();
+        List<Long> superBitset = new ArrayList<>();
         if (tryGetSuperset(left1, left2, superBitset)) {
             // (common Join1 right1) Join2 right2
             edge1Before2 = threeLeftJoin(superBitset.get(0), edge1, right1, edge2, right2);
@@ -335,35 +334,35 @@ public class GraphSimplifier {
         return Optional.of(simplificationStep);
     }
 
-    Edge threeLeftJoin(BitSet bitSet1, Edge edge1, BitSet bitSet2, Edge edge2, BitSet bitSet3) {
+    Edge threeLeftJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         // (plan1 edge1 plan2) edge2 plan3
         // The join may have redundant table, e.g., t1,t2 join t3 join t2,t4
         // Therefore, the cost is not accurate
         Preconditions.checkArgument(
-                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3));
-        LogicalJoin leftPlan = simulateJoin(cachePlan.get(bitSet1), edge1.getJoin(), cachePlan.get(bitSet2));
-        LogicalJoin join = simulateJoin(leftPlan, edge2.getJoin(), cachePlan.get(bitSet3));
+                cachePlan.containsKey(bitmap1) && cachePlan.containsKey(bitmap2) && cachePlan.containsKey(bitmap3));
+        LogicalJoin leftPlan = simulateJoin(cachePlan.get(bitmap1), edge1.getJoin(), cachePlan.get(bitmap2));
+        LogicalJoin join = simulateJoin(leftPlan, edge2.getJoin(), cachePlan.get(bitmap3));
         Edge edge = new Edge(join, -1);
-        BitSet newLeft = Bitmap.newBitmapUnion(bitSet1, bitSet2);
+        long newLeft = LongBitmap.newBitmapUnion(bitmap1, bitmap2);
         // To avoid overlapping the left and the right, the newLeft is calculated, Note the
         // newLeft is not totally include the bitset1 and bitset2, we use circle detector to trace the dependency
-        Bitmap.andNot(newLeft, bitSet3);
+        newLeft = LongBitmap.andNot(newLeft, bitmap3);
         edge.addLeftNodes(newLeft);
         edge.addRightNode(edge2.getRight());
         cachePlan.put(newLeft, leftPlan);
         return edge;
     }
 
-    Edge threeRightJoin(BitSet bitSet1, Edge edge1, BitSet bitSet2, Edge edge2, BitSet bitSet3) {
+    Edge threeRightJoin(long bitmap1, Edge edge1, long bitmap2, Edge edge2, long bitmap3) {
         Preconditions.checkArgument(
-                cachePlan.containsKey(bitSet1) && cachePlan.containsKey(bitSet2) && cachePlan.containsKey(bitSet3));
+                cachePlan.containsKey(bitmap1) && cachePlan.containsKey(bitmap2) && cachePlan.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
-        LogicalJoin rightPlan = simulateJoin(cachePlan.get(bitSet2), edge2.getJoin(), cachePlan.get(bitSet3));
-        LogicalJoin join = simulateJoin(cachePlan.get(bitSet1), edge1.getJoin(), rightPlan);
+        LogicalJoin rightPlan = simulateJoin(cachePlan.get(bitmap2), edge2.getJoin(), cachePlan.get(bitmap3));
+        LogicalJoin join = simulateJoin(cachePlan.get(bitmap1), edge1.getJoin(), rightPlan);
         Edge edge = new Edge(join, -1);
 
-        BitSet newRight = Bitmap.newBitmapUnion(bitSet2, bitSet3);
-        Bitmap.andNot(newRight, bitSet1);
+        long newRight = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
+        newRight = LongBitmap.andNot(newRight, bitmap1);
         edge.addLeftNode(edge1.getLeft());
         edge.addRightNode(newRight);
         cachePlan.put(newRight, rightPlan);
@@ -403,12 +402,12 @@ public class GraphSimplifier {
         return step;
     }
 
-    private boolean tryGetSuperset(BitSet bitSet1, BitSet bitSet2, List<BitSet> superset) {
-        if (Bitmap.isSubset(bitSet1, bitSet2)) {
-            superset.add(bitSet2);
+    private boolean tryGetSuperset(long bitmap1, long bitmap2, List<Long> superset) {
+        if (LongBitmap.isSubset(bitmap1, bitmap2)) {
+            superset.add(bitmap2);
             return true;
-        } else if (Bitmap.isSubset(bitSet2, bitSet1)) {
-            superset.add(bitSet1);
+        } else if (LongBitmap.isSubset(bitmap2, bitmap1)) {
+            superset.add(bitmap1);
             return true;
         }
         return false;
@@ -465,13 +464,13 @@ public class GraphSimplifier {
         double benefit;
         int beforeIndex;
         int afterIndex;
-        BitSet newLeft;
-        BitSet newRight;
-        BitSet oldLeft;
-        BitSet oldRight;
+        long newLeft;
+        long newRight;
+        long oldLeft;
+        long oldRight;
 
-        SimplificationStep(double benefit, int beforeIndex, int afterIndex, BitSet newLeft, BitSet newRight,
-                BitSet oldLeft, BitSet oldRight) {
+        SimplificationStep(double benefit, int beforeIndex, int afterIndex, long newLeft, long newRight,
+                long oldLeft, long oldRight) {
             this.afterIndex = afterIndex;
             this.beforeIndex = beforeIndex;
             this.benefit = benefit;

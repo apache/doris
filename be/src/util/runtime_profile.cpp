@@ -235,6 +235,11 @@ void RuntimeProfile::divide(int n) {
     }
 }
 
+void RuntimeProfile::clear_children() {
+    std::lock_guard<std::mutex> l(_children_lock);
+    _children.clear();
+}
+
 void RuntimeProfile::compute_time_in_profile() {
     compute_time_in_profile(total_time_counter()->value());
 }
@@ -275,6 +280,15 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
         add_child_unlock(child, indent, (*pos).first);
     }
     return child;
+}
+
+void RuntimeProfile::insert_child_head(doris::RuntimeProfile* child, bool indent) {
+    std::lock_guard<std::mutex> l(_children_lock);
+    DCHECK(child != nullptr);
+    _child_map[child->_name] = child;
+
+    auto it = _children.begin();
+    _children.insert(it, std::make_pair(child, indent));
 }
 
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {

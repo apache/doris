@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
@@ -139,6 +140,14 @@ public class VariableMgr {
         VarAttr attr = field.getAnnotation(VarAttr.class);
         if (VariableVarConverters.hasConverter(attr.name())) {
             value = VariableVarConverters.encode(attr.name(), value).toString();
+        }
+        if (!attr.checker().equals("")) {
+            Preconditions.checkArgument(obj instanceof SessionVariable);
+            try {
+                SessionVariable.class.getDeclaredMethod(attr.checker()).invoke(obj);
+            } catch (Exception e) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
+            }
         }
         try {
             switch (field.getType().getSimpleName()) {
@@ -515,6 +524,10 @@ public class VariableMgr {
         String minValue() default "0";
 
         String maxValue() default "0";
+
+        // the function name that check the VarAttr before setting it to sessionVariable
+        // only support check function: 0 argument and 0 return value, if an error occurs, throw an exception.
+        String checker() default "";
 
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;

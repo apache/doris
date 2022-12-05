@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -177,7 +178,7 @@ public class BindFunction implements AnalysisRuleFactory {
                 }
                 if (arguments.size() == 1) {
                     AggregateParam aggregateParam = new AggregateParam(
-                            unboundFunction.isDistinct(), true, false);
+                            unboundFunction.isDistinct(), true, AggPhase.LOCAL, false);
                     return new Count(aggregateParam, unboundFunction.getArguments().get(0));
                 }
             }

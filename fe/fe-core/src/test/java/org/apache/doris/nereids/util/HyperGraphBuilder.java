@@ -23,7 +23,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -118,9 +117,13 @@ public class HyperGraphBuilder {
         Preconditions.checkArgument(node2 >= 0 && node1 < rowCounts.size(),
                 String.format("%d must in [%d, %d)", node1, 0, rowCounts.size()));
 
-        BitSet leftBitmap = Bitmap.newBitmap(node1);
-        BitSet rightBitmap = Bitmap.newBitmap(node2);
-        BitSet fullBitmap = Bitmap.newBitmapUnion(leftBitmap, rightBitmap);
+        BitSet leftBitmap = new BitSet();
+        leftBitmap.set(node1);
+        BitSet rightBitmap = new BitSet();
+        rightBitmap.set(node2);
+        BitSet fullBitmap = new BitSet();
+        fullBitmap.or(leftBitmap);
+        fullBitmap.or(rightBitmap);
         Optional<BitSet> fullKey = findPlan(fullBitmap);
         if (!fullKey.isPresent()) {
             Optional<BitSet> leftKey = findPlan(leftBitmap);
@@ -188,7 +191,7 @@ public class HyperGraphBuilder {
             int count = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
             for (Slot slot : scanPlan.getOutput()) {
                 slotIdToColumnStats.put(slot.getExprId(),
-                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0, 0, null, null));
+                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0, 0, null, null, true));
             }
             StatsDeriveResult stats = new StatsDeriveResult(count, slotIdToColumnStats);
             group.setStatistics(stats);

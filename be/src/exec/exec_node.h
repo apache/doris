@@ -52,6 +52,12 @@ class Block;
 class VExpr;
 } // namespace vectorized
 
+namespace pipeline {
+class PipelineFragmentContext;
+class Pipeline;
+class Operator;
+} // namespace pipeline
+
 using std::string;
 using std::stringstream;
 using std::vector;
@@ -89,6 +95,11 @@ public:
     // Caller must not be holding any io buffers. This will cause deadlock.
     virtual Status open(RuntimeState* state);
 
+    // Alloc and open resource for the node
+    // Only pipeline operator use exec node need to impl the virtual function
+    // so only vectorized exec node need to impl
+    virtual Status alloc_resource(RuntimeState* state);
+
     // Retrieves rows and returns them via row_batch. Sets eos to true
     // if subsequent calls will not retrieve any more rows.
     // Data referenced by any tuples returned in row_batch must not be overwritten
@@ -104,9 +115,28 @@ public:
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
-
     // new interface to compatible new optimizers in FE
     Status get_next_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
+
+    // Process data
+    // Eg: Projection, Union All, HashProbe
+    virtual Status execute(RuntimeState* state, vectorized::Block* input_block,
+                           vectorized::Block* output_block, bool* eos);
+
+    // Emit data, both need impl with method: sink
+    // Eg: Aggregation, Sort
+    virtual Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos);
+
+    virtual Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+        return Status::OK();
+    }
+
+    bool can_read() const { return _can_read; }
+
+    // Sink Data to ExecNode to do some stock work, both need impl with method: get_result
+    // `eos` means source is exhausted, exec node should do some finalize work
+    // Eg: Aggregation, Sort
+    virtual Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos);
 
     // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
     // Clears all internal state, returning this node to the state it was in after calling
@@ -139,6 +169,14 @@ public:
     // close() on the children. To ensure that close() is called on the entire plan tree,
     // each implementation should start out by calling the default implementation.
     virtual Status close(RuntimeState* state);
+
+    void increase_ref() { ++_ref; }
+    int decrease_ref() { return --_ref; }
+
+    // Release and close resource for the node
+    // Only pipeline operator use exec node need to impl the virtual function
+    // so only vectorized exec node need to impl
+    virtual void release_resource(RuntimeState* state);
 
     // Creates exec node tree from list of nodes contained in plan via depth-first
     // traversal. All nodes are placed in pool.
@@ -194,21 +232,22 @@ public:
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
-    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
-    std::shared_ptr<MemTracker> mem_tracker_shared() const { return _mem_tracker; }
+    MemTracker* mem_tracker_held() const { return _mem_tracker_held.get(); }
+    MemTracker* mem_tracker_growh() const { return _mem_tracker_growh.get(); }
+    std::shared_ptr<MemTracker> mem_tracker_growh_shared() const { return _mem_tracker_growh; }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
     virtual std::string get_name();
 
-    // Extract node id from p->name().
-    static int get_node_id_from_profile(RuntimeProfile* p);
-
     // Names of counters shared by all exec nodes
     static const std::string ROW_THROUGHPUT_COUNTER;
 
+    ExecNode* child(int i) { return _children[i]; }
+
 protected:
     friend class DataSink;
+    friend class doris::pipeline::Operator;
 
     /// Initialize 'buffer_pool_client_' and claim the initial reservation for this
     /// ExecNode. Only needs to be called by ExecNodes that will use the client.
@@ -299,8 +338,11 @@ protected:
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
-    /// Account for peak memory used by this node
-    std::shared_ptr<MemTracker> _mem_tracker;
+    // Record the memory size held by this node.
+    std::unique_ptr<MemTracker> _mem_tracker_held;
+    // Record the memory size allocated by this node.
+    // Similar to tcmalloc heap profile growh, only track memory alloc, not track memory free.
+    std::shared_ptr<MemTracker> _mem_tracker_growh;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
@@ -330,8 +372,6 @@ protected:
 
     // Set to true if this is a vectorized exec node.
     bool _is_vec = false;
-
-    ExecNode* child(int i) { return _children[i]; }
 
     bool is_closed() const { return _is_closed; }
 
@@ -368,9 +408,13 @@ protected:
     /// allocations. ExecNodes overriding this function should return
     /// ExecNode::QueryMaintenance().
     virtual Status QueryMaintenance(RuntimeState* state, const std::string& msg) WARN_UNUSED_RESULT;
+    std::atomic<bool> _can_read = false;
 
 private:
+    friend class pipeline::Operator;
     bool _is_closed;
+    bool _is_resource_released = false;
+    std::atomic_int _ref; // used by pipeline operator to release resource.
 };
 
 } // namespace doris

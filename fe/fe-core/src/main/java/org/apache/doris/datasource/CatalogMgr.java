@@ -68,6 +68,8 @@ import java.util.stream.Collectors;
 public class CatalogMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogMgr.class);
 
+    private static final String YES = "yes";
+
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
@@ -83,6 +85,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         initInternalCatalog();
     }
 
+    public static CatalogMgr read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
+    }
+
     private void initInternalCatalog() {
         internalCatalog = new InternalCatalog();
         addCatalog(internalCatalog);
@@ -96,6 +103,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private CatalogIf removeCatalog(long catalogId) {
         CatalogIf catalog = idToCatalog.remove(catalogId);
         if (catalog != null) {
+            catalog.onClose();
             nameToCatalog.remove(catalog.getName());
             Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
         }
@@ -266,7 +274,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
-            if (!catalog.getType().equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
+            if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
+                    .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
@@ -288,6 +297,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * List all catalog or get the special catalog with a name.
      */
     public ShowResultSet showCatalogs(ShowCatalogStmt showStmt) throws AnalysisException {
+        return showCatalogs(showStmt, InternalCatalog.INTERNAL_CATALOG_NAME);
+    }
+
+    public ShowResultSet showCatalogs(ShowCatalogStmt showStmt, String currentCtlg) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
         try {
@@ -302,7 +315,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     if (Env.getCurrentEnv().getAuth()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                         String name = catalog.getName();
-                        // Filter dbname
+                        // Filter catalog name
                         if (matcher != null && !matcher.match(name)) {
                             continue;
                         }
@@ -310,8 +323,18 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         row.add(String.valueOf(catalog.getId()));
                         row.add(name);
                         row.add(catalog.getType());
+                        if (name.equals(currentCtlg)) {
+                            row.add(YES);
+                        } else {
+                            row.add("");
+                        }
                         rows.add(row);
                     }
+
+                    // sort by catalog name
+                    rows.sort((x, y) -> {
+                        return x.get(1).compareTo(y.get(1));
+                    });
                 }
             } else {
                 if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
@@ -460,11 +483,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    public static CatalogMgr read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
     @Override

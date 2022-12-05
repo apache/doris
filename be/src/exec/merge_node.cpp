@@ -63,7 +63,7 @@ Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status MergeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
 
@@ -93,7 +93,7 @@ Status MergeNode::prepare(RuntimeState* state) {
 
 Status MergeNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // Prepare const expr lists.
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {
         RETURN_IF_ERROR(Expr::open(_const_result_expr_ctx_lists[i], state));
@@ -110,7 +110,7 @@ Status MergeNode::open(RuntimeState* state) {
 Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // Create new tuple buffer for row_batch.
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
     void* tuple_buffer = row_batch->tuple_data_pool()->allocate(tuple_buffer_size);

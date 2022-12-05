@@ -65,8 +65,22 @@ else()
     add_definitions(-DBOOST_STACKTRACE_USE_NOOP)
 endif()
 
-option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+# Options
+if (NOT OS_MACOSX)
+    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+    option(USE_LIBCPP "Use libc++" OFF)
+    option(USE_MEM_TRACKER, "Use memory tracker" ON)
+else()
+    option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." OFF)
+    option(USE_LIBCPP "Use libc++" ON)
+    option(USE_MEM_TRACKER, "Use memory tracker" OFF)
+endif()
+option(USE_JEMALLOC "Use jemalloc" ON)
+
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
+message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
+message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
+message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 
 # set CMAKE_BUILD_TYPE
 if (NOT CMAKE_BUILD_TYPE)
@@ -86,13 +100,17 @@ message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(ENV{DORIS_HOME} "${BASE_DIR}/../")
+set(ENV{DORIS_HOME} "${BASE_DIR}/..")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed/")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
+if (NOT DEFINED ENV{DORIS_THIRDPARTY})
+    set(ENV{DORIS_THIRDPARTY} "$ENV{DORIS_HOME}/thirdparty")
+endif()
+set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
+message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
@@ -662,6 +680,7 @@ set(DORIS_LINK_LIBS
     Webserver
     Geo
     Vec
+    Pipeline
     ${WL_END_GROUP}
 )
 
@@ -892,6 +911,7 @@ endif()
 
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
+add_subdirectory(${SRC_DIR}/pipeline)
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})

@@ -1021,6 +1021,15 @@
                 },
                 {
                     "type": "category",
+                    "label": "Memory Management",
+                    "items": [
+                        "admin-manual/maint-monitor/memory-management/memory-tracker",
+                        "admin-manual/maint-monitor/memory-management/memory-limit-exceeded-analysis",
+                        "admin-manual/maint-monitor/memory-management/be-oom-analysis"
+                    ]
+                },
+                {
+                    "type": "category",
                     "label": "Config",
                     "items": [
                         "admin-manual/config/config-dir",

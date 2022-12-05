@@ -293,3 +293,12 @@ ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [My
 ldd /path/to/libmyodbc8w.so |grep libssl.so
 ```
 如果输出包含 `libssl.so.10` 则使用过程中可能出现问题， 如果包含`libssl.so.1.1` 则与doris 1.0 兼容
+
+### Q15. 升级到 1.2 版本，BE NoClassDefFoundError 问题启动失败
+<version since="1.2"> Java UDF 依赖错误 </version>
+如果升级支持启动 be 出现下面这种 Java `NoClassDefFoundError` 错误
+```
+Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/doris/udf/IniUtil
+Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
+```
+需要重官网下载 `apache-doris-java-udf-jar-with-dependencies-1.2.0` 的 Java UDF 函数依赖包，放到 BE 安装目录下的 lib 目录，然后重新启动 BE

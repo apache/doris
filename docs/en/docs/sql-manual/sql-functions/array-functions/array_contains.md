@@ -23,6 +23,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
 ## array_contains
 
@@ -71,3 +72,5 @@ mysql> select array_contains([null, 1], null);
 ### keywords
 
 ARRAY,CONTAIN,CONTAINS,ARRAY_CONTAINS
+
+</version>

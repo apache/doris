@@ -183,10 +183,6 @@ public class Function implements Writable {
         this.retType = type;
     }
 
-    public void setArgType(Type type, int i) {
-        argTypes[i] = type;
-    }
-
     public Type[] getArgs() {
         return argTypes;
     }

@@ -86,10 +86,9 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
     return Status::OK();
 }
 
-Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
+Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                const SlotDescriptor* intermediate_slot_desc,
                                const SlotDescriptor* output_slot_desc) {
-    DCHECK(pool != nullptr);
     DCHECK(intermediate_slot_desc != nullptr);
     DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;

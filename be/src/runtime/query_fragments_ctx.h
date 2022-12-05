@@ -90,6 +90,18 @@ public:
         }
         _start_cond.notify_all();
     }
+    void set_ready_to_execute_only() {
+        {
+            std::lock_guard<std::mutex> l(_start_lock);
+            _ready_to_execute = true;
+        }
+        _start_cond.notify_all();
+    }
+
+    bool is_ready_to_execute() {
+        std::lock_guard<std::mutex> l(_start_lock);
+        return _ready_to_execute;
+    }
 
     bool wait_for_start() {
         int wait_time = config::max_fragment_start_wait_time_seconds;

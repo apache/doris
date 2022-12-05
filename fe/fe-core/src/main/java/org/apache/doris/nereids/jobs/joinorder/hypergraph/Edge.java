@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.Bitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-
-import java.util.BitSet;
 
 /**
  * Edge in HyperGraph
@@ -34,8 +32,9 @@ public class Edge {
 
     // The endpoints (hyperNodes) of this hyperEdge.
     // left and right may not overlap, and both must have at least one bit set.
-    private BitSet left = Bitmap.newBitmap();
-    private BitSet right = Bitmap.newBitmap();
+    private long left = LongBitmap.newBitmap();
+    private long right = LongBitmap.newBitmap();
+    private long referenceNodes = LongBitmap.newBitmap();
 
     /**
      * Create simple edge.
@@ -51,61 +50,62 @@ public class Edge {
     }
 
     public boolean isSimple() {
-        return Bitmap.getCardinality(left) == 1 && Bitmap.getCardinality(right) == 1;
+        return LongBitmap.getCardinality(left) == 1 && LongBitmap.getCardinality(right) == 1;
     }
 
-    public void addLeftNode(BitSet left) {
-        Bitmap.or(this.left, left);
+    public void addLeftNode(long left) {
+        this.left = LongBitmap.or(this.left, left);
+        referenceNodes = LongBitmap.or(referenceNodes, left);
     }
 
-    public void addLeftNodes(BitSet... bitSets) {
-        for (BitSet bitSet : bitSets) {
-            Bitmap.or(this.left, bitSet);
+    public void addLeftNodes(long... bitmaps) {
+        for (long bitmap : bitmaps) {
+            this.left = LongBitmap.or(this.left, bitmap);
+            referenceNodes = LongBitmap.or(referenceNodes, bitmap);
         }
     }
 
-    public void addRightNode(BitSet right) {
-        Bitmap.or(this.right, right);
+    public void addRightNode(long right) {
+        this.right = LongBitmap.or(this.right, right);
+        referenceNodes = LongBitmap.or(referenceNodes, right);
     }
 
-    public void addRightNodes(BitSet... bitSets) {
-        for (BitSet bitSet : bitSets) {
-            Bitmap.or(this.right, bitSet);
+    public void addRightNodes(long... bitmaps) {
+        for (long bitmap : bitmaps) {
+            LongBitmap.or(this.right, bitmap);
+            LongBitmap.or(referenceNodes, bitmap);
         }
     }
 
-    public BitSet getLeft() {
+    public long getLeft() {
         return left;
     }
 
-    public void setLeft(BitSet left) {
+    public void setLeft(long left) {
+        referenceNodes = LongBitmap.clear(referenceNodes);
         this.left = left;
     }
 
-    public BitSet getRight() {
+    public long getRight() {
         return right;
     }
 
-    public void setRight(BitSet right) {
+    public void setRight(long right) {
+        referenceNodes = LongBitmap.clear(referenceNodes);
         this.right = right;
     }
 
     public boolean isSub(Edge edge) {
         // When this join reference nodes is a subset of other join, then this join must appear before that join
-        BitSet bitSet = getReferenceNodes();
-        BitSet otherBitset = edge.getReferenceNodes();
-        return Bitmap.isSubset(bitSet, otherBitset);
+        long otherBitmap = edge.getReferenceNodes();
+        return LongBitmap.isSubset(getReferenceNodes(), otherBitmap);
     }
 
-    public BitSet getReferenceNodes() {
-        return Bitmap.newBitmapUnion(this.left, this.right);
-    }
-
-    public Edge reverse(int index) {
-        Edge newEdge = new Edge(join, index);
-        newEdge.addLeftNode(right);
-        newEdge.addRightNode(left);
-        return newEdge;
+    public long getReferenceNodes() {
+        if (LongBitmap.getCardinality(referenceNodes) == 0) {
+            referenceNodes = LongBitmap.newBitmapUnion(left, right);
+        }
+        return referenceNodes;
     }
 
     public int getIndex() {
@@ -125,7 +125,7 @@ public class Edge {
 
     @Override
     public String toString() {
-        return String.format("<%s - %s>", left, right);
+        return String.format("<%s - %s>", LongBitmap.toString(left), LongBitmap.toString(right));
     }
 }
 

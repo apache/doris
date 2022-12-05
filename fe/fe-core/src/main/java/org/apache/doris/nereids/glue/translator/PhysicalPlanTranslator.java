@@ -159,7 +159,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     /**
      * Translate Agg.
-     * todo: support DISTINCT
      */
     @Override
     public PlanFragment visitPhysicalAggregate(
@@ -201,44 +200,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> execPartitionExpressions = partitionExpressionList.stream()
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
         DataPartition mergePartition = DataPartition.UNPARTITIONED;
-        if (CollectionUtils.isNotEmpty(execPartitionExpressions)) {
+        if (CollectionUtils.isNotEmpty(execPartitionExpressions)
+                && aggregate.getAggPhase() != AggPhase.DISTINCT_GLOBAL) {
             mergePartition = DataPartition.hashPartitioned(execPartitionExpressions);
         }
 
         // 3. generate output tuple
         List<Slot> slotList = Lists.newArrayList();
         TupleDescriptor outputTupleDesc;
-        if (aggregate.getAggPhase() == AggPhase.LOCAL
-                || (aggregate.getAggPhase() == AggPhase.GLOBAL && aggregate.isFinalPhase())
-                || aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
-            slotList.addAll(groupSlotList);
-            slotList.addAll(aggFunctionOutput);
-            outputTupleDesc = generateTupleDesc(slotList, null, context);
-        } else {
-            // In the distinct agg scenario, global shares local's desc
-            AggregationNode localAggNode;
-            if (inputPlanFragment.getPlanRoot() instanceof ExchangeNode) {
-                localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot().getChild(0);
-            } else {
-                // If the group by expr hits the partition key, there may be no exchange node
-                localAggNode = (AggregationNode) inputPlanFragment.getPlanRoot();
-            }
-            outputTupleDesc = localAggNode.getAggInfo().getOutputTupleDesc();
-        }
+        slotList.addAll(groupSlotList);
+        slotList.addAll(aggFunctionOutput);
+        outputTupleDesc = generateTupleDesc(slotList, null, context);
 
-        // TODO: move setMergeForNereids to ExpressionTranslator.visitAggregateFunction
-        if (aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
-            for (FunctionCallExpr execAggregateFunction : execAggregateFunctions) {
-                if (!execAggregateFunction.isDistinct()) {
-                    execAggregateFunction.setMergeForNereids(true);
-                }
-            }
-        }
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions, outputTupleDesc,
                 outputTupleDesc, aggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), aggInfo);
-        if (!aggregate.isFinalPhase()) {
+        if (!aggregate.getAggPhase().isGlobal() && !aggregate.isFinalPhase()) {
             aggregationNode.unsetNeedsFinalize();
         }
         PlanFragment currentFragment = inputPlanFragment;
@@ -247,8 +225,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 aggregationNode.setUseStreamingPreagg(aggregate.isUsingStream());
                 aggregationNode.setIntermediateTuple();
                 break;
-            case GLOBAL:
             case DISTINCT_LOCAL:
+            case GLOBAL:
+            case DISTINCT_GLOBAL:
+                if (aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL) {
+                    aggregationNode.setIntermediateTuple();
+                }
                 if (currentFragment.getPlanRoot() instanceof ExchangeNode) {
                     ExchangeNode exchangeNode = (ExchangeNode) currentFragment.getPlanRoot();
                     currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, mergePartition);
@@ -257,7 +239,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     inputPlanFragment.setDestination(exchangeNode);
                     context.addPlanFragment(currentFragment);
                 }
-                currentFragment.updateDataPartition(mergePartition);
+                if (aggregate.getAggPhase() != AggPhase.DISTINCT_LOCAL) {
+                    currentFragment.updateDataPartition(mergePartition);
+                }
                 break;
             default:
                 throw new RuntimeException("Unsupported yet");
