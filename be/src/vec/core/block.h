@@ -448,6 +448,9 @@ public:
         } else {
             DCHECK_EQ(_columns.size(), block.columns());
             for (int i = 0; i < _columns.size(); ++i) {
+                LOG(WARNING) << _data_types[i]->get_name();
+                LOG(WARNING) << (*make_nullable(block.get_by_position(i).column)
+                                                            ->convert_to_full_column_if_const()).get_name();
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
                     DCHECK(_data_types[i]->is_nullable());
                     DCHECK(((DataTypeNullable*)_data_types[i].get())
