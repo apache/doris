@@ -75,6 +75,8 @@ public:
 
     inline const int64_t cumulative_layer_point() const;
     inline void set_cumulative_layer_point(int64_t new_point);
+    inline const int64_t cumulative_promotion_size() const;
+    inline void set_cumulative_promotion_size(int64_t new_size);
 
     inline size_t tablet_footprint(); // disk space occupied by tablet
     inline size_t num_rows();
@@ -338,6 +340,7 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     std::atomic<int64_t> _last_quick_compaction_success_time_millis;
     std::atomic<int64_t> _cumulative_point;
+    std::atomic<int64_t> _cumulative_promotion_size;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
 
@@ -401,6 +404,13 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
         LOG(WARNING) << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
     }
+}
+inline const int64_t Tablet::cumulative_promotion_size() const {
+    return _cumulative_promotion_size;
+}
+
+inline void Tablet::set_cumulative_promotion_size(int64_t new_size) {
+    _cumulative_promotion_size = new_size;
 }
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
