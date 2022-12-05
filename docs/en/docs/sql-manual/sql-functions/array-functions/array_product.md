@@ -23,6 +23,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
 ## array_product
 
@@ -55,3 +56,4 @@ mysql> select k2, array_product(k2) from array_type_table;
 
 ARRAY,PRODUCT,ARRAY_PRODUCT
 
+</version>

@@ -26,7 +26,7 @@ under the License.
 
 # JDBC External Table Of Doris
 
-<version since="1.2">
+<version since="1.2.0">
 
 JDBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(JDBC)来访问外部表，外部表省去了繁琐的数据导入工作，让Doris可以具有了访问各式数据库的能力，并借助Doris本身的OLAP的能力来解决外部表的数据分析问题：
 
