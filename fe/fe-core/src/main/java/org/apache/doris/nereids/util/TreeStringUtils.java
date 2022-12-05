@@ -30,16 +30,19 @@ public class TreeStringUtils {
 
     public static String treeString(Object object, Function<Object, String> objectToString,
             Function<Object, List<Object>> childSupplier,
-            Function<Object, List<Object>> extraPlansSupplier) {
+            Function<Object, List<Object>> extraPlansSupplier,
+            Function<Object, Boolean> displaySupplier) {
         List<String> lines = new ArrayList<>();
-        treeString(lines, new ArrayList<>(), object, objectToString, childSupplier, extraPlansSupplier, false);
+        treeString(lines, new ArrayList<>(), object,
+                objectToString, childSupplier, extraPlansSupplier, displaySupplier, false);
         return StringUtils.join(lines, "\n");
     }
 
     private static void treeString(List<String> lines, List<Boolean> lastChildren, Object object,
             Function<Object, String> objectToString, Function<Object, List<Object>> childrenSupplier,
             Function<Object, List<Object>> extraPlansSupplier,
-            boolean extra) {
+            Function<Object, Boolean> displaySupplier,
+            boolean isExtraPlan) {
         StringBuilder sb = new StringBuilder();
 
         for (int i = 0; i < lastChildren.size() - 1; i++) {
@@ -49,7 +52,7 @@ public class TreeStringUtils {
         if (lastChildren.size() > 0) {
             Boolean last = lastChildren.get(lastChildren.size() - 1);
             sb.append(last ? "+-" : "|-");
-            sb.append(extra ? "*" : "-");
+            sb.append(isExtraPlan ? "*" : "-");
         }
 
         sb.append(objectToString.apply(object));
@@ -58,13 +61,20 @@ public class TreeStringUtils {
         List<Object> allObjects = new ArrayList<>();
         List<Object> children = childrenSupplier.apply(object);
         List<Object> extraPlans = extraPlansSupplier.apply(object);
-        allObjects.addAll(extraPlans);
-        allObjects.addAll(children);
+        boolean displayExtraPlanFirst = displaySupplier.apply(object);
+        if (displayExtraPlanFirst) {
+            allObjects.addAll(extraPlans);
+            allObjects.addAll(children);
+        } else {
+            allObjects.addAll(children);
+            allObjects.addAll(extraPlans);
+        }
         for (int i = 0; i < allObjects.size(); i++) {
             List<Boolean> newLasts = new ArrayList<>(lastChildren);
             newLasts.add(i + 1 == allObjects.size());
+            boolean isSubExtraPlan = displayExtraPlanFirst ? i < extraPlans.size() : i >= children.size();
             treeString(lines, newLasts, allObjects.get(i),
-                    objectToString, childrenSupplier, extraPlansSupplier, i < extraPlans.size());
+                    objectToString, childrenSupplier, extraPlansSupplier, displaySupplier, isSubExtraPlan);
         }
     }
 }

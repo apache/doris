@@ -47,4 +47,14 @@ suite("nereids_explain") {
         sql("parsed plan select 100")
         contains "UnboundOneRowRelation"
     }
+
+    explain {
+        sql("plan select * from lineorder where lo_orderkey > (select avg(lo_orderkey) from lineorder)")
+        contains "*LogicalSubQueryAlias"
+    }
+
+    explain {
+        sql("plan with s as (select * from supplier) select * from s as s1, s as s2")
+        contains "*LogicalSubQueryAlias"
+    }
 }

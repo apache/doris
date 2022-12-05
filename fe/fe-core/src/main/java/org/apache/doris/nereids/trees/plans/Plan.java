@@ -78,6 +78,10 @@ public interface Plan extends TreeNode<Plan> {
         return ImmutableList.of();
     }
 
+    default boolean displayExtraPlanFirst() {
+        return false;
+    }
+
     /**
      * Get output slot list of the plan.
      */

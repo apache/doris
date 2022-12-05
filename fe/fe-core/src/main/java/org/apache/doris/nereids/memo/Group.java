@@ -394,6 +394,14 @@ public class Group {
             }
         };
 
-        return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans);
+        Function<Object, Boolean> displayExtraPlan = obj -> {
+            if (obj instanceof Plan) {
+                return ((Plan) obj).displayExtraPlanFirst();
+            } else {
+                return false;
+            }
+        };
+
+        return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans, displayExtraPlan);
     }
 }
