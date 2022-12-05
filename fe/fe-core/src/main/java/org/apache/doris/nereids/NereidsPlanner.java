@@ -28,6 +28,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
@@ -159,12 +160,16 @@ public class NereidsPlanner extends Planner {
             }
         }
 
+        // We need to do join reorder before cascades and after deriving stats
         deriveStats();
 
-        // We need to do join reorder before cascades and after deriving stats
-        // joinReorder();
+        // DpHyper Join Reorder.
+        // TODO: modify number
+        if (ConnectContext.get().getSessionVariable().isEnableDpHyperJoinReorder()
+                && countJoinSize(getRoot()) > 2) {
+            joinReorder();
+        }
         // TODO: What is the appropriate time to set physical properties? Maybe before enter.
-        // cascades style optimize phase.
 
         // cost-based optimize and explore plan space
         optimize();
@@ -206,6 +211,10 @@ public class NereidsPlanner extends Planner {
     }
 
     private void joinReorder() {
+        System.out.println("DPHyper join order start: -----------");
+        cascadesContext.pushJob(new JoinOrderJob(getRoot(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        System.out.println("DPHyper join order end: -------------");
     }
 
     /**
@@ -256,6 +265,20 @@ public class NereidsPlanner extends Planner {
             String memo = cascadesContext.getMemo().toString();
             LOG.warn("Failed to choose best plan, memo structure:{}", memo, e);
             throw new AnalysisException("Failed to choose best plan", e);
+        }
+    }
+
+    /**
+     * Count join number.
+     */
+    public static int countJoinSize(Group group) {
+        int childrenCount = (int) group.getLogicalExpression().children().stream()
+                .map(NereidsPlanner::countJoinSize)
+                .count();
+        if (group.isJoinGroup()) {
+            return childrenCount + 1;
+        } else {
+            return childrenCount;
         }
     }
 

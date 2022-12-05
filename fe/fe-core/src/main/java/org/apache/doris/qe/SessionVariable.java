@@ -213,6 +213,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
+    public static final String ENABLE_DP_HYPER_JOIN_REORDER = "enable_dp_hyper_join_reorder";
+
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
@@ -574,6 +576,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE)
     public boolean enableRuntimeFilterPrune = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_DP_HYPER_JOIN_REORDER)
+    public boolean enableDpHyperJoinReorder = false;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -1299,6 +1304,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableRuntimeFilterPrune(boolean enableRuntimeFilterPrune) {
         this.enableRuntimeFilterPrune = enableRuntimeFilterPrune;
+    }
+
+    public boolean isEnableDpHyperJoinReorder() {
+        return isEnableNereidsPlanner() && enableDpHyperJoinReorder;
     }
 
     public void setFragmentTransmissionCompressionCodec(String codec) {

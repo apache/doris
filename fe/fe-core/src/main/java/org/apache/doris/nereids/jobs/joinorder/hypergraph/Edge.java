@@ -26,9 +26,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
  * Edge in HyperGraph
  */
 public class Edge {
-    final int index;
-    final LogicalJoin join;
-    final double selectivity;
+    private final int index;
+    private final LogicalJoin join;
+    private final double selectivity;
 
     // The endpoints (hyperNodes) of this hyperEdge.
     // left and right may not overlap, and both must have at least one bit set.

@@ -43,6 +43,7 @@ public class JoinOrderJob extends Job {
 
     @Override
     public void execute() throws AnalysisException {
+        // TODO: handle root is join
         Preconditions.checkArgument(!group.isJoinGroup());
         GroupExpression rootExpr = group.getLogicalExpression();
         int arity = rootExpr.arity();

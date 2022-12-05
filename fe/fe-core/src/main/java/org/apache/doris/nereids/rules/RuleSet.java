@@ -53,17 +53,31 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProje
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughRepeat;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Containers for set of different type rules.
  */
 public class RuleSet {
-    public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
+    public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
+            .add(JoinCommute.LEFT_DEEP)
+            .add(InnerJoinLAsscom.INSTANCE)
+            .add(InnerJoinLAsscomProject.INSTANCE)
+            .add(OuterJoinLAsscom.INSTANCE)
+            .add(OuterJoinLAsscomProject.INSTANCE)
+            .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
+            .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
+            .add(SemiJoinSemiJoinTranspose.INSTANCE)
+            .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
+            .build();
+
+    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.ZIG_ZAG)
             .add(InnerJoinLAsscom.INSTANCE)
             .add(InnerJoinLAsscomProject.INSTANCE)
@@ -73,6 +87,9 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
+            .build();
+
+    public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(new AggregateDisassemble())
             .add(new DistinctAggregateDisassemble())
             .add(new PushdownFilterThroughProject())
@@ -109,42 +126,12 @@ public class RuleSet {
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
             .build();
 
-    public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()
-            // .add(JoinCommute.LEFT_DEEP)
-            // .add(JoinLAsscom.INNER)
-            // .add(JoinLAsscomProject.INNER)
-            // .add(JoinLAsscom.OUTER)
-            // .add(JoinLAsscomProject.OUTER)
-            // semi join Transpose ....
-            .build();
-
-    public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
-            // .add(JoinCommute.ZIG_ZAG)
-            // .add(JoinLAsscom.INNER)
-            // .add(JoinLAsscomProject.INNER)
-            // .add(JoinLAsscom.OUTER)
-            // .add(JoinLAsscomProject.OUTER)
-            // semi join Transpose ....
-            .build();
-
-    public static final List<Rule> BUSHY_TREE_JOIN_REORDER = planRuleFactories()
-            .add(JoinCommute.BUSHY)
-            // TODO: add more rule
-            // .add(JoinLeftAssociate.INNER)
-            // .add(JoinLeftAssociateProject.INNER)
-            // .add(JoinRightAssociate.INNER)
-            // .add(JoinRightAssociateProject.INNER)
-            // .add(JoinExchange.INNER)
-            // .add(JoinExchangeBothProject.INNER)
-            // .add(JoinExchangeLeftProject.INNER)
-            // .add(JoinExchangeRightProject.INNER)
-            // .add(JoinRightAssociate.OUTER)
-            // .add(JoinLAsscom.OUTER)
-            // semi join Transpose ....
-            .build();
-
     public List<Rule> getExplorationRules() {
-        return EXPLORATION_RULES;
+        List<Rule> rules = new ArrayList<>(EXPLORATION_RULES);
+        if (!ConnectContext.get().getSessionVariable().isEnableDpHyperJoinReorder()) {
+            rules.addAll(ZIG_ZAG_TREE_JOIN_REORDER);
+        }
+        return rules;
     }
 
     public List<Rule> getImplementationRules() {
