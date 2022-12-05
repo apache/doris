@@ -309,12 +309,13 @@ bool VExpr::is_constant() const {
 }
 
 Status VExpr::get_const_col(VExprContext* context, ColumnPtrWrapper** res) {
+    *res = nullptr;
     if (!is_constant()) {
         return Status::OK();
     }
 
     if (_constant_col != nullptr) {
-        *res = nullptr;
+        *res = _constant_col.get();
         return Status::OK();
     }
 
