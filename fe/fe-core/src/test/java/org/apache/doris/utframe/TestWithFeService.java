@@ -122,8 +122,12 @@ public abstract class TestWithFeService {
     public final void beforeAll() throws Exception {
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        beforeCluster();
         createDorisCluster();
         runBeforeAll();
+    }
+
+    protected void beforeCluster() {
     }
 
     @AfterAll

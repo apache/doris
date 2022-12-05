@@ -144,7 +144,7 @@ private:
         }
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         std::string info = "LikeColumnPredicate";
         return info;
     }

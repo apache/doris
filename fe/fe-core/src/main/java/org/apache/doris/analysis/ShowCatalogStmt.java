@@ -31,6 +31,7 @@ public class ShowCatalogStmt extends ShowStmt {
             ShowResultSetMetaData.builder().addColumn(new Column("CatalogId", ScalarType.BIGINT))
                     .addColumn(new Column("CatalogName", ScalarType.createVarchar(64)))
                     .addColumn(new Column("Type", ScalarType.createStringType()))
+                    .addColumn(new Column("IsCurrent", ScalarType.createStringType()))
                     .build();
 
     private static final ShowResultSetMetaData META_DATA_SPECIFIC =
@@ -40,17 +41,24 @@ public class ShowCatalogStmt extends ShowStmt {
                     .build();
 
     private final String catalogName;
-
-    public ShowCatalogStmt(String catalogName) {
-        this.catalogName = catalogName;
-    }
+    private String pattern;
 
     public ShowCatalogStmt() {
         this.catalogName = null;
+        this.pattern = null;
+    }
+
+    public ShowCatalogStmt(String catalogName, String pattern) {
+        this.catalogName = catalogName;
+        this.pattern = pattern;
     }
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public String getPattern() {
+        return pattern;
     }
 
     @Override
@@ -69,6 +77,13 @@ public class ShowCatalogStmt extends ShowStmt {
             sb.append(catalogName);
         } else {
             sb.append(" CATALOGS");
+
+            if (pattern != null) {
+                sb.append(" LIKE ");
+                sb.append("'");
+                sb.append(pattern);
+                sb.append("'");
+            }
         }
 
         return sb.toString();

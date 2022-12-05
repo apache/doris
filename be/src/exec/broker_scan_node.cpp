@@ -63,7 +63,7 @@ Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status BrokerScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "BrokerScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // get tuple desc
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -88,7 +88,7 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
 Status BrokerScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(start_scanners());
@@ -107,7 +107,7 @@ Status BrokerScanNode::start_scanners() {
 
 Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // check if CANCELLED.
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
@@ -376,7 +376,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
 
 void BrokerScanNode::scanner_worker(int start_idx, int length) {
     SCOPED_ATTACH_TASK(_runtime_state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     auto status = Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, &scanner_expr_ctxs);

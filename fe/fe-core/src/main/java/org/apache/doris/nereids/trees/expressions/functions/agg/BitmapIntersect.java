@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -32,7 +32,11 @@ import java.util.List;
 
 /** BitmapIntersect */
 public class BitmapIntersect extends AggregateFunction
-        implements UnaryExpression, PropagateNullable, ImplicitCastInputTypes {
+        implements UnaryExpression, AlwaysNotNullable, ExplicitlyCastableSignature {
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BitmapType.INSTANCE).args(BitmapType.INSTANCE)
+    );
+
     public BitmapIntersect(Expression arg0) {
         super("bitmap_intersect", arg0);
     }
@@ -42,28 +46,23 @@ public class BitmapIntersect extends AggregateFunction
     }
 
     @Override
+    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+        return ImmutableList.of(BitmapType.INSTANCE);
+    }
+
+    @Override
     public BitmapIntersect withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new BitmapIntersect(getAggregateParam(), children.get(0));
     }
 
     @Override
-    public List<AbstractDataType> expectedInputTypes() {
-        return ImmutableList.of(BitmapType.INSTANCE);
-    }
-
-    @Override
-    public DataType getFinalType() {
-        return BitmapType.INSTANCE;
-    }
-
-    @Override
-    public DataType getIntermediateType() {
-        return BitmapType.INSTANCE;
-    }
-
-    @Override
     public BitmapIntersect withAggregateParam(AggregateParam aggregateParam) {
         return new BitmapIntersect(aggregateParam, child());
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }

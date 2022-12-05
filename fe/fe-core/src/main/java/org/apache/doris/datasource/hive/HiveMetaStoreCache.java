@@ -60,6 +60,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -214,28 +215,34 @@ public class HiveMetaStoreCache {
     }
 
     private ImmutableList<InputSplit> loadFiles(FileCacheKey key) {
-        String finalLocation = convertToS3IfNecessary(key.location);
-        Configuration conf = getConfiguration();
-        JobConf jobConf = new JobConf(conf);
-        // For Tez engine, it may generate subdirectories for "union" query.
-        // So there may be files and directories in the table directory at the same time. eg:
-        //      /user/hive/warehouse/region_tmp_union_all2/000000_0
-        //      /user/hive/warehouse/region_tmp_union_all2/1
-        //      /user/hive/warehouse/region_tmp_union_all2/2
-        // So we need to set this config to support visit dir recursively.
-        // Otherwise, getSplits() may throw exception: "Not a file xxx"
-        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
-        jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
-        FileInputFormat.setInputPaths(jobConf, finalLocation);
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
-            InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(conf, key.inputFormat, false);
-            InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("load #{} files for {} in catalog {}", splits.length, key, catalog.getName());
+            Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+            String finalLocation = convertToS3IfNecessary(key.location);
+            Configuration conf = getConfiguration();
+            JobConf jobConf = new JobConf(conf);
+            // For Tez engine, it may generate subdirectories for "union" query.
+            // So there may be files and directories in the table directory at the same time. eg:
+            //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
+            //      /user/hive/warehouse/region_tmp_union_all2/1
+            //      /user/hive/warehouse/region_tmp_union_all2/2
+            // So we need to set this config to support visit dir recursively.
+            // Otherwise, getSplits() may throw exception: "Not a file xxx"
+            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+            jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
+            FileInputFormat.setInputPaths(jobConf, finalLocation);
+            try {
+                InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(conf, key.inputFormat, false);
+                InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("load #{} files for {} in catalog {}", splits.length, key, catalog.getName());
+                }
+                return ImmutableList.copyOf(splits);
+            } catch (Exception e) {
+                throw new CacheException("failed to get input splits for %s in catalog %s", e, key, catalog.getName());
             }
-            return ImmutableList.copyOf(splits);
-        } catch (Exception e) {
-            throw new CacheException("failed to get input splits for %s in catalog %s", e, key, catalog.getName());
+        } finally {
+            Thread.currentThread().setContextClassLoader(classLoader);
         }
     }
 
@@ -327,10 +334,43 @@ public class HiveMetaStoreCache {
         return partitions;
     }
 
-    public void invalidateCache(String dbName, String tblName) {
+    public void invalidateTableCache(String dbName, String tblName) {
         PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, null);
-        partitionValuesCache.invalidate(key);
-        // TODO: find a way to invalidate partitionCache and fileCache
+        HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
+        if (partitionValues != null) {
+            long start = System.currentTimeMillis();
+            for (List<String> values : partitionValues.partitionValuesMap.values()) {
+                PartitionCacheKey partKey = new PartitionCacheKey(dbName, tblName, values);
+                HivePartition partition = partitionCache.getIfPresent(partKey);
+                if (partition != null) {
+                    fileCache.invalidate(new FileCacheKey(partition.getPath(), null));
+                    partitionCache.invalidate(partKey);
+                }
+            }
+            partitionValuesCache.invalidate(key);
+            LOG.debug("invalid table cache for {}.{} in catalog {}, cache num: {}, cost: {} ms",
+                    dbName, tblName, catalog.getName(), partitionValues.partitionValuesMap.size(),
+                    (System.currentTimeMillis() - start));
+        }
+    }
+
+    public void invalidateDbCache(String dbName) {
+        long start = System.currentTimeMillis();
+        Set<PartitionValueCacheKey> keys = partitionValuesCache.asMap().keySet();
+        for (PartitionValueCacheKey key : keys) {
+            if (key.dbName.equals(dbName)) {
+                invalidateTableCache(dbName, key.tblName);
+            }
+        }
+        LOG.debug("invalid db cache for {} in catalog {}, cache num: {}, cost: {} ms", dbName, catalog.getName(),
+                keys.size(), (System.currentTimeMillis() - start));
+    }
+
+    public void invalidateAll() {
+        partitionValuesCache.invalidateAll();
+        partitionCache.invalidateAll();
+        fileCache.invalidateAll();
+        LOG.debug("invalid all meta cache in catalog {}", catalog.getName());
     }
 
     /**
@@ -444,7 +484,8 @@ public class HiveMetaStoreCache {
 
     @Data
     public static class HivePartitionValues {
-        private Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMap();
+        private Map<Long, PartitionItem> idToPartitionItem;
+        private Map<Long, List<String>> partitionValuesMap = Maps.newHashMap();
         private Map<UniqueId, Range<PartitionKey>> uidToPartitionRange;
         private Map<Range<PartitionKey>, UniqueId> rangeToId;
         private RangeMap<ColumnBound, UniqueId> singleColumnRangeMap;
@@ -454,9 +495,14 @@ public class HiveMetaStoreCache {
                 Map<Range<PartitionKey>, UniqueId> rangeToId,
                 RangeMap<ColumnBound, UniqueId> singleColumnRangeMap) {
             this.idToPartitionItem = idToPartitionItem;
+            for (Map.Entry<Long, PartitionItem> entry : this.idToPartitionItem.entrySet()) {
+                partitionValuesMap.put(entry.getKey(),
+                        ((ListPartitionItem) entry.getValue()).getItems().get(0).getPartitionValuesAsStringList());
+            }
             this.uidToPartitionRange = uidToPartitionRange;
             this.rangeToId = rangeToId;
             this.singleColumnRangeMap = singleColumnRangeMap;
         }
     }
 }
+

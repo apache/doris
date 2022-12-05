@@ -431,8 +431,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                 SET_NUM_ELEMENTS
                 break;
             }
-            case TYPE_DECIMALV2:
-            case TYPE_DECIMAL128: {
+            case TYPE_DECIMALV2: {
                 orc::Decimal128VectorBatch* cur_batch =
                         dynamic_cast<orc::Decimal128VectorBatch*>(root->fields[i]);
                 if (null_map != nullptr) {
@@ -450,9 +449,40 @@ Status VOrcWriterWrapper::write(const Block& block) {
                     }
                 } else if (const auto& not_null_column =
                                    check_and_get_column<const ColumnDecimal128>(col)) {
-                    auto ptr = not_null_column->get_data().data();
+                    auto col_ptr = not_null_column->get_data().data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        auto v = ptr[row_id];
+                        auto v = col_ptr[row_id];
+                        orc::Int128 value(v >> 64, (uint64_t)v);
+                        cur_batch->values[row_id] = value;
+                    }
+                } else {
+                    RETURN_WRONG_TYPE
+                }
+                SET_NUM_ELEMENTS
+                break;
+            }
+            case TYPE_DECIMAL128I: {
+                orc::Decimal128VectorBatch* cur_batch =
+                        dynamic_cast<orc::Decimal128VectorBatch*>(root->fields[i]);
+                if (null_map != nullptr) {
+                    cur_batch->hasNulls = true;
+                    auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        if (null_data[row_id] != 0) {
+                            cur_batch->notNull[row_id] = 0;
+                        } else {
+                            cur_batch->notNull[row_id] = 1;
+                            auto& v =
+                                    assert_cast<const ColumnDecimal128I&>(*col).get_data()[row_id];
+                            orc::Int128 value(v.value >> 64, (uint64_t)v.value);
+                            cur_batch->values[row_id] = value;
+                        }
+                    }
+                } else if (const auto& not_null_column =
+                                   check_and_get_column<const ColumnDecimal128I>(col)) {
+                    auto col_ptr = not_null_column->get_data().data();
+                    for (size_t row_id = 0; row_id < sz; row_id++) {
+                        auto v = col_ptr[row_id].value;
                         orc::Int128 value(v >> 64, (uint64_t)v);
                         cur_batch->values[row_id] = value;
                     }

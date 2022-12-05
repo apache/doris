@@ -29,6 +29,9 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.gson.annotations.SerializedName;
@@ -295,6 +298,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     public TTableDescriptor toThrift() {
         return null;
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+        throw new NotImplementedException();
     }
 
     @Override

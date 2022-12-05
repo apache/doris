@@ -129,7 +129,7 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
             DCHECK(node.__isset.json_literal);
             JsonBinaryValue value(node.json_literal.value);
-            field = JsonbField(value.value(), value.size());
+            field = String(value.value(), value.size());
             break;
         }
         case TYPE_DECIMALV2: {
@@ -143,7 +143,7 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
-                                                  node.type.types[0].scalar_type.scale);
+                                                  node.type.types[0].scalar_type.scale, false);
             auto val = typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())
                                ->parse_from_string(node.decimal_literal.value);
             auto scale =
@@ -155,7 +155,7 @@ void VLiteral::init(const TExprNode& node) {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
-                                                  node.type.types[0].scalar_type.scale);
+                                                  node.type.types[0].scalar_type.scale, false);
             auto val = typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())
                                ->parse_from_string(node.decimal_literal.value);
             auto scale =
@@ -163,16 +163,16 @@ void VLiteral::init(const TExprNode& node) {
             field = DecimalField<Decimal64>(val, scale);
             break;
         }
-        case TYPE_DECIMAL128: {
+        case TYPE_DECIMAL128I: {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
             DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
-                                                  node.type.types[0].scalar_type.scale);
-            auto val = typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())
+                                                  node.type.types[0].scalar_type.scale, false);
+            auto val = typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())
                                ->parse_from_string(node.decimal_literal.value);
             auto scale =
-                    typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())->get_scale();
-            field = DecimalField<Decimal128>(val, scale);
+                    typeid_cast<const DataTypeDecimal<Decimal128I>*>(type_ptr.get())->get_scale();
+            field = DecimalField<Decimal128I>(val, scale);
             break;
         }
         default: {
@@ -271,7 +271,7 @@ std::string VLiteral::debug_string() const {
                                     out);
                 break;
             }
-            case TYPE_DECIMAL128: {
+            case TYPE_DECIMAL128I: {
                 write_text<int128_t>(*(reinterpret_cast<const int128_t*>(ref.data)), _type.scale,
                                      out);
                 break;

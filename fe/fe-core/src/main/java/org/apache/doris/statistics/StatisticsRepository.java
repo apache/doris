@@ -18,15 +18,12 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.statistics.AnalysisJobInfo.AnalysisType;
-import org.apache.doris.statistics.AnalysisJobInfo.JobState;
-import org.apache.doris.statistics.AnalysisJobInfo.ScheduleType;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -53,7 +50,7 @@ public class StatisticsRepository {
     private static final Logger LOG = LogManager.getLogger(StatisticsRepository.class);
 
     private static final String FULL_QUALIFIED_DB_NAME = "`" + SystemInfoService.DEFAULT_CLUSTER + ":"
-            + StatisticConstants.STATISTIC_DB_NAME + "`";
+            + FeConstants.INTERNAL_DB_NAME + "`";
 
     private static final String FULL_QUALIFIED_COLUMN_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.STATISTIC_TBL_NAME + "`";
@@ -70,8 +67,9 @@ public class StatisticsRepository {
             + " WHERE `id` IN (${idList})";
 
     private static final String PERSIST_ANALYSIS_JOB_SQL_TEMPLATE = "INSERT INTO "
-            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME + " VALUES(${jobId}, '${catalogName}', '${dbName}',"
-            + "'${tblName}','${colName}', '${jobType}', '${analysisType}', '${message}', '${lastExecTimeInMs}',"
+            + FULL_QUALIFIED_ANALYSIS_JOB_TABLE_NAME + " VALUES(${jobId}, ${taskId}, '${catalogName}', '${dbName}',"
+            + "'${tblName}','${colName}', ,'${indexId}','${jobType}', '${analysisType}', "
+            + "'${message}', '${lastExecTimeInMs}',"
             + "'${state}', '${scheduleType}')";
 
     private static final String INSERT_INTO_COLUMN_STATISTICS = "INSERT INTO "
@@ -81,7 +79,7 @@ public class StatisticsRepository {
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.DEFAULT;
         }
         return ColumnStatistic.fromResultRow(resultRow);
     }
@@ -133,39 +131,23 @@ public class StatisticsRepository {
         return stringJoiner.toString();
     }
 
-    public static void createAnalysisJob(AnalyzeStmt analyzeStmt) {
-        String catalogName = analyzeStmt.getCatalogName();
-        String db = analyzeStmt.getDBName();
-        String tbl = analyzeStmt.getTblName();
-        List<String> colNames = analyzeStmt.getOptColumnNames();
-
-        if (colNames != null) {
-            for (String colName : colNames) {
-                AnalysisJobInfo analysisJobInfo = new AnalysisJobInfo(Env.getCurrentEnv().getNextId(), catalogName, db,
-                        tbl, colName, AnalysisJobInfo.JobType.MANUAL, ScheduleType.ONCE);
-                analysisJobInfo.analysisType = AnalysisType.FULL;
-                Map<String, String> params = new HashMap<>();
-                params.put("jobId", String.valueOf(analysisJobInfo.jobId));
-                params.put("catalogName", analysisJobInfo.catalogName);
-                params.put("dbName", analysisJobInfo.dbName);
-                params.put("tblName", analysisJobInfo.tblName);
-                params.put("colName", analysisJobInfo.colName);
-                params.put("jobType", analysisJobInfo.jobType.toString());
-                params.put("analysisType", analysisJobInfo.analysisType.toString());
-                params.put("message", "");
-                params.put("lastExecTimeInMs", "0");
-                params.put("state", JobState.PENDING.toString());
-                params.put("scheduleType", analysisJobInfo.scheduleType.toString());
-                try {
-                    StatisticsUtil.execUpdate(
-                            new StringSubstitutor(params).replace(PERSIST_ANALYSIS_JOB_SQL_TEMPLATE));
-                } catch (Exception e) {
-                    LOG.warn("Failed to persite job for column: {}", colName, e);
-                    return;
-                }
-                Env.getCurrentEnv().getAnalysisJobScheduler().schedule(analysisJobInfo);
-            }
-        }
+    public static void createAnalysisTask(AnalysisTaskInfo analysisTaskInfo) throws Exception {
+        Map<String, String> params = new HashMap<>();
+        params.put("jobId", String.valueOf(analysisTaskInfo.jobId));
+        params.put("taskId", String.valueOf(analysisTaskInfo.taskId));
+        params.put("catalogName", analysisTaskInfo.catalogName);
+        params.put("dbName", analysisTaskInfo.dbName);
+        params.put("tblName", analysisTaskInfo.tblName);
+        params.put("colName", analysisTaskInfo.colName);
+        params.put("indexId", String.valueOf(analysisTaskInfo.indexId));
+        params.put("jobType", analysisTaskInfo.jobType.toString());
+        params.put("analysisType", analysisTaskInfo.analysisMethod.toString());
+        params.put("message", "");
+        params.put("lastExecTimeInMs", "0");
+        params.put("state", AnalysisState.PENDING.toString());
+        params.put("scheduleType", analysisTaskInfo.scheduleType.toString());
+        StatisticsUtil.execUpdate(
+                new StringSubstitutor(params).replace(PERSIST_ANALYSIS_JOB_SQL_TEMPLATE));
     }
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
@@ -191,11 +173,11 @@ public class StatisticsRepository {
         }
         if (min != null) {
             builder.setMinExpr(StatisticsUtil.readableValue(column.getType(), min));
-            builder.setMinValue(StatisticsUtil.convertStringToDouble(min));
+            builder.setMinValue(StatisticsUtil.convertToDouble(column.getType(), min));
         }
         if (max != null) {
             builder.setMaxExpr(StatisticsUtil.readableValue(column.getType(), max));
-            builder.setMaxValue(StatisticsUtil.convertStringToDouble(max));
+            builder.setMaxValue(StatisticsUtil.convertToDouble(column.getType(), max));
         }
         if (dataSize != null) {
             builder.setDataSize(Double.parseDouble(dataSize));

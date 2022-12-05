@@ -202,5 +202,12 @@ Status FullSorter::_do_sort() {
     }
     return Status::OK();
 }
+size_t FullSorter::data_size() const {
+    size_t size = _state->unsorted_block->allocated_bytes();
+    for (const auto& block : _state->sorted_blocks) {
+        size += block.allocated_bytes();
+    }
+    return size;
+}
 
 } // namespace doris::vectorized

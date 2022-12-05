@@ -35,9 +35,9 @@ This document is mainly used to record the common problems of operation and main
 During the offline process, use show backends to view the tabletNum of the offline node, and you will observe that the number of tabletNum is decreasing, indicating that data shards are being migrated from this node. When the number is reduced to 0, the system will automatically delete the node. But in some cases, tabletNum will not change after it drops to a certain value. This is usually possible for two reasons:
 
 1. The tablets belong to the table, partition, or materialized view that was just dropped. Objects that have just been deleted remain in the recycle bin. The offline logic will not process these shards. The time an object resides in the recycle bin can be modified by modifying the FE configuration parameter catalog_trash_expire_second. These tablets are disposed of when the object is removed from the recycle bin.
-2. There is a problem with the migration task for these tablets. At this point, you need to view the errors of specific tasks through show proc "/cluster_balance".
+2. There is a problem with the migration task for these tablets. At this point, you need to view the errors of specific tasks through show proc `show proc "/cluster_balance"`.
 
-For the above situation, you can first check whether there are unhealthy shards in the cluster through show proc "/statistic". If it is 0, you can delete the BE directly through the drop backend statement. Otherwise, you also need to check the replicas of unhealthy shards in detail.
+For the above situation, you can first check whether there are unhealthy shards in the cluster through `show proc "/cluster_health/tablet_health";`. If it is 0, you can delete the BE directly through the drop backend statement. Otherwise, you also need to check the replicas of unhealthy shards in detail.
 
 ### Q2. How should priorty_network be set?
 
@@ -293,3 +293,12 @@ You can verify the version of openssl used by MySQL ODBC Driver by
 ldd /path/to/libmyodbc8w.so |grep libssl.so
 ```
 If the output contains ``libssl.so.10``, there may be problems using it, if it contains ``libssl.so.1.1``, it is compatible with doris 1.0
+
+### Q15. After upgrading to version 1.2, the BE NoClassDefFoundError issue failed to start
+<version since="1.2"> Java UDF dependency error </version>
+If the upgrade support starts be, the following Java `NoClassDefFoundError` error occurs
+```
+Exception in thread "main" java.lang.NoClassDefFoundError: org/apache/doris/udf/IniUtil
+Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
+```
+You need to download the Java UDF function dependency package of `apache-doris-java-udf-jar-with-dependencies-1.2.0` from the official website, put it in the lib directory under the BE installation directory, and then restart BE

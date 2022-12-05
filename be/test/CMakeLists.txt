@@ -204,6 +204,7 @@ set(OLAP_TEST_FILES
     olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
     olap/segcompaction_test.cpp
+    olap/ordered_data_compaction_test.cpp
 )
 
 set(RUNTIME_TEST_FILES
@@ -324,6 +325,10 @@ set(UTIL_TEST_FILES
     util/interval_tree_test.cpp
     util/key_util_test.cpp
 )
+if (OS_MACOSX)
+    list(REMOVE_ITEM UTIL_TEST_FILES util/system_metrics_test.cpp)
+endif()
+
 set(VEC_TEST_FILES
     vec/aggregate_functions/agg_collect_test.cpp
     vec/aggregate_functions/agg_test.cpp
@@ -371,8 +376,8 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
+    vec/olap/vertical_compaction_test.cpp
 )
-
 add_executable(doris_be_test
     ${AGENT_TEST_FILES}
     ${COMMON_TEST_FILES}

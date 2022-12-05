@@ -51,6 +51,8 @@
 #include "olap/options.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/user_function_cache.h"
 #include "util/cpu_info.h"
@@ -72,39 +74,116 @@ void Daemon::tcmalloc_gc_thread() {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
         !defined(USE_JEMALLOC)
 
-    size_t tc_use_memory_min = MemInfo::mem_limit();
+    // Limit size of tcmalloc cache via release_rate and max_cache_percent.
+    // We adjust release_rate according to memory_pressure, which is usage percent of memory.
+    int64_t max_cache_percent = 60;
+    double release_rates[10] = {1.0, 1.0, 1.0, 5.0, 5.0, 20.0, 50.0, 100.0, 500.0, 2000.0};
+    int64_t pressure_limit = 90;
+    bool is_performance_mode = false;
+    size_t physical_limit_bytes =
+            std::min(MemInfo::physical_mem() - MemInfo::sys_mem_available_low_water_mark(),
+                     MemInfo::mem_limit());
+
     if (config::memory_mode == std::string("performance")) {
-        tc_use_memory_min = std::max(tc_use_memory_min / 10 * 9,
-                                     tc_use_memory_min - (size_t)10 * 1024 * 1024 * 1024);
-    } else {
-        tc_use_memory_min >>= 1;
+        max_cache_percent = 100;
+        pressure_limit = 90;
+        is_performance_mode = true;
+        physical_limit_bytes = std::min(MemInfo::mem_limit(), MemInfo::physical_mem());
+    } else if (config::memory_mode == std::string("compact")) {
+        max_cache_percent = 20;
+        pressure_limit = 80;
     }
 
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
-        size_t used_size = 0;
-        size_t free_size = 0;
+    int last_ms = 0;
+    const int kMaxLastMs = 30000;
+    const int kIntervalMs = 10;
+    size_t init_aggressive_decommit = 0;
+    size_t current_aggressive_decommit = 0;
+    size_t expected_aggressive_decommit = 0;
+    int64_t last_memory_pressure = 0;
 
+    MallocExtension::instance()->GetNumericProperty("tcmalloc.aggressive_memory_decommit",
+                                                    &init_aggressive_decommit);
+    current_aggressive_decommit = init_aggressive_decommit;
+
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(kIntervalMs))) {
+        size_t tc_used_bytes = 0;
+        size_t tc_alloc_bytes = 0;
+        size_t rss = PerfCounters::get_vm_rss();
+
+        MallocExtension::instance()->GetNumericProperty("generic.total_physical_bytes",
+                                                        &tc_alloc_bytes);
         MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
-                                                        &used_size);
-        MallocExtension::instance()->GetNumericProperty("tcmalloc.pageheap_free_bytes", &free_size);
-        size_t alloc_size = used_size + free_size;
-        LOG(INFO) << "tcmalloc.pageheap_free_bytes " << free_size
-                  << ", generic.current_allocated_bytes " << used_size << ", tc_use_memory_min "
-                  << tc_use_memory_min;
+                                                        &tc_used_bytes);
+        int64_t tc_cached_bytes = tc_alloc_bytes - tc_used_bytes;
+        int64_t to_free_bytes =
+                (int64_t)tc_cached_bytes - (tc_used_bytes * max_cache_percent / 100);
 
-        if (alloc_size > tc_use_memory_min) {
-            size_t max_free_size = alloc_size * 20 / 100;
-            if (free_size > max_free_size) {
-                MallocExtension::instance()->ReleaseToSystem(free_size - max_free_size);
+        int64_t memory_pressure = 0;
+        int64_t alloc_bytes = std::max(rss, tc_alloc_bytes);
+        memory_pressure = alloc_bytes * 100 / physical_limit_bytes;
+
+        expected_aggressive_decommit = init_aggressive_decommit;
+        if (memory_pressure > pressure_limit) {
+            // We are reaching oom, so release cache aggressively.
+            // Ideally, we should reuse cache and not allocate from system any more,
+            // however, it is hard to set limit on cache of tcmalloc and doris
+            // use mmap in vectorized mode.
+            if (last_memory_pressure <= pressure_limit) {
+                int64_t min_free_bytes = alloc_bytes - physical_limit_bytes * 9 / 10;
+                to_free_bytes = std::max(to_free_bytes, min_free_bytes);
+                to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 30 / 100);
+                to_free_bytes = std::min(to_free_bytes, tc_cached_bytes);
+                expected_aggressive_decommit = 1;
             }
+            last_ms = kMaxLastMs;
+        } else if (memory_pressure > (pressure_limit - 10)) {
+            // In most cases, adjusting release rate is enough, if memory are consumed quickly
+            // we should release manually.
+            if (last_memory_pressure <= (pressure_limit - 10)) {
+                to_free_bytes = std::max(to_free_bytes, tc_cached_bytes * 10 / 100);
+            }
+        }
+
+        int release_rate_index = memory_pressure / 10;
+        double release_rate = 1.0;
+        if (release_rate_index >= sizeof(release_rates)) {
+            release_rate = 2000.0;
+        } else {
+            release_rate = release_rates[release_rate_index];
+        }
+        MallocExtension::instance()->SetMemoryReleaseRate(release_rate);
+
+        if ((current_aggressive_decommit != expected_aggressive_decommit) && !is_performance_mode) {
+            MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit",
+                                                            expected_aggressive_decommit);
+            current_aggressive_decommit = expected_aggressive_decommit;
+        }
+
+        last_memory_pressure = memory_pressure;
+        if (to_free_bytes > 0) {
+            last_ms += kIntervalMs;
+            if (last_ms >= kMaxLastMs) {
+                LOG(INFO) << "generic.current_allocated_bytes " << tc_used_bytes
+                          << ", generic.total_physical_bytes " << tc_alloc_bytes << ", rss " << rss
+                          << ", max_cache_percent " << max_cache_percent << ", release_rate "
+                          << release_rate << ", memory_pressure " << memory_pressure
+                          << ", physical_limit_bytes " << physical_limit_bytes << ", to_free_bytes "
+                          << to_free_bytes << ", current_aggressive_decommit "
+                          << current_aggressive_decommit;
+                MallocExtension::instance()->ReleaseToSystem(to_free_bytes);
+                last_ms = 0;
+            }
+        } else {
+            DCHECK(tc_cached_bytes <= tc_used_bytes * max_cache_percent / 100);
+            last_ms = 0;
         }
     }
 #endif
 }
 
-void Daemon::memory_maintenance_thread() {
-    while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::memory_maintenance_sleep_time_s))) {
+void Daemon::buffer_pool_gc_thread() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
@@ -114,6 +193,53 @@ void Daemon::memory_maintenance_thread() {
                 buffer_pool->Maintenance();
             }
         }
+    }
+}
+
+void Daemon::memory_maintenance_thread() {
+    int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(interval_milliseconds))) {
+        // Refresh process memory metrics.
+        doris::PerfCounters::refresh_proc_status();
+        doris::MemInfo::refresh_proc_meminfo();
+
+        // Refresh allocator memory metrics.
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+        doris::MemInfo::refresh_allocator_mem();
+#endif
+        doris::MemInfo::refresh_proc_mem_no_allocator_cache();
+        LOG_EVERY_N(INFO, 10) << MemTrackerLimiter::process_mem_log_str();
+
+        // Refresh mem tracker each type metrics.
+        doris::MemTrackerLimiter::refresh_global_counter();
+        if (doris::config::memory_debug) {
+            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
+        }
+        doris::MemTrackerLimiter::enable_print_log_process_usage();
+
+        // If system available memory is not enough, or the process memory exceeds the limit, reduce refresh interval.
+        if (doris::MemInfo::sys_mem_available() <
+                    doris::MemInfo::sys_mem_available_low_water_mark() ||
+            doris::MemInfo::proc_mem_no_allocator_cache() >= doris::MemInfo::mem_limit()) {
+            interval_milliseconds = 100;
+        } else if (doris::MemInfo::sys_mem_available() <
+                           doris::MemInfo::sys_mem_available_warning_water_mark() ||
+                   doris::MemInfo::proc_mem_no_allocator_cache() >=
+                           doris::MemInfo::soft_mem_limit()) {
+            interval_milliseconds = 200;
+        } else {
+            interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+        }
+    }
+}
+
+void Daemon::load_channel_tracker_refresh_thread() {
+    // Refresh the memory statistics of the load channel tracker more frequently,
+    // which helps to accurately control the memory of LoadChannelMgr.
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::load_channel_memory_refresh_sleep_time_ms))) {
+        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
     }
 }
 
@@ -282,8 +408,17 @@ void Daemon::start() {
             &_tcmalloc_gc_thread);
     CHECK(st.ok()) << st.to_string();
     st = Thread::create(
+            "Daemon", "buffer_pool_gc_thread", [this]() { this->buffer_pool_gc_thread(); },
+            &_buffer_pool_gc_thread);
+    CHECK(st.ok()) << st.to_string();
+    st = Thread::create(
             "Daemon", "memory_maintenance_thread", [this]() { this->memory_maintenance_thread(); },
             &_memory_maintenance_thread);
+    CHECK(st.ok()) << st.to_string();
+    st = Thread::create(
+            "Daemon", "load_channel_tracker_refresh_thread",
+            [this]() { this->load_channel_tracker_refresh_thread(); },
+            &_load_channel_tracker_refresh_thread);
     CHECK(st.ok()) << st.to_string();
 
     if (config::enable_metric_calculator) {
@@ -306,8 +441,14 @@ void Daemon::stop() {
     if (_tcmalloc_gc_thread) {
         _tcmalloc_gc_thread->join();
     }
+    if (_buffer_pool_gc_thread) {
+        _buffer_pool_gc_thread->join();
+    }
     if (_memory_maintenance_thread) {
         _memory_maintenance_thread->join();
+    }
+    if (_load_channel_tracker_refresh_thread) {
+        _load_channel_tracker_refresh_thread->join();
     }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();

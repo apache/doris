@@ -44,7 +44,12 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                          _join_op == TJoinOp::LEFT_SEMI_JOIN)),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
-          _is_outer_join(_match_all_build || _match_all_probe) {
+          _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
+                             _join_op == TJoinOp::LEFT_SEMI_JOIN ||
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
+          _is_outer_join(_match_all_build || _match_all_probe),
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+    _init_join_op();
     if (tnode.__isset.hash_join_node) {
         _output_row_desc.reset(
                 new RowDescriptor(descs, {tnode.hash_join_node.voutput_tuple_id}, {false}));
@@ -109,6 +114,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         } else {
             DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
+            SCOPED_TIMER(_projection_timer);
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
@@ -138,13 +144,18 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
             _output_expr_ctxs.push_back(ctx);
         }
     }
+    // only use in outer join as the bool column to mark for function of `tuple_is_null`
+    if (_is_outer_join) {
+        _tuple_is_null_left_flag_column = ColumnUInt8::create();
+        _tuple_is_null_right_flag_column = ColumnUInt8::create();
+    }
     return ExecNode::init(tnode, state);
 }
 
 Status VJoinNodeBase::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::open");
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
 
     std::promise<Status> thread_status;
@@ -167,10 +178,17 @@ Status VJoinNodeBase::open(RuntimeState* state) {
     return status;
 }
 
+void VJoinNodeBase::_reset_tuple_is_null_column() {
+    if (_is_outer_join) {
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
+    }
+}
+
 void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     status->set_value(child(0)->open(state));
 }
 

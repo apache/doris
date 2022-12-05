@@ -146,29 +146,22 @@ protected:
         EXPECT_TRUE(st.ok());
         EXPECT_TRUE(file_writer->close().ok());
         // Check min/max key generation
-        if (build_schema->keys_type() == UNIQUE_KEYS && opts.enable_unique_key_merge_on_write) {
-            // Create min row
-            for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
-                RowCursorCell cell = row.cell(cid);
-                generator(0, cid, 0 / opts.num_rows_per_block, cell);
-            }
-            std::string min_encoded_key;
-            encode_key<RowCursor, true, true>(&min_encoded_key, row,
-                                              build_schema->num_key_columns());
-            EXPECT_EQ(min_encoded_key, writer.min_encoded_key().to_string());
-            // Create max row
-            for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
-                RowCursorCell cell = row.cell(cid);
-                generator(nrows - 1, cid, (nrows - 1) / opts.num_rows_per_block, cell);
-            }
-            std::string max_encoded_key;
-            encode_key<RowCursor, true, true>(&max_encoded_key, row,
-                                              build_schema->num_key_columns());
-            EXPECT_EQ(max_encoded_key, writer.max_encoded_key().to_string());
-        } else {
-            EXPECT_EQ("", writer.min_encoded_key().to_string());
-            EXPECT_EQ("", writer.max_encoded_key().to_string());
+        // Create min row
+        for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
+            RowCursorCell cell = row.cell(cid);
+            generator(0, cid, 0 / opts.num_rows_per_block, cell);
         }
+        std::string min_encoded_key;
+        encode_key<RowCursor, true, true>(&min_encoded_key, row, build_schema->num_key_columns());
+        EXPECT_EQ(min_encoded_key, writer.min_encoded_key().to_string());
+        // Create max row
+        for (int cid = 0; cid < build_schema->num_key_columns(); ++cid) {
+            RowCursorCell cell = row.cell(cid);
+            generator(nrows - 1, cid, (nrows - 1) / opts.num_rows_per_block, cell);
+        }
+        std::string max_encoded_key;
+        encode_key<RowCursor, true, true>(&max_encoded_key, row, build_schema->num_key_columns());
+        EXPECT_EQ(max_encoded_key, writer.max_encoded_key().to_string());
 
         st = Segment::open(fs, path, "", 0, {}, query_schema, res);
         EXPECT_TRUE(st.ok());

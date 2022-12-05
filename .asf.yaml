@@ -59,6 +59,10 @@ github:
           - Build Documents
           - BE UT (Clang)
           - ShellCheck
+          - clickbench (benchmark)
+          - BE UT (macOS)
+          - Build Third Party Libraries (Linux)
+          - Build Third Party Libraries (macOS)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -71,7 +75,7 @@ github:
           - License Check
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - Build Extensions
+          - Build Broker
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true

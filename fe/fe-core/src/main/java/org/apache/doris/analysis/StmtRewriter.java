@@ -724,25 +724,22 @@ public class StmtRewriter {
         }
 
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
-            // TODO: Remove this when independent subquery evaluation is implemented.
-            // TODO: Requires support for non-equi joins.
-            if (!expr.getSubquery().returnsScalarColumn()) {
-                throw new AnalysisException("Unsupported predicate with subquery: "
-                        + expr.toSql());
+            // Join with InPredicate is actually an equal join, so we choose HashJoin.
+            if (expr instanceof ExistsPredicate) {
+                joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN
+                        : JoinOperator.LEFT_SEMI_JOIN;
+            } else {
+                joinOp = JoinOperator.CROSS_JOIN;
+                // We can equal the aggregate subquery using a cross join. All conjuncts
+                // that were extracted from the subquery are added to stmt's WHERE clause.
+                stmt.whereClause =
+                        CompoundPredicate.createConjunction(onClausePredicate, stmt.whereClause);
             }
 
-            // TODO: Requires support for null-aware anti-join mode in nested-loop joins
-            if (expr.getSubquery().isScalarSubquery() && expr instanceof InPredicate
-                    && ((InPredicate) expr).isNotIn()) {
-                throw new AnalysisException("Unsupported NOT IN predicate with subquery: "
-                        + expr.toSql());
+            inlineView.setJoinOp(joinOp);
+            if (joinOp != JoinOperator.CROSS_JOIN) {
+                inlineView.setOnClause(onClausePredicate);
             }
-
-            // We can equal the aggregate subquery using a cross join. All conjuncts
-            // that were extracted from the subquery are added to stmt's WHERE clause.
-            stmt.whereClause =
-                    CompoundPredicate.createConjunction(onClausePredicate, stmt.whereClause);
-            inlineView.setJoinOp(JoinOperator.CROSS_JOIN);
             // Indicate that the CROSS JOIN may add a new visible tuple to stmt's
             // select list (if the latter contains an unqualified star item '*')
             return true;
@@ -1115,6 +1112,12 @@ public class StmtRewriter {
         slotRef.analyze(analyzer);
         Expr subquerySubstitute = slotRef;
         if (exprWithSubquery instanceof InPredicate) {
+            if (slotRef.getType().isBitmapType()) {
+                Expr pred = new BitmapFilterPredicate(exprWithSubquery.getChild(0), slotRef,
+                        ((InPredicate) exprWithSubquery).isNotIn());
+                pred.analyze(analyzer);
+                return pred;
+            }
             BinaryPredicate pred = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                     exprWithSubquery.getChild(0), slotRef);
             pred.analyze(analyzer);

@@ -30,7 +30,7 @@ namespace doris {
 TEST(ChunkAllocatorTest, Normal) {
     for (size_t size = 4096; size <= 1024 * 1024; size <<= 1) {
         Chunk chunk;
-        EXPECT_TRUE(ChunkAllocator::instance()->allocate(size, &chunk).ok());
+        EXPECT_TRUE(ChunkAllocator::instance()->allocate_align(size, &chunk).ok());
         EXPECT_NE(nullptr, chunk.data);
         EXPECT_EQ(size, chunk.size);
         ChunkAllocator::instance()->free(chunk);

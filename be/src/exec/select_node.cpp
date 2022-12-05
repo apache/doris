@@ -35,14 +35,14 @@ SelectNode::SelectNode(ObjectPool* pool, const TPlanNode& tnode, const Descripto
 
 Status SelectNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _child_row_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     return Status::OK();
 }
 
 Status SelectNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
@@ -50,7 +50,7 @@ Status SelectNode::open(RuntimeState* state) {
 Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (reached_limit() || (_child_row_idx == _child_row_batch->num_rows() && _child_eos)) {
         // we're already done or we exhausted the last child batch and there won't be any

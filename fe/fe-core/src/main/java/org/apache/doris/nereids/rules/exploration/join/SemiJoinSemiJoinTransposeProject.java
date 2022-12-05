@@ -61,9 +61,9 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     Set<Slot> aOutputSet = a.getOutputSet();
                     Set<NamedExpression> acProjects = new HashSet<NamedExpression>(abProject.getProjects());
 
-                    bottomSemi.getHashJoinConjuncts().stream().forEach(
+                    bottomSemi.getHashJoinConjuncts().forEach(
                             expression -> {
-                                expression.getInputSlots().stream().forEach(
+                                expression.getInputSlots().forEach(
                                         slot -> {
                                             if (aOutputSet.contains(slot)) {
                                                 acProjects.add(slot);

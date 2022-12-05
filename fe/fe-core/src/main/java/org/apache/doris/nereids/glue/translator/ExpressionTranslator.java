@@ -30,13 +30,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -52,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -61,14 +61,18 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.thrift.TFunctionBinaryType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -167,6 +171,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     equalTo.child(1).accept(this, context));
         } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
             return new BoolLiteral(true);
+        } else if (not.child() instanceof IsNull) {
+            return new IsNullPredicate(not.child().accept(this, context), true);
         } else {
             return new CompoundPredicate(CompoundPredicate.Operator.NOT,
                     not.child(0).accept(this, context), null);
@@ -256,68 +262,65 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     // TODO: Supports for `distinct`
     @Override
-    @Developing("Generate FunctionCallExpr and Function without analyze/finalize")
     public Expr visitAggregateFunction(AggregateFunction function, PlanTranslatorContext context) {
-        // inputTypesBeforeDissemble is used to find the origin function's input type before disassemble aggregate.
-        //
-        // For example, 'double avg(int)' will be disassembled to 'varchar avg(int)' and 'double avg(varchar)'
-        // which the varchar contains sum(double) and count(int).
-        //
-        // We save the origin input type 'int' for the global aggregate 'varchar avg(int)', and get it in the
-        // 'inputTypesBeforeDissemble' variable, so we can find the catalog function 'avg(int)' in **frontend**.
-        //
-        // Vectorized engine in backend will find the 'avg(int)' function, and forwarding to the correct global
-        // aggregate function 'double avg(varchar)' by FunctionCallExpr.isMergeAggFn.
-        Optional<List<Type>> inputTypesBeforeDissemble = function.inputTypesBeforeDissemble()
-                .map(types -> types.stream()
-                        .map(DataType::toCatalogDataType)
-                        .collect(Collectors.toList())
-                );
+        List<Expr> catalogArguments = function.getArguments()
+                .stream()
+                .map(arg -> arg.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
 
-        // We should change the global aggregate function's temporary input type(varchar) to the origin input type.
-        //
-        // For example: the global aggregate function expression 'avg(slotRef(type=varchar))' of the origin function
-        // 'avg(int)' should change to 'avg(slotRef(type=int))', because FunctionCallExpr will be converted to thrift
-        // format, and compute signature string by the children's type, we should pass the signature 'avg(int)' to
-        // **backend**. If we pass 'avg(varchar)' to backend, it will throw an exception: 'Agg Function avg is not
-        // implemented'.
-        List<Expr> catalogParams = new ArrayList<>();
-        for (int i = 0; i < function.arity(); i++) {
-            Expr catalogExpr = function.child(i).accept(this, context);
-            if (catalogExpr instanceof SlotRef && inputTypesBeforeDissemble.isPresent()
-                    // count(*) in local aggregate contains empty children
-                    // but contains one child in global aggregate: 'count(count(*))'.
-                    // so the size of inputTypesBeforeDissemble maybe less than global aggregate param.
-                    && inputTypesBeforeDissemble.get().size() > i) {
-                SlotRef intermediateSlot = (SlotRef) catalogExpr.clone();
-                // change the slot type to origin input type
-                intermediateSlot.setType(inputTypesBeforeDissemble.get().get(i));
-                catalogExpr = intermediateSlot;
-            }
-            catalogParams.add(catalogExpr);
+        // aggFnArguments is used to build TAggregateExpr.param_types, so backend can find the aggregate function
+        List<Expr> aggFnArguments = function.getArgumentsBeforeDisassembled()
+                .stream()
+                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
+                .collect(ImmutableList.toImmutableList());
+
+        FunctionParams aggFnParams;
+        if (function instanceof Count && ((Count) function).isStar()) {
+            aggFnParams = FunctionParams.createStarParam();
+        } else {
+            aggFnParams = new FunctionParams(function.isDistinct(), aggFnArguments);
         }
 
-        boolean distinct = function.isDistinct();
-        FunctionParams aggFnParams = new FunctionParams(distinct, catalogParams);
+        ImmutableList<Type> argTypes = catalogArguments.stream()
+                .map(arg -> arg.getType())
+                .collect(ImmutableList.toImmutableList());
 
-        if (function instanceof Count) {
-            Count count = (Count) function;
-            if (count.isStar()) {
-                return new FunctionCallExpr(function.getName(), FunctionParams.createStarParam(),
-                        aggFnParams, inputTypesBeforeDissemble);
-            } else if (count.isDistinct()) {
-                return new FunctionCallExpr(function.getName(), new FunctionParams(distinct, catalogParams),
-                        aggFnParams, inputTypesBeforeDissemble);
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+
+        boolean isAnalyticFunction = false;
+        String functionName = function.isDistinct() ? "MULTI_DISTINCT_" + function.getName() : function.getName();
+        if (function.getAggregateParam().aggPhase == AggPhase.DISTINCT_LOCAL
+                || function.getAggregateParam().aggPhase == AggPhase.DISTINCT_GLOBAL) {
+            if (function.getName().equalsIgnoreCase("count")) {
+                functionName = "SUM";
+            } else {
+                functionName = function.getName();
             }
         }
-        return new FunctionCallExpr(function.getName(), new FunctionParams(distinct, catalogParams),
-                aggFnParams, inputTypesBeforeDissemble);
+        org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
+                new FunctionName(functionName), argTypes,
+                function.getDataType().toCatalogDataType(),
+                function.getIntermediateTypes().toCatalogDataType(),
+                function.hasVarArguments(),
+                null, "", "", null, "",
+                null, "", null, false,
+                isAnalyticFunction, false, TFunctionBinaryType.BUILTIN,
+                true, true, nullableMode
+        );
+
+        boolean isMergeFn = function.isGlobal() && function.isDisassembled();
+
+        // create catalog FunctionCallExpr without analyze again
+        return new FunctionCallExpr(catalogFunction, aggFnParams, aggFnParams, isMergeFn, catalogArguments);
     }
 
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
         List<Expr> arguments = function.getArguments()
-                .stream().map(arg -> arg.accept(this, context))
+                .stream()
+                .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());
         List<Type> argTypes = function.expectedInputTypes().stream()
                 .map(AbstractDataType::toCatalogDataType)
@@ -327,12 +330,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 ? NullableMode.ALWAYS_NULLABLE
                 : NullableMode.ALWAYS_NOT_NULLABLE;
 
-        Function catalogFunction = new Function(new FunctionName(function.getName()), argTypes,
-                function.getDataType().toCatalogDataType(), function.hasVarArguments(), true, nullableMode);
+        org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
+                new FunctionName(function.getName()), argTypes,
+                function.getDataType().toCatalogDataType(), function.hasVarArguments(),
+                "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
-        return new FunctionCallExpr(catalogFunction.getFunctionName(), catalogFunction,
-                new FunctionParams(false, arguments));
+        return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 
     @Override
@@ -353,6 +357,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     arithmetic.right().accept(this, context), arithmetic.getTimeUnit().toString(),
                     arithmetic.getDataType().toCatalogDataType());
         }
+    }
+
+    @Override
+    public Expr visitVirtualReference(VirtualSlotReference virtualSlotReference, PlanTranslatorContext context) {
+        return context.findSlotRef(virtualSlotReference.getExprId());
+    }
+
+    @Override
+    public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
+        return new IsNullPredicate(isNull.child().accept(this, context), false);
     }
 
     public static org.apache.doris.analysis.AssertNumRowsElement translateAssert(

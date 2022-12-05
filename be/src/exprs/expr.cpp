@@ -355,7 +355,10 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
         }
     case TExprNodeType::COMPUTE_FUNCTION_CALL:
     case TExprNodeType::FUNCTION_CALL:
-        DCHECK(texpr_node.__isset.fn);
+        if (!texpr_node.__isset.fn) {
+            // return error to prevent crash
+            return Status::InternalError("function is not set in thrift node");
+        }
         if (texpr_node.fn.name.function_name == "if") {
             *expr = pool->add(new IfExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "nullif") {
@@ -726,7 +729,7 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new Decimal64Val(get_decimal64_val(context, nullptr)));
         break;
     }
-    case TYPE_DECIMAL128: {
+    case TYPE_DECIMAL128I: {
         _constant_val.reset(new Decimal128Val(get_decimal128_val(context, nullptr)));
         break;
     }

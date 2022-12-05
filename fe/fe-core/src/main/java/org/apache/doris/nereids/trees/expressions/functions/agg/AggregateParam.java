@@ -17,62 +17,57 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 
-import java.util.List;
+import com.google.common.base.Preconditions;
+
 import java.util.Objects;
-import java.util.Optional;
 
 /** AggregateParam. */
 public class AggregateParam {
-    public final boolean isGlobal;
+    public final boolean isFinalPhase;
+
+    public final AggPhase aggPhase;
 
     public final boolean isDistinct;
 
-    // When AggregateDisassemble rule disassemble the aggregate function, say double avg(int), the local
-    // aggregate keep the origin signature, but the global aggregate change to double avg(double).
-    // This behavior is difference from the legacy optimizer, because legacy optimizer keep the same signature
-    // between local aggregate and global aggregate. If the signatures are different, the result would wrong.
-    // So we use this field to record the originInputTypes, and find the catalog function by the origin input types.
-    public final Optional<List<DataType>> inputTypesBeforeDissemble;
+    public final boolean isDisassembled;
 
-    public AggregateParam() {
-        this(false, true, Optional.empty());
-    }
-
-    public AggregateParam(boolean distinct) {
-        this(distinct, true, Optional.empty());
-    }
-
-    public AggregateParam(boolean isDistinct, boolean isGlobal) {
-        this(isDistinct, isGlobal, Optional.empty());
-    }
-
-    public AggregateParam(boolean isDistinct, boolean isGlobal, Optional<List<DataType>> inputTypesBeforeDissemble) {
+    /** AggregateParam */
+    public AggregateParam(boolean isDistinct, boolean isFinalPhase, AggPhase aggPhase, boolean isDisassembled) {
+        this.isFinalPhase = isFinalPhase;
         this.isDistinct = isDistinct;
-        this.isGlobal = isGlobal;
-        this.inputTypesBeforeDissemble = Objects.requireNonNull(inputTypesBeforeDissemble,
-                "inputTypesBeforeDissemble can not be null");
+        this.aggPhase = aggPhase;
+        this.isDisassembled = isDisassembled;
+        if (!isFinalPhase) {
+            Preconditions.checkArgument(isDisassembled,
+                    "non-final phase aggregate should be disassembed");
+        }
     }
 
-    public static AggregateParam distinctAndGlobal() {
-        return new AggregateParam(true, true, Optional.empty());
+    public static AggregateParam finalPhase() {
+        return new AggregateParam(false, true, AggPhase.LOCAL, false);
     }
 
-    public static AggregateParam global() {
-        return new AggregateParam(false, true, Optional.empty());
+    public static AggregateParam distinctAndFinalPhase() {
+        return new AggregateParam(true, true, AggPhase.LOCAL, false);
     }
 
     public AggregateParam withDistinct(boolean isDistinct) {
-        return new AggregateParam(isDistinct, isGlobal, inputTypesBeforeDissemble);
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 
-    public AggregateParam withGlobal(boolean isGlobal) {
-        return new AggregateParam(isDistinct, isGlobal, inputTypesBeforeDissemble);
+    public AggregateParam withAggPhase(AggPhase aggPhase) {
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 
-    public AggregateParam withInputTypesBeforeDissemble(Optional<List<DataType>> inputTypesBeforeDissemble) {
-        return new AggregateParam(isDistinct, isGlobal, inputTypesBeforeDissemble);
+    public AggregateParam withDisassembled(boolean isDisassembled) {
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
+    }
+
+    public AggregateParam withPhaseAndDisassembled(boolean isFinalPhase, AggPhase aggPhase,
+                                                      boolean isDisassembled) {
+        return new AggregateParam(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 
     @Override
@@ -85,12 +80,13 @@ public class AggregateParam {
         }
         AggregateParam that = (AggregateParam) o;
         return isDistinct == that.isDistinct
-                && Objects.equals(isGlobal, that.isGlobal)
-                && Objects.equals(inputTypesBeforeDissemble, that.inputTypesBeforeDissemble);
+                && isFinalPhase == that.isFinalPhase
+                && Objects.equals(aggPhase, that.aggPhase)
+                && Objects.equals(isDisassembled, that.isDisassembled);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isDistinct, isGlobal, inputTypesBeforeDissemble);
+        return Objects.hash(isDistinct, isFinalPhase, aggPhase, isDisassembled);
     }
 }

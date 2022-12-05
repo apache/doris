@@ -23,6 +23,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
 ## arrays_overlap
 
@@ -64,3 +65,5 @@ mysql> select c_left,c_right,arrays_overlap(c_left,c_right) from array_test;
 ### keywords
 
 ARRAY,ARRAYS,OVERLAP,ARRAYS_OVERLAP
+
+</version>

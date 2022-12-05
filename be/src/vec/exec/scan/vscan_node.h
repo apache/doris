@@ -26,10 +26,24 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vin_predicate.h"
 
+namespace doris::pipeline {
+class ScanOperator;
+}
+
 namespace doris::vectorized {
 
 class VScanner;
 class VSlotRef;
+
+struct FilterPredicates {
+    // Save all runtime filter predicates which may be pushed down to data source.
+    // column name -> bloom filter function
+    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+
+    std::vector<std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+
+    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
+};
 
 class VScanNode : public ExecNode {
 public:
@@ -39,6 +53,7 @@ public:
     friend class NewOlapScanner;
     friend class VFileScanner;
     friend class ScannerContext;
+    friend class doris::pipeline::ScanOperator;
 
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
@@ -133,6 +148,8 @@ protected:
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
 
+    virtual PushDownType _should_push_down_bitmap_filter() { return PushDownType::UNACCEPTABLE; }
+
     virtual PushDownType _should_push_down_is_null_predicate() {
         return PushDownType::UNACCEPTABLE;
     }
@@ -181,12 +198,7 @@ protected:
     // indicate this scan node has no more data to return
     bool _eos = false;
 
-    // Save all bloom filter predicates which may be pushed down to data source.
-    // column name -> bloom filter function
-    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
-            _bloom_filters_push_down;
-
-    std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> _in_filters_push_down;
+    FilterPredicates _filter_predicates {};
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
@@ -246,11 +258,14 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
 
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+
 private:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter();
+    Status _acquire_runtime_filter(bool wait = true);
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
 
@@ -260,6 +275,9 @@ private:
 
     Status _normalize_bloom_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                    PushDownType* pdt);
+
+    Status _normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
+                                    PushDownType* pdt);
 
     Status _normalize_function_filters(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);

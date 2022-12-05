@@ -145,7 +145,7 @@ public class WithClause implements ParseNode {
                 aliasSql += "(" + Joiner.on(", ").join(
                         ToSqlUtils.getIdentSqlList(view.getOriginalColLabels())) + ")";
             }
-            viewStrings.add(aliasSql + " AS (" + view.getQueryStmt().toSql() + ")");
+            viewStrings.add(aliasSql + " AS (" + view.getQueryStmt().toSqlWithSelectList() + ")");
         }
         return "WITH " + Joiner.on(",").join(viewStrings);
     }

@@ -21,13 +21,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.PooledHiveMetaStoreClient;
+import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.HiveAnalysisTask;
+import org.apache.doris.statistics.IcebergAnalysisTask;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -105,8 +113,8 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private void initPartitionColumns() {
-        Set<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
-                .collect(Collectors.toSet());
+        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+                .collect(Collectors.toList());
         partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop
@@ -129,16 +137,7 @@ public class HMSExternalTable extends ExternalTable {
         if (paras == null) {
             return false;
         }
-        boolean isIcebergTable = paras.containsKey("table_type")
-                && paras.get("table_type").equalsIgnoreCase("ICEBERG");
-        boolean isMorInDelete = paras.containsKey("write.delete.mode")
-                && paras.get("write.delete.mode").equalsIgnoreCase("merge-on-read");
-        boolean isMorInUpdate = paras.containsKey("write.update.mode")
-                && paras.get("write.update.mode").equalsIgnoreCase("merge-on-read");
-        boolean isMorInMerge = paras.containsKey("write.merge.mode")
-                && paras.get("write.merge.mode").equalsIgnoreCase("merge-on-read");
-        boolean isCowTable = !(isMorInDelete || isMorInUpdate || isMorInMerge);
-        return isIcebergTable && isCowTable;
+        return paras.containsKey("table_type") && paras.get("table_type").equalsIgnoreCase("ICEBERG");
     }
 
     /**
@@ -155,7 +154,8 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * Now we only support three file input format hive tables: parquet/orc/text. And they must be managed_table.
+     * Now we only support three file input format hive tables: parquet/orc/text.
+     * Support managed_table and external_table.
      */
     private boolean supportedHiveTable() {
         String inputFileFormat = remoteTable.getSd().getInputFormat();
@@ -251,13 +251,6 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     /**
-     * get database name of hms table.
-     */
-    public String getDbName() {
-        return dbName;
-    }
-
-    /**
      * get the dla type for scan node to get right information.
      */
     public DLAType getDlaType() {
@@ -274,6 +267,19 @@ public class HMSExternalTable extends ExternalTable {
         return tTableDescriptor;
     }
 
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info) {
+        makeSureInitialized();
+        switch (dlaType) {
+            case HIVE:
+                return new HiveAnalysisTask(scheduler, info);
+            case ICEBERG:
+                return new IcebergAnalysisTask(scheduler, info);
+            default:
+                throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
+        }
+    }
+
     public String getMetastoreUri() {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
@@ -284,6 +290,22 @@ public class HMSExternalTable extends ExternalTable {
 
     public Map<String, String> getS3Properties() {
         return catalog.getCatalogProperty().getS3Properties();
+    }
+
+    public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        return client.getTableColumnStatistics(dbName, name, columns);
+    }
+
+    public Map<String, List<ColumnStatisticsObj>> getHivePartitionColumnStats(
+            List<String> partNames, List<String> columns) {
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        return client.getPartitionColumnStatistics(dbName, name, partNames, columns);
+    }
+
+    public Partition getPartition(List<String> partitionValues) {
+        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        return client.getPartition(dbName, name, partitionValues);
     }
 }
 

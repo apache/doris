@@ -431,7 +431,7 @@ protected:
     friend class Reader;
 
     template <typename, typename, typename, typename, typename, typename, size_t>
-    friend class TwoLevelHashTable;
+    friend class PartitionedHashTable;
 
     template <typename SubMaps>
     friend class StringHashTable;
@@ -445,12 +445,29 @@ protected:
     Grower grower;
     int64_t _resize_timer_ns;
 
+    // the bucket count threshold above which it's converted to partioned hash table
+    // > 0: enable convert dynamically
+    // 0: convert is disabled
+    int _partitioned_threshold = 0;
+    // if need resize and bucket count after resize will be >= _partitioned_threshold,
+    // this flag is set to true, and resize does not actually happen,
+    // PartitionedHashTable will convert this hash table to partitioned hash table
+    bool _need_partition = false;
+
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     mutable size_t collisions = 0;
 #endif
+
+    void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
+
+    bool check_if_need_partition(size_t bucket_count) {
+        return _partitioned_threshold > 0 && bucket_count >= _partitioned_threshold;
+    }
+
+    bool need_partition() { return _need_partition; }
 
     /// Find a cell with the same key or an empty cell, starting from the specified position and further along the collision resolution chain.
     size_t ALWAYS_INLINE find_cell(const Key& x, size_t hash_value, size_t place_value) const {
@@ -499,63 +516,6 @@ protected:
             Allocator::free(buf, get_buffer_size_in_bytes());
             buf = nullptr;
         }
-    }
-
-    /// Increase the size of the buffer.
-    void resize(size_t for_num_elems = 0, size_t for_buf_size = 0) {
-        SCOPED_RAW_TIMER(&_resize_timer_ns);
-#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
-        Stopwatch watch;
-#endif
-
-        size_t old_size = grower.buf_size();
-
-        /** In case of exception for the object to remain in the correct state,
-          *  changing the variable `grower` (which determines the buffer size of the hash table)
-          *  is postponed for a moment after a real buffer change.
-          * The temporary variable `new_grower` is used to determine the new size.
-          */
-        Grower new_grower = grower;
-        if (for_num_elems) {
-            new_grower.set(for_num_elems);
-            if (new_grower.buf_size() <= old_size) return;
-        } else if (for_buf_size) {
-            new_grower.set_buf_size(for_buf_size);
-            if (new_grower.buf_size() <= old_size) return;
-        } else
-            new_grower.increase_size();
-
-        /// Expand the space.
-        buf = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
-                                                         new_grower.buf_size() * sizeof(Cell)));
-        grower = new_grower;
-
-        /** Now some items may need to be moved to a new location.
-          * The element can stay in place, or move to a new location "on the right",
-          *  or move to the left of the collision resolution chain, because the elements to the left of it have been moved to the new "right" location.
-          */
-        size_t i = 0;
-        for (; i < old_size; ++i)
-            if (!buf[i].is_zero(*this) && !buf[i].is_deleted())
-                reinsert(buf[i], buf[i].get_hash(*this));
-
-        /** There is also a special case:
-          *    if the element was to be at the end of the old buffer,                  [        x]
-          *    but is at the beginning because of the collision resolution chain,      [o       x]
-          *    then after resizing, it will first be out of place again,               [        xo        ]
-          *    and in order to transfer it where necessary,
-          *    after transferring all the elements from the old halves you need to     [         o   x    ]
-          *    process tail from the collision resolution chain immediately after it   [        o    x    ]
-          */
-        for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i)
-            reinsert(buf[i], buf[i].get_hash(*this));
-
-#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
-        watch.stop();
-        std::cerr << std::fixed << std::setprecision(3) << "Resize from " << old_size << " to "
-                  << grower.buf_size() << " took " << watch.elapsedSeconds() << " sec."
-                  << std::endl;
-#endif
     }
 
     /** Paste into the new buffer the value that was in the old buffer.
@@ -684,6 +644,8 @@ public:
         std::swap(buf, rhs.buf);
         std::swap(m_size, rhs.m_size);
         std::swap(grower, rhs.grower);
+        std::swap(_need_partition, rhs._need_partition);
+        std::swap(_partitioned_threshold, rhs._partitioned_threshold);
 
         Hash::operator=(std::move(rhs));
         Allocator::operator=(std::move(rhs));
@@ -816,10 +778,12 @@ protected:
                 throw;
             }
 
-            // The hash table was rehashed, so we have to re-find the key.
-            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
-            assert(!buf[new_place].is_zero(*this));
-            it = &buf[new_place];
+            if (LIKELY(!_need_partition)) {
+                // The hash table was rehashed, so we have to re-find the key.
+                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+                assert(!buf[new_place].is_zero(*this));
+                it = &buf[new_place];
+            }
         }
     }
 
@@ -853,10 +817,12 @@ protected:
                 throw;
             }
 
-            // The hash table was rehashed, so we have to re-find the key.
-            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
-            assert(!buf[new_place].is_zero(*this));
-            it = &buf[new_place];
+            if (LIKELY(!_need_partition)) {
+                // The hash table was rehashed, so we have to re-find the key.
+                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+                assert(!buf[new_place].is_zero(*this));
+                it = &buf[new_place];
+            }
         }
     }
 
@@ -1076,7 +1042,9 @@ public:
 
     float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
 
-    bool should_be_shrink(int64_t valid_row) { return valid_row < get_factor() * (size() / 2.0); }
+    bool should_be_shrink(int64_t valid_row) const {
+        return valid_row < get_factor() * (size() / 2.0);
+    }
 
     void init_buf_size(size_t reserve_for_num_elements) {
         free();
@@ -1118,4 +1086,69 @@ public:
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     size_t getCollisions() const { return collisions; }
 #endif
+
+private:
+    /// Increase the size of the buffer.
+    void resize(size_t for_num_elems = 0, size_t for_buf_size = 0) {
+        SCOPED_RAW_TIMER(&_resize_timer_ns);
+#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
+        Stopwatch watch;
+#endif
+
+        size_t old_size = grower.buf_size();
+
+        /** In case of exception for the object to remain in the correct state,
+          *  changing the variable `grower` (which determines the buffer size of the hash table)
+          *  is postponed for a moment after a real buffer change.
+          * The temporary variable `new_grower` is used to determine the new size.
+          */
+        Grower new_grower = grower;
+        if (for_num_elems) {
+            new_grower.set(for_num_elems);
+            if (new_grower.buf_size() <= old_size) return;
+        } else if (for_buf_size) {
+            new_grower.set_buf_size(for_buf_size);
+            if (new_grower.buf_size() <= old_size) return;
+        } else
+            new_grower.increase_size();
+
+        // new bucket count exceed partitioned hash table bucket count threshold,
+        // don't resize and set need partition flag
+        if (check_if_need_partition(new_grower.buf_size())) {
+            _need_partition = true;
+            return;
+        }
+
+        /// Expand the space.
+        buf = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
+                                                         new_grower.buf_size() * sizeof(Cell)));
+        grower = new_grower;
+
+        /** Now some items may need to be moved to a new location.
+          * The element can stay in place, or move to a new location "on the right",
+          *  or move to the left of the collision resolution chain, because the elements to the left of it have been moved to the new "right" location.
+          */
+        size_t i = 0;
+        for (; i < old_size; ++i)
+            if (!buf[i].is_zero(*this) && !buf[i].is_deleted())
+                reinsert(buf[i], buf[i].get_hash(*this));
+
+        /** There is also a special case:
+          *    if the element was to be at the end of the old buffer,                  [        x]
+          *    but is at the beginning because of the collision resolution chain,      [o       x]
+          *    then after resizing, it will first be out of place again,               [        xo        ]
+          *    and in order to transfer it where necessary,
+          *    after transferring all the elements from the old halves you need to     [         o   x    ]
+          *    process tail from the collision resolution chain immediately after it   [        o    x    ]
+          */
+        for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i)
+            reinsert(buf[i], buf[i].get_hash(*this));
+
+#ifdef DBMS_HASH_MAP_DEBUG_RESIZES
+        watch.stop();
+        std::cerr << std::fixed << std::setprecision(3) << "Resize from " << old_size << " to "
+                  << grower.buf_size() << " took " << watch.elapsedSeconds() << " sec."
+                  << std::endl;
+#endif
+    }
 };

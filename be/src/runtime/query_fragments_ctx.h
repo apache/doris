@@ -90,6 +90,18 @@ public:
         }
         _start_cond.notify_all();
     }
+    void set_ready_to_execute_only() {
+        {
+            std::lock_guard<std::mutex> l(_start_lock);
+            _ready_to_execute = true;
+        }
+        _start_cond.notify_all();
+    }
+
+    bool is_ready_to_execute() {
+        std::lock_guard<std::mutex> l(_start_lock);
+        return _ready_to_execute;
+    }
 
     bool wait_for_start() {
         int wait_time = config::max_fragment_start_wait_time_seconds;
@@ -100,8 +112,8 @@ public:
         return _ready_to_execute.load() && !_is_cancelled.load();
     }
 
-    vectorized::SharedHashTableController* get_shared_hash_table_controller() {
-        return _shared_hash_table_controller.get();
+    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
+        return _shared_hash_table_controller;
     }
 
 public:
@@ -144,7 +156,7 @@ private:
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
 
-    std::unique_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
 };
 
 } // namespace doris

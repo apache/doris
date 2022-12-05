@@ -164,7 +164,7 @@ mvn package assembly:assembly -Dmaven.test.skip=true
 
 
 * **maxBatchRows**
-  - 描述：每批次导入数据的最大行数。和 **maxBatchSize** 共同控制每批次的导入记录行数。每批次数据达到两个阈值之一，即开始导入这一批次的数据。
+  - 描述：每批次导入数据的最大行数。和 **batchSize** 共同控制每批次的导入记录行数。每批次数据达到两个阈值之一，即开始导入这一批次的数据。
   - 必选：否
   - 默认值：500000
   

@@ -44,7 +44,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DATETIMEV2:
             return new EqBigIntValPred(node);
         case TPrimitiveType::LARGEINT:
-        case TPrimitiveType::DECIMAL128:
+        case TPrimitiveType::DECIMAL128I:
             return new EqLargeIntValPred(node);
         case TPrimitiveType::FLOAT:
             return new EqFloatValPred(node);
@@ -81,7 +81,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DATETIMEV2:
             return new NeBigIntValPred(node);
         case TPrimitiveType::LARGEINT:
-        case TPrimitiveType::DECIMAL128:
+        case TPrimitiveType::DECIMAL128I:
             return new NeLargeIntValPred(node);
         case TPrimitiveType::FLOAT:
             return new NeFloatValPred(node);
@@ -118,7 +118,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DATETIMEV2:
             return new LtBigIntValPred(node);
         case TPrimitiveType::LARGEINT:
-        case TPrimitiveType::DECIMAL128:
+        case TPrimitiveType::DECIMAL128I:
             return new LtLargeIntValPred(node);
         case TPrimitiveType::FLOAT:
             return new LtFloatValPred(node);
@@ -155,7 +155,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DATETIMEV2:
             return new LeBigIntValPred(node);
         case TPrimitiveType::LARGEINT:
-        case TPrimitiveType::DECIMAL128:
+        case TPrimitiveType::DECIMAL128I:
             return new LeLargeIntValPred(node);
         case TPrimitiveType::FLOAT:
             return new LeFloatValPred(node);
@@ -192,7 +192,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DATETIMEV2:
             return new GtBigIntValPred(node);
         case TPrimitiveType::LARGEINT:
-        case TPrimitiveType::DECIMAL128:
+        case TPrimitiveType::DECIMAL128I:
             return new GtLargeIntValPred(node);
         case TPrimitiveType::FLOAT:
             return new GtFloatValPred(node);
@@ -229,7 +229,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DATETIMEV2:
             return new GeBigIntValPred(node);
         case TPrimitiveType::LARGEINT:
-        case TPrimitiveType::DECIMAL128:
+        case TPrimitiveType::DECIMAL128I:
             return new GeLargeIntValPred(node);
         case TPrimitiveType::FLOAT:
             return new GeFloatValPred(node);
@@ -266,7 +266,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
         case TPrimitiveType::DATETIMEV2:
             return new EqForNullBigIntValPred(node);
         case TPrimitiveType::LARGEINT:
-        case TPrimitiveType::DECIMAL128:
+        case TPrimitiveType::DECIMAL128I:
             return new EqForNullLargeIntValPred(node);
         case TPrimitiveType::FLOAT:
             return new EqForNullFloatValPred(node);

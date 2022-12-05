@@ -69,6 +69,7 @@ public class LoadLoadingTask extends LoadTask {
     private final int sendBatchParallelism;
     private final boolean loadZeroTolerance;
     private final boolean singleTabletLoadPerSink;
+    private final boolean useNewLoadScanNode;
 
     private LoadingTaskPlanner planner;
 
@@ -76,11 +77,12 @@ public class LoadLoadingTask extends LoadTask {
     private long beginTime;
 
     public LoadLoadingTask(Database db, OlapTable table,
-                           BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
-                           long jobDeadlineMs, long execMemLimit, boolean strictMode,
-                           long txnId, LoadTaskCallback callback, String timezone,
-                           long timeoutS, int loadParallelism, int sendBatchParallelism,
-                           boolean loadZeroTolerance, RuntimeProfile profile, boolean singleTabletLoadPerSink) {
+            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
+            long jobDeadlineMs, long execMemLimit, boolean strictMode,
+            long txnId, LoadTaskCallback callback, String timezone,
+            long timeoutS, int loadParallelism, int sendBatchParallelism,
+            boolean loadZeroTolerance, RuntimeProfile profile, boolean singleTabletLoadPerSink,
+            boolean useNewLoadScanNode) {
         super(callback, TaskType.LOADING);
         this.db = db;
         this.table = table;
@@ -99,13 +101,15 @@ public class LoadLoadingTask extends LoadTask {
         this.loadZeroTolerance = loadZeroTolerance;
         this.jobProfile = profile;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
+        this.useNewLoadScanNode = useNewLoadScanNode;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
             int fileNum, UserIdentity userInfo) throws UserException {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
-                strictMode, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism, userInfo);
+                strictMode, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
+                this.useNewLoadScanNode, userInfo);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 

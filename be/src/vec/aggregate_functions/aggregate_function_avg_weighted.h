@@ -29,7 +29,7 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionAvgWeightedData {
     void add(const T& data_val, double weight_val) {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (IsDecimalV2<T>) {
             DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
             data_sum = data_sum + (static_cast<double>(value) * weight_val);
         } else {

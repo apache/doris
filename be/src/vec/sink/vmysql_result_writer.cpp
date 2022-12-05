@@ -109,18 +109,13 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 }
             }
             if constexpr (type == TYPE_JSONB) {
-                const auto json_val = column->get_data_at(i);
-                if (json_val.data == nullptr) {
-                    if (json_val.size == 0) {
-                        // 0x01 is a magic num, not useful actually, just for present ""
-                        char* tmp_val = reinterpret_cast<char*>(0x01);
-                        buf_ret = _buffer.push_string(tmp_val, json_val.size);
-                    } else {
-                        buf_ret = _buffer.push_null();
-                    }
+                const auto jsonb_val = column->get_data_at(i);
+                // jsonb size == 0 is NULL
+                if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
+                    buf_ret = _buffer.push_null();
                 } else {
                     std::string json_str =
-                            JsonbToJson::jsonb_to_json_string(json_val.data, json_val.size);
+                            JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size);
                     buf_ret = _buffer.push_string(json_str.c_str(), json_str.size());
                 }
             }
@@ -170,7 +165,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     } else if constexpr (type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                         type == TYPE_DECIMAL128) {
+                         type == TYPE_DECIMAL128I) {
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -367,21 +362,19 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
                                    ->to_string(*column, row_idx);
         return buffer.push_string(decimal_str.c_str(), decimal_str.length());
     } else if (which.is_decimal128()) {
-        if (config::enable_decimalv3) {
-            DataTypePtr nested_type = type;
-            if (type->is_nullable()) {
-                nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
-            }
-            auto decimal_str = assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type.get())
-                                       ->to_string(*column, row_idx);
-            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
-        } else {
-            auto& column_data =
-                    static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
-            DecimalV2Value decimal_val(column_data[row_idx]);
-            auto decimal_str = decimal_val.to_string();
-            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+        auto& column_data =
+                static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
+        DecimalV2Value decimal_val(column_data[row_idx]);
+        auto decimal_str = decimal_val.to_string();
+        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+    } else if (which.is_decimal128i()) {
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
         }
+        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal128I>*>(nested_type.get())
+                                   ->to_string(*column, row_idx);
+        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
     } else if (which.is_array()) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
@@ -574,15 +567,15 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             }
             break;
         }
-        case TYPE_DECIMAL128: {
+        case TYPE_DECIMAL128I: {
             if (type_ptr->is_nullable()) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, true>(column_ptr, result,
-                                                                               nested_type, scale);
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, true>(column_ptr, result,
+                                                                                nested_type, scale);
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128, false>(column_ptr, result,
-                                                                                type_ptr, scale);
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, false>(column_ptr, result,
+                                                                                 type_ptr, scale);
             }
             break;
         }
@@ -669,6 +662,10 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
     }
 
     return status;
+}
+
+bool VMysqlResultWriter::can_sink() {
+    return _sinker->can_sink();
 }
 
 Status VMysqlResultWriter::close() {

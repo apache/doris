@@ -118,6 +118,27 @@ suite("test_hive_parquet", "p0") {
     """
     }
 
+    def q18 = {
+        qt_q18 """
+        select count(l_orderkey) from partition_table where nation != 'cn' and l_quantity > 28;
+    """
+    }
+
+    def q19 = {
+        qt_q19 """
+        select l_partkey from partition_table
+        where (nation != 'cn' or city !='beijing') and (l_quantity > 28 or l_extendedprice > 30000)
+        order by l_partkey limit 10;
+    """
+    }
+
+    def q20 = {
+        qt_q20 """
+        select nation, city, count(l_linenumber) from partition_table
+        where city != 'beijing' or l_quantity > 28 group by nation, city order by nation, city;
+    """
+    }
+
 
     def set_be_config = { flag ->
         String[][] backends = sql """ show backends; """
@@ -146,17 +167,18 @@ suite("test_hive_parquet", "p0") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
+            String catalog_name = "hive_test_parquet"
             sql """admin set frontend config ("enable_multi_catalog" = "true")"""
             sql """admin set frontend config ("enable_new_load_scan_node" = "true");"""
             set_be_config.call('true')
-            sql """drop catalog if exists hive"""
+            sql """drop catalog if exists ${catalog_name}"""
             sql """
-            create catalog if not exists hive properties (
+            create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );
             """
-            sql """use `hive`.`default`"""
+            sql """use `${catalog_name}`.`default`"""
 
             q01()
             q02()
@@ -175,6 +197,9 @@ suite("test_hive_parquet", "p0") {
             q15()
             q16()
             q17()
+            q18()
+            q19()
+            q20()
         } finally {
             sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
             set_be_config.call('false')

@@ -285,7 +285,7 @@ Status TableConnector::append(const std::string& table_name, vectorized::Block* 
                 }
                 case TYPE_DECIMAL32:
                 case TYPE_DECIMAL64:
-                case TYPE_DECIMAL128: {
+                case TYPE_DECIMAL128I: {
                     auto val = type_ptr->to_string(*column, i);
                     fmt::format_to(_insert_stmt_buffer, "{}", val);
                     break;

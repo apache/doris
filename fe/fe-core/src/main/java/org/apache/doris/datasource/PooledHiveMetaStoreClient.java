@@ -28,6 +28,7 @@ import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -37,6 +38,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 
 /**
@@ -126,6 +128,23 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
+        try (CachedClient client = getClient()) {
+            return client.client.getTableColumnStatistics(dbName, tblName, columns);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(
+            String dbName, String tblName, List<String> partNames, List<String> columns) {
+        try (CachedClient client = getClient()) {
+            return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private class CachedClient implements AutoCloseable {
         private final IMetaStoreClient client;
 
@@ -153,12 +172,19 @@ public class PooledHiveMetaStoreClient {
     }
 
     private CachedClient getClient() throws MetaException {
-        synchronized (clientPool) {
-            CachedClient client = clientPool.poll();
-            if (client == null) {
-                return new CachedClient(hiveConf);
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+            synchronized (clientPool) {
+                CachedClient client = clientPool.poll();
+                if (client == null) {
+                    return new CachedClient(hiveConf);
+                }
+                return client;
             }
-            return client;
+        } finally {
+            Thread.currentThread().setContextClassLoader(classLoader);
         }
     }
 }
+

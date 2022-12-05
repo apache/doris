@@ -172,7 +172,6 @@ struct HashTableProbe {
               _probe_index(operation_node->_probe_index),
               _num_rows_returned(operation_node->_num_rows_returned),
               _probe_raw_ptrs(operation_node->_probe_columns),
-              _arena(*(operation_node->_arena)),
               _rows_returned_counter(operation_node->_rows_returned_counter),
               _build_col_idx(operation_node->_build_col_idx),
               _mutable_cols(operation_node->_mutable_cols) {}
@@ -183,10 +182,28 @@ struct HashTableProbe {
 
         KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
 
+        if (_probe_index == 0) {
+            _arena.reset(new Arena());
+            if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
+                if (_probe_keys.size() < _probe_rows) {
+                    _probe_keys.resize(_probe_rows);
+                }
+                size_t keys_size = _probe_raw_ptrs.size();
+                for (size_t i = 0; i < _probe_rows; ++i) {
+                    _probe_keys[i] = serialize_keys_to_pool_contiguous(i, keys_size,
+                                                                       _probe_raw_ptrs, *_arena);
+                }
+            }
+        }
+
+        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
+            key_getter.set_serialized_keys(_probe_keys.data());
+        }
+
         if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
             for (; _probe_index < _probe_rows;) {
                 auto find_result =
-                        key_getter.find_key(hash_table_ctx.hash_table, _probe_index, _arena);
+                        key_getter.find_key(hash_table_ctx.hash_table, _probe_index, *_arena);
                 if (find_result.is_found()) { //if found, marked visited
                     auto it = find_result.get_mapped().begin();
                     if (!(it->visited)) {
@@ -263,7 +280,8 @@ private:
     int& _probe_index;
     int64_t& _num_rows_returned;
     ColumnRawPtrs& _probe_raw_ptrs;
-    Arena& _arena;
+    std::unique_ptr<Arena> _arena;
+    std::vector<StringRef> _probe_keys;
     RuntimeProfile::Counter* _rows_returned_counter;
     std::unordered_map<int, int>& _build_col_idx;
     std::vector<MutableColumnPtr>& _mutable_cols;

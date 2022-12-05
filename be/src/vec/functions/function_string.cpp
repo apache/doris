@@ -666,6 +666,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLTrim>();
     factory.register_function<FunctionRTrim>();
     factory.register_function<FunctionTrim>();
+    factory.register_function<FunctionConvertTo>();
     factory.register_function<FunctionSubstring<Substr3Impl>>();
     factory.register_function<FunctionSubstring<Substr2Impl>>();
     factory.register_function<FunctionLeft>();

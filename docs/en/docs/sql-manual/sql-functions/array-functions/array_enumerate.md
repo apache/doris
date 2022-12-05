@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_ENUMERATE Function",
+    "title": "array_enumerate",
     "language": "en"
 }
 ---
@@ -23,12 +23,9 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
-## ARRAY_ENUMERATE
-
-### Name
-
-ARRAY_ENUMERATE
+## array_enumerate
 
 ### description
 
@@ -58,3 +55,4 @@ mysql> select k2, array_enumerate(k2) from array_type_table;
 
 ARRAY,ENUMERATE,ARRAY_ENUMERATE
 
+</version>

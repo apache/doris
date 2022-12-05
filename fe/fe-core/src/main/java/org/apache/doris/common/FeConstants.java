@@ -35,6 +35,7 @@ public class FeConstants {
 
     public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
+    public static int ip_check_interval_second = 5;
 
     // dpp version
     public static String dpp_version = "3_2_0";
@@ -74,4 +75,5 @@ public class FeConstants {
     public static String FS_PREFIX_OBS = "obs";
     public static String FS_PREFIX_HDFS = "hdfs";
     public static String FS_PREFIX_FILE = "file";
+    public static final String INTERNAL_DB_NAME = "__internal_schema";
 }

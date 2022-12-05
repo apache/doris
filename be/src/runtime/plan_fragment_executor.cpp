@@ -190,9 +190,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(
-                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state()->enable_vectorized_exec(), &_sink, *desc_tbl));
+        RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
+                                                   request.fragment.output_exprs, params,
+                                                   row_desc(), runtime_state(), &_sink, *desc_tbl));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -626,7 +626,9 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     LOG_INFO("PlanFragmentExecutor::cancel")
             .tag("query_id", _query_id)
-            .tag("instance_id", _runtime_state->fragment_instance_id());
+            .tag("instance_id", _runtime_state->fragment_instance_id())
+            .tag("reason", reason)
+            .tag("error message", msg);
     DCHECK(_prepared);
     _cancel_reason = reason;
     _cancel_msg = msg;

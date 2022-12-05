@@ -104,7 +104,7 @@ public:
         if (lhs.size() != rhs.size()) {
             return false;
         }
-        return strncasecmp(lhs.c_str(), rhs.c_str(), 0) == 0;
+        return strncasecmp(lhs.c_str(), rhs.c_str(), lhs.size()) == 0;
     }
 };
 

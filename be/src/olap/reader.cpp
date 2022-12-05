@@ -20,6 +20,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "common/status.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
@@ -213,6 +214,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
+    _reader_context.is_key_column_group = read_params.is_key_column_group;
 
     *valid_rs_readers = *rs_readers;
 
@@ -451,6 +453,10 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
     }
 
+    for (const auto& filter : read_params.bitmap_filters) {
+        _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
+
     for (const auto& filter : read_params.in_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
     }
@@ -480,6 +486,17 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     }
     const TabletColumn& column = _tablet_schema->column(index);
     return create_column_predicate(index, in_filter.second, column.type(),
+                                   _reader_context.runtime_state->be_exec_version(), &column);
+}
+
+ColumnPredicate* TabletReader::_parse_to_predicate(
+        const std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>& bitmap_filter) {
+    int32_t index = _tablet_schema->field_index(bitmap_filter.first);
+    if (index < 0) {
+        return nullptr;
+    }
+    const TabletColumn& column = _tablet_schema->column(index);
+    return create_column_predicate(index, bitmap_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
 

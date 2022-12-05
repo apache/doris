@@ -574,6 +574,12 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Column[" + columnPos.getLastCol() + "] does not exists");
         }
 
+        // sequence col can not change type
+        if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && typeChanged
+                && modColumn.getName().equalsIgnoreCase(olapTable.getSequenceMapCol())) {
+            throw new DdlException("Can not alter sequence column[" + modColumn.getName() + "]");
+        }
+
         // check if add to first
         if (columnPos != null && columnPos.isFirst()) {
             lastColIndex = -1;
@@ -1706,9 +1712,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
                         Env.getCurrentEnv().modifyTableReplicaAllocation(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY)) {
-                        olapTable.setRemoteStoragePolicy(
-                                properties.get(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY));
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
+                        olapTable.setStoragePolicy(properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
                         return;
                     }
                 }

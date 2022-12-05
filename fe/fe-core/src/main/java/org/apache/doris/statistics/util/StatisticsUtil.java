@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics.util;
 
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
@@ -37,13 +36,16 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
@@ -75,29 +77,23 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
-        ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-        try {
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-            connectContext.setExecutor(stmtExecutor);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            r.connectContext.setExecutor(stmtExecutor);
             return stmtExecutor.executeInternalQuery();
-        } finally {
-            connectContext.kill(false);
         }
     }
 
     public static void execUpdate(String sql) throws Exception {
-        ConnectContext connectContext = StatisticsUtil.buildConnectContext();
-        try {
-            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-            connectContext.setExecutor(stmtExecutor);
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
-        } finally {
-            connectContext.kill(false);
         }
     }
 
     // TODO: finish this.
-    public static List<AnalysisJobInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
+    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
         return new ArrayList<>();
     }
 
@@ -106,7 +102,7 @@ public class StatisticsUtil {
         return resultBatches.stream().map(ColumnStatistic::fromResultRow).collect(Collectors.toList());
     }
 
-    public static ConnectContext buildConnectContext() {
+    public static AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
@@ -114,21 +110,22 @@ public class StatisticsUtil {
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
         connectContext.setEnv(Env.getCurrentEnv());
-        connectContext.setDatabase(StatisticConstants.STATISTIC_DB_NAME);
+        connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
-        connectContext.setThreadLocalInfo();
         connectContext.setStartTime();
         connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        return connectContext;
+        return new AutoCloseConnectContext(connectContext);
     }
 
     public static void analyze(StatementBase statementBase) throws UserException {
-        Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), buildConnectContext());
-        statementBase.analyze(analyzer);
+        try (AutoCloseConnectContext r = buildConnectContext()) {
+            Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
+            statementBase.analyze(analyzer);
+        }
     }
 
     public static LiteralExpr readableValue(Type type, String columnValue) throws AnalysisException {
@@ -219,7 +216,8 @@ public class StatisticsUtil {
                     return dateTimeLiteral.getDouble();
                 case CHAR:
                 case VARCHAR:
-                    return convertStringToDouble(columnValue);
+                    VarcharLiteral varchar = new VarcharLiteral(columnValue);
+                    return varchar.getDouble();
                 case HLL:
                 case BITMAP:
                 case ARRAY:
@@ -234,16 +232,6 @@ public class StatisticsUtil {
 
     }
 
-    public static double convertStringToDouble(String s) {
-        long v = 0;
-        int pos = 0;
-        int len = Math.min(s.length(), 8);
-        while (pos < len) {
-            v += ((long) s.charAt(pos)) << ((7 - pos) * 8);
-            pos++;
-        }
-        return (double) v;
-    }
 
     public static DBObjects convertTableNameToObjects(TableName tableName) {
         CatalogIf<DatabaseIf> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());

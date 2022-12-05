@@ -1211,12 +1211,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
                 Type resultType = resultExpr.getType();
-                if (resultType.isStringType() && resultType.getLength() < 0) {
+                if (resultType.isStringType()) {
+                    // Use String for varchar/char/string type,
+                    // to avoid char-length-vs-byte-length issue.
                     typeDef = new TypeDef(ScalarType.createStringType());
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
-                    typeDef = new TypeDef(ScalarType.createDecimalType(resultType.getPrecision(),
+                    typeDef = new TypeDef(ScalarType.createDecimalV3Type(resultType.getPrecision(),
                             ((ScalarType) resultType).getScalarScale()));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
@@ -1923,15 +1925,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 false);
         olapTable.setIsInMemory(isInMemory);
 
-        // set remote storage
-        String remoteStoragePolicy = PropertyAnalyzer.analyzeRemoteStoragePolicy(properties);
-        olapTable.setRemoteStoragePolicy(remoteStoragePolicy);
-
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
-
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
-
         olapTable.setStoragePolicy(storagePolicy);
 
         TTabletType tabletType;
@@ -2026,10 +2022,32 @@ public class InternalCatalog implements CatalogIf<Database> {
                     rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
-        // analyse sequence column
+        // analyse sequence map column
+        String sequenceMapCol = null;
+        try {
+            sequenceMapCol = PropertyAnalyzer.analyzeSequenceMapCol(properties, olapTable.getKeysType());
+            if (sequenceMapCol != null) {
+                Column col = olapTable.getColumn(sequenceMapCol);
+                if (col == null) {
+                    throw new DdlException("The specified sequence column[" + sequenceMapCol + "] not exists");
+                }
+                if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
+                    throw new DdlException("Sequence type only support integer types and date types");
+                }
+                olapTable.setSequenceMapCol(sequenceMapCol);
+                olapTable.setSequenceInfo(col.getType());
+            }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        // analyse sequence type
         Type sequenceColType = null;
         try {
             sequenceColType = PropertyAnalyzer.analyzeSequenceType(properties, olapTable.getKeysType());
+            if (sequenceMapCol != null && sequenceColType != null) {
+                throw new DdlException("The sequence_col and sequence_type cannot be set at the same time");
+            }
             if (sequenceColType != null) {
                 olapTable.setSequenceInfo(sequenceColType);
             }
@@ -2616,7 +2634,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Partition oldPartition = olapTable.replacePartition(newPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
-                index.getTablets().stream().forEach(t -> {
+                index.getTablets().forEach(t -> {
                     oldTabletIds.add(t.getId());
                 });
             }

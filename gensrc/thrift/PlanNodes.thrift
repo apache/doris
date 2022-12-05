@@ -257,6 +257,25 @@ struct TFileAttributes {
     9: optional string header_type;
 }
 
+struct TIcebergDeleteFileDesc {
+    1: optional string path;
+    2: optional i64 position_lower_bound;
+    3: optional i64 position_upper_bound;
+    4: optional list<i32> field_ids;
+}
+
+struct TIcebergFileDesc {
+    1: optional i32 format_version;
+    // Iceberg file type, 0: data, 1: position delete, 2: equality delete.
+    2: optional i32 content;
+    3: optional list<TIcebergDeleteFileDesc> delete_files;
+}
+
+struct TTableFormatFileDesc {
+    1: optional string table_format_type
+    2: optional TIcebergFileDesc iceberg_params
+}
+
 struct TFileScanRangeParams {
     1: optional Types.TFileType file_type;
     2: optional TFileFormatType format_type;
@@ -289,8 +308,10 @@ struct TFileScanRangeParams {
     14: optional list<Types.TNetworkAddress> broker_addresses
     15: optional TFileAttributes file_attributes
     16: optional Exprs.TExpr pre_filter_exprs
+    // For data lake table format
+    17: optional TTableFormatFileDesc table_format_params
     // For csv query task, same the column index in file, order by dest_tuple
-    17: optional list<i32> column_idxs
+    18: optional list<i32> column_idxs
 }
 
 struct TFileRangeDesc {
@@ -591,6 +612,11 @@ struct TNestedLoopJoinNode {
   3: optional Types.TTupleId voutput_tuple_id
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
+
+  // for bitmap filer, don't need to join, but output left child tuple
+  5: optional bool is_output_left_side_only
+
+  6: optional Exprs.TExpr vjoin_conjunct
 }
 
 struct TMergeJoinNode {
@@ -887,6 +913,7 @@ enum TRuntimeFilterType {
   BLOOM = 2
   MIN_MAX = 4
   IN_OR_BLOOM = 8
+  BITMAP = 16
 }
 
 // Specification of a runtime filter.
@@ -921,6 +948,12 @@ struct TRuntimeFilterDesc {
   // The size of the filter based on the ndv estimate and the min/max limit specified in
   // the query options. Should be greater than zero for bloom filters, zero otherwise.
   9: optional i64 bloom_filter_size_bytes
+
+  // for bitmap filter target expr
+  10: optional Exprs.TExpr bitmap_target_expr
+
+  // for bitmap filter
+  11: optional bool bitmap_filter_not_in
 }
 
 struct TDataGenScanNode {

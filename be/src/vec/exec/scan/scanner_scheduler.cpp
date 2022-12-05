@@ -134,17 +134,13 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     // Submit scanners to thread pool
     // TODO(cmy): How to handle this "nice"?
     int nice = 1;
-    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
     auto iter = this_run.begin();
     ctx->incr_num_scanner_scheduling(this_run.size());
     if (ctx->thread_token != nullptr) {
         while (iter != this_run.end()) {
             (*iter)->start_wait_worker_timer();
             auto s = ctx->thread_token->submit_func(
-                    [this, scanner = *iter, parent_span = cur_span, ctx] {
-                        opentelemetry::trace::Scope scope {parent_span};
-                        this->_scanner_scan(this, ctx, scanner);
-                    });
+                    [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
             if (s.ok()) {
                 this_run.erase(iter++);
             } else {
@@ -155,8 +151,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     } else {
         while (iter != this_run.end()) {
             PriorityThreadPool::Task task;
-            task.work_function = [this, scanner = *iter, parent_span = cur_span, ctx] {
-                opentelemetry::trace::Scope scope {parent_span};
+            task.work_function = [this, scanner = *iter, ctx] {
                 this->_scanner_scan(this, ctx, scanner);
             };
             task.priority = nice;
@@ -183,8 +178,6 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScanner* scanner) {
-    INIT_AND_SCOPE_REENTRANT_SPAN_IF(ctx->state()->enable_profile(), ctx->state()->get_tracer(),
-                                     ctx->scan_span(), "VScanner::scan");
     SCOPED_ATTACH_TASK(scanner->runtime_state());
     SCOPED_CONSUME_MEM_TRACKER(scanner->runtime_state()->scanner_mem_tracker());
     Thread::set_self_name("_scanner_scan");

@@ -61,9 +61,11 @@ public:
 
     void refresh_mem_tracker() {
         int64_t mem_usage = 0;
-        std::lock_guard<std::mutex> l(_lock);
-        for (auto& kv : _load_channels) {
-            mem_usage += kv.second->mem_consumption();
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            for (auto& kv : _load_channels) {
+                mem_usage += kv.second->mem_consumption();
+            }
         }
         _mem_tracker->set_consumption(mem_usage);
     }

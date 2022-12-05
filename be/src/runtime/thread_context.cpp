@@ -67,13 +67,16 @@ SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+    if (mem_tracker)
+        _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
         const std::shared_ptr<MemTracker>& mem_tracker)
         : _mem_tracker(mem_tracker) {
-    _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+    if (_mem_tracker)
+        _need_pop =
+                thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
 }
 
 AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {

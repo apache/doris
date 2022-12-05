@@ -22,110 +22,56 @@
 namespace doris {
 namespace vectorized {
 
-bool SharedHashTableController::should_build_hash_table(RuntimeState* state, int my_node_id) {
+bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragment_instance_id,
+                                                        int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _builder_fragment_ids.find(my_node_id);
     if (it == _builder_fragment_ids.cend()) {
-        _builder_fragment_ids[my_node_id] = state->fragment_instance_id();
+        _builder_fragment_ids.insert({my_node_id, fragment_instance_id});
         return true;
     }
     return false;
 }
 
-bool SharedHashTableController::supposed_to_build_hash_table(RuntimeState* state, int my_node_id) {
+SharedHashTableContextPtr SharedHashTableController::get_context(int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
-    auto it = _builder_fragment_ids.find(my_node_id);
-    if (it != _builder_fragment_ids.cend()) {
-        return _builder_fragment_ids[my_node_id] == state->fragment_instance_id();
+    auto it = _shared_contexts.find(my_node_id);
+    if (it == _shared_contexts.cend()) {
+        _shared_contexts.insert({my_node_id, std::make_shared<SharedHashTableContext>()});
     }
-    return false;
+    return _shared_contexts[my_node_id];
 }
 
-void SharedHashTableController::put_hash_table(SharedHashTableEntry&& entry, int my_node_id) {
+void SharedHashTableController::signal(int my_node_id) {
     std::lock_guard<std::mutex> lock(_mutex);
-    DCHECK(_hash_table_entries.find(my_node_id) == _hash_table_entries.cend());
-    _hash_table_entries.insert({my_node_id, std::move(entry)});
+    auto it = _shared_contexts.find(my_node_id);
+    if (it != _shared_contexts.cend()) {
+        it->second->signaled = true;
+        _shared_contexts.erase(it);
+    }
     _cv.notify_all();
 }
 
-SharedHashTableEntry& SharedHashTableController::wait_for_hash_table(int my_node_id) {
-    std::unique_lock<std::mutex> lock(_mutex);
-    auto it = _hash_table_entries.find(my_node_id);
-    if (it == _hash_table_entries.cend()) {
-        _cv.wait(lock, [this, &it, my_node_id]() {
-            it = _hash_table_entries.find(my_node_id);
-            return it != _hash_table_entries.cend();
-        });
+TUniqueId SharedHashTableController::get_builder_fragment_instance_id(int my_node_id) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    auto it = _builder_fragment_ids.find(my_node_id);
+    if (it == _builder_fragment_ids.cend()) {
+        return TUniqueId {};
     }
     return it->second;
 }
 
-void SharedHashTableController::acquire_ref_count(RuntimeState* state, int my_node_id) {
+Status SharedHashTableController::wait_for_signal(RuntimeState* state,
+                                                  const SharedHashTableContextPtr& context) {
     std::unique_lock<std::mutex> lock(_mutex);
-    _ref_fragments[my_node_id].emplace_back(state->fragment_instance_id());
-}
-
-Status SharedHashTableController::release_ref_count(RuntimeState* state, int my_node_id) {
-    std::unique_lock<std::mutex> lock(_mutex);
-    auto id = state->fragment_instance_id();
-    auto it = std::find(_ref_fragments[my_node_id].begin(), _ref_fragments[my_node_id].end(), id);
-    CHECK(it != _ref_fragments[my_node_id].end());
-    _ref_fragments[my_node_id].erase(it);
-    _put_an_empty_entry_if_need(Status::Cancelled("hash table not build"), id, my_node_id);
-    _cv.notify_all();
-    return Status::OK();
-}
-
-void SharedHashTableController::_put_an_empty_entry_if_need(Status status, TUniqueId fragment_id,
-                                                            int node_id) {
-    auto builder_it = _builder_fragment_ids.find(node_id);
-    if (builder_it != _builder_fragment_ids.end()) {
-        if (builder_it->second == fragment_id) {
-            if (_hash_table_entries.find(builder_it->first) == _hash_table_entries.cend()) {
-                // "here put an empty SharedHashTableEntry to avoid deadlocking"
-                _hash_table_entries.insert(
-                        {builder_it->first, SharedHashTableEntry::empty_entry_with_status(status)});
-            }
-        }
+    // maybe builder signaled before other instances waiting,
+    // so here need to check value of `signaled`
+    while (!context->signaled) {
+        _cv.wait_for(lock, std::chrono::milliseconds(400), [&]() { return context->signaled; });
+        // return if the instances is cancelled(eg. query timeout)
+        RETURN_IF_CANCELLED(state);
     }
-}
-
-Status SharedHashTableController::release_ref_count_if_need(TUniqueId fragment_id, Status status) {
-    std::unique_lock<std::mutex> lock(_mutex);
-    bool need_to_notify = false;
-    for (auto& ref : _ref_fragments) {
-        auto it = std::find(ref.second.begin(), ref.second.end(), fragment_id);
-        if (it == ref.second.end()) {
-            continue;
-        }
-        ref.second.erase(it);
-        need_to_notify = true;
-        LOG(INFO) << "release_ref_count in node: " << ref.first
-                  << " for fragment id: " << fragment_id;
-    }
-
-    for (auto& builder : _builder_fragment_ids) {
-        if (builder.second == fragment_id) {
-            if (_hash_table_entries.find(builder.first) == _hash_table_entries.cend()) {
-                _hash_table_entries.insert(
-                        {builder.first, SharedHashTableEntry::empty_entry_with_status(status)});
-            }
-        }
-    }
-
-    if (need_to_notify) {
-        _cv.notify_all();
-    }
-    return Status::OK();
-}
-
-Status SharedHashTableController::wait_for_closable(RuntimeState* state, int my_node_id) {
-    std::unique_lock<std::mutex> lock(_mutex);
-    RETURN_IF_CANCELLED(state);
-    if (!_ref_fragments[my_node_id].empty()) {
-        _cv.wait(lock, [&]() { return _ref_fragments[my_node_id].empty(); });
-    }
-    return Status::OK();
+    return context->status;
 }
 
 } // namespace vectorized

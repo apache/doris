@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
@@ -134,6 +135,8 @@ public:
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
+    virtual bool is_compound_predicate() const { return false; }
+
     const TFunction& fn() const { return _fn; }
 
     /// Returns true if expr doesn't contain slotrefs, i.e., can be evaluated
@@ -167,6 +170,13 @@ public:
     }
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
+
+    // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
+    virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
+        LOG(FATAL) << "Method 'get_bitmap_filter_func()' is not supported in expression: "
+                   << this->debug_string();
+        return nullptr;
+    }
 
 protected:
     /// Simple debug string that provides no expr subclass-specific information

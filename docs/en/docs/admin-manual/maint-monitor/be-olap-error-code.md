@@ -199,7 +199,7 @@ under the License.
 | OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED | -1603 | The previous schema change is not completed |
 | OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID | -1604 | Schema change information is invalid |
 | OLAP_ERR_QUERY_SPLIT_KEY_ERR | -1605 | Query Split key error |
-| OLAP_ERR_DATA_QUALITY_ERR | -1606 | Errors caused by data quality issues during schema changes/materialized views |
+| OLAP_ERR_DATA_QUALITY_ERROR | -1606 | Errors caused by data quality issues or reach memory limit during schema changes/materialized views |
 | Column File error code | | |
 | OLAP_ERR_COLUMN_DATA_LOAD_BLOCK | -1700 | Error loading column data block |
 | OLAP_ERR_COLUMN_DATA_RECORD_INDEX | -1701 | Load data record index error |

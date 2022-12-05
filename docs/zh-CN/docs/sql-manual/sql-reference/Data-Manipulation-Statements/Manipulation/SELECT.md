@@ -39,7 +39,7 @@ SELECT
 
 ```sql
 SELECT
-    [ALL | DISTINCT | DISTINCTROW ]
+    [ALL | DISTINCT | DISTINCTROW | ALL EXCEPT ( col_name1 [, col_name2, col_name3, ...] )]
     select_expr [, select_expr ...]
     [FROM table_references
       [PARTITION partition_list]
@@ -66,25 +66,27 @@ SELECT
 
 4. `ALL | DISTINCT ` ：对结果集进行刷选，all 为全部，distinct/distinctrow 将刷选出重复列，默认为all
 
-5. `INTO OUTFILE 'file_name' ` ：保存结果至新文件（之前不存在）中，区别在于保存的格式。
-   
-6. `Group [asc/desc]by having`：对结果集进行分组，having 出现则对 group by 的结果进行刷选，
+5. <version since="1.2" type="inline"> `ALL EXCEPT`：对全部（all）结果集进行筛选，except 指定要从全部结果集中排除的一个或多个列的名称。输出中将忽略所有匹配的列名称。 </version>
 
-7. `Order by `: 对最后的结果进行排序，Order by 通过比较一列或者多列的大小来对结果集进行排序。
+6. `INTO OUTFILE 'file_name' ` ：保存结果至新文件（之前不存在）中，区别在于保存的格式。
+   
+7. `Group [asc/desc]by having`：对结果集进行分组，having 出现则对 group by 的结果进行刷选，
+
+8. `Order by `: 对最后的结果进行排序，Order by 通过比较一列或者多列的大小来对结果集进行排序。
 
    Order by 是比较耗时耗资源的操作，因为所有数据都需要发送到 1 个节点后才能排序，排序操作相比不排序操作需要更多的内存。
 
    如果需要返回前 N 个排序结果，需要使用 LIMIT 从句；为了限制内存的使用，如果用户没有指定 LIMIT 从句，则默认返回前 65535 个排序结果。
 
-8. `Limit n`: 限制输出结果中的行数，`limit m,n` 表示从第m行开始输出n条记录。
+9. `Limit n`: 限制输出结果中的行数，`limit m,n` 表示从第m行开始输出n条记录。
 
-9. `Having` 从句不是过滤表中的行数据，而是过滤聚合函数产出的结果。
+10. `Having` 从句不是过滤表中的行数据，而是过滤聚合函数产出的结果。
 
    通常来说 `having` 要和聚合函数（例如 :`COUNT(), SUM(), AVG(), MIN(), MAX()`）以及 `group by` 从句一起使用。
 
-10. SELECT 支持使用 PARTITION 显式分区选择，其中包含 `table_reference` 中表的名称后面的分区或子分区（或两者）列表。
+11. SELECT 支持使用 PARTITION 显式分区选择，其中包含 `table_reference` 中表的名称后面的分区或子分区（或两者）列表。
 
-11. `[TABLET tids] TABLESAMPLE n [ROWS | PERCENT] [REPEATABLE seek]`: 在FROM子句中限制表的读取行数，根据指定的行数或百分比从表中伪随机的选择数个Tablet，REPEATABLE指定种子数可使选择的样本再次返回，此外也可手动指定TableID，注意这只能用于OLAP表。
+12. `[TABLET tids] TABLESAMPLE n [ROWS | PERCENT] [REPEATABLE seek]`: 在FROM子句中限制表的读取行数，根据指定的行数或百分比从表中伪随机的选择数个Tablet，REPEATABLE指定种子数可使选择的样本再次返回，此外也可手动指定TableID，注意这只能用于OLAP表。
 
 **语法约束：**
 
@@ -164,21 +166,27 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
    select Name from student where age in (18,20,25);
    ```
    
-2. GROUP BY 示例
+2. ALL EXCEPT 示例
+   ```sql
+   -- 查询除了学生年龄的所有信息
+   select * except(age) from student; 
+   ```
+   
+3. GROUP BY 示例
 
    ```sql
    --查询tb_book表，按照type分组，求每类图书的平均价格,
    select type,avg(price) from tb_book group by type;
    ```
 
-3. DISTINCT 使用
+4. DISTINCT 使用
 
    ```
    --查询tb_book表，除去重复的type数据
    select distinct type from tb_book;
    ```
 
-4. ORDER BY 示例
+5. ORDER BY 示例
 
    对查询结果进行升序（默认）或降序（DESC）排列。升序NULL在最前面，降序NULL在最后面
 
@@ -187,7 +195,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
    select * from tb_book order by id desc limit 3;
    ```
 
-5. LIKE模糊查询
+6. LIKE模糊查询
 
    可实现模糊查询，它有两种通配符：`%`和`_`，`%`可以匹配一个或多个字符，`_`可以匹配一个字符
 
@@ -196,7 +204,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
    select * from tb_book where name like('_h%');
    ```
 
-6. LIMIT限定结果行数
+7. LIMIT限定结果行数
 
    ```sql
    --1.降序显示3条记录
@@ -206,14 +214,14 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
    select * from tb_book where id limit 1,4;
    ```
 
-7. CONCAT联合多列
+8. CONCAT联合多列
 
    ```sql
    --把name和price合并成一个新的字符串输出
    select id,concat(name,":",price) as info,type from tb_book;
    ```
 
-8. 使用函数和表达式
+9. 使用函数和表达式
 
    ```sql
    --计算tb_book表中各类图书的总价格
@@ -222,15 +230,15 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
    select *,(price * 0.8) as "八折" from tb_book;
    ```
 
-9. UNION 示例
+10. UNION 示例
 
-   ```sql
-   SELECT a FROM t1 WHERE a = 10 AND B = 1 ORDER by LIMIT 10
-   UNION
-   SELECT a FROM t2 WHERE a = 11 AND B = 2 ORDER by LIMIT 10;
-   ```
+    ```sql
+    SELECT a FROM t1 WHERE a = 10 AND B = 1 ORDER by LIMIT 10
+    UNION
+    SELECT a FROM t2 WHERE a = 11 AND B = 2 ORDER by LIMIT 10;
+    ```
 
-10. WITH 子句示例
+11. WITH 子句示例
 
     ```sql
     WITH cte AS
@@ -242,7 +250,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
     SELECT col1, col2 FROM cte;
     ```
 
-11. JOIN 示例
+12. JOIN 示例
 
     ```sql
     SELECT * FROM t1 LEFT JOIN (t2, t3, t4)
@@ -256,7 +264,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
                      ON (t2.a = t1.a AND t3.b = t1.b AND t4.c = t1.c)
     ```
 
-12. INNER JOIN
+13. INNER JOIN
 
     ```sql
     SELECT t1.name, t2.salary
@@ -266,7 +274,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
       FROM employee t1 INNER JOIN info t2 ON t1.name = t2.name;
     ```
 
-13. LEFT JOIN
+14. LEFT JOIN
 
     ```sql
     SELECT left_tbl.*
@@ -274,7 +282,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
       WHERE right_tbl.id IS NULL;
     ```
 
-14. RIGHT JOIN
+15. RIGHT JOIN
 
     ```sql
     mysql> SELECT * FROM t1 RIGHT JOIN t2 ON (t1.a = t2.a);
@@ -286,7 +294,7 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
     +------+------+------+------+
     ```
 
-15. TABLESAMPLE
+16. TABLESAMPLE
 
     ```sql
     --在t1中伪随机的抽样1000行。注意实际是根据表的统计信息选择若干Tablet，被选择的Tablet总行数可能大于1000，所以若想明确返回1000行需要加上Limit。

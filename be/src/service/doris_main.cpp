@@ -16,7 +16,6 @@
 // under the License.
 
 #include <errno.h>
-#include <gperftools/malloc_extension.h>
 #include <libgen.h>
 #include <setjmp.h>
 #include <sys/file.h>
@@ -52,7 +51,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/load_channel_mgr.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -321,23 +319,25 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    if (doris::config::enable_fuzzy_mode) {
+        LOG(INFO) << "enable_fuzzy_mode is true, set fuzzy configs";
+        doris::config::set_fuzzy_configs();
+    }
+
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
     // Change the total TCMalloc thread cache size if necessary.
-    size_t total_thread_cache_bytes;
-    if (!MallocExtension::instance()->GetNumericProperty("tcmalloc.max_total_thread_cache_bytes",
-                                                         &total_thread_cache_bytes)) {
-        fprintf(stderr, "Failed to get TCMalloc total thread cache size.\n");
-    }
     const size_t kDefaultTotalThreadCacheBytes = 1024 * 1024 * 1024;
-    if (total_thread_cache_bytes < kDefaultTotalThreadCacheBytes) {
-        if (!MallocExtension::instance()->SetNumericProperty(
-                    "tcmalloc.max_total_thread_cache_bytes", kDefaultTotalThreadCacheBytes)) {
-            fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
-            return -1;
-        }
+    if (!MallocExtension::instance()->SetNumericProperty("tcmalloc.max_total_thread_cache_bytes",
+                                                         kDefaultTotalThreadCacheBytes)) {
+        fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
+        return -1;
     }
 #endif
+
+    if (doris::config::memory_mode == std::string("performance")) {
+        doris::MemTrackerLimiter::disable_oom_avoidance();
+    }
 
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
@@ -498,18 +498,7 @@ int main(int argc, char** argv) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
-        doris::PerfCounters::refresh_proc_status();
-        doris::MemTrackerLimiter::refresh_global_counter();
-        doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
-        !defined(USE_JEMALLOC)
-        doris::MemInfo::refresh_allocator_mem();
-#endif
-        if (doris::config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
-        }
-        doris::MemTrackerLimiter::enable_print_log_process_usage();
-        sleep(1);
+        sleep(10);
     }
 
     http_service.stop();

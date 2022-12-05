@@ -22,6 +22,7 @@
 
 #include <vec/data_types/data_type_factory.hpp>
 
+#include "../format/table/iceberg_reader.h"
 #include "common/logging.h"
 #include "common/utils.h"
 #include "exec/arrow/orc_reader.h"
@@ -34,6 +35,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -101,6 +103,7 @@ Status VFileScanner::prepare(
 Status VFileScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
+
     return Status::OK();
 }
 
@@ -472,17 +475,27 @@ Status VFileScanner::_get_next_reader() {
         // create reader for specific format
         // TODO: add json, avro
         Status init_status;
+        // TODO: use data lake type
         switch (_params.format_type) {
         case TFileFormatType::FORMAT_PARQUET: {
-            _cur_reader.reset(new ParquetReader(
-                    _profile, _params, range, _file_col_names, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj())));
-            if (_push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
+            ParquetReader* parquet_reader =
+                    new ParquetReader(_profile, _params, range, _state->query_options().batch_size,
+                                      const_cast<cctz::time_zone*>(&_state->timezone_obj()));
+            if (!_is_load && _push_down_expr == nullptr && _vconjunct_ctx != nullptr) {
                 RETURN_IF_ERROR(_vconjunct_ctx->clone(_state, &_push_down_expr));
                 _discard_conjuncts();
             }
-            init_status = ((ParquetReader*)(_cur_reader.get()))
-                                  ->init_reader(_colname_to_value_range, _push_down_expr);
+            init_status = parquet_reader->init_reader(_file_col_names, _colname_to_value_range,
+                                                      _push_down_expr);
+            if (_params.__isset.table_format_params &&
+                _params.table_format_params.table_format_type == "iceberg") {
+                IcebergTableReader* iceberg_reader = new IcebergTableReader(
+                        (GenericReader*)parquet_reader, _profile, _state, _params);
+                iceberg_reader->init_row_filters();
+                _cur_reader.reset((GenericReader*)iceberg_reader);
+            } else {
+                _cur_reader.reset((GenericReader*)parquet_reader);
+            }
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
