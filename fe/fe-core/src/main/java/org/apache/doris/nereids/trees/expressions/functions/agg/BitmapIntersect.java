@@ -41,24 +41,15 @@ public class BitmapIntersect extends AggregateFunction
         super("bitmap_intersect", arg0);
     }
 
-    public BitmapIntersect(AggregateParam aggregateParam, Expression arg0) {
-        super("bitmap_intersect", aggregateParam, arg0);
-    }
-
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+    protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BitmapType.INSTANCE);
     }
 
     @Override
     public BitmapIntersect withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapIntersect(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public BitmapIntersect withAggregateParam(AggregateParam aggregateParam) {
-        return new BitmapIntersect(aggregateParam, child());
+        return new BitmapIntersect(children.get(0));
     }
 
     @Override

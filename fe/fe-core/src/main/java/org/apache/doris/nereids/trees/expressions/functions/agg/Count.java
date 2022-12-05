@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
@@ -42,8 +41,8 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
         this.isStar = true;
     }
 
-    public Count(AggregateParam aggregateParam) {
-        super("count", aggregateParam);
+    public Count(boolean isDistinct) {
+        super("count", isDistinct);
         this.isStar = true;
     }
 
@@ -52,8 +51,8 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
         this.isStar = false;
     }
 
-    public Count(AggregateParam aggregateParam, Expression child) {
-        super("count", aggregateParam, child);
+    public Count(boolean isDistinct, Expression child) {
+        super("count", isDistinct, child);
         this.isStar = false;
     }
 
@@ -62,12 +61,12 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) argumentTypes);
+    public FunctionSignature customSignature() {
+        return FunctionSignature.of(BigIntType.INSTANCE, (List) getArgumentsTypes());
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+    protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BigIntType.INSTANCE);
     }
 
@@ -77,20 +76,11 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
         if (children.size() == 0) {
             return this;
         }
-        return new Count(getAggregateParam(), children.get(0));
+        return new Count(isDistinct, children.get(0));
     }
 
     @Override
-    public Count withAggregateParam(AggregateParam aggregateParam) {
-        if (arity() == 0) {
-            return new Count(aggregateParam);
-        } else {
-            return new Count(aggregateParam, child(0));
-        }
-    }
-
-    @Override
-    public String toSql() throws UnboundException {
+    public String toSql() {
         if (isStar) {
             return "count(*)";
         }
@@ -113,7 +103,7 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
                 .stream()
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
-        if (isDistinct()) {
+        if (isDistinct) {
             return "count(distinct " + args + ")";
         }
         return "count(" + args + ")";

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -132,24 +133,23 @@ public class DisassembleDistinctAggregate extends OneRewriteRuleFactory {
         // The groupBy slots are placed at the beginning of the output, in line with the stale optimiser
         childGroupByExprs.stream().forEach(expression -> childOutputExprs.add((SlotReference) expression));
         for (NamedExpression originOutputExpr : originOutputExprs) {
-            Set<AggregateFunction> aggregateFunctions
-                    = originOutputExpr.collect(AggregateFunction.class::isInstance);
-            for (AggregateFunction aggregateFunction : aggregateFunctions) {
-                if (inputSubstitutionMap.containsKey(aggregateFunction)) {
+            Set<AggregateExpression> aggregateExpressions
+                    = originOutputExpr.collect(AggregateExpression.class::isInstance);
+            for (AggregateExpression aggregateExpression : aggregateExpressions) {
+                if (inputSubstitutionMap.containsKey(aggregateExpression)) {
                     continue;
                 }
-                AggregateFunction childAggregateFunction = aggregateFunction.withAggregateParam(
-                        aggregateFunction.getAggregateParam()
-                                .withPhaseAndDisassembled(false, childPhase, true)
+                AggregateExpression newPhaseAggregateExpression = aggregateExpression.withAggregateParam(
+                        aggregateExpression.getAggregateParam().withAggPhase(childPhase)
                 );
-                NamedExpression childOutputExpr = new Alias(childAggregateFunction, aggregateFunction.toSql());
-                AggregateFunction substitutionValue = aggregateFunction
+                NamedExpression childOutputExpr = new Alias(
+                        newPhaseAggregateExpression, newPhaseAggregateExpression.toSql());
+                AggregateExpression substitutionValue = aggregateExpression
                         // save the origin input types to the global aggregate functions
-                        .withAggregateParam(aggregateFunction.getAggregateParam()
-                                .withPhaseAndDisassembled(true, parentPhase, true))
+                        .withAggregateParam(aggregateExpression.getAggregateParam().withAggPhase(parentPhase))
                         .withChildren(Lists.newArrayList(childOutputExpr.toSlot()));
 
-                inputSubstitutionMap.put(aggregateFunction, substitutionValue);
+                inputSubstitutionMap.put(aggregateExpression, substitutionValue);
                 childOutputExprs.add(childOutputExpr);
             }
         }

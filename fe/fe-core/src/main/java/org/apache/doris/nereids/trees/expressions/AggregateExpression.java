@@ -58,7 +58,7 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
     }
 
     public boolean isDistinct() {
-        return aggregateParam.isDistinct;
+        return function.isDistinct();
     }
 
     @Override
@@ -90,6 +90,10 @@ public class AggregateExpression extends Expression implements UnaryExpression, 
         } else {
             return new AggregateExpression(function, aggregateParam, child);
         }
+    }
+
+    public AggregateExpression withAggregateParam(AggregateParam aggregateParam) {
+        return new AggregateExpression(function, aggregateParam, child());
     }
 
     @Override

@@ -104,7 +104,7 @@ public class If extends ScalarFunction
     }
 
     @Override
-    protected FunctionSignature computeSignature(FunctionSignature signature, List<Expression> arguments) {
+    protected FunctionSignature computeSignature(FunctionSignature signature) {
         DataType widerType = getWiderType(signature.argumentsTypes);
         List<AbstractDataType> newArgumentsTypes = new ImmutableList.Builder<AbstractDataType>()
                 .add(signature.argumentsTypes.get(0))
@@ -113,7 +113,7 @@ public class If extends ScalarFunction
                 .build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgumentsTypes)
                 .withReturnType(widerType);
-        return super.computeSignature(signature, arguments);
+        return super.computeSignature(signature);
     }
 
     /**

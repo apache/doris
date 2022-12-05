@@ -17,21 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestProperties;
 import org.apache.doris.nereids.properties.RequestPropertiesSupplier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -42,7 +40,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Physical hash aggregation plan.
@@ -56,26 +53,24 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     private final Optional<List<Expression>> partitionExpressions;
 
-    private final AggMode aggMode;
-
-    private final AggPhase aggPhase;
+    private final AggregateParam aggregateParam;
 
     private final boolean usingStream;
 
     private final RequestProperties requestProperties;
 
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
-            AggPhase aggPhase, AggMode aggMode, boolean usingStream, LogicalProperties logicalProperties,
+            AggregateParam aggregateParam, boolean usingStream, LogicalProperties logicalProperties,
             RequestProperties requestProperties, CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, Optional.empty(), aggPhase, aggMode,
+        this(groupByExpressions, outputExpressions, Optional.empty(), aggregateParam,
                 usingStream, Optional.empty(), logicalProperties, requestProperties, child);
     }
 
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
-            Optional<List<Expression>> partitionExpressions, AggPhase aggPhase, AggMode aggMode,
+            Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam,
             boolean usingStream, LogicalProperties logicalProperties, RequestProperties requestProperties,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, partitionExpressions, aggPhase, aggMode,
+        this(groupByExpressions, outputExpressions, partitionExpressions, aggregateParam,
                 usingStream, Optional.empty(), logicalProperties, requestProperties, child);
     }
 
@@ -89,7 +84,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
      * @param requestProperties the request physical properties
      */
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
-            Optional<List<Expression>> partitionExpressions, AggPhase aggPhase, AggMode aggMode, boolean usingStream,
+            Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean usingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             RequestProperties requestProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, child);
@@ -99,8 +94,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 Objects.requireNonNull(outputExpressions, "outputExpressions cannot be null"));
         this.partitionExpressions = Objects.requireNonNull(
                 partitionExpressions, "partitionExpressions cannot be null");
-        this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
-        this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
+        this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
         this.usingStream = usingStream;
         this.requestProperties = Objects.requireNonNull(requestProperties, "requestProperties cannot be null");
     }
@@ -115,7 +109,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
      * @param requestProperties the request physical properties
      */
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
-            Optional<List<Expression>> partitionExpressions, AggPhase aggPhase, AggMode aggMode, boolean usingStream,
+            Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean usingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             RequestProperties requestProperties, PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
@@ -127,18 +121,9 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 Objects.requireNonNull(outputExpressions, "outputExpressions cannot be null"));
         this.partitionExpressions = Objects.requireNonNull(
                 partitionExpressions, "partitionExpressions cannot be null");
-        this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
-        this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
+        this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
         this.usingStream = usingStream;
         this.requestProperties = Objects.requireNonNull(requestProperties, "requestProperties cannot be null");
-    }
-
-    public AggPhase getAggPhase() {
-        return aggPhase;
-    }
-
-    public AggMode getAggMode() {
-        return aggMode;
     }
 
     public List<Expression> getGroupByExpressions() {
@@ -151,6 +136,18 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     public Optional<List<Expression>> getPartitionExpressions() {
         return partitionExpressions;
+    }
+
+    public AggregateParam getAggregateParam() {
+        return aggregateParam;
+    }
+
+    public AggPhase getAggPhase() {
+        return aggregateParam.aggPhase;
+    }
+
+    public AggMode getAggMode() {
+        return aggregateParam.aggMode;
     }
 
     public boolean isUsingStream() {
@@ -186,11 +183,12 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalHashAggregate",
-                "phase", aggPhase,
-                "mode", aggMode,
+                "aggregateParam", aggregateParam,
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
+                "aggPhase", aggregateParam.aggPhase,
+                "aggMode", aggregateParam.aggMode,
                 "requestProperties", requestProperties,
                 "stats", statsDeriveResult
         );
@@ -210,35 +208,34 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return Objects.equals(groupByExpressions, that.groupByExpressions)
                 && Objects.equals(outputExpressions, that.outputExpressions)
                 && Objects.equals(partitionExpressions, that.partitionExpressions)
+                && Objects.equals(aggregateParam, that.aggregateParam)
                 && usingStream == that.usingStream
-                && aggPhase == that.aggPhase
-                && aggMode == that.aggMode
                 && requestProperties == that.requestProperties;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-                aggMode, usingStream, requestProperties);
+        return Objects.hash(groupByExpressions, outputExpressions, partitionExpressions,
+                aggregateParam, usingStream, requestProperties);
     }
 
     @Override
     public PhysicalHashAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggPhase, aggMode, usingStream, getLogicalProperties(), requestProperties, children.get(0));
+                aggregateParam, usingStream, getLogicalProperties(), requestProperties, children.get(0));
     }
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions, aggPhase,
-                aggMode, usingStream, groupExpression, getLogicalProperties(), requestProperties, child());
+        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
+                aggregateParam, usingStream, groupExpression, getLogicalProperties(), requestProperties, child());
     }
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggPhase, aggMode, usingStream, Optional.empty(), logicalProperties.get(),
+                aggregateParam, usingStream, Optional.empty(), logicalProperties.get(),
                 requestProperties, child());
     }
 
@@ -246,7 +243,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalHashAggregate<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggPhase, aggMode, usingStream, Optional.empty(), getLogicalProperties(),
+                aggregateParam, usingStream, Optional.empty(), getLogicalProperties(),
                 requestProperties, physicalProperties, statsDeriveResult,
                 child());
     }
@@ -254,87 +251,20 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new PhysicalHashAggregate<>(groupByExpressions, newOutput, partitionExpressions,
-                aggPhase, aggMode, usingStream, Optional.empty(), getLogicalProperties(),
+                aggregateParam, usingStream, Optional.empty(), getLogicalProperties(),
                 requestProperties, physicalProperties, statsDeriveResult, child());
     }
 
     public PhysicalHashAggregate<CHILD_TYPE> withRequestProperties(RequestProperties requestProperties) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggPhase, aggMode, usingStream, Optional.empty(), getLogicalProperties(),
+                aggregateParam, usingStream, Optional.empty(), getLogicalProperties(),
                 requestProperties, physicalProperties, statsDeriveResult, child());
     }
 
     public <C extends Plan> PhysicalHashAggregate<C> withRequestPropertiesAndChild(
             RequestProperties requestProperties, C newChild) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggPhase, aggMode, usingStream, Optional.empty(), getLogicalProperties(),
+                aggregateParam, usingStream, Optional.empty(), getLogicalProperties(),
                 requestProperties, physicalProperties, statsDeriveResult, newChild);
-    }
-
-    /** localPhaseRequestProperties */
-    public static RequestProperties localPhaseRequestProperties(AggMode aggMode) {
-        if (aggMode.isFinalPhase) {
-            // INPUT_TO_RESULT should gather to one instance
-            return RequestProperties.of(PhysicalProperties.GATHER);
-        } else {
-            // INPUT_TO_BUFFER
-            return RequestProperties.of(PhysicalProperties.ANY);
-        }
-    }
-
-    /** globalPhaseRequestProperties */
-    public static RequestProperties globalPhaseRequestProperties(AggMode aggMode) {
-        if (aggMode.isFinalPhase) {
-            // BUFFER_TO_RESULT should distribute by group by keys
-            return RequestProperties.of(PhysicalProperties.GATHER);
-        } else {
-            // BUFFER_TO_BUFFER
-            // local/global distinct stage exists, follow the distinct aggregate's request
-            return RequestProperties.followParent();
-        }
-    }
-
-    /** distinctLocalPhaseRequestProperties */
-    public static RequestProperties distinctLocalPhaseRequestProperties(
-            AggMode aggMode, LogicalAggregate<? extends Plan> logicalAggregate) {
-        if (aggMode.isFinalPhase) {
-            // BUFFER_TO_RESULT
-            // 3 phase aggregate
-            // local distinct: group by originGroupByExpressions
-            // global aggregate: group by distinct columns + originGroupByExpressions
-            // local aggregate: group by distinct columns + originGroupByExpressions
-            //
-            // the local distinct and global aggregate has the same request:
-            // distribute by hash(originGroupByExpressions), so they must exist in the same instance.
-            // and the local aggregate request any request, maybe exist in another instance.
-            List<Expression> groupByExpressions = logicalAggregate.getGroupByExpressions();
-            if (groupByExpressions.isEmpty()) {
-                Set<Expression> distinctArguments = logicalAggregate.getDistinctArguments();
-                return RequestProperties.of(PhysicalProperties.createHash(distinctArguments, ShuffleType.AGGREGATE));
-            } else {
-                return RequestProperties.of(PhysicalProperties.createHash(groupByExpressions, ShuffleType.AGGREGATE));
-            }
-        } else {
-            // BUFFER_TO_BUFFER
-            // global distinct stage exists, follow the distinct aggregate's request
-            return RequestProperties.followParent();
-        }
-    }
-
-    /** distinctGlobalPhaseRequestProperties */
-    public static RequestProperties distinctGlobalPhaseRequestProperties(
-            AggMode aggMode, LogicalAggregate<? extends Plan> logicalAggregate) {
-        if (aggMode.isFinalPhase) {
-            // BUFFER_TO_RESULT
-            List<Expression> groupByExpressions = logicalAggregate.getGroupByExpressions();
-            if (groupByExpressions.isEmpty()) {
-                Set<Expression> distinctArguments = logicalAggregate.getDistinctArguments();
-                return RequestProperties.of(PhysicalProperties.createHash(distinctArguments, ShuffleType.AGGREGATE));
-            } else {
-                return RequestProperties.of(PhysicalProperties.createHash(groupByExpressions, ShuffleType.AGGREGATE));
-            }
-        } else {
-            throw new AnalysisException("DISTINCT_GLOBAL should be the final stage");
-        }
     }
 }

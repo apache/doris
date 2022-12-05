@@ -25,8 +25,6 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.PartialAggType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.List;
 import java.util.Objects;
 
@@ -35,98 +33,39 @@ import java.util.Objects;
  */
 public abstract class AggregateFunction extends BoundFunction implements ExpectsInputTypes {
 
-    private final AggregateParam aggregateParam;
+    protected final boolean isDistinct;
 
     public AggregateFunction(String name, Expression... arguments) {
-        this(name, AggregateParam.finalPhase(), arguments);
+        this(name, false, arguments);
     }
 
-    public AggregateFunction(String name, AggregateParam aggregateParam, Expression... arguments) {
+    public AggregateFunction(String name, boolean isDistinct, Expression... arguments) {
         super(name, arguments);
-        this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregateParam can not be null");
-    }
-
-    @Override
-    public List<Expression> getOriginArguments() {
-        return getArgumentsBeforeDisassembled();
-    }
-
-    @Override
-    public List<DataType> getOriginArgumentTypes() {
-        return getArgumentTypesBeforeDisassembled();
+        this.isDistinct = isDistinct;
     }
 
     @Override
     public abstract AggregateFunction withChildren(List<Expression> children);
 
-    public abstract AggregateFunction withAggregateParam(AggregateParam aggregateParam);
-
-    protected abstract List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments);
+    protected abstract List<DataType> intermediateTypes();
 
     /** getIntermediateTypes */
     public final PartialAggType getIntermediateTypes() {
-        if (isGlobal() && isDisassembled()) {
-            return (PartialAggType) child(0).getDataType();
-        }
-        List<Expression> arguments = getArgumentsBeforeDisassembled();
-        List<DataType> types = getArgumentTypesBeforeDisassembled();
-        return new PartialAggType(getArguments(), intermediateTypes(types, arguments));
-    }
-
-    public final DataType getFinalType() {
-        return getSignature().returnType;
+        return new PartialAggType(getArguments(), intermediateTypes());
     }
 
     @Override
     public final DataType getDataType() {
-        if (aggregateParam.aggPhase.isGlobal() || aggregateParam.isFinalPhase) {
-            return getFinalType();
-        } else {
-            return getIntermediateTypes();
-        }
+        return getSignature().returnType;
     }
 
     @Override
-    public final List<AbstractDataType> expectedInputTypes() {
-        if (isGlobal() && isDisassembled()) {
-            return ImmutableList.of(getIntermediateTypes());
-        } else {
-            return getSignature().argumentsTypes;
-        }
-    }
-
-    public List<Expression> getArgumentsBeforeDisassembled() {
-        if (arity() == 1 && getArgument(0).getDataType() instanceof PartialAggType) {
-            return ((PartialAggType) getArgument(0).getDataType()).getOriginArguments();
-        }
-        return getArguments();
-    }
-
-    public List<DataType> getArgumentTypesBeforeDisassembled() {
-        return getArgumentsBeforeDisassembled()
-                .stream()
-                .map(Expression::getDataType)
-                .collect(ImmutableList.toImmutableList());
+    public List<AbstractDataType> expectedInputTypes() {
+        return getSignature().argumentsTypes;
     }
 
     public boolean isDistinct() {
-        return aggregateParam.isDistinct;
-    }
-
-    public boolean isGlobal() {
-        return aggregateParam.aggPhase.isGlobal();
-    }
-
-    public boolean isFinalPhase() {
-        return aggregateParam.isFinalPhase;
-    }
-
-    public boolean isDisassembled() {
-        return aggregateParam.isDisassembled;
-    }
-
-    public AggregateParam getAggregateParam() {
-        return aggregateParam;
+        return isDistinct;
     }
 
     @Override
@@ -138,14 +77,14 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
             return false;
         }
         AggregateFunction that = (AggregateFunction) o;
-        return Objects.equals(aggregateParam, that.aggregateParam)
+        return Objects.equals(isDistinct, that.isDistinct)
                 && Objects.equals(getName(), that.getName())
                 && Objects.equals(children, that.children);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(aggregateParam, getName(), children);
+        return Objects.hash(isDistinct, getName(), children);
     }
 
     @Override

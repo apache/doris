@@ -43,30 +43,25 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
         super("sum", child);
     }
 
-    public Sum(AggregateParam aggregateParam, Expression child) {
-        super("sum", aggregateParam, child);
+    public Sum(boolean isDistinct, Expression child) {
+        super("sum", isDistinct, child);
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        DataType implicitCastType = implicitCast(argumentTypes.get(0));
+    public FunctionSignature customSignature() {
+        DataType implicitCastType = implicitCast(getArgument(0).getDataType());
         return FunctionSignature.ret(implicitCastType).args(NumericType.INSTANCE);
     }
 
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return ImmutableList.of(getFinalType());
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(getDataType());
     }
 
     @Override
     public Sum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sum(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public Sum withAggregateParam(AggregateParam aggregateParam) {
-        return new Sum(aggregateParam, child());
+        return new Sum(isDistinct, children.get(0));
     }
 
     @Override

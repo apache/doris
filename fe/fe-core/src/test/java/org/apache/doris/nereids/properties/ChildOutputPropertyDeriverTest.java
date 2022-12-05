@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -275,11 +276,10 @@ public class ChildOutputPropertyDeriverTest {
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
-                AggPhase.LOCAL,
-                AggMode.INPUT_TO_BUFFER,
+                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
                 true,
                 logicalProperties,
-                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_BUFFER),
+                RequestProperties.of(PhysicalProperties.GATHER),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -300,11 +300,10 @@ public class ChildOutputPropertyDeriverTest {
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(key),
                 Lists.newArrayList(key),
-                AggPhase.GLOBAL,
-                AggMode.BUFFER_TO_RESULT,
+                new AggregateParam(false, AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                PhysicalHashAggregate.globalPhaseRequestProperties(AggMode.BUFFER_TO_RESULT),
+                RequestProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.AGGREGATE)),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -330,11 +329,10 @@ public class ChildOutputPropertyDeriverTest {
         PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
                 Lists.newArrayList(),
                 Lists.newArrayList(),
-                AggPhase.GLOBAL,
-                AggMode.BUFFER_TO_RESULT,
+                new AggregateParam(false, AggPhase.LOCAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                PhysicalHashAggregate.globalPhaseRequestProperties(AggMode.BUFFER_TO_RESULT),
+                RequestProperties.of(PhysicalProperties.GATHER),
                 groupPlan
         );
 

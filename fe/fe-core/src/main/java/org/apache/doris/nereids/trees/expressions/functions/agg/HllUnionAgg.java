@@ -42,24 +42,15 @@ public class HllUnionAgg extends AggregateFunction
         super("hll_union_agg", arg0);
     }
 
-    public HllUnionAgg(AggregateParam aggregateParam, Expression arg0) {
-        super("hll_union_agg", aggregateParam, arg0);
-    }
-
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+    protected List<DataType> intermediateTypes() {
         return ImmutableList.of(HllType.INSTANCE);
     }
 
     @Override
     public HllUnionAgg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new HllUnionAgg(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public HllUnionAgg withAggregateParam(AggregateParam aggregateParam) {
-        return new HllUnionAgg(aggregateParam, child());
+        return new HllUnionAgg(children.get(0));
     }
 
     @Override

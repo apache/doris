@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -35,29 +36,21 @@ public class Max extends AggregateFunction implements UnaryExpression, Propagate
         super("max", child);
     }
 
-    public Max(AggregateParam aggregateParam, Expression child) {
-        super("max", aggregateParam, child);
+    @Override
+    public FunctionSignature customSignature() {
+        DataType dataType = getArgument(0).getDataType();
+        return FunctionSignature.ret(dataType).args(dataType);
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.ret(argumentTypes.get(0)).args(argumentTypes.get(0));
-    }
-
-    @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return argumentTypes;
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(getDataType());
     }
 
     @Override
     public Max withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Max(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public Max withAggregateParam(AggregateParam aggregateParam) {
-        return new Max(aggregateParam, child());
+        return new Max(children.get(0));
     }
 
     @Override

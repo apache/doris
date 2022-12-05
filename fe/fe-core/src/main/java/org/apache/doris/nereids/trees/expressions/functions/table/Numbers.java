@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.tablefunction.NumbersTableValuedFunction;
@@ -47,8 +46,8 @@ public class Numbers extends TableValuedFunction {
     }
 
     @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) argumentTypes);
+    public FunctionSignature customSignature() {
+        return FunctionSignature.of(BigIntType.INSTANCE, (List) getArgumentsTypes());
     }
 
     @Override

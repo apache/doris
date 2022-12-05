@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -276,19 +275,12 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         usedPlansIndex.add(0);
 
         while (usedPlansIndex.size() != multiJoinHandleChildren.children().size()) {
-            LogicalPlan logicalPlan = findInnerJoin(left, multiJoinHandleChildren.children(),
+            LogicalJoin<? extends Plan, ? extends Plan> join = findInnerJoin(left, multiJoinHandleChildren.children(),
                     joinFilter, usedPlansIndex);
-            LogicalJoin<? extends Plan, ? extends Plan> join = logicalPlan instanceof LogicalJoin
-                    ? (LogicalJoin<? extends Plan, ? extends Plan>) logicalPlan
-                    : (LogicalJoin<? extends Plan, ? extends Plan>) logicalPlan.child(0);
-
-            List<Expression> nonJoinConditions = logicalPlan instanceof LogicalFilter
-                    ? ExpressionUtils.extractConjunction(((LogicalFilter) logicalPlan).getPredicates())
-                    : ImmutableList.of();
             join.getHashJoinConjuncts().forEach(joinFilter::remove);
-            nonJoinConditions.forEach(joinFilter::remove);
+            join.getOtherJoinConjuncts().forEach(joinFilter::remove);
 
-            left = logicalPlan;
+            left = join;
         }
 
         return PlanUtils.filterOrSelf(new ArrayList<>(joinFilter), left);
@@ -313,10 +305,9 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      *
      * @return InnerJoin or CrossJoin{left, last of [candidates]}
      */
-    private LogicalPlan findInnerJoin(Plan left, List<Plan> candidates,
+    private LogicalJoin<? extends Plan, ? extends Plan> findInnerJoin(Plan left, List<Plan> candidates,
             Set<Expression> joinFilter, Set<Integer> usedPlansIndex) {
-        // NOTE: non-equal compare expression should keep as filter
-        List<Expression> nonJoinConditions = Lists.newArrayList();
+        List<Expression> otherJoinConditions = Lists.newArrayList();
         Set<Slot> leftOutputSet = left.getOutputSet();
         for (int i = 0; i < candidates.size(); i++) {
             if (usedPlansIndex.contains(i)) {
@@ -339,16 +330,12 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
                     left.getOutput(), candidate.getOutput(), currentJoinFilter);
             List<Expression> hashJoinConditions = pair.first;
-            nonJoinConditions = pair.second;
+            otherJoinConditions = pair.second;
             if (!hashJoinConditions.isEmpty()) {
                 usedPlansIndex.add(i);
-                LogicalJoin<Plan, Plan> logicalJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                        hashJoinConditions, ImmutableList.of(), left, candidate);
-                if (!nonJoinConditions.isEmpty()) {
-                    return new LogicalFilter<>(ExpressionUtils.and(nonJoinConditions), logicalJoin);
-                } else {
-                    return logicalJoin;
-                }
+                return new LogicalJoin<>(JoinType.INNER_JOIN,
+                        hashJoinConditions, otherJoinConditions,
+                        left, candidate);
             }
         }
         // All { left -> one in [candidates] } is CrossJoin
@@ -358,15 +345,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 continue;
             }
             usedPlansIndex.add(i);
-            LogicalJoin<Plan, Plan> logicalJoin = new LogicalJoin<>(JoinType.CROSS_JOIN,
+            return new LogicalJoin<>(JoinType.CROSS_JOIN,
                     ExpressionUtils.EMPTY_CONDITION,
-                    ImmutableList.of(),
+                    otherJoinConditions,
                     left, candidates.get(i));
-            if (!nonJoinConditions.isEmpty()) {
-                return new LogicalFilter<>(ExpressionUtils.and(nonJoinConditions), logicalJoin);
-            } else {
-                return logicalJoin;
-            }
         }
 
         throw new RuntimeException("findInnerJoin: can't reach here");

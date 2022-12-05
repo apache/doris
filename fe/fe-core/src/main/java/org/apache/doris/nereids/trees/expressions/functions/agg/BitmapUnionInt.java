@@ -48,24 +48,15 @@ public class BitmapUnionInt extends AggregateFunction
         super("bitmap_union_int", arg0);
     }
 
-    public BitmapUnionInt(AggregateParam aggregateParam, Expression arg0) {
-        super("bitmap_union_int", aggregateParam, arg0);
-    }
-
     @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
+    protected List<DataType> intermediateTypes() {
         return ImmutableList.of(BitmapType.INSTANCE);
     }
 
     @Override
     public BitmapUnionInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapUnionInt(getAggregateParam(), children.get(0));
-    }
-
-    @Override
-    public BitmapUnionInt withAggregateParam(AggregateParam aggregateParam) {
-        return new BitmapUnionInt(aggregateParam, child());
+        return new BitmapUnionInt(children.get(0));
     }
 
     @Override

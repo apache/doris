@@ -22,10 +22,13 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.RequestProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -184,23 +187,23 @@ public class PlanEqualsTest {
         List<NamedExpression> outputExpressionList = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> actual = new PhysicalHashAggregate<>(Lists.newArrayList(), outputExpressionList,
-                AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true, logicalProperties,
-                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_RESULT), child);
+                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
+                RequestProperties.of(PhysicalProperties.GATHER), child);
 
         List<NamedExpression> outputExpressionList1 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> expected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList1,
-                AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true, logicalProperties,
-                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_RESULT), child);
+                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
+                RequestProperties.of(PhysicalProperties.GATHER), child);
         Assertions.assertEquals(expected, actual);
 
         List<NamedExpression> outputExpressionList2 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> unexpected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList2,
-                AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, false, logicalProperties,
-                PhysicalHashAggregate.localPhaseRequestProperties(AggMode.INPUT_TO_RESULT), child);
+                new AggregateParam(false, AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), false, logicalProperties,
+                RequestProperties.of(PhysicalProperties.GATHER), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
