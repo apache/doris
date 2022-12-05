@@ -985,12 +985,21 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
-            try {
-                // use col name from tableRefs first
-                havingClauseAfterAnaylzed = havingClause.clone();
-                havingClauseAfterAnaylzed.analyze(analyzer);
-            } catch (AnalysisException ex) {
-                // then consider alias name
+            if (groupByClause != null) {
+                // according to mysql
+                // if there is a group by clause, the having clause should use column name not alias
+                // this is the same as group by clause
+                try {
+                    // use col name from tableRefs first
+                    havingClauseAfterAnaylzed = havingClause.clone();
+                    havingClauseAfterAnaylzed.analyze(analyzer);
+                } catch (AnalysisException ex) {
+                    // then consider alias name
+                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                }
+            } else {
+                // according to mysql
+                // if there is no group by clause, the having clause should use alias
                 havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
             }
             havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
