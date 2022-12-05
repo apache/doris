@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.catalog.S3CoolDownResource;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TS3StorageParam;
@@ -48,18 +48,20 @@ public class NotifyUpdateStoragePolicyTask extends AgentTask {
         ret.cooldown_ttl = Long.parseLong(properties.get(StoragePolicy.COOLDOWN_TTL));
         ret.s3_storage_param = new TS3StorageParam();
         ret.s3_storage_param.s3_max_conn = Integer.parseInt(
-                properties.getOrDefault(S3Resource.S3_MAX_CONNECTIONS, S3Resource.DEFAULT_S3_MAX_CONNECTIONS));
+                properties.getOrDefault(S3CoolDownResource.S3_MAX_CONNECTIONS,
+                        S3CoolDownResource.DEFAULT_S3_MAX_CONNECTIONS));
         ret.s3_storage_param.s3_request_timeout_ms = Integer.parseInt(
-                properties.getOrDefault(S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.DEFAULT_S3_REQUEST_TIMEOUT_MS));
+                properties.getOrDefault(S3CoolDownResource.S3_REQUEST_TIMEOUT_MS,
+                        S3CoolDownResource.DEFAULT_S3_REQUEST_TIMEOUT_MS));
         ret.s3_storage_param.s3_conn_timeout_ms = Integer.parseInt(
-                properties.getOrDefault(S3Resource.S3_CONNECTION_TIMEOUT_MS,
-                        S3Resource.DEFAULT_S3_CONNECTION_TIMEOUT_MS));
-        ret.s3_storage_param.s3_endpoint = properties.get(S3Resource.S3_ENDPOINT);
-        ret.s3_storage_param.s3_region = properties.get(S3Resource.S3_REGION);
-        ret.s3_storage_param.root_path = properties.get(S3Resource.S3_ROOT_PATH);
-        ret.s3_storage_param.s3_ak = properties.get(S3Resource.S3_ACCESS_KEY);
-        ret.s3_storage_param.s3_sk = properties.get(S3Resource.S3_SECRET_KEY);
-        ret.s3_storage_param.bucket = properties.get(S3Resource.S3_BUCKET);
+                properties.getOrDefault(S3CoolDownResource.S3_CONNECTION_TIMEOUT_MS,
+                        S3CoolDownResource.DEFAULT_S3_CONNECTION_TIMEOUT_MS));
+        ret.s3_storage_param.s3_endpoint = properties.get(S3CoolDownResource.S3_ENDPOINT);
+        ret.s3_storage_param.s3_region = properties.get(S3CoolDownResource.S3_REGION);
+        ret.s3_storage_param.root_path = properties.get(S3CoolDownResource.S3_ROOT_PATH);
+        ret.s3_storage_param.s3_ak = properties.get(S3CoolDownResource.S3_ACCESS_KEY);
+        ret.s3_storage_param.s3_sk = properties.get(S3CoolDownResource.S3_SECRET_KEY);
+        ret.s3_storage_param.bucket = properties.get(S3CoolDownResource.S3_BUCKET);
         ret.md5_checksum = properties.get(StoragePolicy.MD5_CHECKSUM);
 
         LOG.info("TGetStoragePolicy toThrift : {}", ret);

@@ -72,7 +72,7 @@ public class ResourceMgr implements Writable {
     public void createResource(CreateResourceStmt stmt) throws DdlException {
         if (stmt.getResourceType() != ResourceType.SPARK
                 && stmt.getResourceType() != ResourceType.ODBC_CATALOG
-                && stmt.getResourceType() != ResourceType.S3
+                && stmt.getResourceType() != ResourceType.S3_COOLDOWN
                 && stmt.getResourceType() != ResourceType.JDBC) {
             throw new DdlException("Only support SPARK, ODBC_CATALOG ,JDBC, and REMOTE_STORAGE resource.");
         }
@@ -110,10 +110,10 @@ public class ResourceMgr implements Writable {
         }
 
         Resource resource = nameToResource.get(resourceName);
-        if (resource.getType().equals(ResourceType.S3)
-                && !((S3Resource) resource).getCopiedUsedByPolicySet().isEmpty()) {
+        if (resource.getType().equals(ResourceType.S3_COOLDOWN)
+                && !((S3CoolDownResource) resource).getCopiedUsedByPolicySet().isEmpty()) {
             LOG.warn("S3 resource used by policy {}, can't drop it",
-                    ((S3Resource) resource).getCopiedUsedByPolicySet());
+                    ((S3CoolDownResource) resource).getCopiedUsedByPolicySet());
             throw new DdlException("S3 resource used by policy, can't drop it.");
         }
 
@@ -136,7 +136,6 @@ public class ResourceMgr implements Writable {
         String name = resource.getName();
         if (nameToResource.remove(name) == null) {
             LOG.info("resource " + name + " does not exists.");
-            return;
         }
     }
 

@@ -82,7 +82,7 @@ public class CreateResourceStmtTest {
         stmt = new CreateResourceStmt(true, false, resourceName3, properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName3, stmt.getResourceName());
-        Assert.assertEquals(ResourceType.S3, stmt.getResourceType());
+        Assert.assertEquals(ResourceType.S3_COOLDOWN, stmt.getResourceType());
         Assert.assertEquals("CREATE EXTERNAL RESOURCE 's3' PROPERTIES(\"type\"  =  \"s3\")", stmt.toSql());
 
     }

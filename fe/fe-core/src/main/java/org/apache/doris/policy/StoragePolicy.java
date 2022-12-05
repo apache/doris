@@ -20,7 +20,7 @@ package org.apache.doris.policy;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.catalog.S3CoolDownResource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -197,7 +197,7 @@ public class StoragePolicy extends Policy {
         }
 
         Resource r = checkIsS3ResourceAndExist(this.storageResource);
-        if (!((S3Resource) r).policyAddToSet(super.getPolicyName()) && !ifNotExists) {
+        if (!((S3CoolDownResource) r).policyAddToSet(super.getPolicyName()) && !ifNotExists) {
             throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
         }
         this.md5Checksum = calcPropertiesMd5();
@@ -209,8 +209,8 @@ public class StoragePolicy extends Policy {
                 Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(storageResource))
                     .orElseThrow(() -> new AnalysisException("storage resource doesn't exist: " + storageResource));
 
-        if (resource.getType() != Resource.ResourceType.S3) {
-            throw new AnalysisException("current storage policy just support resource type S3");
+        if (resource.getType() != Resource.ResourceType.S3_COOLDOWN) {
+            throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
         }
         return resource;
     }
@@ -225,10 +225,10 @@ public class StoragePolicy extends Policy {
         }
         if (!props[0].equals("")) {
             // s3_secret_key => ******
-            S3Resource s3Resource = GsonUtils.GSON.fromJson(props[0], S3Resource.class);
+            S3CoolDownResource s3Resource = GsonUtils.GSON.fromJson(props[0], S3CoolDownResource.class);
             Optional.ofNullable(s3Resource).ifPresent(s3 -> {
                 Map<String, String> copyMap = s3.getCopiedProperties();
-                copyMap.put(S3Resource.S3_SECRET_KEY, "******");
+                copyMap.put(S3CoolDownResource.S3_SECRET_KEY, "******");
                 props[0] = GsonUtils.GSON.toJson(copyMap);
             });
         }
@@ -317,9 +317,9 @@ public class StoragePolicy extends Policy {
     // be use this md5Sum to determine whether storage policy has been changed.
     // if md5Sum not eq previous value, be change its storage policy.
     private String calcPropertiesMd5() {
-        List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3Resource.S3_MAX_CONNECTIONS,
-                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS, S3Resource.S3_ACCESS_KEY,
-                S3Resource.S3_SECRET_KEY);
+        List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3CoolDownResource.S3_MAX_CONNECTIONS,
+                S3CoolDownResource.S3_REQUEST_TIMEOUT_MS, S3CoolDownResource.S3_CONNECTION_TIMEOUT_MS,
+                S3CoolDownResource.S3_ACCESS_KEY, S3CoolDownResource.S3_SECRET_KEY);
         Map<String, String> copiedStoragePolicyProperties = Env.getCurrentEnv().getResourceMgr()
                 .getResource(this.storageResource).getCopiedProperties();
 

@@ -44,7 +44,7 @@ public abstract class Resource implements Writable {
         UNKNOWN,
         SPARK,
         ODBC_CATALOG,
-        S3,
+        S3_COOLDOWN,
         JDBC;
 
         public static ResourceType fromString(String resourceType) {
@@ -92,8 +92,8 @@ public abstract class Resource implements Writable {
             case ODBC_CATALOG:
                 resource = new OdbcCatalogResource(name);
                 break;
-            case S3:
-                resource = new S3Resource(name);
+            case S3_COOLDOWN:
+                resource = new S3CoolDownResource(name);
                 break;
             case JDBC:
                 resource = new JdbcResource(name);

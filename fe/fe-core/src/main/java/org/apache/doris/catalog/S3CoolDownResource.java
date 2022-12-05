@@ -50,31 +50,31 @@ import java.util.Set;
  * CREATE RESOURCE "remote_s3"
  * PROPERTIES
  * (
- *    "type" = "s3",
- *    "s3_endpoint" = "bj",
- *    "s3_region" = "bj",
- *    "s3_root_path" = "/path/to/root",
- *    "s3_access_key" = "bbb",
- *    "s3_secret_key" = "aaaa",
- *    "s3_max_connections" = "50",
- *    "s3_request_timeout_ms" = "3000",
- *    "s3_connection_timeout_ms" = "1000"
+ *    "type" = "s3_cooldown",
+ *    "AWS_ENDPOINT" = "bj",
+ *    "AWS_REGION" = "bj",
+ *    "AWS_ROOT_PATH" = "/path/to/root",
+ *    "AWS_ACCESS_KEY" = "bbb",
+ *    "AWS_SECRET_KEY" = "aaaa",
+ *    "AWS_MAX_CONNECTION" = "50",
+ *    "AWS_REQUEST_TIMEOUT_MS" = "3000",
+ *    "AWS_CONNECTION_TIMEOUT_MS" = "1000"
  * );
  */
-public class S3Resource extends Resource {
-    private static final Logger LOG = LogManager.getLogger(S3Resource.class);
+public class S3CoolDownResource extends Resource {
+    private static final Logger LOG = LogManager.getLogger(S3CoolDownResource.class);
     // required
-    public static final String S3_ENDPOINT = "s3_endpoint";
-    public static final String S3_REGION = "s3_region";
-    public static final String S3_ROOT_PATH = "s3_root_path";
-    public static final String S3_ACCESS_KEY = "s3_access_key";
-    public static final String S3_SECRET_KEY = "s3_secret_key";
-    public static final String S3_BUCKET = "s3_bucket";
+    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
+    public static final String S3_REGION = "AWS_REGION";
+    public static final String S3_ROOT_PATH = "AWS_ROOT_PATH";
+    public static final String S3_ACCESS_KEY = "AWS_ACCESS_KEY";
+    public static final String S3_SECRET_KEY = "AWS_SECRET_KEY";
+    public static final String S3_BUCKET = "AWS_BUCKET";
 
     // optional
-    public static final String S3_MAX_CONNECTIONS = "s3_max_connections";
-    public static final String S3_REQUEST_TIMEOUT_MS = "s3_request_timeout_ms";
-    public static final String S3_CONNECTION_TIMEOUT_MS = "s3_connection_timeout_ms";
+    public static final String S3_MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
+    public static final String S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
+    public static final String S3_CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
     public static final String DEFAULT_S3_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_S3_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_S3_CONNECTION_TIMEOUT_MS = "1000";
@@ -95,12 +95,12 @@ public class S3Resource extends Resource {
         return flag;
     }
 
-    public S3Resource(String name) {
+    public S3CoolDownResource(String name) {
         this(name, Maps.newHashMap(), Sets.newHashSet());
     }
 
-    public S3Resource(String name, Map<String, String> properties, Set<String> policySet) {
-        super(name, ResourceType.S3);
+    public S3CoolDownResource(String name, Map<String, String> properties, Set<String> policySet) {
+        super(name, ResourceType.S3_COOLDOWN);
         this.properties = properties;
         this.usedByPolicySet = policySet;
     }
