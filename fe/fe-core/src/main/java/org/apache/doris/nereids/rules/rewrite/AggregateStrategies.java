@@ -128,9 +128,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE.build(
-                    basePattern
-                            .when(agg -> agg.getDistinctArguments().size() > 1)
-                            .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
+                basePattern
+                    .when(agg -> agg.getDistinctArguments().size() > 1)
+                    .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.THREE_PHASE_AGGREGATE.build(
                 basePattern
