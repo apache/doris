@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -94,6 +95,7 @@ import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -378,6 +380,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), unionNode, DataPartition.UNPARTITIONED);
         context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalStorageLayerAggregate(
+            PhysicalStorageLayerAggregate storageLayerAggregate, PlanTranslatorContext context) {
+        PlanFragment planFragment = visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
+
+        OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
+        TPushAggOp pushAggOp;
+        switch (storageLayerAggregate.getAggOp()) {
+            case COUNT:
+                pushAggOp = TPushAggOp.COUNT;
+                break;
+            case MIN_MAX:
+                pushAggOp = TPushAggOp.MINMAX;
+                break;
+            case MIX:
+                pushAggOp = TPushAggOp.MIX;
+                break;
+            default:
+                throw new AnalysisException("Unsupported storage layer aggregate: "
+                        + storageLayerAggregate.getAggOp());
+        }
+        olapScanNode.setPushDownAggNoGrouping(pushAggOp);
+
         return planFragment;
     }
 

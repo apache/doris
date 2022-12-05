@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -226,6 +227,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         } else {
             return PhysicalProperties.ANY;
         }
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalStorageLayerAggregate(
+            PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
+        return visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
     }
 
     @Override

@@ -62,7 +62,7 @@ public class DeriveStatsJob extends Job {
         if (groupExpression.isStatDerived()) {
             return;
         }
-        if (!deriveChildren) {
+        if (!deriveChildren && groupExpression.arity() > 0) {
             pushJob(new DeriveStatsJob(groupExpression, true, context));
 
             List<Group> children = groupExpression.children();

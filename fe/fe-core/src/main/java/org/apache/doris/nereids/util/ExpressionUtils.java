@@ -359,6 +359,13 @@ public class ExpressionUtils {
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    public static <E> List<E> collectAll(List<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
+                .collect(ImmutableList.toImmutableList());
+    }
+
     public static List<List<Expression>> rollupToGroupingSets(List<Expression> rollupExpressions) {
         List<List<Expression>> groupingSets = Lists.newArrayList();
         for (int end = rollupExpressions.size(); end >= 0; --end) {

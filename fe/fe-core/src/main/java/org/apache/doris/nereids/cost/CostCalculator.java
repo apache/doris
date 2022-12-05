@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -96,6 +97,15 @@ public class CostCalculator {
         public CostEstimate visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             return CostEstimate.ofCpu(statistics.getRowCount());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate,
+                PlanContext context) {
+            CostEstimate costEstimate = visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
+            // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
+            return new CostEstimate(costEstimate.getCpuCost() * 0.7, costEstimate.getMemoryCost(),
+                    costEstimate.getNetworkCost(), costEstimate.getPenalty());
         }
 
         @Override

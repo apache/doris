@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 
@@ -217,6 +218,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
         return visitPhysicalScan(olapScan, context);
+    }
+
+    public R visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {
+        return visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
     }
 
     public R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {

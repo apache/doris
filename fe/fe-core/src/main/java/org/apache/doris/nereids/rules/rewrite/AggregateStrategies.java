@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -25,20 +29,29 @@ import org.apache.doris.nereids.properties.RequestProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.implementation.ImplementationRuleFactory;
+import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -52,6 +65,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Used to generate the merge agg node for distributed execution.
@@ -73,9 +88,36 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     @Override
     public List<Rule> buildRules() {
         PatternDescriptor<LogicalAggregate<GroupPlan>> basePattern = logicalAggregate()
-                .when(agg -> agg.isNormalized());
+                .when(LogicalAggregate::isNormalized);
 
         return ImmutableList.of(
+            RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT.build(
+                logicalAggregate(
+                    logicalOlapScan().when(olapScan -> {
+                        KeysType keysType = olapScan.getTable().getKeysType();
+                        return keysType == KeysType.AGG_KEYS || keysType == KeysType.DUP_KEYS;
+                    })
+                )
+                .when(agg -> agg.isNormalized() && agg.getGroupByExpressions().isEmpty())
+                .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
+            ),
+            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
+                logicalAggregate(
+                    logicalProject(
+                        logicalOlapScan().when(olapScan -> {
+                            KeysType keysType = olapScan.getTable().getKeysType();
+                            return keysType == KeysType.AGG_KEYS || keysType == KeysType.DUP_KEYS;
+                        })
+                    )
+                )
+                .when(agg -> agg.isNormalized() && agg.getGroupByExpressions().isEmpty())
+                .thenApply(ctx -> {
+                    LogicalAggregate<LogicalProject<LogicalOlapScan>> agg = ctx.root;
+                    LogicalProject<LogicalOlapScan> project = agg.child();
+                    LogicalOlapScan olapScan = project.child();
+                    return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
+                })
+            ),
             RuleType.DISASSEMBLE_ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 0)
@@ -102,6 +144,111 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             )
         );
+    }
+
+    private LogicalAggregate<? extends Plan> storageLayerAggregate(
+            LogicalAggregate<? extends Plan> aggregate,
+            @Nullable LogicalProject<? extends Plan> project,
+            LogicalOlapScan olapScan, CascadesContext cascadesContext) {
+        final LogicalAggregate<? extends Plan> canNotPush = aggregate;
+
+        List<AggregateFunction> aggregateFunctions = ExpressionUtils.collectAll(
+                aggregate.getOutputExpressions(), AggregateFunction.class::isInstance);
+
+        Set<String> aggNames = aggregateFunctions.stream()
+                .map(aggFun -> aggFun.getName().toLowerCase())
+                .collect(Collectors.toSet());
+
+        Map<String, PushAggOp> supportedAgg = PushAggOp.supportedFunctions();
+        if (!supportedAgg.keySet().containsAll(aggNames)) {
+            return canNotPush;
+        }
+        KeysType keysType = olapScan.getTable().getKeysType();
+        if (aggNames.contains("count") && keysType != KeysType.DUP_KEYS) {
+            return canNotPush;
+        }
+        if (aggregateFunctions.stream().anyMatch(fun -> fun.arity() > 1)) {
+            return canNotPush;
+        }
+
+        // we already normalize the arguments to slotReference
+        List<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
+                .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
+                .collect(ImmutableList.toImmutableList());
+
+        if (project != null) {
+            argumentsOfAggregateFunction = Project.findProject(
+                        (List<SlotReference>) (List) argumentsOfAggregateFunction, project.getProjects())
+                    .stream()
+                    .map(p -> p instanceof Alias ? p.child(0) : p)
+                    .collect(ImmutableList.toImmutableList());
+        }
+
+        boolean onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
+                .stream()
+                .allMatch(argument -> {
+                    if (argument instanceof SlotReference) {
+                        return true;
+                    }
+                    if (argument instanceof Cast) {
+                        return argument.child(0) instanceof SlotReference
+                                && argument.getDataType().isNumericType()
+                                && argument.child(0).getDataType().isNumericType();
+                    }
+                    return false;
+                });
+        if (!onlyContainsSlotOrNumericCastSlot) {
+            return canNotPush;
+        }
+
+        Set<PushAggOp> pushAggOps = aggNames.stream()
+                .map(supportedAgg::get)
+                .collect(Collectors.toSet());
+
+        PushAggOp mergeOp = pushAggOps.size() == 1
+                ? pushAggOps.iterator().next()
+                : PushAggOp.MIX;
+
+        Set<SlotReference> aggUsedSlots =
+                ExpressionUtils.collect(argumentsOfAggregateFunction, SlotReference.class::isInstance);
+
+        List<SlotReference> usedSlotInTable = (List<SlotReference>) (List) Project.findProject(aggUsedSlots,
+                (List<NamedExpression>) (List) olapScan.getOutput());
+
+        for (SlotReference slot : usedSlotInTable) {
+            Column column = slot.getColumn().get();
+            if (keysType == KeysType.AGG_KEYS && !column.isKey()) {
+                return canNotPush;
+            }
+            // The zone map max length of CharFamily is 512, do not
+            // over the length: https://github.com/apache/doris/pull/6293
+            if (mergeOp == PushAggOp.MIN_MAX || mergeOp == PushAggOp.MIX) {
+                PrimitiveType colType = column.getType().getPrimitiveType();
+                if (colType.isArrayType() || colType.isComplexType() || colType == PrimitiveType.STRING) {
+                    return canNotPush;
+                }
+                if (colType.isCharFamily() && mergeOp != PushAggOp.COUNT && column.getType().getLength() > 512) {
+                    return canNotPush;
+                }
+            }
+            if (mergeOp == PushAggOp.COUNT || mergeOp == PushAggOp.MIX) {
+                // NULL value behavior in `count` function is zero, so
+                // we should not use row_count to speed up query. the col
+                // must be not null
+                if (column.isAllowNull()) {
+                    return canNotPush;
+                }
+            }
+        }
+
+        PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+                .build()
+                .transform(olapScan, cascadesContext)
+                .get(0);
+
+        return aggregate.withChildren(ImmutableList.of(
+            new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)
+        ));
     }
 
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(

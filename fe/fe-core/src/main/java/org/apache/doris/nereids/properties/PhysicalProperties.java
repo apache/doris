@@ -120,13 +120,13 @@ public class PhysicalProperties {
 
     @Override
     public String toString() {
-        if (this == ANY) {
+        if (this.equals(ANY)) {
             return "ANY";
         }
-        if (this == REPLICATED) {
+        if (this.equals(REPLICATED)) {
             return "REPLICATED";
         }
-        if (this == GATHER) {
+        if (this.equals(GATHER)) {
             return "GATHER";
         }
         return distributionSpec.toString() + " " + orderSpec.toString();

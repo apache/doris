@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -208,6 +209,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalOlapScan(PhysicalOlapScan olapScan, Void context) {
         return computeScan(olapScan);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate,
+            Void context) {
+        return computeScan(storageLayerAggregate.getOlapScan());
     }
 
     @Override
