@@ -42,6 +42,7 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     virtual Status get_next(RuntimeState* state, Block* row_batch, bool* eos) override;
     virtual void release_resource(RuntimeState* state) override;
+    Status collect_query_statistics(QueryStatistics* statistics) override;
     virtual Status close(RuntimeState* state) override;
 
     // Status collect_query_statistics(QueryStatistics* statistics) override;
