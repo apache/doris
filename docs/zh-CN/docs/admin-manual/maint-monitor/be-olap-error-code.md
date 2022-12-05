@@ -208,7 +208,7 @@ under the License.
 | OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED     | -1603  | 先前的Schema更改未完成                                       |
 | OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID              | -1604  | Schema变更信息无效                                           |
 | OLAP_ERR_QUERY_SPLIT_KEY_ERR                     | -1605  | 查询 Split key 错误                                          |
-| OLAP_ERR_DATA_QUALITY_ERR                        | -1606  | 模式更改/物化视图期间数据质量问题导致的错误                  |
+| OLAP_ERR_DATA_QUALITY_ERROR                      | -1606  | 模式更改/物化视图期间因数据质量问题或内存使用超出限制导致的错误                  |
 | Column File错误代码                              |        |                                                              |
 | OLAP_ERR_COLUMN_DATA_LOAD_BLOCK                  | -1700  | 加载列数据块错误                                             |
 | OLAP_ERR_COLUMN_DATA_RECORD_INDEX                | -1701  | 加载数据记录索引错误                                         |
