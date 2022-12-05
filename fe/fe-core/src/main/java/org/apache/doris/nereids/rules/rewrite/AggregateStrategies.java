@@ -112,27 +112,27 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
                 })
             ),
-            RuleType.DISASSEMBLE_ONE_PHASE_AGGREGATE.build(
+            RuleType.ONE_PHASE_AGGREGATE.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 0)
                     .thenApplyMulti(ctx -> onePhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
-            RuleType.DISASSEMBLE_TWO_PHASE_AGGREGATE.build(
+            RuleType.TWO_PHASE_AGGREGATE.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 0)
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
-            RuleType.DISASSEMBLE_TWO_PHASE_AGGREGATE.build(
+            RuleType.TWO_PHASE_AGGREGATE.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
-            RuleType.DISASSEMBLE_TWO_PHASE_AGGREGATE.build(
+            RuleType.TWO_PHASE_AGGREGATE.build(
                     basePattern
                             .when(agg -> agg.getDistinctArguments().size() > 1)
                             .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
-            RuleType.DISASSEMBLE_THREE_PHASE_AGGREGATE.build(
+            RuleType.THREE_PHASE_AGGREGATE.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .thenApply(ctx -> threePhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
