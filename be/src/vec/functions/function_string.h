@@ -1372,7 +1372,7 @@ public:
         DCHECK(is_string(arguments[1]))
                 << "second argument for function: " << name << " should be char"
                 << " and arguments[1] is " << arguments[1]->get_name();
-        return std::make_shared<DataTypeArray>(arguments[0]);
+        return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
