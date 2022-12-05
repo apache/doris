@@ -1428,15 +1428,15 @@ private:
         ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
 
         for (size_t i = 0; i < src_offsets_size; i++) {
-            const auto delimiter = delimiter_column.get_data_at(i).to_string();
-            StringRef str_ref = src_column_string->get_data_at(i);
+            const StringRef delimiter_ref = delimiter_column.get_data_at(i);
+            const StringRef str_ref = src_column_string->get_data_at(i);
 
-            if (str.size() == 0) {
+            if (str_ref.size == 0) {
                 dest_offsets.push_back(dest_pos);
                 continue;
             }
-            if (delimiter.size() == 0) {
-                for (size_t str_pos = 0; str_pos < str.size();) {
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
                     str_pos++;
@@ -1448,11 +1448,11 @@ private:
                     dest_pos++;
                     column_string_offsets.push_back(string_pos);
                 }
-            } else if (delimiter.size() == 1) {
-                for (size_t str_pos = 0; str_pos <= str.size();) {
+            } else if (delimiter_ref.size == 1) {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
                     const size_t str_offset = str_pos;
                     const size_t old_size = column_string_chars.size();
-                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter[0]);
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref.data[0]);
                     str_pos++;
                     const size_t new_size = old_size + split_part_size;
                     column_string_chars.resize(new_size);
@@ -1473,7 +1473,7 @@ private:
     size_t split_str(size_t& pos, const StringRef str_ref, char delimiter) {
         size_t old_size = pos;
         size_t str_size = str_ref.size;
-        while (pos < str_size && str[pos] != delimiter) {
+        while (pos < str_size && str_ref.data[pos] != delimiter) {
             pos++;
         }
         return pos - old_size;
