@@ -130,13 +130,13 @@ public class FeNameFormat {
     }
 
     private static boolean isEnableUnicodeNameSupport() {
-        boolean isEnable;
+        boolean unicodeSupport;
         if (ConnectContext.get() != null) {
-            isEnable = ConnectContext.get().getSessionVariable().isEnableUnicodeNameSupport();
-        } else { // for unittest to use default variable
-            isEnable = VariableMgr.getDefaultSessionVariable().isEnableUnicodeNameSupport();
+            unicodeSupport = ConnectContext.get().getSessionVariable().isEnableUnicodeNameSupport();
+        } else {
+            unicodeSupport = VariableMgr.getDefaultSessionVariable().isEnableUnicodeNameSupport();
         }
-        return isEnable;
+        return unicodeSupport;
     }
 
     public static String getColumnNameRegex() {
