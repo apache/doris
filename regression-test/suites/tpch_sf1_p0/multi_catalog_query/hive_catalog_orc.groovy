@@ -824,17 +824,18 @@ order by
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_port = context.config.otherConfigs.get("hms_port")
+        String catalog_name = "test_catalog_hive_orc"
         set_be_config.call()
 
         sql """admin set frontend config ("enable_multi_catalog" = "true")"""
-        sql """drop catalog if exists hive"""
+        sql """drop catalog if exists ${catalog_name}"""
         sql """
-            create catalog hive properties (
+            create catalog ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
             );
             """
-        sql """switch hive"""
+        sql """switch ${catalog_name}"""
         sql """use `tpch1_orc`"""
 
         q01()

@@ -928,6 +928,11 @@ under the License.
                 <artifactId>metastore-client-hive2</artifactId>
                 <version>${dlf-metastore-client-hive2.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${hikaricp.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
     <reporting>
