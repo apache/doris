@@ -1135,12 +1135,19 @@ public class StmtExecutor implements ProfileWriter {
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {
+                // register the fetch result time.
+                plannerProfile.setTempStartTime();
                 batch = coord.getNext();
+                plannerProfile.freshFetchResultConsumeTime();
+
                 // for outfile query, there will be only one empty batch send back with eos flag
                 if (batch.getBatch() != null) {
                     if (cacheAnalyzer != null) {
                         cacheAnalyzer.copyRowBatch(batch);
                     }
+
+                    // register send field result time.
+                    plannerProfile.setTempStartTime();
                     // For some language driver, getting error packet after fields packet
                     // will be recognized as a success result
                     // so We need to send fields after first batch arrived
@@ -1155,6 +1162,7 @@ public class StmtExecutor implements ProfileWriter {
                     for (ByteBuffer row : batch.getBatch().getRows()) {
                         channel.sendOnePacket(row);
                     }
+                    plannerProfile.freshWriteResultConsumeTime();
                     context.updateReturnRows(batch.getBatch().getRows().size());
                 }
                 if (batch.isEos()) {
