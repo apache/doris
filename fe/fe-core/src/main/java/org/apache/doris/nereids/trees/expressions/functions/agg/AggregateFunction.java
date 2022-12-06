@@ -17,16 +17,21 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ExpectsInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.PartialAggType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * The function which consume arguments in lots of rows and product one value.
@@ -44,10 +49,21 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         this.isDistinct = isDistinct;
     }
 
+    public AggregateFunction(String name, List<Expression> children) {
+        this(name, false, children);
+    }
+
+    public AggregateFunction(String name, boolean isDistinct, List<Expression> children) {
+        super(name, children);
+        this.isDistinct = isDistinct;
+    }
+
     @Override
     public abstract AggregateFunction withChildren(List<Expression> children);
 
-    protected abstract List<DataType> intermediateTypes();
+    protected List<DataType> intermediateTypes() {
+        return ImmutableList.of(VarcharType.SYSTEM_DEFAULT);
+    }
 
     /** getIntermediateTypes */
     public final PartialAggType getIntermediateTypes() {
@@ -95,5 +111,23 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     @Override
     public boolean hasVarArguments() {
         return false;
+    }
+
+    @Override
+    public String toSql() throws UnboundException {
+        String args = children()
+                .stream()
+                .map(Expression::toSql)
+                .collect(Collectors.joining(", "));
+        return getName() + "(" + (isDistinct ? "DISTINCT " : "") + args + ")";
+    }
+
+    @Override
+    public String toString() {
+        String args = children()
+                .stream()
+                .map(Expression::toString)
+                .collect(Collectors.joining(", "));
+        return getName() + "(" + (isDistinct ? "DISTINCT " : "") + args + ")";
     }
 }

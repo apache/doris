@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.BetweenToCompoundRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.CountDistinctMultiExprToSingle;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
@@ -44,7 +45,8 @@ public class ExpressionNormalization extends ExpressionRewrite {
             CharacterLiteralTypeCoercion.INSTANCE,
             TypeCoercion.INSTANCE,
             FoldConstantRule.INSTANCE,
-            SimplifyCastRule.INSTANCE
+            SimplifyCastRule.INSTANCE,
+            CountDistinctMultiExprToSingle.INSTANCE
     );
 
     public ExpressionNormalization(ConnectContext context) {
