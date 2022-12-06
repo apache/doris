@@ -51,7 +51,7 @@ public class MultiJoinTest extends SqlTestBase {
 
     @Test
     @Disabled
-        // TODO: MultiJoin And EliminateOuter
+    // TODO: MultiJoin And EliminateOuter
     void testEliminateBelowOuter() {
         String sql = "SELECT * FROM T1, T2 LEFT JOIN T3 ON T2.id = T3.id WHERE T1.id = T2.id";
         PlanChecker.from(connectContext)

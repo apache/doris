@@ -38,8 +38,10 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -269,9 +271,22 @@ public class PlanChecker {
     }
 
     public PlanChecker orderJoin() {
-        cascadesContext.pushJob(
-                new JoinOrderJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
+        Group root = cascadesContext.getMemo().getRoot();
+        boolean changeRoot = false;
+        if (root.isJoinGroup()) {
+            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
+            GroupExpression newExpr = new GroupExpression(
+                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
+                    Lists.newArrayList(root));
+            root = new Group();
+            root.addGroupExpression(newExpr);
+            changeRoot = true;
+        }
+        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (changeRoot) {
+            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
+        }
         return this;
     }
 

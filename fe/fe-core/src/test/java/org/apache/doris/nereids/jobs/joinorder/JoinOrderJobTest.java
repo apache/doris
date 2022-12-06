@@ -71,7 +71,22 @@ public class JoinOrderJobTest extends TestWithFeService {
 
     @Test
     protected void testSimpleSQL() {
-        String sql = "select count(*) from T1, T2, T3, T4 "
+        String sql = "select * from T1, T2, T3, T4 "
+                + "where "
+                + "T1.id = T2.id and "
+                + "T2.score = T3.score and "
+                + "T3.id = T4.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .deriveStats()
+                .orderJoin()
+                .printlnTree();
+    }
+
+    @Test
+    protected void testSimpleSQLWithProject() {
+        String sql = "select T1.id from T1, T2, T3, T4 "
                 + "where "
                 + "T1.id = T2.id and "
                 + "T2.score = T3.score and "
