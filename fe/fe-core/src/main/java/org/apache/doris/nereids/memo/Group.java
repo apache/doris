@@ -20,6 +20,7 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -74,10 +75,32 @@ public class Group {
         this.groupId = groupId;
         addGroupExpression(groupExpression);
         this.logicalProperties = logicalProperties;
+        groupExpression.setOwnerGroup(this);
+    }
+
+    /**
+     * Construct a Group without any group expression
+     *
+     * @param groupId the groupId in memo
+     */
+    public Group(GroupId groupId, LogicalProperties logicalProperties) {
+        this.groupId = groupId;
+        this.logicalProperties = logicalProperties;
+    }
+
+    /**
+     * For unit test only.
+     */
+    public Group() {
+        groupId = null;
     }
 
     public GroupId getGroupId() {
         return groupId;
+    }
+
+    public List<PhysicalProperties> getAllProperties() {
+        return new ArrayList<>(lowestCostPlans.keySet());
     }
 
     /**
@@ -123,8 +146,6 @@ public class Group {
     public GroupExpression getLogicalExpression() {
         Preconditions.checkArgument(logicalExpressions.size() == 1,
                 "There should be only one Logical Expression in Group");
-        Preconditions.checkArgument(physicalExpressions.isEmpty(),
-                "The Physical Expression list in Group should be empty");
         return logicalExpressions.get(0);
     }
 
@@ -345,8 +366,16 @@ public class Group {
         }
     }
 
+    /**
+     * This function used to check whether the group is an end node in DPHyp
+     */
     public boolean isJoinGroup() {
-        return getLogicalExpression().getPlan() instanceof LogicalJoin;
+        Plan plan = getLogicalExpression().getPlan();
+        if (plan instanceof LogicalJoin) {
+            // Right now, we only support inner join
+            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN;
+        }
+        return false;
     }
 
     public boolean isProjectGroup() {

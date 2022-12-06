@@ -74,6 +74,11 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         this.groupExpression = groupExpression;
     }
 
+    public void init(double cost, List<GroupExpression> lowestCostChildren) {
+        this.curTotalCost = cost;
+        this.lowestCostChildren.addAll(lowestCostChildren);
+    }
+
     /*-
      * Please read the ORCA paper
      * - 4.1.4 Optimization.
@@ -169,7 +174,6 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     pushJob(new OptimizeGroupJob(childGroup, jobContext));
                     return;
                 }
-
                 // when the child group finish the optimizeGroupJob, the code will begin to run.
                 GroupExpression lowestCostExpr = lowestCostPlanOpt.get().second;
                 lowestCostChildren.add(lowestCostExpr);

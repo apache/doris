@@ -172,13 +172,12 @@ public class NereidsPlanner extends Planner {
 
             deriveStats();
 
-            // We need to do join reorder before cascades and after deriving stats
-            // joinReorder();
-            // TODO: What is the appropriate time to set physical properties? Maybe before enter.
-            // cascades style optimize phase.
-
-            // cost-based optimize and explore plan space
-            optimize();
+            if (statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()) {
+                // TODO: use DPHyp according the number of join table
+                dpHypOptimize();
+            } else {
+                optimize();
+            }
 
             PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
 
@@ -217,7 +216,7 @@ public class NereidsPlanner extends Planner {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
-    private void joinReorder() {
+    private void dpHypOptimize() {
         Group root = getRoot();
         boolean changeRoot = false;
         if (root.isJoinGroup()) {
@@ -234,6 +233,9 @@ public class NereidsPlanner extends Planner {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         if (changeRoot) {
             cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
+        } else {
+            // if the root is not join, we need to optimize again.
+            optimize();
         }
     }
 

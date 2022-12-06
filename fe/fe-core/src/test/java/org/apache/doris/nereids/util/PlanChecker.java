@@ -173,7 +173,35 @@ public class PlanChecker {
     }
 
     public PlanChecker optimize() {
+        double now = System.currentTimeMillis();
         new OptimizeRulesJob(cascadesContext).execute();
+        System.out.println("cascades:" + (System.currentTimeMillis() - now));
+        return this;
+    }
+
+    public PlanChecker dpHypOptimize() {
+        double now = System.currentTimeMillis();
+        Group root = cascadesContext.getMemo().getRoot();
+        boolean changeRoot = false;
+        if (root.isJoinGroup()) {
+            // If the root group is join group, DPHyp can change the root group.
+            // To keep the root group is not changed, we add a project operator above join
+            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
+            GroupExpression newExpr = new GroupExpression(
+                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
+                    Lists.newArrayList(root));
+            root = new Group();
+            root.addGroupExpression(newExpr);
+            changeRoot = true;
+        }
+        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (changeRoot) {
+            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
+        }
+        // if the root is not join, we need to optimize again.
+        optimize();
+        System.out.println("DPhyp:" + (System.currentTimeMillis() - now));
         return this;
     }
 
@@ -472,18 +500,14 @@ public class PlanChecker {
         return physicalPlan;
     }
 
-    public PhysicalPlan getBestPlanTree() {
-        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
-    }
-
-    public PlanChecker printlnBestPlanTree() {
-        System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
+    public PlanChecker printlnTree() {
+        System.out.println(cascadesContext.getMemo().copyOut().treeString());
         System.out.println("-----------------------------");
         return this;
     }
 
-    public PlanChecker printlnTree() {
-        System.out.println(cascadesContext.getMemo().copyOut().treeString());
+    public PlanChecker printlnBestPlanTree() {
+        System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
         System.out.println("-----------------------------");
         return this;
     }

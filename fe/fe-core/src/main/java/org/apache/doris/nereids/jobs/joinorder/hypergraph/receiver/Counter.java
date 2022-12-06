@@ -21,11 +21,13 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.base.Preconditions;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -82,7 +84,7 @@ public class Counter implements AbstractReceiver {
         emitCount = 0;
     }
 
-    public Group getBestPlan(long bitmap) {
+    public Group getBestPlan(long bitmap, Set<Slot> outputSlots) {
         throw new RuntimeException("Counter does not support getBestPlan()");
     }
 

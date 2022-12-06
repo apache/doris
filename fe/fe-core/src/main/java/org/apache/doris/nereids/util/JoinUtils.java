@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -181,6 +182,10 @@ public class JoinUtils {
         return join.getHashJoinConjuncts().isEmpty();
     }
 
+    public static boolean shouldNestedLoopJoin(JoinType joinType, List<Expression> hashConjuncts) {
+        return (joinType.isInnerJoin() && hashConjuncts.isEmpty()) || joinType.isCrossJoin();
+    }
+
     /**
      * The left and right child of origin predicates need to be swap sometimes.
      * Case A:
@@ -281,12 +286,9 @@ public class JoinUtils {
         boolean noNeedCheckColocateGroup = (leftTableId == rightTableId)
                 && (leftTablePartitions.equals(rightTablePartitions)) && (leftTablePartitions.size() <= 1);
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
-        if (noNeedCheckColocateGroup
+        return noNeedCheckColocateGroup
                 || (colocateIndex.isSameGroup(leftTableId, rightTableId)
-                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)))) {
-            return true;
-        }
-        return false;
+                && !colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTableId)));
     }
 
     /**
@@ -328,5 +330,49 @@ public class JoinUtils {
         joinOutputExprIdSet.addAll(left.getOutputExprIdSet());
         joinOutputExprIdSet.addAll(right.getOutputExprIdSet());
         return joinOutputExprIdSet;
+    }
+
+    /**
+     * calculate the output slot of a join operator according join type and its children
+     * @param joinType the type of join operator
+     * @param left left child
+     * @param right right child
+     * @return return the output slots
+     */
+    public static List<Slot> getJoinOutput(JoinType joinType, Plan left, Plan right) {
+        List<Slot> newLeftOutput = left.getOutput().stream().map(o -> o.withNullable(true))
+                .collect(Collectors.toList());
+        List<Slot> newRightOutput = right.getOutput().stream().map(o -> o.withNullable(true))
+                .collect(Collectors.toList());
+
+        switch (joinType) {
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                return ImmutableList.copyOf(left.getOutput());
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                return ImmutableList.copyOf(right.getOutput());
+            case LEFT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(left.getOutput())
+                        .addAll(newRightOutput)
+                        .build();
+            case RIGHT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(newLeftOutput)
+                        .addAll(right.getOutput())
+                        .build();
+            case FULL_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(newLeftOutput)
+                        .addAll(newRightOutput)
+                        .build();
+            default:
+                return ImmutableList.<Slot>builder()
+                        .addAll(left.getOutput())
+                        .addAll(right.getOutput())
+                        .build();
+        }
     }
 }
