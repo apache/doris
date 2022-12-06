@@ -985,6 +985,9 @@ public class OlapScanNode extends ScanNode {
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));
         output.append("\n");
+        if (pushDownAggNoGroupingOp != null) {
+            output.append(prefix).append("pushAggOp=").append(pushDownAggNoGroupingOp).append("\n");
+        }
 
         return output.toString();
     }
