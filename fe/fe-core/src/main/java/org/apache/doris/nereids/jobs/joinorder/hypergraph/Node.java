@@ -37,6 +37,10 @@ public class Node {
         this.index = index;
     }
 
+    public List<Edge> getEdges() {
+        return edges;
+    }
+
     public void replaceGroupWith(Group group) {
         this.group = group;
     }

@@ -81,7 +81,7 @@ public class JoinOrderJob extends Job {
         HyperGraph hyperGraph = new HyperGraph();
         buildGraph(group, hyperGraph);
         // TODO: Right now, we just hardcode the limit with 10000, maybe we need a better way to set it
-        int limit = 10000;
+        int limit = 1000;
         PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph,
                 group.getLogicalProperties().getOutputSet());
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(planReceiver, hyperGraph);
@@ -136,7 +136,6 @@ public class JoinOrderJob extends Job {
      * 1. If it's a simple expression for column pruning, we just ignore it
      * 2. If it's an alias that may be used in the join operator, we need to add it to graph
      * 3. If it's other expression, we can ignore them and add it after optimizing
-     * 4. If it's a project only associate with one table, it's seen as an endNode just like a table
      */
     private void processProjectPlan(HyperGraph hyperGraph, Group group) {
         LogicalProject<? extends Plan> logicalProject
@@ -145,9 +144,7 @@ public class JoinOrderJob extends Job {
 
         for (NamedExpression expr : logicalProject.getProjects()) {
             if (expr.isAlias()) {
-                if (!hyperGraph.addAlias((Alias) expr, group)) {
-                    break;
-                }
+                hyperGraph.addAlias((Alias) expr);
             } else if (!expr.isSlot()) {
                 otherProject.add(expr);
             }
