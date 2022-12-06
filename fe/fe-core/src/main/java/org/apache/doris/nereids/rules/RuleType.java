@@ -70,6 +70,8 @@ public enum RuleType {
 
     CHECK_ROW_POLICY(RuleTypeClass.REWRITE),
 
+    ELIMINATE_EXCEPT(RuleTypeClass.REWRITE),
+
     // check analysis rule
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
 

@@ -106,7 +106,12 @@ columnAliases
     ;
 
 selectClause
-    : SELECT selectHint? namedExpressionSeq
+    : SELECT selectHint? selectColumnClause
+    ;
+
+selectColumnClause
+    : namedExpressionSeq
+    | ASTERISK EXCEPT LEFT_PAREN namedExpressionSeq RIGHT_PAREN
     ;
 
 whereClause
