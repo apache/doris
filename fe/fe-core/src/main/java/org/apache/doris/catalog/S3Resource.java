@@ -139,17 +139,20 @@ public class S3Resource extends Resource {
 
         String testFile = bucket + properties.getOrDefault(S3_ROOT_PATH, "") + "/test-object-valid.txt";
         String content = "doris will be better";
-        Status status = storage.directUpload(content, testFile);
-        if (status != Status.OK) {
-            LOG.warn("ping update file status: {}, properties: {}", status, propertiesPing);
-            return false;
+        try {
+            Status status = storage.directUpload(content, testFile);
+            if (status != Status.OK) {
+                LOG.warn("ping update file status: {}, properties: {}", status, propertiesPing);
+                return false;
+            }
+        } finally {
+            Status delete = storage.delete(testFile);
+            if (delete != Status.OK) {
+                LOG.warn("ping delete file status: {}, properties: {}", delete, propertiesPing);
+                return false;
+            }
         }
 
-        Status delete = storage.delete(testFile);
-        if (delete != Status.OK) {
-            LOG.warn("ping delete file status: {}, properties: {}", delete, propertiesPing);
-            return false;
-        }
         LOG.info("success to ping s3");
         return true;
     }
