@@ -19,28 +19,6 @@
 
 namespace doris::pipeline {
 
-AnalyticSourceOperator::AnalyticSourceOperator(AnalyticSourceOperatorBuilder* operator_builder,
-                                               vectorized::VAnalyticEvalNode* analytic_eval_node)
-        : Operator(operator_builder), _analytic_eval_node(analytic_eval_node) {}
-
-Status AnalyticSourceOperator::close(RuntimeState* state) {
-    if (is_closed()) {
-        return Status::OK();
-    }
-    _analytic_eval_node->release_resource(state);
-    return Operator::close(state);
-}
-
-Status AnalyticSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                                         SourceState& source_state) {
-    bool eos = false;
-    RETURN_IF_ERROR(_analytic_eval_node->pull(state, block, &eos));
-    source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
-    return Status::OK();
-}
-
-bool AnalyticSourceOperator::can_read() {
-    return _analytic_eval_node->can_read();
-}
+OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, Operator)
 
 } // namespace doris::pipeline

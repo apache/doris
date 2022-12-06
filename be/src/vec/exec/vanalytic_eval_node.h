@@ -25,7 +25,6 @@
 #include "vec/common/arena.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vectorized_agg_fn.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 namespace doris::vectorized {
 

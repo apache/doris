@@ -18,27 +18,8 @@
 
 #include "analytic_sink_operator.h"
 
-#include "common/status.h"
 namespace doris::pipeline {
 
-AnalyticSinkOperator::AnalyticSinkOperator(AnalyticSinkOperatorBuilder* operator_builder,
-                                           vectorized::VAnalyticEvalNode* analytic_eval_node)
-        : Operator(operator_builder), _analytic_eval_node(analytic_eval_node) {}
-
-Status AnalyticSinkOperator::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::open(state));
-    RETURN_IF_ERROR(_analytic_eval_node->alloc_resource(state));
-    return Status::OK();
-}
-
-Status AnalyticSinkOperator::sink(RuntimeState* state, vectorized::Block* block,
-                                  SourceState source_state) {
-    RETURN_IF_ERROR(_analytic_eval_node->sink(state, block, source_state == SourceState::FINISHED));
-    return Status::OK();
-}
-
-bool AnalyticSinkOperator::can_write() {
-    return _analytic_eval_node->can_write();
-}
+OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, Operator)
 
 } // namespace doris::pipeline

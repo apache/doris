@@ -28,41 +28,20 @@ class VAnalyticEvalNode;
 
 namespace pipeline {
 
-class AnalyticSourceOperatorBuilder;
-
-class AnalyticSourceOperator : public Operator {
+class AnalyticSourceOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
 public:
-    AnalyticSourceOperator(AnalyticSourceOperatorBuilder* operator_builder,
-                           vectorized::VAnalyticEvalNode* analytic_eval_node);
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    Status close(RuntimeState* state) override;
-
-    bool can_read() override;
-
-private:
-    vectorized::VAnalyticEvalNode* _analytic_eval_node = nullptr;
-};
-
-class AnalyticSourceOperatorBuilder : public OperatorBuilder {
-public:
-    AnalyticSourceOperatorBuilder(int32_t id, const std::string& name,
-                                  vectorized::VAnalyticEvalNode* analytic_eval_node)
-            : OperatorBuilder(id, name, analytic_eval_node),
-              _analytic_eval_node(analytic_eval_node) {}
-
-    bool is_sink() const override { return false; }
+    AnalyticSourceOperatorBuilder(int32_t, ExecNode*);
 
     bool is_source() const override { return true; }
 
-    OperatorPtr build_operator() override {
-        return std::make_shared<AnalyticSourceOperator>(this, _analytic_eval_node);
-    }
+    OperatorPtr build_operator() override;
+};
 
-private:
-    vectorized::VAnalyticEvalNode* _analytic_eval_node = nullptr;
+class AnalyticSourceOperator final : public Operator<AnalyticSourceOperatorBuilder> {
+public:
+    AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
+
+    Status open(RuntimeState*) override { return Status::OK(); }
 };
 
 } // namespace pipeline

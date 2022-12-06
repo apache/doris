@@ -24,45 +24,23 @@
 namespace doris {
 namespace vectorized {
 class VAnalyticEvalNode;
-class VExprContext;
-class Block;
 } // namespace vectorized
 
 namespace pipeline {
-class AnalyticSinkOperatorBuilder;
-class AnalyticSinkOperator : public Operator {
+class AnalyticSinkOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
 public:
-    AnalyticSinkOperator(AnalyticSinkOperatorBuilder* operator_builder,
-                         vectorized::VAnalyticEvalNode* analytic_eval_node);
+    AnalyticSinkOperatorBuilder(int32_t, ExecNode*);
 
-    Status open(RuntimeState* state) override;
-
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-
-    Status finalize(RuntimeState*  /*state*/) override { return Status::OK(); }
-
-    bool can_write() override;
-
-private:
-    vectorized::VAnalyticEvalNode* _analytic_eval_node = nullptr;
+    OperatorPtr build_operator() override;
+    
+    bool is_sink() const override { return true; };
 };
 
-class AnalyticSinkOperatorBuilder : public OperatorBuilder {
+class AnalyticSinkOperator final : public Operator<AnalyticSinkOperatorBuilder> {
 public:
-    AnalyticSinkOperatorBuilder(int32_t id, const std::string& name,
-                                vectorized::VAnalyticEvalNode* analytic_eval_node)
-            : OperatorBuilder(id, name, analytic_eval_node),
-              _analytic_eval_node(analytic_eval_node) {}
+    AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
-    OperatorPtr build_operator() override {
-        return std::make_shared<AnalyticSinkOperator>(this, _analytic_eval_node);
-    }
-    bool is_sink() const override { return true; }
-
-    bool is_source() const override { return false; }
-
-private:
-    vectorized::VAnalyticEvalNode* _analytic_eval_node = nullptr;
+    bool can_write() override { return _node->can_write(); };
 };
 
 } // namespace pipeline

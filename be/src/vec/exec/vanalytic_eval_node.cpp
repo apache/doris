@@ -20,6 +20,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris::vectorized {
 
@@ -210,6 +211,7 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
 
 Status VAnalyticEvalNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(alloc_resource(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
@@ -223,11 +225,14 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
 }
 
 Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    {
+        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+        START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
+        SCOPED_TIMER(_runtime_profile->total_time_counter());
+        RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+        RETURN_IF_CANCELLED(state);
+    }
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-    RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -321,12 +326,14 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
             return Status::OK();
         }
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
+        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(_executor.get_next(current_block_rows));
         if (_window_end_position == current_block_rows) {
             break;
         }
     }
     RETURN_IF_ERROR(_output_current_block(block));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
