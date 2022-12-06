@@ -26,6 +26,12 @@ under the License.
 
 ## countequal
 
+<version since="1.2.0">
+
+countequal
+
+</version>
+
 ### description
 
 #### Syntax

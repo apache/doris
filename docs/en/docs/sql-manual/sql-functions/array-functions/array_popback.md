@@ -21,9 +21,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_popback
+
+<version since="1.2.0">
+
+array_popback
+
+</version>
 
 ### description
 
@@ -57,4 +62,3 @@ mysql> select array_popback(['test', NULL, 'value']);
 
 ARRAY,POPBACK,ARRAY_POPBACK
 
-</version>
