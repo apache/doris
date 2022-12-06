@@ -510,10 +510,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
         if (all_done && fragments_ctx) {
-            auto search = _fragments_ctx_map.find(fragments_ctx->query_id);
-            if (search != _fragments_ctx_map.end()) {
-                _fragments_ctx_map.erase(fragments_ctx->query_id);
-            }
+            _fragments_ctx_map.erase(fragments_ctx->query_id);
         }
     }
 
