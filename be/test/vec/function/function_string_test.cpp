@@ -24,6 +24,7 @@
 #include "util/encryption_util.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_array.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -68,6 +69,26 @@ TEST(function_string_test, function_string_substr_test) {
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }
 }
+
+
+
+
+TEST(function_string_test, function_split_by_char_test) {
+    std::string func_name = "spliybychar";
+    {
+        Array vec = {std::string("abc"), std::string(""), std::string("def")};
+        Array vec1 = {std::string("hello"), std::string("world")};
+        Array vec2 = {std::string("hello"), std::string("world"), std::string("my"), std::string("baby")};
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+
+        DataSet data_set = {
+                {{std::string("hello world"), std::string(" ")}, vec1},
+                {{std::string("helloswordsmysbaby"),std::string("s")}, vec2}};
+
+        check_function<DataTypeArray, DataTypeString>(func_name, input_types, data_set);
+    }
+}
+
 
 TEST(function_string_test, function_string_strright_test) {
     std::string func_name = "strright";
