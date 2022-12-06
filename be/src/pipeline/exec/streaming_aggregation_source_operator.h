@@ -43,6 +43,7 @@ public:
     StreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<AggContext>);
     bool can_read() override;
     Status get_block(RuntimeState*, vectorized::Block*, SourceState& source_state) override;
+    Status open(RuntimeState*) override { return Status::OK(); }
 
 private:
     std::shared_ptr<AggContext> _agg_context;

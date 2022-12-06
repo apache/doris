@@ -41,6 +41,7 @@ public:
 class SortSourceOperator final : public Operator<SortSourceOperatorBuilder> {
 public:
     SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
+    Status open(RuntimeState*) override { return Status::OK(); }
 };
 
 } // namespace pipeline
