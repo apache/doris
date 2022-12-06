@@ -143,6 +143,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return this instanceof Slot;
     }
 
+    public boolean isAlias() {
+        return this instanceof Alias;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
