@@ -148,6 +148,34 @@ public class PlanReceiver implements AbstractReceiver {
         return group;
     }
 
+    private Group tryAddProject(Group group, HashMap<Long, NamedExpression> projectExpression, long fullKey) {
+        List<NamedExpression> projects = new ArrayList<>();
+        List<Long> removedKey = new ArrayList<>();
+        for (Long bitmap : projectExpression.keySet()) {
+            if (LongBitmap.isSubset(bitmap, fullKey)) {
+                NamedExpression namedExpression = projectExpression.get(bitmap);
+                projects.add(namedExpression);
+                removedKey.add(bitmap);
+            }
+        }
+        for (Long bitmap : removedKey) {
+            projectExpression.remove(bitmap);
+        }
+        if (projects.size() != 0) {
+            LogicalProject logicalProject = new LogicalProject<>(projects,
+                    group.getLogicalExpression().getPlan());
+            GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
+            groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
+                    Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY),
+                    group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY));
+            Group projectGroup = new Group();
+            projectGroup.addGroupExpression(groupExpression);
+            StatsCalculator.estimate(groupExpression);
+            return projectGroup;
+        }
+        return group;
+    }
+
     private Group constructGroup(long left, long right, List<Edge> edges) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
