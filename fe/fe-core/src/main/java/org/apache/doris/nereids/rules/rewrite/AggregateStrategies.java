@@ -104,25 +104,25 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getDistinctArguments().size() == 0)
                     .thenApplyMulti(ctx -> onePhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
-            RuleType.TWO_PHASE_AGGREGATE.build(
+            RuleType.TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 0)
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
             ),
-            RuleType.TWO_PHASE_AGGREGATE.build(
+            RuleType.TWO_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
-                    .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
+                    .thenApplyMulti(ctx -> twoPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             ),
-            RuleType.TWO_PHASE_AGGREGATE.build(
-                basePattern
-                    .when(agg -> agg.getDistinctArguments().size() > 1)
-                    .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
-            ),
-            RuleType.THREE_PHASE_AGGREGATE.build(
+            RuleType.THREE_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .thenApply(ctx -> threePhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
+            ),
+            RuleType.TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT.build(
+                basePattern
+                    .when(agg -> agg.getDistinctArguments().size() > 1)
+                    .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             )
         );
     }
@@ -310,6 +310,38 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
     }
 
+    private List<PhysicalHashAggregate<Plan>> twoPhaseAggregateWithDistinct(
+            LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+        PhysicalHashAggregate<Plan> distinctAgg
+                = (PhysicalHashAggregate) threePhaseAggregateWithDistinct(logicalAgg, connectContext);
+
+        PhysicalHashAggregate<Plan> globalAgg
+                = (PhysicalHashAggregate) distinctAgg.child();
+
+        PhysicalHashAggregate<Plan> localAgg
+                = (PhysicalHashAggregate) globalAgg.child();
+
+        RequestProperties requestGather = RequestProperties.of(PhysicalProperties.GATHER);
+
+        PhysicalHashAggregate<Plan> mergedLocalGatherAgg = new PhysicalHashAggregate<>(
+                localAgg.getGroupByExpressions(), globalAgg.getOutputExpressions(),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER), localAgg.isUsingStream(),
+                logicalAgg.getLogicalProperties(), requestGather, localAgg.child());
+
+        PhysicalHashAggregate<Plan> gatherLocalGatherDistinctAgg
+                = distinctAgg.withRequestPropertiesAndChild(requestGather, mergedLocalGatherAgg);
+
+        PhysicalProperties hashPartition = PhysicalProperties.createHash(
+                localAgg.getPartitionExpressions().get(), ShuffleType.AGGREGATE);
+        RequestProperties requestHash = RequestProperties.of(hashPartition);
+        return ImmutableList.<PhysicalHashAggregate<Plan>>builder()
+                .add(gatherLocalGatherDistinctAgg)
+                .add(gatherLocalGatherDistinctAgg.withRequestTree(
+                    requestHash.withChildren(requestHash)
+                ))
+                .build();
+    }
+
     private PhysicalHashAggregate<? extends Plan> threePhaseAggregateWithDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         Set<AggregateExpression> aggregateExpressions = logicalAgg.getAggregateExpressions();
@@ -381,10 +413,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     return new AggregateExpression(globalAggExpr.getFunction(), bufferToResultParam, alias.toSlot());
                 });
 
-        // distinctAgg must be at the same fragment, so don't need any partition expressions, the bottom
-        // globalAgg will provide the partition expressions
         PhysicalHashAggregate<Plan> anyLocalHashGlobalHashDistinctAgg = new PhysicalHashAggregate<>(
-                logicalAgg.getGroupByExpressions(), distinctOutput, Optional.empty(),
+                logicalAgg.getGroupByExpressions(), distinctOutput, Optional.of(partitionExpressions),
                 bufferToResultParam, false, logicalAgg.getLogicalProperties(),
                 requestHash, anyLocalHashGlobalAgg);
 

@@ -39,7 +39,7 @@ public interface RequestPropertiesSupplier<P extends Plan> {
     }
 
     /** withRequestsTree */
-    default P withRequestsTree(RequestPropertiesTree tree) {
+    default P withRequestTree(RequestPropertiesTree tree) {
         List<RequestPropertiesTree> childrenRequests = tree.children;
         List<Plan> children = children();
         if (!childrenRequests.isEmpty() && children.size() != childrenRequests.size()) {
@@ -54,7 +54,7 @@ public interface RequestPropertiesSupplier<P extends Plan> {
                 Plan child = children.get(i);
                 Preconditions.checkState(child instanceof RequestPropertiesSupplier,
                         "child should be RequestPropertiesTree: " + child);
-                Plan newChild = ((RequestPropertiesSupplier<Plan>) child).withRequestsTree(childrenRequests.get(i));
+                Plan newChild = ((RequestPropertiesSupplier<Plan>) child).withRequestTree(childrenRequests.get(i));
                 newChildrenBuilder.add(newChild);
             }
             newChildren = newChildrenBuilder.build();
