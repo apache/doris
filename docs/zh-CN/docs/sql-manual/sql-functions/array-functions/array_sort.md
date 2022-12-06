@@ -24,6 +24,12 @@ under the License.
 
 ## array_sort
 
+<version since="1.2.0">
+
+array_sort
+
+</version>
+
 ### description
 
 #### Syntax

@@ -26,6 +26,12 @@ under the License.
 
 ## array_distinct
 
+<version since="1.2.0">
+
+array_distinct
+
+</version>
+
 ### description
 
 #### Syntax
