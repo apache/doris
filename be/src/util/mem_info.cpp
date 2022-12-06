@@ -92,7 +92,7 @@ void MemInfo::process_minor_gc() {
     // TODO, free more cache, and should free a certain percentage of capacity, not all.
     int64_t freed_mem = 0;
     Defer defer {[&]() {
-        LOG(INFO) << fmt::format("Process minor gc free memory {} Bytes", freed_mem);
+        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes", freed_mem);
     }};
 
     freed_mem += ChunkAllocator::instance()->mem_consumption();
@@ -108,7 +108,7 @@ void MemInfo::process_minor_gc() {
 void MemInfo::process_full_gc() {
     int64_t freed_mem = 0;
     Defer defer {
-            [&]() { LOG(INFO) << fmt::format("Process full gc free memory {} Bytes", freed_mem); }};
+            [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
 
     freed_mem +=
             StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
@@ -121,7 +121,7 @@ void MemInfo::process_full_gc() {
     if (freed_mem > _s_process_full_gc_size) {
         return;
     }
-    MemTrackerLimiter::free_top_query(_s_process_full_gc_size - freed_mem);
+    freed_mem += MemTrackerLimiter::free_top_query(_s_process_full_gc_size - freed_mem);
 }
 
 #ifndef __APPLE__

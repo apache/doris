@@ -146,7 +146,7 @@ public:
                                        int64_t failed_allocation_size = 0);
 
     // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is released.
-    static void free_top_query(int64_t min_free_mem);
+    static int64_t free_top_query(int64_t min_free_mem);
 
     static std::string process_mem_log_str() {
         return fmt::format(

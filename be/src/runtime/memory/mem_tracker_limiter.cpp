@@ -242,7 +242,7 @@ Status MemTrackerLimiter::fragment_mem_limit_exceeded(RuntimeState* state, const
     return Status::MemoryLimitExceeded(failed_msg);
 }
 
-void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
+int64_t MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
     std::priority_queue<std::pair<int64_t, std::string>,
                         std::vector<std::pair<int64_t, std::string>>,
                         std::greater<std::pair<int64_t, std::string>>>
@@ -257,9 +257,10 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
         return querytid;
     };
 
-    auto cancel_top_query = [&](auto min_pq, auto label_to_queryid) {
+    auto cancel_top_query = [&](auto min_pq, auto label_to_queryid) -> int64_t {
         std::vector<std::string> usage_strings;
         bool had_cancel = false;
+        int64_t freed_mem = 0;
         while (!min_pq.empty()) {
             TUniqueId cancelled_queryid = label_to_queryid(min_pq.top().second);
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
@@ -274,14 +275,16 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
                                 MemInfo::mem_limit_str(), MemInfo::sys_mem_available_str(),
                                 print_bytes(MemInfo::sys_mem_available_low_water_mark())));
 
-            usage_strings.push_back(
-                    fmt::format("{} memory usage {}B", min_pq.top().second, min_pq.top().first));
+            freed_mem += min_pq.top().first;
+            usage_strings.push_back(fmt::format("{} memory usage {} Bytes", min_pq.top().second,
+                                                min_pq.top().first));
             had_cancel = true;
             min_pq.pop();
         }
         if (had_cancel) {
             LOG(INFO) << "Process GC Free Top Memory Usage Query: " << join(usage_strings, ",");
         }
+        return freed_mem;
     };
 
     for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
@@ -296,8 +299,7 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
                     std::swap(min_pq, min_pq_null);
                     min_pq.push(
                             pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
-                    cancel_top_query(min_pq, label_to_queryid);
-                    return;
+                    return cancel_top_query(min_pq, label_to_queryid);
                 } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
                     min_pq.push(
                             pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
@@ -311,7 +313,7 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
             }
         }
     }
-    cancel_top_query(min_pq, label_to_queryid);
+    return cancel_top_query(min_pq, label_to_queryid);
 }
 
 } // namespace doris

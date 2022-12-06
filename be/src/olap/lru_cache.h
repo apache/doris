@@ -372,7 +372,7 @@ public:
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
     virtual int64_t prune_if(CacheValuePredicate pred) override;
-    virtual int64_t mem_consumption() override;
+    int64_t mem_consumption() override;
 
 private:
     void update_cache_metrics() const;
