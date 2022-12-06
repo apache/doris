@@ -116,8 +116,6 @@ suite("test_json_load", "p0") {
     
     def load_json_data = {new_json_reader_flag, label, strip_flag, read_flag, format_flag, exprs, json_paths, 
                         json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false ->
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         
         // load the json data
         streamLoad {
@@ -150,9 +148,6 @@ suite("test_json_load", "p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
-
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
     }
     
     def load_from_hdfs1 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
@@ -529,8 +524,6 @@ suite("test_json_load", "p0") {
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table3.call(testTable)
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         // load the json data
         streamLoad {
             table "${testTable}"
@@ -557,16 +550,12 @@ suite("test_json_load", "p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         sql "sync"
         qt_select13 "select * from ${testTable} order by id"
 
 
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table3.call(testTable)
-        // should be delete after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         // load the json data
         streamLoad {
             table "${testTable}"
@@ -593,8 +582,6 @@ suite("test_json_load", "p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         sql "sync"
         qt_select13 "select * from ${testTable} order by id"
 

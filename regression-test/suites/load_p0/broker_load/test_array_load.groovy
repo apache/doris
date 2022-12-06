@@ -202,13 +202,6 @@ suite("test_array_load", "load_p0") {
 
     try {
         for ( i in 0..1 ) {
-            // should be deleted after new_load_scan is ready
-            if (i == 1) {
-                sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
-            } else {
-                sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
-            }
-
             // case1: import array data in json format and enable vectorized engine
             try {
                 sql "DROP TABLE IF EXISTS ${testTable}"
@@ -280,7 +273,6 @@ suite("test_array_load", "load_p0") {
             }
         }
     } finally {
-        try_sql("""ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");""")
     }
 
 

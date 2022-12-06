@@ -72,7 +72,6 @@ suite("test_hive_orc", "all_types") {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "hive_test_orc"
             sql """admin set frontend config ("enable_multi_catalog" = "true")"""
-            sql """admin set frontend config ("enable_new_load_scan_node" = "true");"""
             sql """drop catalog if exists ${catalog_name}"""
             sql """
             create catalog if not exists ${catalog_name} properties (
@@ -90,7 +89,6 @@ suite("test_hive_orc", "all_types") {
             only_partition_col()
 
         } finally {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         }
     }
 }

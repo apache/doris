@@ -42,9 +42,6 @@ suite("test_load_json_null_to_nullable", "p0") {
 
     def load_array_data = {new_json_reader_flag, table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
-
         // load the json data
         streamLoad {
             table table_name
@@ -77,9 +74,6 @@ suite("test_load_json_null_to_nullable", "p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
-
-        // should be deleted after new_load_scan is ready
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
     }
 
     def check_data_correct = {table_name ->
