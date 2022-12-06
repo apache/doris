@@ -148,7 +148,7 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    virtual ColumnPtrWrapper* get_const_col(VExprContext* context);
+    Status get_const_col(VExprContext* context, ColumnPtrWrapper** output);
 
     int fn_context_index() const { return _fn_context_index; };
 
