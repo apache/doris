@@ -201,7 +201,7 @@ public class UtFrameUtils {
 
     public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
-        FeConstants.runningUnitTest = true;
+        FeConstants.disableInternalSchemaDb = true;
         int feRpcPort = startFEServer(runningDir);
         List<Backend> bes = Lists.newArrayList();
         for (int i = 0; i < backendNum; i++) {
