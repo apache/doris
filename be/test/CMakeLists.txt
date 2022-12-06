@@ -336,6 +336,7 @@ set(VEC_TEST_FILES
     vec/core/block_test.cpp
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
+    vec/core/column_vector_test.cpp
     vec/exec/vgeneric_iterators_test.cpp
     vec/exprs/vexpr_test.cpp
     vec/function/function_bitmap_test.cpp
