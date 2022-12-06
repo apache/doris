@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.cascades.CostAndEnforcerJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
@@ -30,6 +33,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -47,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -123,6 +128,21 @@ public class PlanReceiver implements AbstractReceiver {
 
         List<Plan> physicalJoins = proposeAllPhysicalJoins(joinType, leftPlan, rightPlan, hashConjuncts,
                 otherConjuncts);
+
+        if (planTable.containsKey(fullKey)) {
+            Group group = planTable.get(fullKey);
+            if (group.getPhysicalExpressions().get(0).getPlan() instanceof PhysicalProject) {
+                group = group.getPhysicalExpressions().get(0).child(0);
+            }
+            double upperCost = calculateUpperCost(group);
+            physicalJoins = pruningPlans(
+                    physicalJoins, upperCost,
+                    leftPlan.getGroup().getStatistics(), rightPlan.getGroup().getStatistics());
+            if (physicalJoins.isEmpty()) {
+                return true;
+            }
+        }
+
         List<Plan> physicalPlans = proposeProject(physicalJoins, edges, left, right);
 
         // Second, we copy all physical plan to Group and generate properties and calculate cost
@@ -137,6 +157,54 @@ public class PlanReceiver implements AbstractReceiver {
         }
 
         return true;
+    }
+
+    private double calculateUpperCost(Group group) {
+        double upperCost = 0;
+        for (PhysicalProperties prop : group.getAllProperties()) {
+            Pair<Double, GroupExpression> lowestCostPlan = group.getLowestCostPlan(prop).get();
+            if (!(lowestCostPlan.second.getPlan() instanceof PhysicalHashJoin)) {
+                continue;
+            }
+            upperCost = Double.max(group.getLowestCostPlan(prop).get().first, upperCost);
+        }
+        return upperCost;
+    }
+
+    private List<Plan> pruningPlans(List<Plan> joins, double upperCost,
+            StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
+        // Here, we pre-calculate the cost without enforcer. Note the cost must
+        // less than the actual cost of physical plan due to the enforcer cost is not count.
+        // So if the smaller cost is greater than the upperCost, we can prune it safely.
+        List<Plan> res = new ArrayList<>();
+
+        for (Plan join : joins) {
+            double cost = 0;
+            if (join instanceof PhysicalHashJoin) {
+                StatsDeriveResult stats = JoinEstimation.estimate(leftStats, rightStats,
+                        (PhysicalHashJoin<? extends Plan, ? extends Plan>) join);
+                PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
+                cost += CostCalculator.calculateCost(join, planContext);
+            } else {
+                StatsDeriveResult stats = JoinEstimation.estimate(leftStats, rightStats,
+                        (PhysicalNestedLoopJoin<? extends Plan, ? extends Plan>) join);
+                PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
+                cost += CostCalculator.calculateCost(join, planContext);
+            }
+
+            for (Plan child : join.children()) {
+                Preconditions.checkArgument(child instanceof GroupPlan);
+                cost += ((GroupPlan) child)
+                        .getGroup()
+                        .getLowestCostPlan(PhysicalProperties.ANY)
+                        .get().first;
+            }
+            if (cost > upperCost) {
+                continue;
+            }
+            res.add(join);
+        }
+        return res;
     }
 
     private Set<Slot> calculateRequiredSlots(long left, long right, List<Edge> edges) {

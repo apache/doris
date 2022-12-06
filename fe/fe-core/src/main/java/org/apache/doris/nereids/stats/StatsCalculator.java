@@ -99,6 +99,8 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
 
+    public static final StatsCalculator STATS_CALCULATOR = new StatsCalculator(null);
+
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
