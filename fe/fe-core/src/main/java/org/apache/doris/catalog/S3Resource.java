@@ -45,14 +45,21 @@ import java.util.Map;
  * );
  */
 public class S3Resource extends Resource {
+    public static final String S3_PROPERTIES_PREFIX = "AWS";
+    public static final String S3_FS_PREFIX = "fs.s3";
     // required
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
     public static final String S3_REGION = "AWS_REGION";
     public static final String S3_ACCESS_KEY = "AWS_ACCESS_KEY";
     public static final String S3_SECRET_KEY = "AWS_SECRET_KEY";
+    public static final List<String> REQUIRED_FIELDS =
+            Arrays.asList(S3_ENDPOINT, S3_REGION, S3_ACCESS_KEY, S3_SECRET_KEY);
 
     // optional
     public static final String USE_PATH_STYLE = "use_path_style";
+    public static final String S3_MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
+    public static final String S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
+    public static final String S3_CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -63,7 +70,7 @@ public class S3Resource extends Resource {
     }
 
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
+    public synchronized void modifyProperties(Map<String, String> properties) throws DdlException {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
@@ -71,8 +78,7 @@ public class S3Resource extends Resource {
 
     @Override
     public void checkProperties(Map<String, String> properties) throws AnalysisException {
-        List<String> requiredFields = Arrays.asList(S3_ENDPOINT, S3_REGION, S3_ACCESS_KEY, S3_SECRET_KEY);
-        for (String field : requiredFields) {
+        for (String field : REQUIRED_FIELDS) {
             if (!properties.containsKey(field)) {
                 throw new AnalysisException("Missing [" + field + "] in properties.");
             }
@@ -81,8 +87,7 @@ public class S3Resource extends Resource {
 
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
-        List<String> requiredFields = Arrays.asList(S3_ENDPOINT, S3_REGION, S3_ACCESS_KEY, S3_SECRET_KEY);
-        for (String field : requiredFields) {
+        for (String field : REQUIRED_FIELDS) {
             if (!properties.containsKey(field)) {
                 throw new DdlException("Missing [" + field + "] in properties.");
             }
