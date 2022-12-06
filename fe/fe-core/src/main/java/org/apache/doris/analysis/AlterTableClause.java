@@ -36,7 +36,7 @@ public abstract class AlterTableClause extends AlterClause {
         return needTableStable;
     }
 
-    public void setTableName(OlapTable table) {
+    public void setOlapTable(OlapTable table) {
         this.table = table;
     }
 }

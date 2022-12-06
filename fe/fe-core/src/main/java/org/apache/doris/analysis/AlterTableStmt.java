@@ -81,7 +81,7 @@ public class AlterTableStmt extends DdlStmt {
                 Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb()).getTableOrDdlException(tbl.getTbl());
         for (AlterClause op : ops) {
             if (op instanceof AlterTableClause && table instanceof OlapTable) {
-                ((AlterTableClause) op).setTableName((OlapTable) table);
+                ((AlterTableClause) op).setOlapTable((OlapTable) table);
             }
             op.analyze(analyzer);
         }
