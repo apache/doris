@@ -256,7 +256,7 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
         return querytid;
     };
 
-    Defer defer {[&]() {
+    auto cancel_top_query = [&](auto min_pq, auto label_to_queryid) {
         std::vector<std::string> usage_strings;
         bool had_cancel = false;
         while (!min_pq.empty()) {
@@ -279,7 +279,7 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
             min_pq.pop();
         }
         if (had_cancel) LOG(INFO) << "Free Top Memory Usage Query: " << join(usage_strings, ",");
-    }};
+    };
 
     for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
@@ -293,6 +293,7 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
                     std::swap(min_pq, min_pq_null);
                     min_pq.push(
                             pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    cancel_top_query(min_pq, label_to_queryid);
                     return;
                 } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
                     min_pq.push(
@@ -305,6 +306,7 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
             }
         }
     }
+    cancel_top_query(min_pq, label_to_queryid);
 }
 
 } // namespace doris

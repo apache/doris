@@ -52,6 +52,7 @@ int64_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
 int64_t MemInfo::_s_virtual_memory_used = 0;
 int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
+std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 int64_t MemInfo::_s_sys_mem_available = 0;

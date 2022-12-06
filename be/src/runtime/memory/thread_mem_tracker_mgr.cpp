@@ -60,14 +60,17 @@ void ThreadMemTrackerMgr::exceeded(int64_t size) {
 
     if (is_attach_query()) {
         if (_is_process_exceed) {
-            std::this_thread::sleep_for(
-                    std::chrono::milliseconds(config::thread_wait_gc_max_milliseconds));
-            if (MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
-                cancel_fragment();
+            int64_t wait_milliseconds = config::thread_wait_gc_max_milliseconds;
+            while (wait_milliseconds > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Check every 100 ms.
+                if (!MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
+                    MemInfo::refresh_interval_memory_growth += size;
+                    return; // Process memory is sufficient, no cancel query.
+                }
+                wait_milliseconds -= 100;
             }
-        } else {
-            cancel_fragment();
         }
+        cancel_fragment();
     }
 }
 

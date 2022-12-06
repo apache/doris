@@ -151,11 +151,12 @@ public:
     static std::string process_mem_log_str() {
         return fmt::format(
                 "physical memory {}, process memory used {} limit {}, sys mem available {} low "
-                "water mark {}",
+                "water mark {}, refresh interval memory growth {} B",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
                 MemInfo::sys_mem_available_str(),
-                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
+                PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
+                MemInfo::refresh_interval_memory_growth);
     }
 
     std::string debug_string() {
