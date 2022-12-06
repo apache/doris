@@ -37,6 +37,10 @@ public class Min extends AggregateFunction implements UnaryExpression, Propagate
         super("min", child);
     }
 
+    public Min(boolean isDistinct, Expression... arguments) {
+        super("min", false, arguments);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();

@@ -36,6 +36,10 @@ public class Max extends AggregateFunction implements UnaryExpression, Propagate
         super("max", child);
     }
 
+    public Max(boolean isDistinct, Expression... arguments) {
+        super("max", false, arguments);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         DataType dataType = getArgument(0).getDataType();
