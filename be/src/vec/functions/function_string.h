@@ -642,11 +642,6 @@ public:
     }
 };
 
-
-/**
- * very important can copy
- * 
-*/
 class FunctionStringConcat : public IFunction {
 public:
     static constexpr auto name = "concat";
@@ -1411,7 +1406,8 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        //return std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
     }
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
@@ -1427,6 +1423,11 @@ public:
         res_offsets.resize(input_rows_count);
         auto& res_data_chars = res_data.get_chars();
         auto& res_data_offsets = res_data.get_offsets();
+        LOG(WARNING) << "&res_data:" << &res_data;
+        LOG(WARNING) << "&res_offsets:" << &res_offsets;
+        LOG(WARNING) << "&res_data_chars:" << &res_data_chars;
+        LOG(WARNING) << "&res_data_offsets:" << &res_data_offsets;
+        LOG(WARNING) << "-------------------------------------------";
 
         //Get the string column and the delimiter column
         ColumnPtr argument_columns[2];
@@ -1450,6 +1451,7 @@ public:
                 res_data_chars.resize(res_data_chars.size() + str_str.size());
                 res_data_offsets.resize(res_data_offsets.size() + 1);
                 memcpy(&res_data_chars[res_data_offsets[i-1]], &(*&str_str[0]), str_str.size());
+
                 res_data_offsets[i] = res_data_offsets[i-1] + str_str.size();
                 res_offsets[i] = res_offsets[i-1] + 1;
             } else if (delimiter.size == 1) {
