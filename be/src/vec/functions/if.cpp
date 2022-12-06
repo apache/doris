@@ -354,20 +354,8 @@ public:
                                         const ColumnWithTypeAndName& arg_then,
                                         const ColumnWithTypeAndName& arg_else, size_t result,
                                         size_t input_rows_count) {
-        const ColumnNullable* then_is_nullable = nullptr;
-        const ColumnNullable* else_is_nullable = nullptr;
-        if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
-            then_is_nullable =
-                    check_and_get_column<ColumnNullable>(then_is_const->get_data_column());
-        } else {
-            then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
-        }
-        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
-            else_is_nullable =
-                    check_and_get_column<ColumnNullable>(else_is_const->get_data_column());
-        } else {
-            else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
-        }
+        auto* then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
+        auto* else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
 
         if (!then_is_nullable && !else_is_nullable) return false;
 
@@ -466,6 +454,19 @@ public:
         ColumnWithTypeAndName& cond_column = block.get_by_position(arguments[0]);
         cond_column.column = materialize_column_if_const(cond_column.column);
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
+
+        if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
+            if (check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
+                ColumnWithTypeAndName& then_column = block.get_by_position(arguments[1]);
+                then_column.column = materialize_column_if_const(then_column.column);
+            }
+        }
+        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
+            if (check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
+                ColumnWithTypeAndName& else_column = block.get_by_position(arguments[2]);
+                else_column.column = materialize_column_if_const(else_column.column);
+            }
+        }
 
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arg_cond, arg_then, arg_else, result) ||
