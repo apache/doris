@@ -120,6 +120,7 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
