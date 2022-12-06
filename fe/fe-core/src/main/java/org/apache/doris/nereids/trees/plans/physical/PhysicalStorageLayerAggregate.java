@@ -39,16 +39,16 @@ import java.util.Optional;
 /** PhysicalStorageLayerAggregate */
 public class PhysicalStorageLayerAggregate extends PhysicalRelation implements OlapScan {
     private final PhysicalOlapScan olapScan;
-    private final PushAggOp aggOp;
+    private final PushDownAggOp aggOp;
 
-    public PhysicalStorageLayerAggregate(PhysicalOlapScan olapScan, PushAggOp aggOp) {
+    public PhysicalStorageLayerAggregate(PhysicalOlapScan olapScan, PushDownAggOp aggOp) {
         super(olapScan.getId(), olapScan.getType(), olapScan.getQualifier(),
                 Optional.empty(), olapScan.getLogicalProperties());
         this.olapScan = Objects.requireNonNull(olapScan, "olapScan cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
     }
 
-    public PhysicalStorageLayerAggregate(PhysicalOlapScan olapScan, PushAggOp aggOp,
+    public PhysicalStorageLayerAggregate(PhysicalOlapScan olapScan, PushDownAggOp aggOp,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         super(olapScan.getId(), olapScan.getType(), olapScan.getQualifier(), groupExpression,
@@ -61,7 +61,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation implements O
         return olapScan;
     }
 
-    public PushAggOp getAggOp() {
+    public PushDownAggOp getAggOp() {
         return aggOp;
     }
 
@@ -118,7 +118,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation implements O
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalStorageLayerAggregate",
-                "pushedAggOp", aggOp,
+                "pushDownAggOp", aggOp,
                 "table", olapScan,
                 "stats", statsDeriveResult
         );
@@ -148,14 +148,14 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation implements O
     }
 
     /** PushAggOp */
-    public enum PushAggOp {
+    public enum PushDownAggOp {
         COUNT, MIN_MAX, MIX;
 
-        public static Map<String, PushAggOp> supportedFunctions() {
-            return ImmutableMap.<String, PushAggOp>builder()
-                    .put("count", PushAggOp.COUNT)
-                    .put("min", PushAggOp.MIN_MAX)
-                    .put("max", PushAggOp.MIN_MAX)
+        public static Map<String, PushDownAggOp> supportedFunctions() {
+            return ImmutableMap.<String, PushDownAggOp>builder()
+                    .put("count", PushDownAggOp.COUNT)
+                    .put("min", PushDownAggOp.MIN_MAX)
+                    .put("max", PushDownAggOp.MIN_MAX)
                     .build();
         }
     }

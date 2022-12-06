@@ -51,7 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushAggOp;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -68,20 +68,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-/**
- * Used to generate the merge agg node for distributed execution.
- * NOTICE: GLOBAL output expressions' ExprId should SAME with ORIGIN output expressions' ExprId.
- * <pre>
- * If we have a query: SELECT SUM(v1 * v2) + 1 FROM t GROUP BY k + 1
- * the initial plan is:
- *   Aggregate(phase: [GLOBAL], outputExpr: [Alias(k + 1) #1, Alias(SUM(v1 * v2) + 1) #2], groupByExpr: [k + 1])
- *   +-- childPlan
- * we should rewrite to:
- *   Aggregate(phase: [GLOBAL], outputExpr: [Alias(b) #1, Alias(SUM(a) + 1) #2], groupByExpr: [b])
- *   +-- Aggregate(phase: [LOCAL], outputExpr: [SUM(v1 * v2) as a, (k + 1) as b], groupByExpr: [k + 1])
- *       +-- childPlan
- * </pre>
- */
+/** AggregateStrategies */
 @DependsRules(NormalizeAggregate.class)
 public class AggregateStrategies implements ImplementationRuleFactory {
 
@@ -153,7 +140,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .map(aggFun -> aggFun.getName().toLowerCase())
                 .collect(Collectors.toSet());
 
-        Map<String, PushAggOp> supportedAgg = PushAggOp.supportedFunctions();
+        Map<String, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
         if (!supportedAgg.keySet().containsAll(aggNames)) {
             return canNotPush;
         }
@@ -195,13 +182,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
 
-        Set<PushAggOp> pushAggOps = aggNames.stream()
+        Set<PushDownAggOp> pushDownAggOps = aggNames.stream()
                 .map(supportedAgg::get)
                 .collect(Collectors.toSet());
 
-        PushAggOp mergeOp = pushAggOps.size() == 1
-                ? pushAggOps.iterator().next()
-                : PushAggOp.MIX;
+        PushDownAggOp mergeOp = pushDownAggOps.size() == 1
+                ? pushDownAggOps.iterator().next()
+                : PushDownAggOp.MIX;
 
         Set<SlotReference> aggUsedSlots =
                 ExpressionUtils.collect(argumentsOfAggregateFunction, SlotReference.class::isInstance);
@@ -216,16 +203,16 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293
-            if (mergeOp == PushAggOp.MIN_MAX || mergeOp == PushAggOp.MIX) {
+            if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 PrimitiveType colType = column.getType().getPrimitiveType();
                 if (colType.isArrayType() || colType.isComplexType() || colType == PrimitiveType.STRING) {
                     return canNotPush;
                 }
-                if (colType.isCharFamily() && mergeOp != PushAggOp.COUNT && column.getType().getLength() > 512) {
+                if (colType.isCharFamily() && mergeOp != PushDownAggOp.COUNT && column.getType().getLength() > 512) {
                     return canNotPush;
                 }
             }
-            if (mergeOp == PushAggOp.COUNT || mergeOp == PushAggOp.MIX) {
+            if (mergeOp == PushDownAggOp.COUNT || mergeOp == PushDownAggOp.MIX) {
                 // NULL value behavior in `count` function is zero, so
                 // we should not use row_count to speed up query. the col
                 // must be not null
