@@ -93,6 +93,6 @@ public class FunctionRegistry {
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
         return candidateBuilders.stream()
                 .map(builder -> name + builder.toString())
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 }
