@@ -66,7 +66,7 @@ public:
 
     Status set_sink(OperatorBuilderPtr& sink_operator);
 
-    OperatorBuilder* sink() { return _sink.get(); }
+    OperatorBuilderBase* sink() { return _sink.get(); }
 
     Status build_operators(Operators&);
 

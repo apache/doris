@@ -29,41 +29,20 @@ class VSortNode;
 
 namespace pipeline {
 
-class SortSinkOperatorBuilder;
-
-class SortSinkOperator : public Operator {
+class SortSinkOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
 public:
-    SortSinkOperator(SortSinkOperatorBuilder* operator_builder, vectorized::VSortNode* sort_node);
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-
-    // return can write continue
-    Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
-
-    Status finalize(RuntimeState* /*state*/) override { return Status::OK(); }
-
-    bool can_write() override { return true; };
-
-private:
-    vectorized::VSortNode* _sort_node;
-};
-
-class SortSinkOperatorBuilder : public OperatorBuilder {
-public:
-    SortSinkOperatorBuilder(int32_t id, const std::string& name, vectorized::VSortNode* sort_node);
+    SortSinkOperatorBuilder(int32_t id, ExecNode* sort_node);
 
     bool is_sink() const override { return true; }
 
-    bool is_source() const override { return false; }
+    OperatorPtr build_operator() override;
+};
 
-    OperatorPtr build_operator() override {
-        return std::make_shared<SortSinkOperator>(this, _sort_node);
-    }
+class SortSinkOperator final : public Operator<SortSinkOperatorBuilder> {
+public:
+    SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
 
-private:
-    vectorized::VSortNode* _sort_node;
+    bool can_write() override { return true; };
 };
 
 } // namespace pipeline
