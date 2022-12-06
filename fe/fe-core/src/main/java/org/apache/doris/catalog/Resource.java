@@ -45,7 +45,10 @@ public abstract class Resource implements Writable {
         SPARK,
         ODBC_CATALOG,
         S3_COOLDOWN,
-        JDBC;
+        JDBC,
+        S3,
+        HDFS,
+        HMS;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -97,6 +100,15 @@ public abstract class Resource implements Writable {
                 break;
             case JDBC:
                 resource = new JdbcResource(name);
+                break;
+            case S3:
+                resource = new S3Resource(name);
+                break;
+            case HDFS:
+                resource = new HdfsResource(name);
+                break;
+            case HMS:
+                resource = new HMSResource(name);
                 break;
             default:
                 throw new DdlException("Unknown resource type: " + type);

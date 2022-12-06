@@ -23,13 +23,16 @@ import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3CoolDownResource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
@@ -133,7 +136,10 @@ public class GsonUtils {
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
             .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
             .registerSubtype(S3CoolDownResource.class, S3CoolDownResource.class.getSimpleName())
-            .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName());
+            .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
+            .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
+            .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
+            .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
