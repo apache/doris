@@ -51,7 +51,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = ""
+excludeSuites = "test_date_function"
 // this directories will not be executed
 excludeDirectories = ""
 
