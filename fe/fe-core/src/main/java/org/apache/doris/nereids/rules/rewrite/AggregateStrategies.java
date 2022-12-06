@@ -88,14 +88,14 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .when(LogicalAggregate::isNormalized);
 
         return ImmutableList.of(
-            RuleType.STORAGE_LAYER_AGGREGATE.build(
+            RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT.build(
                 logicalAggregate(
                     logicalOlapScan().when(LogicalOlapScan::supportStorageLayerAggregate)
                 )
                 .when(LogicalAggregate::supportStorageLayerAggregate)
                 .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
             ),
-            RuleType.STORAGE_LAYER_AGGREGATE.build(
+            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
                 logicalAggregate(
                     logicalProject(
                         logicalOlapScan().when(LogicalOlapScan::supportStorageLayerAggregate)
@@ -109,7 +109,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
                 })
             ),
-            RuleType.ONE_PHASE_AGGREGATE.build(
+            RuleType.ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 0)
                     .thenApplyMulti(ctx -> onePhaseAggregateWithoutDistinct(ctx.root, ctx.connectContext))
@@ -123,6 +123,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 basePattern
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
+            ),
+            RuleType.TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
+                basePattern
+                        .when(agg -> agg.getDistinctArguments().size() == 1)
+                        .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
