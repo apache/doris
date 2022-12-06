@@ -71,7 +71,7 @@ public class LdapPrivsCheckerTest {
     @Before
     public void setUp() {
         LdapConfig.ldap_authentication_enabled = true;
-        new Expectations(context) {
+        new Expectations() {
             {
                 ConnectContext.get();
                 minTimes = 0;
