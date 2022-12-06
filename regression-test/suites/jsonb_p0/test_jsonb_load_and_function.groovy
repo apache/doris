@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite("test_jsonb_load_and_function", "p0") {
     // define a sql table
     def testTable = "tbl_test_jsonb"
@@ -35,7 +37,6 @@ suite("test_jsonb_load_and_function", "p0") {
         """
 
     // load the jsonb data from csv file
-    // fail by default for invalid data rows
     streamLoad {
         table testTable
         
@@ -57,6 +58,17 @@ suite("test_jsonb_load_and_function", "p0") {
             assertEquals(18, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
+            log.info("url: " + json.ErrorURL)
+
+            StringBuilder sb = new StringBuilder()
+            sb.append("curl -X GET " + json.ErrorURL)
+            String command = sb.toString()
+            // wait for cleaning stale_rowsets
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+            def out = process.getText()
+            log.info("error result: " + out)
         }
     }
 
@@ -84,6 +96,16 @@ suite("test_jsonb_load_and_function", "p0") {
             assertEquals(18, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
+
+            StringBuilder sb = new StringBuilder()
+            sb.append("curl -X GET " + json.ErrorURL)
+            String command = sb.toString()
+            // wait for cleaning stale_rowsets
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+            def out = process.getText()
+            log.info("error result: " + out)
         }
     }
 
