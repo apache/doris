@@ -15,63 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder;
+package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-public class JoinOrderJobTest extends TestWithFeService {
-    @Override
-    protected void runBeforeAll() throws Exception {
-        createDatabase("test");
-
-        connectContext.setDatabase("default_cluster:test");
-
-        createTables(
-                "CREATE TABLE IF NOT EXISTS T1 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
-                "CREATE TABLE IF NOT EXISTS T2 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
-                "CREATE TABLE IF NOT EXISTS T3 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
-                "CREATE TABLE IF NOT EXISTS T4 (\n"
-                        + "    id bigint,\n"
-                        + "    score bigint\n"
-                        + ")\n"
-                        + "DUPLICATE KEY(id)\n"
-                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "  \"replication_num\" = \"1\"\n"
-                        + ")\n"
-        );
+public class JoinOrderJobTest extends SqlTestBase {
+    @Test
+    protected void testSimpleSQL() {
+        String sql = "select * from T1, T2, T3, T4 "
+                + "where "
+                + "T1.id = T2.id and "
+                + "T2.score = T3.score and "
+                + "T3.id = T4.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .deriveStats()
+                .orderJoin()
+                .printlnTree();
     }
 
     @Test
-    protected void testSimpleSQL() {
-        String sql = "select count(*) from T1, T2, T3, T4 "
+    protected void testSimpleSQLWithProject() {
+        String sql = "select T1.id from T1, T2, T3, T4 "
                 + "where "
                 + "T1.id = T2.id and "
                 + "T2.score = T3.score and "

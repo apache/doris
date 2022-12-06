@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -42,6 +43,7 @@ import java.util.Set;
 public class HyperGraph {
     private final List<Edge> edges = new ArrayList<>();
     private final List<Node> nodes = new ArrayList<>();
+    private final HashSet<Group> nodeSet = new HashSet<>();
     private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
     private final HashMap<Long, NamedExpression> complexProject = new HashMap<>();
 
@@ -86,6 +88,8 @@ public class HyperGraph {
         slotToNodeMap.put(aliasSlot, bitmap);
         if (LongBitmap.getCardinality(bitmap) == 1) {
             int index = LongBitmap.lowestOneIndex(bitmap);
+            nodeSet.remove(nodes.get(index).getGroup());
+            nodeSet.add(group);
             nodes.get(index).replaceGroupWith(group);
             return false;
         }
@@ -104,7 +108,12 @@ public class HyperGraph {
             Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
             slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
         }
+        nodeSet.add(group);
         nodes.add(new Node(nodes.size(), group));
+    }
+
+    public boolean isNodeGroup(Group group) {
+        return nodeSet.contains(group);
     }
 
     public HashMap<Long, NamedExpression> getComplexProject() {

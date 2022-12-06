@@ -25,7 +25,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -114,11 +113,11 @@ public class PlanReceiver implements AbstractReceiver {
         return planTable.get(bitmap);
     }
 
-    private double getSimpleCost(Plan plan) {
-        if (!(plan instanceof LogicalJoin)) {
-            return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+    private double getSimpleCost(Group group) {
+        if (!group.isJoinGroup()) {
+            return group.getStatistics().getRowCount();
         }
-        return plan.getGroupExpression().get().getCostByProperties(PhysicalProperties.ANY);
+        return group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY);
     }
 
     private Group tryAddProject(Group group, HashMap<Long, NamedExpression> projectExpression, long fullKey) {
@@ -154,10 +153,8 @@ public class PlanReceiver implements AbstractReceiver {
         Preconditions.checkArgument(planTable.containsKey(right));
         Group leftGroup = planTable.get(left);
         Group rightGroup = planTable.get(right);
-        Plan leftPlan = leftGroup.getLogicalExpression().getPlan();
-        Plan rightPlan = rightGroup.getLogicalExpression().getPlan();
 
-        double cost = getSimpleCost(leftPlan) + getSimpleCost(rightPlan);
+        double cost = getSimpleCost(leftGroup) + getSimpleCost(rightGroup);
         List<Expression> conditions = new ArrayList<>();
         for (Edge edge : edges) {
             conditions.addAll(edge.getJoin().getExpressions());

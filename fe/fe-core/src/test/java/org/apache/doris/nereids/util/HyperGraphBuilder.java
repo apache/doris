@@ -46,9 +46,9 @@ import java.util.Optional;
 import java.util.Set;
 
 public class HyperGraphBuilder {
-    private List<Integer> rowCounts = new ArrayList<>();
-    private HashMap<BitSet, LogicalPlan> plans = new HashMap<>();
-    private HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
+    private final List<Integer> rowCounts = new ArrayList<>();
+    private final HashMap<BitSet, LogicalPlan> plans = new HashMap<>();
+    private final HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
 
     public HyperGraph build() {
         assert plans.size() == 1 : "there are cross join";
@@ -215,9 +215,9 @@ public class HyperGraphBuilder {
         List<Expression> conditions = new ArrayList<>(join.getExpressions());
         Set<Slot> inputs = condition.getInputSlots();
         if (leftSlots.containsAll(inputs)) {
-            left = (LogicalJoin) attachCondition(condition, (LogicalJoin) left);
+            left = attachCondition(condition, (LogicalJoin) left);
         } else if (rightSlots.containsAll(inputs)) {
-            right = (LogicalJoin) attachCondition(condition, (LogicalJoin) right);
+            right = attachCondition(condition, (LogicalJoin) right);
         } else {
             conditions.add(condition);
         }

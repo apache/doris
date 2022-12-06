@@ -17,33 +17,36 @@
 
 package org.apache.doris.nereids.jobs.joinorder;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.GraphSimplifier;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.SubgraphEnumerator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.PlanReceiver;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Join Order job with DPHyp
  */
 public class JoinOrderJob extends Job {
     private final Group group;
-    private List<Expression> otherProject = new ArrayList<>();
+    private final Set<NamedExpression> otherProject = new HashSet<>();
 
     public JoinOrderJob(Group group, JobContext context) {
         super(JobType.JOIN_ORDER, context);
@@ -52,12 +55,16 @@ public class JoinOrderJob extends Job {
 
     @Override
     public void execute() throws AnalysisException {
-        Preconditions.checkArgument(!group.isJoinGroup());
         GroupExpression rootExpr = group.getLogicalExpression();
         int arity = rootExpr.arity();
         for (int i = 0; i < arity; i++) {
             rootExpr.setChild(i, optimizePlan(rootExpr.child(i)));
         }
+        CascadesContext cascadesContext = context.getCascadesContext();
+        cascadesContext.topDownRewrite(new ColumnPruning());
+        cascadesContext.pushJob(
+                new DeriveStatsJob(group.getLogicalExpression(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
     private Group optimizePlan(Group group) {
@@ -87,12 +94,21 @@ public class JoinOrderJob extends Job {
             }
         }
         Group optimized = planReceiver.getBestPlan(hyperGraph.getNodesMap());
+        Group memoRoot = copyToMemo(optimized);
 
-        return copyToMemo(optimized);
+        // For other projects, such as project constant or project nullable, we construct a new project above root
+        if (otherProject.size() != 0) {
+            otherProject.addAll(memoRoot.getLogicalExpression().getPlan().getOutput());
+            LogicalProject logicalProject = new LogicalProject(new ArrayList<>(otherProject),
+                    memoRoot.getLogicalExpression().getPlan());
+            GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
+            memoRoot = context.getCascadesContext().getMemo().copyInGroupExpression(groupExpression);
+        }
+        return memoRoot;
     }
 
     private Group copyToMemo(Group root) {
-        if (!root.isJoinGroup()) {
+        if (root.getGroupId() != null) {
             return root;
         }
         GroupExpression groupExpression = root.getLogicalExpression();
@@ -132,7 +148,7 @@ public class JoinOrderJob extends Job {
      * Process project expression in HyperGraph
      * 1. If it's a simple expression for column pruning, we just ignore it
      * 2. If it's an alias that may be used in the join operator, we need to add it to graph
-     * 3. If it's other expressions, we can ignore them and add it after optimizing
+     * 3. If it's other expression, we can ignore them and add it after optimizing
      * 4. If it's a project only associate with one table, it's seen as an endNode just like a table
      */
     private void processProjectPlan(HyperGraph hyperGraph, Group group) {
