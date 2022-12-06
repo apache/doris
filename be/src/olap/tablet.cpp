@@ -17,6 +17,8 @@
 
 #include "olap/tablet.h"
 
+#include <bvar/reducer.h>
+#include <bvar/window.h>
 #include <ctype.h>
 #include <fmt/core.h>
 #include <glog/logging.h>
@@ -74,6 +76,10 @@ using std::vector;
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
+
+bvar::Adder<uint64_t> exceed_version_limit_counter;
+bvar::Window<bvar::Adder<uint64_t>> xceed_version_limit_counter_minute(
+        &exceed_version_limit_counter, 60);
 
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                 DataDir* data_dir) {
@@ -673,6 +679,14 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     std::shared_lock rdlock(_meta_lock);
     return capture_consistent_versions(version, nullptr, quiet);
+}
+
+bool Tablet::exceed_version_limit(int32_t limit) const {
+    if (_tablet_meta->version_count() > limit) {
+        exceed_version_limit_counter << 1;
+        return true;
+    }
+    return false;
 }
 
 // If any rowset contains the specific version, it means the version already exist

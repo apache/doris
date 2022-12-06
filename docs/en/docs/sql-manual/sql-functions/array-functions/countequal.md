@@ -26,6 +26,12 @@ under the License.
 
 ## countequal
 
+<version since="1.2.0">
+
+countequal
+
+</version>
+
 ### description
 
 #### Syntax
@@ -63,3 +69,4 @@ mysql> select *, countEqual(c_array,5) from array_test;
 ### keywords
 
 ARRAY,COUNTEQUAL,
+

@@ -215,28 +215,34 @@ public class HiveMetaStoreCache {
     }
 
     private ImmutableList<InputSplit> loadFiles(FileCacheKey key) {
-        String finalLocation = convertToS3IfNecessary(key.location);
-        Configuration conf = getConfiguration();
-        JobConf jobConf = new JobConf(conf);
-        // For Tez engine, it may generate subdirectories for "union" query.
-        // So there may be files and directories in the table directory at the same time. eg:
-        //      /user/hive/warehouse/region_tmp_union_all2/000000_0
-        //      /user/hive/warehouse/region_tmp_union_all2/1
-        //      /user/hive/warehouse/region_tmp_union_all2/2
-        // So we need to set this config to support visit dir recursively.
-        // Otherwise, getSplits() may throw exception: "Not a file xxx"
-        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
-        jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
-        FileInputFormat.setInputPaths(jobConf, finalLocation);
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
-            InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(conf, key.inputFormat, false);
-            InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("load #{} files for {} in catalog {}", splits.length, key, catalog.getName());
+            Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+            String finalLocation = convertToS3IfNecessary(key.location);
+            Configuration conf = getConfiguration();
+            JobConf jobConf = new JobConf(conf);
+            // For Tez engine, it may generate subdirectories for "union" query.
+            // So there may be files and directories in the table directory at the same time. eg:
+            //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
+            //      /user/hive/warehouse/region_tmp_union_all2/1
+            //      /user/hive/warehouse/region_tmp_union_all2/2
+            // So we need to set this config to support visit dir recursively.
+            // Otherwise, getSplits() may throw exception: "Not a file xxx"
+            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+            jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
+            FileInputFormat.setInputPaths(jobConf, finalLocation);
+            try {
+                InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(conf, key.inputFormat, false);
+                InputSplit[] splits = inputFormat.getSplits(jobConf, 0);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("load #{} files for {} in catalog {}", splits.length, key, catalog.getName());
+                }
+                return ImmutableList.copyOf(splits);
+            } catch (Exception e) {
+                throw new CacheException("failed to get input splits for %s in catalog %s", e, key, catalog.getName());
             }
-            return ImmutableList.copyOf(splits);
-        } catch (Exception e) {
-            throw new CacheException("failed to get input splits for %s in catalog %s", e, key, catalog.getName());
+        } finally {
+            Thread.currentThread().setContextClassLoader(classLoader);
         }
     }
 
@@ -499,3 +505,4 @@ public class HiveMetaStoreCache {
         }
     }
 }
+

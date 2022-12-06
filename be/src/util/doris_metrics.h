@@ -199,6 +199,9 @@ public:
     UIntGauge* query_cache_sql_total_count;
     UIntGauge* query_cache_partition_total_count;
 
+    IntCounter* tablet_schema_cache_count;
+    UIntGauge* tablet_schema_cache_memory_bytes;
+
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;

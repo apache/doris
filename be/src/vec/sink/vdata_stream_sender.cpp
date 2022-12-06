@@ -95,6 +95,7 @@ Status Channel::send_current_block(bool eos) {
     if (_enable_local_exchange && is_local()) {
         return send_local_block(eos);
     }
+    SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
     auto block = _mutable_block->to_block();
     RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
     block.clear_column_data();
@@ -181,6 +182,7 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
     }
 
     if (_mutable_block == nullptr) {
+        SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         _mutable_block.reset(new MutableBlock(block->clone_empty()));
     }
 
@@ -197,7 +199,10 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
             row_add = row_wait_add;
         }
 
-        _mutable_block->add_rows(block, begin, begin + row_add);
+        {
+            SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+            _mutable_block->add_rows(block, begin, begin + row_add);
+        }
 
         row_wait_add -= row_add;
         begin += row_add;
@@ -233,6 +238,7 @@ Status Channel::close_internal() {
     if (_mutable_block != nullptr && _mutable_block->rows() > 0) {
         RETURN_IF_ERROR(send_current_block(true));
     } else {
+        SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         RETURN_IF_ERROR(send_block(nullptr, true));
     }
     // Don't wait for the last packet to finish, left it to close_wait.
@@ -458,7 +464,6 @@ Status VDataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VDataStreamSender::send")
     SCOPED_TIMER(_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
@@ -474,11 +479,16 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else {
-            RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
+            {
+                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
+            }
+
             for (auto channel : _channels) {
                 if (channel->is_local()) {
                     RETURN_IF_ERROR(channel->send_local_block(block));
                 } else {
+                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                     RETURN_IF_ERROR(channel->send_block(_cur_pb_block, eos));
                 }
             }
@@ -492,6 +502,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         if (current_channel->is_local()) {
             RETURN_IF_ERROR(current_channel->send_local_block(block));
         } else {
+            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
             RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
             RETURN_IF_ERROR(current_channel->send_block(current_channel->ch_cur_pb_block(), eos));
             current_channel->ch_roll_pb_block();
@@ -505,7 +516,10 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
         int result_size = _partition_expr_ctxs.size();
         int result[result_size];
-        RETURN_IF_ERROR(get_partition_column_result(block, result));
+        {
+            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+            RETURN_IF_ERROR(get_partition_column_result(block, result));
+        }
 
         // vectorized calculate hash
         int rows = block->rows();
@@ -536,7 +550,11 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 }
             }
 
-            Block::erase_useless_column(block, column_to_keep);
+            {
+                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                Block::erase_useless_column(block, column_to_keep);
+            }
+
             RETURN_IF_ERROR(channel_add_rows(_channels, element_size, hashes, rows, block));
         } else {
             for (int j = 0; j < result_size; ++j) {
@@ -548,7 +566,10 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 hashes[i] = hashes[i] % element_size;
             }
 
-            Block::erase_useless_column(block, column_to_keep);
+            {
+                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                Block::erase_useless_column(block, column_to_keep);
+            }
             RETURN_IF_ERROR(
                     channel_add_rows(_channel_shared_ptrs, element_size, hashes, rows, block));
         }

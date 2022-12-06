@@ -24,6 +24,12 @@ under the License.
 
 ## array_compact
 
+<version since="1.2.0">
+
+array_compact
+
+</version>
+
 ### description
 
 Removes consecutive duplicate elements from an array. The order of result values is determined by the order in the source array.
@@ -79,3 +85,4 @@ select array_compact(['2015-03-13','2015-03-13']);
 ### keywords
 
 ARRAY,COMPACT,ARRAY_COMPACT
+

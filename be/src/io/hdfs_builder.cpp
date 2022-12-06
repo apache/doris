@@ -72,6 +72,9 @@ THdfsParams parse_properties(const std::map<std::string, std::string>& propertie
             iter = prop.erase(iter);
         }
     }
+    if (!hdfsParams.__isset.user && std::getenv("HADOOP_USER_NAME") != nullptr) {
+        hdfsParams.__set_user(std::getenv("HADOOP_USER_NAME"));
+    }
     hdfsParams.__set_hdfs_conf(hdfs_configs);
     return hdfsParams;
 }

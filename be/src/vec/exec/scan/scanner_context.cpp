@@ -53,10 +53,13 @@ Status ScannerContext::init() {
 
     // The free blocks is used for final output block of scanners.
     // So use _output_tuple_desc;
+    int64_t free_blocks_memory_usage = 0;
     for (int i = 0; i < pre_alloc_block_count; ++i) {
         auto block = new vectorized::Block(_output_tuple_desc->slots(), real_block_size);
+        free_blocks_memory_usage += block->allocated_bytes();
         _free_blocks.emplace_back(block);
     }
+    _parent->_free_blocks_memory_usage->add(free_blocks_memory_usage);
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -81,6 +84,7 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
         if (!_free_blocks.empty()) {
             auto block = _free_blocks.back();
             _free_blocks.pop_back();
+            _parent->_free_blocks_memory_usage->add(-block->allocated_bytes());
             return block;
         }
     }
@@ -92,18 +96,21 @@ vectorized::Block* ScannerContext::get_free_block(bool* get_free_block) {
 
 void ScannerContext::return_free_block(vectorized::Block* block) {
     block->clear_column_data();
+    _parent->_free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard<std::mutex> l(_free_blocks_lock);
     _free_blocks.emplace_back(block);
 }
 
 void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::Block*>& blocks) {
     std::lock_guard<std::mutex> l(_transfer_lock);
+    auto old_bytes_in_queue = _cur_bytes_in_queue;
     _blocks_queue.insert(_blocks_queue.end(), blocks.begin(), blocks.end());
     _update_block_queue_empty();
     for (auto b : blocks) {
         _cur_bytes_in_queue += b->allocated_bytes();
     }
     _blocks_queue_added_cv.notify_one();
+    _parent->_queued_blocks_memory_usage->add(_cur_bytes_in_queue - old_bytes_in_queue);
 }
 
 bool ScannerContext::empty_in_queue() {
@@ -144,7 +151,9 @@ Status ScannerContext::get_block_from_queue(vectorized::Block** block, bool* eos
         *block = _blocks_queue.front();
         _blocks_queue.pop_front();
         _update_block_queue_empty();
-        _cur_bytes_in_queue -= (*block)->allocated_bytes();
+        auto block_bytes = (*block)->allocated_bytes();
+        _cur_bytes_in_queue -= block_bytes;
+        _parent->_queued_blocks_memory_usage->add(-block_bytes);
         return Status::OK();
     } else {
         *eos = _is_finished;

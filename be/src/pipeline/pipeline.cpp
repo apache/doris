@@ -37,7 +37,6 @@ Status Pipeline::build_operators(Operators& operators) {
     OperatorPtr pre;
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
-        RETURN_IF_ERROR(o->init(operator_t->exec_node(), _context->get_runtime_state()));
         if (pre) {
             o->set_child(pre);
         }
