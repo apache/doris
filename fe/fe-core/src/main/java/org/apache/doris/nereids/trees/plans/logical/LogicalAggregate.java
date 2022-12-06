@@ -221,6 +221,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     }
 
     public boolean supportStorageLayerAggregate() {
-        return normalized && groupByExpressions.isEmpty();
+        return normalized && groupByExpressions.isEmpty() && getDistinctArguments().isEmpty();
     }
 }
