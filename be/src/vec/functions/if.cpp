@@ -357,12 +357,14 @@ public:
         const ColumnNullable* then_is_nullable = nullptr;
         const ColumnNullable* else_is_nullable = nullptr;
         if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
-            then_is_nullable = check_and_get_column<ColumnNullable>(then_is_const->get_data_column());
+            then_is_nullable =
+                    check_and_get_column<ColumnNullable>(then_is_const->get_data_column());
         } else {
             then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
         }
         if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
-            else_is_nullable = check_and_get_column<ColumnNullable>(else_is_const->get_data_column());
+            else_is_nullable =
+                    check_and_get_column<ColumnNullable>(else_is_const->get_data_column());
         } else {
             else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
         }
