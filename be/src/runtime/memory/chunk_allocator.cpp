@@ -123,7 +123,9 @@ public:
     void clear() {
         std::lock_guard<SpinLock> l(_lock);
         for (int i = 0; i < 64; ++i) {
-            if (_chunk_lists[i].empty()) continue;
+            if (_chunk_lists[i].empty()) {
+                continue;
+            }
             for (auto ptr : _chunk_lists[i]) {
                 ::free(ptr);
             }

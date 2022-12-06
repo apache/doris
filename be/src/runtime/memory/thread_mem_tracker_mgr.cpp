@@ -59,7 +59,7 @@ void ThreadMemTrackerMgr::exceeded(int64_t size) {
     _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
 
     if (is_attach_query()) {
-        if (_is_process_exceed) {
+        if (_is_process_exceed && _wait_gc) {
             int64_t wait_milliseconds = config::thread_wait_gc_max_milliseconds;
             while (wait_milliseconds > 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Check every 100 ms.

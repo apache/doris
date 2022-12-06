@@ -104,6 +104,7 @@ public:
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
     std::string exceed_mem_limit_msg() { return _exceed_mem_limit_msg; }
     void clear_exceed_mem_limit_msg() { _exceed_mem_limit_msg = ""; }
+    void disable_wait_gc() { _wait_gc = false; }
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
@@ -137,8 +138,9 @@ private:
     int64_t _scope_mem = 0;
 
     std::string _failed_consume_msg = std::string();
-    bool _is_process_exceed = false;
     std::string _exceed_mem_limit_msg = std::string();
+    bool _is_process_exceed = false;
+    bool _wait_gc = true;
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
     MemTrackerLimiter* _limiter_tracker_raw = nullptr;

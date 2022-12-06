@@ -137,6 +137,7 @@ private:
     static std::string _s_sys_mem_available_str;
     static int64_t _s_sys_mem_available_low_water_mark;
     static int64_t _s_sys_mem_available_warning_water_mark;
+    static int64_t _s_process_minor_gc_size;
     static int64_t _s_process_full_gc_size;
 };
 

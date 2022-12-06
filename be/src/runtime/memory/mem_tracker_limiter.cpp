@@ -247,6 +247,7 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
                         std::vector<std::pair<int64_t, std::string>>,
                         std::greater<std::pair<int64_t, std::string>>>
             min_pq;
+    // After greater than min_free_mem, will not be modified.
     int64_t prepare_free_mem = 0;
 
     auto label_to_queryid = [&](const std::string& label) -> TUniqueId {
@@ -278,7 +279,9 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
             had_cancel = true;
             min_pq.pop();
         }
-        if (had_cancel) LOG(INFO) << "Free Top Memory Usage Query: " << join(usage_strings, ",");
+        if (had_cancel) {
+            LOG(INFO) << "Process GC Free Top Memory Usage Query: " << join(usage_strings, ",");
+        }
     };
 
     for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
@@ -298,7 +301,9 @@ void MemTrackerLimiter::free_top_query(int64_t min_free_mem) {
                 } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
                     min_pq.push(
                             pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    prepare_free_mem += tracker->consumption();
                 } else if (tracker->consumption() > min_pq.top().first) {
+                    // No need to modify prepare_free_mem, prepare_free_mem will always be greater than min_free_mem.
                     min_pq.push(
                             pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
                     min_pq.pop();

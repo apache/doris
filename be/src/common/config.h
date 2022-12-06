@@ -68,11 +68,12 @@ CONF_Double(soft_mem_limit_frac, "0.9");
 // Turn down max. will use as much memory as possible.
 CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 
-// The size of the memory that full gc wants to release each time, as a percentage of the mem limit.
+// The size of the memory that gc wants to release each time, as a percentage of the mem limit.
+CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
-CONF_mInt32(thread_wait_gc_max_milliseconds, "5000");
+CONF_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
