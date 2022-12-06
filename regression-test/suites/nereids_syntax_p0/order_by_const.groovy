@@ -15,27 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("group_by_constant") {
-    sql """
-        SET enable_vectorized_engine=true
-    """
-
-    sql """
-        SET enable_nereids_planner=true
-    """
-
+suite("order_by_const") {
+    sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET enable_vectorized_engine=true"
 
-    qt_select_1 """ 
-        select 'str', sum(lo_tax), lo_orderkey, max(lo_discount), 1 from lineorder, customer group by 3, 5, 'str', 1, lo_orderkey order by lo_orderkey;
-    """
 
-    qt_sql """SELECT lo_custkey, lo_partkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2"""
-
-    qt_sql """SELECT lo_partkey, lo_custkey, SUM(lo_tax) FROM lineorder GROUP BY 1, 2"""
-
-    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 1,  1 + 1"""
-
-    qt_sql """SELECT lo_partkey, 1, SUM(lo_tax) FROM lineorder GROUP BY 'g',  1"""
-
+    qt_sql """SELECT lo_custkey, lo_partkey, lo_suppkey FROM lineorder ORDER BY 1, 2 LIMIT 3"""
+    qt_sql """SELECT lo_partkey, lo_custkey, lo_suppkey FROM lineorder ORDER BY 1, 2 LIMIT 3"""
+    qt_sql """SELECT lo_partkey, lo_custkey, lo_suppkey FROM lineorder ORDER BY 'g', 1+1 LIMIT 3"""
 }
