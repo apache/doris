@@ -56,7 +56,7 @@ public class InternalSchemaInitializer extends Thread {
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 1;
 
     public void run() {
-        if (FeConstants.runningUnitTest) {
+        if (FeConstants.disableInternalSchemaDb) {
             return;
         }
         while (!created()) {
