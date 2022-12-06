@@ -236,6 +236,7 @@ public class UtFrameUtils {
         // set runningUnitTest to true, so that for ut,
         // the agent task will be sent to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
+        FeConstants.disableInternalSchemaDb = true;
         int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
