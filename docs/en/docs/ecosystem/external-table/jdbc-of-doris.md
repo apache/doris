@@ -23,6 +23,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
 # JDBC External Table Of Doris
 
@@ -283,3 +284,4 @@ ALTER TABLE table_name CHARSET=utf8mb4;
 SET NAMES utf8mb4
 
 ```
+</version>

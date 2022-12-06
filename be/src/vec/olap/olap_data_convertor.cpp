@@ -33,6 +33,15 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
     }
 }
 
+OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema,
+                                               const std::vector<uint32_t>& col_ids) {
+    assert(tablet_schema);
+    for (const auto& id : col_ids) {
+        const auto& col = tablet_schema->column(id);
+        _convertors.emplace_back(create_olap_column_data_convertor(col));
+    }
+}
+
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column) {
     switch (column.type()) {

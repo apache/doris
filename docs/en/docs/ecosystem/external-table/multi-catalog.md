@@ -43,32 +43,32 @@ This function will be used as a supplement and enhancement to the previous exter
 
 1. Internal Catalog
 
-	Doris's original Database and Table will belong to Internal Catalog. Internal Catalog is the built-in default Catalog, which cannot be modified or deleted by the user.
+    Doris's original Database and Table will belong to Internal Catalog. Internal Catalog is the built-in default Catalog, which cannot be modified or deleted by the user.
 
 2. External Catalog
 
-	An External Catalog can be created with the [CREATE CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG.md) command. After creation, you can view the created catalog through the [SHOW CATALOGS](../../sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS.md) command.
+    An External Catalog can be created with the [CREATE CATALOG](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG.md) command. After creation, you can view the created catalog through the [SHOW CATALOGS](../../sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS.md) command.
 
 3. Switch Catalog
 
-	After users log in to Doris, they enter the Internal Catalog by default, so the default usage is the same as the previous version. You can directly use `SHOW DATABASES`, `USE DB` and other commands to view and switch databases.
+    After users log in to Doris, they enter the Internal Catalog by default, so the default usage is the same as the previous version. You can directly use `SHOW DATABASES`, `USE DB` and other commands to view and switch databases.
 
-	Users can switch the catalog through the [SWITCH](../../sql-manual/sql-reference/Utility-Statements/SWITCH.md) command. like:
+    Users can switch the catalog through the [SWITCH](../../sql-manual/sql-reference/Utility-Statements/SWITCH.md) command. like:
 
-	````
-	SWiTCH internal;
-	SWITCH hive_catalog;
-	````
+    ````
+    SWiTCH internal;
+    SWITCH hive_catalog;
+    ````
 
-	After switching, you can directly view and switch the Database in the corresponding Catalog through commands such as `SHOW DATABASES`, `USE DB`. Doris will automatically sync the Database and Table in the Catalog. Users can view and access data in the External Catalog as they would with the Internal Catalog.
+    After switching, you can directly view and switch the Database in the corresponding Catalog through commands such as `SHOW DATABASES`, `USE DB`. Doris will automatically sync the Database and Table in the Catalog. Users can view and access data in the External Catalog as they would with the Internal Catalog.
 
-	Currently, Doris only supports read-only access to data in the External Catalog.
-	
+    Currently, Doris only supports read-only access to data in the External Catalog.
+    
 4. Drop Catalog
 
-	Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
+    Both Database and Table in External Catalog are read-only. However, the catalog can be deleted (Internal Catalog cannot be deleted). An External Catalog can be dropped via the [DROP CATALOG](../../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG) command.
 
-	This operation will only delete the mapping information of the catalog in Doris, and will not modify or change the contents of any external data source.
+    This operation will only delete the mapping information of the catalog in Doris, and will not modify or change the contents of any external data source.
 
 ## Samples
 
@@ -82,13 +82,14 @@ The following example is used to create a Catalog named hive to connect the spec
 
 ```
 CREATE CATALOG hive PROPERTIES (
-	"type"="hms",
-	'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-	'dfs.nameservices'='service1',
-	'dfs.ha.namenodes. service1'='nn1,nn2',
-	'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
-	'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
-	'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+    "type"="hms",
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive'
+    'dfs.nameservices'='service1',
+    'dfs.ha.namenodes. service1'='nn1,nn2',
+    'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
@@ -241,9 +242,9 @@ The following example creates a Catalog connection named es to the specified ES 
 
 ```
 CREATE CATALOG es PROPERTIES (
-	"type"="es",
-	"elasticsearch.hosts"="http://192.168.120.12:29200",
-	"elasticsearch.nodes_discovery"="false"
+    "type"="es",
+    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.nodes_discovery"="false"
 );
 ```
 
@@ -312,60 +313,60 @@ Parameter | Description
 
 1. Create hive-site.xml
 
-	Create hive-site.xml and put it in `fe/conf` and `be/conf`.
-	
-	```
-	<?xml version="1.0"?>
-	<configuration>
-	    <!--Set to use dlf client-->
-	    <property>
-	        <name>hive.metastore.type</name>
-	        <value>dlf</value>
-	    </property>
-	    <property>
-	        <name>dlf.catalog.endpoint</name>
-	        <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
-	    </property>
-	    <property>
-	        <name>dlf.catalog.region</name>
-	        <value>cn-beijing</value>
-	    </property>
-	    <property>
-	        <name>dlf.catalog.proxyMode</name>
-	        <value>DLF_ONLY</value>
-	    </property>
-	    <property>
-	        <name>dlf.catalog.uid</name>
-	        <value>20000000000000000</value>
-	    </property>
-	    <property>
-	        <name>dlf.catalog.accessKeyId</name>
-	        <value>XXXXXXXXXXXXXXX</value>
-	    </property>
-	    <property>
-	        <name>dlf.catalog.accessKeySecret</name>
-	        <value>XXXXXXXXXXXXXXXXX</value>
-	    </property>
-	</configuration>
-	```
+    Create hive-site.xml and put it in `fe/conf` and `be/conf`.
+    
+    ```
+    <?xml version="1.0"?>
+    <configuration>
+        <!--Set to use dlf client-->
+        <property>
+            <name>hive.metastore.type</name>
+            <value>dlf</value>
+        </property>
+        <property>
+            <name>dlf.catalog.endpoint</name>
+            <value>dlf-vpc.cn-beijing.aliyuncs.com</value>
+        </property>
+        <property>
+            <name>dlf.catalog.region</name>
+            <value>cn-beijing</value>
+        </property>
+        <property>
+            <name>dlf.catalog.proxyMode</name>
+            <value>DLF_ONLY</value>
+        </property>
+        <property>
+            <name>dlf.catalog.uid</name>
+            <value>20000000000000000</value>
+        </property>
+        <property>
+            <name>dlf.catalog.accessKeyId</name>
+            <value>XXXXXXXXXXXXXXX</value>
+        </property>
+        <property>
+            <name>dlf.catalog.accessKeySecret</name>
+            <value>XXXXXXXXXXXXXXXXX</value>
+        </property>
+    </configuration>
+    ```
 
-	* `dlf.catalog.endpoint`: DLF Endpoint. See: [Regions and endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints)
-	* `dlf.catalog.region`: DLF Regio. See: [Regions and endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints)
-	* `dlf.catalog.uid`: Ali Cloud Account ID. That is, the "cloud account ID" of the personal information in the upper right corner of the Alibaba Cloud console.	* `dlf.catalog.accessKeyId`: AccessKey. See: [Ali Could Console](https://ram.console.aliyun.com/manage/ak).
-	* `dlf.catalog.accessKeySecret`: SecretKey. See: [Ali Could Console](https://ram.console.aliyun.com/manage/ak).
+    * `dlf.catalog.endpoint`: DLF Endpoint. See: [Regions and endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints)
+    * `dlf.catalog.region`: DLF Regio. See: [Regions and endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints)
+    * `dlf.catalog.uid`: Ali Cloud Account ID. That is, the "cloud account ID" of the personal information in the upper right corner of the Alibaba Cloud console.    * `dlf.catalog.accessKeyId`: AccessKey. See: [Ali Could Console](https://ram.console.aliyun.com/manage/ak).
+    * `dlf.catalog.accessKeySecret`: SecretKey. See: [Ali Could Console](https://ram.console.aliyun.com/manage/ak).
 
-	Other configuration items are fixed values and do not need to be changed.
+    Other configuration items are fixed values and do not need to be changed.
 
 2. Restart FE and create a catalog with the `CREATE CATALOG` statement.
 
-	```
-	CREATE CATALOG dlf PROPERTIES (
-	    "type"="hms",
-	    "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-	);
-	```
-	
-	where `type` is fixed to `hms`. The value of `hive.metastore.uris` can be filled in at will, but it will not be used in practice. But it needs to be filled in the standard hive metastore thrift uri format.
+    ```
+    CREATE CATALOG dlf PROPERTIES (
+        "type"="hms",
+        "hive.metastore.uris" = "thrift://127.0.0.1:9083"
+    );
+    ```
+    
+    where `type` is fixed to `hms`. The value of `hive.metastore.uris` can be filled in at will, but it will not be used in practice. But it needs to be filled in the standard hive metastore thrift uri format.
 
 After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
 

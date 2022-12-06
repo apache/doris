@@ -26,6 +26,7 @@ under the License.
     <version>1.0-SNAPSHOT</version>
     <modules>
         <module>flink-demo</module>
+        <module>flink-demo-v1.1</module>
         <module>spark-demo</module>
         <module>stream-load-demo</module>
         <module>spring-jdbc-demo</module>

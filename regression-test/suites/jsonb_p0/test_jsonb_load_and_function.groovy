@@ -88,8 +88,50 @@ suite("test_jsonb_load_and_function", "p0") {
     // check result
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
-    // insert into 1 row and then check result
-    sql """INSERT INTO ${testTable} VALUES(26, '{"k1":"v1", "k2": 200}')"""
+    // insert into valid json rows
+    sql """INSERT INTO ${testTable} VALUES(26, NULL)"""
+    sql """INSERT INTO ${testTable} VALUES(27, '{"k1":"v1", "k2": 200}')"""
+
+    // insert into invalid json rows with enable_insert_strict=true
+    // expect excepiton and no rows not changed
+    sql """ set enable_insert_strict = true """
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(false, success)
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(false, success)
+
+    // insert into invalid json rows with enable_insert_strict=false
+    // expect no excepiton but no rows not changed
+    sql """ set enable_insert_strict = false """
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, '')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(true, success)
+    success = true
+    try {
+        sql """INSERT INTO ${testTable} VALUES(26, 'abc')"""
+    } catch(Exception ex) {
+       logger.info("""INSERT INTO ${testTable} invalid json failed: """ + ex)
+       success = false
+    }
+    assertEquals(true, success)
+
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // jsonb_extract
@@ -326,6 +368,7 @@ suite("test_jsonb_load_and_function", "p0") {
     qt_select "SELECT id, j, CAST(CAST(j AS DOUBLE) AS JSONB) FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, CAST(CAST(j AS STRING) AS JSONB) FROM ${testTable} ORDER BY id"
 
+    qt_select """SELECT CAST(NULL AS JSONB)"""
     qt_select """SELECT CAST('null' AS JSONB)"""
     qt_select """SELECT CAST('true' AS JSONB)"""
     qt_select """SELECT CAST('false' AS JSONB)"""

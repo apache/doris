@@ -282,6 +282,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
+    OUTPUT_BE_BINARY=${BUILD_BE}
+fi
+
 if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
     DISABLE_JAVA_UDF='OFF'
 fi
@@ -411,8 +415,12 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         "${DORIS_HOME}/be"
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
+
+    if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+        "${BUILD_SYSTEM}" -j "${PARALLEL}"
+        "${BUILD_SYSTEM}" install
+    fi
+
     cd "${DORIS_HOME}"
 fi
 
@@ -504,7 +512,7 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/fe/spark-dpp/target"/spark-dpp-*-jar-with-dependencies.jar "${DORIS_OUTPUT}/fe/spark-dpp"/
 fi
 
-if [[ "${BUILD_BE}" -eq 1 ]]; then
+if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \

@@ -101,7 +101,7 @@ BE 的配置项有两种方式进行配置：
 
 进行schema change的线程数
 
-### `generate_compaction_tasks_min_interval_ms`
+### `generate_compaction_tasks_interval_ms`
 
 默认值：10 （ms）
 
@@ -113,13 +113,7 @@ BE 的配置项有两种方式进行配置：
 
 是否开启向量化compaction
 
-### `base_compaction_interval_seconds_since_last_operation`
-
-默认值：86400
-
-BaseCompaction触发条件之一：上一次BaseCompaction距今的间隔
-
-### `base_compaction_num_cumulative_deltas`
+### `base_compaction_min_rowset_num`
 
 默认值：5
 
@@ -131,7 +125,7 @@ BaseCompaction触发条件之一：Cumulative文件数目要达到的限制，�
 
 BaseCompaction任务每秒写磁盘最大速度
 
-### `base_cumulative_delta_ratio`
+### `base_compaction_min_data_ratio`
 
 默认值：0.3  （30%）
 
@@ -216,12 +210,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 默认值：20%
 
 BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构，通过buffer page来进行内存管理，并能够实现数据的落盘。并发的所有查询的内存申请都会通过buffer pool来申请。当前buffer pool仅作用在**AggregationNode**与**ExchangeNode**。
-
-### `check_auto_compaction_interval_seconds`
-
-* 类型：int32
-* 描述：当自动执行compaction的功能关闭时，检查自动compaction开关是否被开启的时间间隔。
-* 默认值：5
 
 ### `check_consistency_worker_count`
 
@@ -347,34 +335,34 @@ BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 
 如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 
-### `cumulative_size_based_promotion_size_mbytes`
+### `compaction_promotion_size_mbytes`
 
 * 类型：int64
-* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过了此配置大小，该rowset将用于base compaction。单位是m字节。
+* 描述：cumulative compaction的输出rowset总磁盘大小超过了此配置大小，该rowset将用于base compaction。单位是m字节。
 * 默认值：1024
 
 一般情况下，配置在2G以内，为了防止cumulative compaction时间过长，导致版本积压。
 
-### `cumulative_size_based_promotion_ratio`
+### `compaction_promotion_ratio`
 
 * 类型：double
-* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小超过base版本rowset的配置比例时，该rowset将用于base compaction。
+* 描述：cumulative compaction的输出rowset总磁盘大小超过base版本rowset的配置比例时，该rowset将用于base compaction。
 * 默认值：0.05
 
 一般情况下，建议配置不要高于0.1，低于0.02。
 
-### `cumulative_size_based_promotion_min_size_mbytes`
+### `compaction_promotion_min_size_mbytes`
 
 * 类型：int64
-* 描述：在size_based策略下，cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
+* 描述：Cumulative compaction的输出rowset总磁盘大小低于此配置大小，该rowset将不进行base compaction，仍然处于cumulative compaction流程中。单位是m字节。
 * 默认值：64
 
 一般情况下，配置在512m以内，配置过大会导致base版本早期的大小过小，一直不进行base compaction。
 
-### `cumulative_size_based_compaction_lower_size_mbytes`
+### `compaction_min_size_mbytes`
 
 * 类型：int64
-* 描述：在size_based策略下，cumulative compaction进行合并时，选出的要进行合并的rowset的总磁盘大小大于此配置时，才按级别策略划分合并。小于这个配置时，直接执行合并。单位是m字节。
+* 描述：cumulative compaction进行合并时，选出的要进行合并的rowset的总磁盘大小大于此配置时，才按级别策略划分合并。小于这个配置时，直接执行合并。单位是m字节。
 * 默认值：64
 
 一般情况下，配置在128m以内，配置过大会导致cumulative compaction写放大较多。
@@ -753,13 +741,13 @@ soft limit是指站单节点导入内存上限的比例。例如所有导入任�
 
 一个数据消费者组中的最大消费者数量，用于routine load
 
-### `min_cumulative_compaction_num_singleton_deltas`
+### `cumulative_compaction_min_deltas`
 
 默认值：5
 
 cumulative compaction策略：最小增量文件的数量
 
-### `max_cumulative_compaction_num_singleton_deltas`
+### `cumulative_compaction_max_deltas`
 
 默认值：1000
 
@@ -880,13 +868,6 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 默认值：1024
 
 最小读取缓冲区大小（以字节为单位）
-
-### `min_compaction_failure_interval_sec`
-
-* 类型：int32
-* 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
-* 默认值：5
-* 单位：秒
 
 ### `min_compaction_threads`
 
@@ -1085,13 +1066,6 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 默认值：true
 
 检查 BE/CE 和schema更改的行号。 true 是打开的，false 是关闭的。
-
-### `row_step_for_compaction_merge_log`
-
-* 类型：int64
-* 描述：Compaction执行过程中，每次合并row_step_for_compaction_merge_log行数据会打印一条LOG。如果该参数被设置为0，表示merge过程中不需要打印LOG。
-* 默认值： 0
-* 可动态修改：是
 
 ### `scan_context_gc_interval_min`
 
@@ -1637,3 +1611,13 @@ webserver默认工作线程数
 * 类型：int32
 * 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
+
+### `big_column_size_buffer`
+* 类型：int64
+* 描述：当使用odbc外表时，如果odbc源表的某一列类型为HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
+* 默认值：65535
+
+### `small_column_size_buffer`
+* 类型：int64
+* 描述：当使用odbc外表时，如果odbc源表的某一列类型不是HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
+* 默认值：100

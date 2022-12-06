@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -35,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical Aggregate plan.
@@ -204,8 +206,39 @@ public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
                 .build();
     }
 
+    public boolean isLocal() {
+        return aggPhase.isLocal();
+    }
+
     public boolean isDisassembled() {
         return disassembled;
+    }
+
+    /**
+     * Check if disassembling is possible
+     * @return true means that disassembling is possible
+     */
+    public boolean needDistinctDisassemble() {
+        // It is sufficient to split an aggregate function with a groupBy expression into two stages(Local & Global),
+        // no need for four stages(Local & Global & Distinct Local & Distinct Global)
+        if (!isFinalPhase || aggPhase != AggPhase.LOCAL) {
+            return false;
+        }
+        int distinctFunctionCount = 0;
+        for (NamedExpression originOutputExpr : outputExpressions) {
+            Set<AggregateFunction> aggregateFunctions
+                    = originOutputExpr.collect(AggregateFunction.class::isInstance);
+            for (AggregateFunction aggregateFunction : aggregateFunctions) {
+                if (aggregateFunction.isDistinct()) {
+                    distinctFunctionCount++;
+                    if (distinctFunctionCount > 1) {
+                        return false;
+                    }
+                }
+            }
+        }
+        // Only one distinct function is supported
+        return distinctFunctionCount == 1;
     }
 
     public boolean isNormalized() {

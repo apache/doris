@@ -44,12 +44,13 @@ std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
 bool MemTrackerLimiter::_oom_avoidance {true};
 
 MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit,
-                                     RuntimeProfile* profile) {
+                                     RuntimeProfile* profile,
+                                     const std::string& profile_counter_name) {
     DCHECK_GE(byte_limit, -1);
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
-        _consumption = profile->AddSharedHighWaterMarkCounter(COUNTER_NAME, TUnit::BYTES);
+        _consumption = profile->AddSharedHighWaterMarkCounter(profile_counter_name, TUnit::BYTES);
     }
     _type = type;
     _label = label;
@@ -67,6 +68,8 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
 }
 
 MemTrackerLimiter::~MemTrackerLimiter() {
+    if (_type == Type::GLOBAL) return;
+    consume(_untracked_mem);
     // mem hook record tracker cannot guarantee that the final consumption is 0,
     // nor can it guarantee that the memory alloc and free are recorded in a one-to-one correspondence.
     // In order to ensure `consumption of all limiter trackers` + `orphan tracker consumption` = `process tracker consumption`

@@ -38,7 +38,7 @@ std::string NewOdbcScanNode::get_name() {
 Status NewOdbcScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << NEW_SCAN_NODE_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     return Status::OK();
 }
 

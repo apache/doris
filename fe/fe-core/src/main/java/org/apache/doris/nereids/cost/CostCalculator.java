@@ -159,7 +159,15 @@ public class CostCalculator {
                 int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendIds(true).size();
                 int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
                 beNumber = Math.max(1, beNumber);
-
+                double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+                //if build side is big, avoid use broadcast join
+                double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
+                double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+                double buildSize = childStatistics.computeSize();
+                if (buildSize * instanceNumber > memLimit * brMemlimit
+                        || childStatistics.getRowCount() > rowsLimit) {
+                    return CostEstimate.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
+                }
                 return CostEstimate.of(
                         childStatistics.getRowCount() * beNumber,
                         childStatistics.getRowCount() * beNumber * instanceNumber,

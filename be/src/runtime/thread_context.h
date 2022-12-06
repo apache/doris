@@ -258,9 +258,10 @@ private:
 class AddThreadMemTrackerConsumer {
 public:
     // The owner and user of MemTracker are in the same thread, and the raw pointer is faster.
+    // If mem_tracker is nullptr, do nothing.
     explicit AddThreadMemTrackerConsumer(MemTracker* mem_tracker);
 
-    // The owner and user of MemTracker are in different threads.
+    // The owner and user of MemTracker are in different threads. If mem_tracker is nullptr, do nothing.
     explicit AddThreadMemTrackerConsumer(const std::shared_ptr<MemTracker>& mem_tracker);
 
     ~AddThreadMemTrackerConsumer();

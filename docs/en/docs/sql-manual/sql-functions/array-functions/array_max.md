@@ -23,8 +23,13 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
 ## array_max
+
+<version since="1.2.0">
+
+array_max
+
+</version>
 
 ### description
 

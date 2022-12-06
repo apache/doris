@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics.util;
 
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
@@ -46,7 +45,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisJobInfo;
+import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
@@ -90,13 +89,11 @@ public class StatisticsUtil {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
-        } finally {
-            ConnectContext.remove();
         }
     }
 
     // TODO: finish this.
-    public static List<AnalysisJobInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
+    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches) throws TException {
         return new ArrayList<>();
     }
 
