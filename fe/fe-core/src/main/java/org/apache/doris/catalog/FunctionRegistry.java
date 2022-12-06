@@ -70,7 +70,7 @@ public class FunctionRegistry {
                 .filter(functionBuilder -> functionBuilder.canApply(arguments))
                 .collect(Collectors.toList());
         if (candidateBuilders.isEmpty()) {
-            String candidateHints = getCandidateHint(name, candidateBuilders);
+            String candidateHints = getCandidateHint(name, functionBuilders);
             throw new AnalysisException("Can not found function '" + name
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
