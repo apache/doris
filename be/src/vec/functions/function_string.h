@@ -1353,52 +1353,6 @@ public:
 };
 
 class FunctionSplitByString : public IFunction {
-private:
-    void get_offsets_and_len(const std::string& s, const std::string& c, std::vector<size_t>& v_offset,
-                          std::vector<size_t>& v_charlen) {
-        v_offset.clear();
-        v_charlen.clear();
-        if (c.size() == 0) {
-            for (int i = 0; i < s.size(); i++) {
-                v_offset.push_back(i);
-                v_charlen.push_back(1);
-            }
-        } else if (c.size() < s.size()) {
-            string::size_type start = 0, end = s.size() - c.size();
-            size_t end_delimiter_num = 0;
-            while (start < s.size() && start == s.find(c, start)) {
-                v_charlen.push_back(0);
-                v_offset.push_back(start);
-                start += c.size();
-            }
-            if (start > s.size() - 1) {
-                return;
-            }
-            while (start < end && end == s.find(c, end)) {
-                end_delimiter_num++;
-                end -= c.size();
-            }
-            string::size_type pos1 = start, pos2 = s.find(c, start);
-            while (pos2 < end + c.size()) {
-                v_offset.push_back(pos1);
-                v_charlen.push_back(pos2 - pos1);
-                pos1 = pos2 + c.size();
-                pos2 = s.find(c, pos1);
-            }
-            v_offset.push_back(pos1);
-            v_charlen.push_back(s.size() - end_delimiter_num * c.size() - pos1);
-
-            while (end_delimiter_num > 0) {
-                v_charlen.push_back(0);
-                v_offset.push_back(s.size() - end_delimiter_num * c.size());
-                end_delimiter_num--;
-            }
-        } else {
-            v_offset.push_back(0);
-            v_charlen.push_back(s.size());
-        }
-    }
-
 public:
     static constexpr auto name = "split_by_string";
 
@@ -1448,6 +1402,7 @@ public:
         return Status::OK();
     }
 
+private:
     void _execute(const IColumn& src_column, const IColumn& delimiter_column,
                   IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
                   NullMapType* dest_nested_null_map) {
@@ -1462,28 +1417,56 @@ public:
         ColumnArray::Offset64 src_offsets_size = src_column_string->get_offsets().size();
 
         for (size_t i = 0; i < src_offsets_size; i++) {
-            const auto delimiter = delimiter_column.get_data_at(i).to_string();
-            const auto str = src_column_string->get_data_at(i).to_string();
-            StringRef str_ref = src_column_string->get_data_at(i);
-            if (str.size() == 0) {
+            const StringRef delimiter_ref = delimiter_column.get_data_at(i);
+            const StringRef str_ref = src_column_string->get_data_at(i);
+
+            if (str_ref.size == 0) {
                 dest_offsets.push_back(dest_pos);
                 continue;
             }
-            vector<size_t> v_len;
-            vector<size_t> v_offset;
-            get_offsets_and_len(str, delimiter, v_offset, v_len);
-            for (int j = 0; j < v_len.size(); j++) {
-                const size_t old_size = column_string_chars.size();
-                const size_t new_size = old_size + v_len[j];
-                column_string_chars.resize(new_size);
-                memcpy(column_string_chars.data() + old_size, str_ref.data + v_offset[j], v_len[j]);
-                (*dest_nested_null_map).push_back(false);
-                string_pos += v_len[j];
-                dest_pos++;
-                column_string_offsets.push_back(string_pos);
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    const size_t split_part_size =
+                            split_str(str_pos, str_ref, delimiter_ref);
+                    str_pos+=delimiter_ref.size;
+                    const size_t new_size = old_size + split_part_size;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size > 0) {
+                        memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset,
+                               split_part_size);
+                    }
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos += split_part_size;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
             }
             dest_offsets.push_back(dest_pos);
         }
+    }
+
+    size_t split_str(size_t& pos, const StringRef str_ref, StringRef delimiter_ref) {
+        size_t old_size = pos;
+        size_t str_size = str_ref.size;
+        while (pos < str_size && memcmp(str_ref.data+pos,delimiter_ref.data,delimiter_ref.size)) {
+            pos++;
+        }
+        return pos - old_size;
     }
 };
 

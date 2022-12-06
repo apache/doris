@@ -18,23 +18,68 @@
 suite("test_split_by_string") {
     sql "set enable_vectorized_engine = true;"
 
-    qt_sql "select split_by_string('1, 2 3, 4,5, abcde', ', ');"
+    // split by char
+    qt_sql "select split_by_string('abcde','');"
+    qt_sql "select split_by_string('12553','');"
+    qt_sql "select split_by_string('','');"
+    qt_sql "select split_by_string('',',');"
+    qt_sql "select split_by_string('','a');"
+
+    qt_sql "select split_by_string('a1b1c1d','1');"
+    qt_sql "select split_by_string(',,,',',');"
+    qt_sql "select split_by_string('a,b,c',',');"
+    qt_sql "select split_by_string(',,a,b,c,',',');"
+    qt_sql "select split_by_string('null',',');"
+    
+    // split by string
+    qt_sql "select split_by_string('1,,2,3,,4,5,,abcde', ',,');"
     qt_sql "select split_by_string('abcde','');"
     qt_sql "select split_by_string('','');"
     qt_sql "select split_by_string('',',');"
     qt_sql "select split_by_string('','a');"
 
-    qt_sql "select split_by_string('1, 2 3, , , 4,5, abcde', ', ');"
-    qt_sql "select split_by_string(',,,',',');"
-    qt_sql "select split_by_string('a,b,c',',');"
-    qt_sql "select split_by_string('a,b,c,',',');"
+    qt_sql "select split_by_string('1,,2,3,,,,,,4,5, abcde', ',,');"
+    qt_sql "select split_by_string(',,,,',',,');"
+    qt_sql "select split_by_string('a,,b,,c',',,');"
+    qt_sql "select split_by_string('a,,b,,c,,',',,');"
+    qt_sql "select split_by_string(',,a,,b,,c,,',',,');"
     qt_sql "select split_by_string('null',',');"
 
-    def tableName = "test_split_by_string"
+    def tableName1 = "test_split_by_char"
 
-    sql """DROP TABLE IF EXISTS ${tableName}"""
+    sql """DROP TABLE IF EXISTS ${tableName1}"""
     sql """ 
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${tableName1} (
+              `k1` int(11) NULL COMMENT "",
+              `v1` varchar(20) NULL COMMENT "",
+              `v2` varchar(1) NOT NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+    sql """ INSERT INTO ${tableName1} VALUES(1, 'abcde', '') """
+    sql """ INSERT INTO ${tableName1} VALUES(2, '12553', '') """
+    sql """ INSERT INTO ${tableName1} VALUES(3, '', '') """
+    sql """ INSERT INTO ${tableName1} VALUES(4, '', ',') """
+    sql """ INSERT INTO ${tableName1} VALUES(5, '', 'a') """
+    sql """ INSERT INTO ${tableName1} VALUES(6, 'a1b1c1d', '1') """
+    sql """ INSERT INTO ${tableName1} VALUES(7, ',,,', ',') """
+    sql """ INSERT INTO ${tableName1} VALUES(8, 'a,b,c', ',') """
+    sql """ INSERT INTO ${tableName1} VALUES(9, 'a,b,c,', ',') """
+    sql """ INSERT INTO ${tableName1} VALUES(10, null, ',') """
+    sql """ INSERT INTO ${tableName1} VALUES(11, 'a,b,c,12345,', ',') """
+
+    qt_sql "SELECT *, split_by_string(v1, v2) FROM ${tableName1} ORDER BY k1"
+
+    def tableName2 = "test_split_by_string"
+
+    sql """DROP TABLE IF EXISTS ${tableName2}"""
+    sql """ 
+            CREATE TABLE IF NOT EXISTS ${tableName2} (
               `k1` int(11) NULL COMMENT "",
               `v1` varchar(50) NULL COMMENT "",
               `v2` varchar(10) NOT NULL COMMENT ""
@@ -46,17 +91,17 @@ suite("test_split_by_string") {
             "storage_format" = "V2"
             )
         """
-    sql """ INSERT INTO ${tableName} VALUES(1, '1, 2 3, 4,5, abcde', ', ') """
-    sql """ INSERT INTO ${tableName} VALUES(2, 'abcde','') """
-    sql """ INSERT INTO ${tableName} VALUES(3, '', '') """
-    sql """ INSERT INTO ${tableName} VALUES(4, '', ',') """
-    sql """ INSERT INTO ${tableName} VALUES(5, '', 'a') """
-    sql """ INSERT INTO ${tableName} VALUES(6, '1, 2 3, , , 4,5, abcde', ', ') """
-    sql """ INSERT INTO ${tableName} VALUES(7, ',,,', ',') """
-    sql """ INSERT INTO ${tableName} VALUES(8, 'a,b,c', ',') """
-    sql """ INSERT INTO ${tableName} VALUES(9, 'a,b,c,', ',') """
-    sql """ INSERT INTO ${tableName} VALUES(10, null, ',') """
+    sql """ INSERT INTO ${tableName2} VALUES(1, '1,,2,3,,4,5,,abcde', ',,') """
+    sql """ INSERT INTO ${tableName2} VALUES(2, 'abcde','') """
+    sql """ INSERT INTO ${tableName2} VALUES(3, '', '') """
+    sql """ INSERT INTO ${tableName2} VALUES(4, '', ',') """
+    sql """ INSERT INTO ${tableName2} VALUES(5, '', 'a') """
+    sql """ INSERT INTO ${tableName2} VALUES(6, '1,,2,3,,,,,,4,5,,abcde', ',,') """
+    sql """ INSERT INTO ${tableName2} VALUES(7, ',,,', ',') """
+    sql """ INSERT INTO ${tableName2} VALUES(8, 'a,b,c', ',') """
+    sql """ INSERT INTO ${tableName2} VALUES(9, 'a,b,c,', ',') """
+    sql """ INSERT INTO ${tableName2} VALUES(10, null, ',') """
 
 
-    qt_sql "SELECT *, split_by_string(v1, v2) FROM ${tableName} ORDER BY k1"
+    qt_sql "SELECT *, split_by_string(v1, v2) FROM ${tableName2} ORDER BY k1"
 }
