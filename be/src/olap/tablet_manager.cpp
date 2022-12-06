@@ -73,7 +73,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
                                    mem_consumption, Labels({{"type", "tablet_meta"}}));
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(std::make_unique<MemTracker>("TabletManager")),
+        : _mem_tracker(std::make_shared<MemTracker>("TabletManager")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -119,7 +119,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     }
 
     // During storage migration, the tablet is moved to another disk, have to check
-    // if the new tablet's rowset version is larger than the old one to prvent losting data during
+    // if the new tablet's rowset version is larger than the old one to prevent losting data during
     // migration
     int64_t old_time, new_time;
     int32_t old_version, new_version;
@@ -224,7 +224,7 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 }
 
 Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
@@ -433,7 +433,7 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
         LOG(INFO) << "tablet " << tablet_id << " is under clone, skip drop task";
         return Status::Aborted("aborted");
     }
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     return _drop_tablet_unlocked(tablet_id, replica_id, false, is_drop_table_or_partition);
 }
 
@@ -493,7 +493,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
 
 Status TabletManager::drop_tablets_on_error_root_path(
         const std::vector<TabletInfo>& tablet_info_vec) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     if (tablet_info_vec.empty()) { // This is a high probability event
         return res;
@@ -641,14 +641,16 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
-    double highest_score = 0.0;
+    uint32_t highest_score = 0;
     uint32_t compaction_score = 0;
-    double tablet_scan_frequency = 0.0;
     TabletSharedPtr best_tablet;
     for (const auto& tablets_shard : _tablets_shards) {
         std::shared_lock rdlock(tablets_shard.lock);
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             const TabletSharedPtr& tablet_ptr = tablet_map.second;
+            if (tablet_ptr->should_skip_compaction(compaction_type, UnixSeconds())) {
+                continue;
+            }
             if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
                 continue;
             }
@@ -662,7 +664,11 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             if (compaction_type == CompactionType::BASE_COMPACTION) {
                 last_failure_ms = tablet_ptr->last_base_compaction_failure_time();
             }
-            if (now_ms - last_failure_ms <= config::min_compaction_failure_interval_sec * 1000) {
+            if (now_ms - last_failure_ms <= 5000) {
+                VLOG_DEBUG << "Too often to check compaction, skip it. "
+                           << "compaction_type=" << compaction_type_str
+                           << ", last_failure_time_ms=" << last_failure_ms
+                           << ", tablet_id=" << tablet_ptr->tablet_id();
                 continue;
             }
 
@@ -684,19 +690,14 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
                     compaction_type, cumulative_compaction_policy);
-
-            double scan_frequency = 0.0;
-            if (config::compaction_tablet_scan_frequency_factor != 0) {
-                scan_frequency = tablet_ptr->calculate_scan_frequency();
+            if (current_compaction_score < 5) {
+                VLOG_CRITICAL << "tablet set skip compaction, tablet_id: "
+                              << tablet_ptr->tablet_id();
+                tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
             }
-
-            double tablet_score =
-                    config::compaction_tablet_scan_frequency_factor * scan_frequency +
-                    config::compaction_tablet_compaction_score_factor * current_compaction_score;
-            if (tablet_score > highest_score) {
-                highest_score = tablet_score;
+            if (current_compaction_score > highest_score) {
+                highest_score = current_compaction_score;
                 compaction_score = current_compaction_score;
-                tablet_scan_frequency = scan_frequency;
                 best_tablet = tablet_ptr;
             }
         }
@@ -707,7 +708,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                       << "compaction_type=" << compaction_type_str
                       << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
                       << ", compaction_score=" << compaction_score
-                      << ", tablet_scan_frequency=" << tablet_scan_frequency
                       << ", highest_score=" << highest_score;
         *score = compaction_score;
     }
@@ -908,7 +908,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
 }
 
 Status TabletManager::start_trash_sweep() {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     {
         std::vector<TabletSharedPtr>
                 all_tablets; // we use this vector to save all tablet ptr for saving lock time.
@@ -1027,7 +1027,7 @@ void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
 void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                                   SchemaHash schema_hash,
                                                   const string& schema_hash_path) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     // acquire the read lock, so that there is no creating tablet or load tablet from meta tasks
     // create tablet and load tablet task should check whether the dir exists
     tablets_shard& shard = _get_tablets_shard(tablet_id);
@@ -1089,7 +1089,7 @@ void TabletManager::get_partition_related_tablets(int64_t partition_id,
 }
 
 void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::vector<TabletSharedPtr> related_tablets;
     {
         for (auto& tablets_shard : _tablets_shards) {

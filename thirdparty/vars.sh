@@ -339,13 +339,13 @@ XML2_SOURCE="libxml2-v2.9.10"
 XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
 
 # idn
-IDN_DOWNLOAD="https://ftp.gnu.org/gnu/libidn/libidn-1.38.tar.gz"
+IDN_DOWNLOAD="https://ftpmirror.gnu.org/libidn/libidn-1.38.tar.gz"
 IDN_NAME="libidn-1.38.tar.gz"
 IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_DOWNLOAD="https://ftpmirror.gnu.org/gsasl/libgsasl-1.8.0.tar.gz"
 GSASL_NAME="libgsasl-1.8.0.tar.gz"
 GSASL_SOURCE="libgsasl-1.8.0"
 GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
@@ -502,13 +502,13 @@ export TP_ARCHIVES=(
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     #binutils
-    BINUTILS_DOWNLOAD='https://mirrors.aliyun.com/gnu/binutils/binutils-2.39.tar.gz'
+    BINUTILS_DOWNLOAD='https://ftpmirror.gnu.org/gnu/binutils/binutils-2.39.tar.gz'
     BINUTILS_NAME=binutils-2.39.tar.gz
     BINUTILS_SOURCE=binutils-2.39
     BINUTILS_MD5SUM='ab6825df57514ec172331e988f55fc10'
 
     #gettext
-    GETTEXT_DOWNLOAD='https://mirrors.aliyun.com/gnu/gettext/gettext-0.21.tar.gz'
+    GETTEXT_DOWNLOAD='https://ftpmirror.gnu.org/gettext/gettext-0.21.tar.gz'
     GETTEXT_NAME='gettext-0.21.tar.gz'
     GETTEXT_SOURCE='gettext-0.21'
     GETTEXT_MD5SUM='28b1cd4c94a74428723ed966c38cf479'

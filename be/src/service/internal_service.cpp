@@ -388,18 +388,17 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
     tid.__set_hi(request->finst_id().hi());
     tid.__set_lo(request->finst_id().lo());
 
-    Status st;
+    Status st = Status::OK();
     if (request->has_cancel_reason()) {
         LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
                   << ", reason: " << request->cancel_reason();
-        st = _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
+        _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
     } else {
         LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
-        st = _exec_env->fragment_mgr()->cancel(tid);
+        _exec_env->fragment_mgr()->cancel(tid);
     }
-    if (!st.ok()) {
-        LOG(WARNING) << "cancel plan fragment failed, errmsg=" << st.get_error_msg();
-    }
+
+    // TODO: the logic seems useless, cancel only return Status::OK. remove it
     st.to_protobuf(result->mutable_status());
 }
 
@@ -457,8 +456,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         break;
     }
     case TFileFormatType::FORMAT_PARQUET: {
-        std::vector<std::string> column_names;
-        reader.reset(new vectorized::ParquetReader(params, range, column_names));
+        reader.reset(new vectorized::ParquetReader(params, range));
         break;
     }
     case TFileFormatType::FORMAT_ORC: {

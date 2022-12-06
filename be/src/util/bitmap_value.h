@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <map>
@@ -32,6 +33,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "gutil/integral_types.h"
 #include "udf/udf.h"
 #include "util/coding.h"
 #include "vec/common/pod_array.h"
@@ -1430,6 +1432,9 @@ public:
         return false;
     }
 
+    // true if contains a value that belongs to the range [left, right].
+    bool contains_any(uint64_t left, uint64_t right) const;
+
     uint64_t cardinality() const {
         switch (_type) {
         case EMPTY:
@@ -1677,6 +1682,16 @@ public:
         }
     }
 
+    uint64_t max(bool* empty) const {
+        return min_or_max(empty, [&]() { return _bitmap.maximum(); });
+    }
+
+    uint64_t min(bool* empty) const {
+        return min_or_max(empty, [&]() { return _bitmap.minimum(); });
+    }
+
+    bool empty() const { return _type == EMPTY; }
+
     /**
      * Return new set with specified range (not include the range_end)
      */
@@ -1823,6 +1838,7 @@ public:
 
     b_iterator begin() const;
     b_iterator end() const;
+    b_iterator lower_bound(uint64_t val) const;
 
 private:
     void _convert_to_smaller_type() {
@@ -1837,6 +1853,25 @@ private:
             }
             _bitmap.clear();
         }
+    }
+
+    uint64_t min_or_max(bool* empty, std::function<uint64_t()> func) const {
+        bool is_empty = false;
+        uint64_t result = 0;
+        switch (_type) {
+        case SINGLE:
+            result = _sv;
+            break;
+        case BITMAP:
+            result = func();
+            break;
+        default:
+            is_empty = true;
+        }
+        if (empty) {
+            *empty = is_empty;
+        }
+        return result;
     }
 
     enum BitmapDataType {
@@ -1876,7 +1911,9 @@ public:
     }
 
     BitmapValueIterator(const BitmapValueIterator& other)
-            : _bitmap(other._bitmap), _iter(other._iter), _sv(other._sv), _end(other._end) {}
+            : _bitmap(other._bitmap), _sv(other._sv), _end(other._end) {
+        _iter = other._iter ? new detail::Roaring64MapSetBitForwardIterator(*other._iter) : nullptr;
+    }
 
     ~BitmapValueIterator() {
         if (_iter != nullptr) {
@@ -1930,7 +1967,9 @@ public:
     }
 
     bool operator==(const BitmapValueIterator& other) const {
-        if (_end && other._end) return true;
+        if (_end && other._end) {
+            return true;
+        }
 
         switch (_bitmap._type) {
         case BitmapValue::BitmapDataType::EMPTY:
@@ -1947,6 +1986,27 @@ public:
 
     bool operator!=(const BitmapValueIterator& other) const { return !(*this == other); }
 
+    /**
+    * Move the iterator to the first value >= `val`.
+    */
+    BitmapValueIterator& move(uint64_t val) {
+        switch (_bitmap._type) {
+        case BitmapValue::BitmapDataType::SINGLE:
+            if (_sv < val) {
+                _end = true;
+            }
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            if (!_iter->move(val)) {
+                _end = true;
+            }
+            break;
+        default:
+            break;
+        }
+        return *this;
+    }
+
 private:
     const BitmapValue& _bitmap;
     detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
@@ -1960,6 +2020,18 @@ inline BitmapValueIterator BitmapValue::begin() const {
 
 inline BitmapValueIterator BitmapValue::end() const {
     return BitmapValueIterator(*this, true);
+}
+
+inline BitmapValueIterator BitmapValue::lower_bound(uint64_t val) const {
+    return BitmapValueIterator(*this).move(val);
+}
+
+inline bool BitmapValue::contains_any(uint64_t left, uint64_t right) const {
+    if (left > right) {
+        return false;
+    }
+    auto it = lower_bound(left);
+    return it != end() && *it <= right;
 }
 
 } // namespace doris

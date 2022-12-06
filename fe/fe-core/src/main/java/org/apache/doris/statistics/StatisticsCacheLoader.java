@@ -17,7 +17,9 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
 import org.apache.commons.collections.CollectionUtils;
@@ -37,32 +39,53 @@ public class StatisticsCacheLoader implements AsyncCacheLoader<StatisticsCacheKe
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCacheLoader.class);
 
-    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + StatisticConstants.STATISTIC_DB_NAME
+    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
             + "id = CONCAT('${tblId}', '-', '${colId}')";
+
+    private static int CUR_RUNNING_LOAD = 0;
+
+    private static final Object LOCK = new Object();
 
     // TODO: Maybe we should trigger a analyze job when the required ColumnStatistic doesn't exists.
     @Override
     public @NonNull CompletableFuture<ColumnStatistic> asyncLoad(@NonNull StatisticsCacheKey key,
             @NonNull Executor executor) {
-        return CompletableFuture.supplyAsync(() -> {
-            Map<String, String> params = new HashMap<>();
-            params.put("tblId", String.valueOf(key.tableId));
-            params.put("colId", String.valueOf(key.colName));
-            List<ResultRow> resultBatches =
-                    StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                            .replace(QUERY_COLUMN_STATISTICS));
-            List<ColumnStatistic> columnStatistics = null;
-            try {
-                columnStatistics = StatisticsUtil.deserializeToColumnStatistics(resultBatches);
-            } catch (Exception e) {
-                LOG.warn("Failed to deserialize column statistics", e);
-                throw new CompletionException(e);
+        synchronized (LOCK) {
+            if (CUR_RUNNING_LOAD > StatisticConstants.LOAD_TASK_LIMITS) {
+                try {
+                    LOCK.wait();
+                } catch (InterruptedException e) {
+                    LOG.warn("Ignore interruption", e);
+                }
             }
-            if (CollectionUtils.isEmpty(columnStatistics)) {
-                return ColumnStatistic.DEFAULT;
-            }
-            return columnStatistics.get(0);
-        });
+            CUR_RUNNING_LOAD++;
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    Map<String, String> params = new HashMap<>();
+                    params.put("tblId", String.valueOf(key.tableId));
+                    params.put("colId", String.valueOf(key.colName));
+                    List<ResultRow> resultBatches =
+                            StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+                                    .replace(QUERY_COLUMN_STATISTICS));
+                    List<ColumnStatistic> columnStatistics = null;
+                    try {
+                        columnStatistics = StatisticsUtil.deserializeToColumnStatistics(resultBatches);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to deserialize column statistics", e);
+                        throw new CompletionException(e);
+                    }
+                    if (CollectionUtils.isEmpty(columnStatistics)) {
+                        return ColumnStatistic.DEFAULT;
+                    }
+                    return columnStatistics.get(0);
+                } finally {
+                    synchronized (LOCK) {
+                        CUR_RUNNING_LOAD--;
+                        LOCK.notify();
+                    }
+                }
+            });
+        }
     }
 }

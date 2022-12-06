@@ -17,18 +17,18 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
-import org.apache.doris.cluster.ClusterNamespace;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Map;
@@ -115,7 +115,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
         if (hmsExternalDatabase != null && hmsExternalDatabase.isInitialized()) {
             List<String> names = Lists.newArrayList();
-            hmsExternalDatabase.getTables().stream().forEach(table -> names.add(table.getName()));
+            hmsExternalDatabase.getTables().forEach(table -> names.add(table.getName()));
             return names;
         } else {
             return client.getAllTables(getRealTableName(dbName));
@@ -127,36 +127,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return client.tableExists(getRealTableName(dbName), tblName);
     }
 
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(String dbName) {
-        makeSureInitialized();
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
-        }
-        return idToDb.get(dbNameToId.get(realDbName));
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
-        return idToDb.get(dbId);
-    }
-
-    @Override
-    public List<Long> getDbIds() {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.values());
-    }
-
-    public ExternalDatabase getDbForReplay(long dbId) {
-        return idToDb.get(dbId);
-    }
-
     public PooledHiveMetaStoreClient getClient() {
         makeSureInitialized();
         return client;
+    }
+
+    @Override
+    public List<Column> getSchema(String dbName, String tblName) {
+        makeSureInitialized();
+        List<FieldSchema> schema = getClient().getSchema(dbName, tblName);
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
+        for (FieldSchema field : schema) {
+            tmpSchema.add(new Column(field.getName(),
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
+                    true, null, field.getComment(), true, null, -1));
+        }
+        return tmpSchema;
     }
 }

@@ -123,7 +123,7 @@ public class StreamLoadPlanner {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 
-        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol()) {
+        if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol() && destTable.getSequenceMapCol() == null) {
             throw new UserException("Table " + destTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }

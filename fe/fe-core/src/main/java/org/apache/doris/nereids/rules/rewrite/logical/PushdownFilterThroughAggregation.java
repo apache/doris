@@ -68,17 +68,23 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter(logicalAggregate()).then(filter -> {
             LogicalAggregate<GroupPlan> aggregate = filter.child();
-            Set<Slot> groupBySlots = new HashSet<>();
-            for (Expression groupByExpression : aggregate.getGroupByExpressions()) {
-                if (groupByExpression instanceof Slot) {
-                    groupBySlots.add((Slot) groupByExpression);
+            Set<Slot> canPushDownSlots = new HashSet<>();
+            if (aggregate.hasRepeat()) {
+                // When there is a repeat, the push-down condition is consistent with the repeat
+                canPushDownSlots.addAll(aggregate.getSourceRepeat().get().getCommonGroupingSetExpressions());
+            } else {
+                for (Expression groupByExpression : aggregate.getGroupByExpressions()) {
+                    if (groupByExpression instanceof Slot) {
+                        canPushDownSlots.add((Slot) groupByExpression);
+                    }
                 }
             }
+
             List<Expression> pushDownPredicates = Lists.newArrayList();
             List<Expression> filterPredicates = Lists.newArrayList();
             ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
-                if (groupBySlots.containsAll(conjunctSlots)) {
+                if (canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {
                     filterPredicates.add(conjunct);

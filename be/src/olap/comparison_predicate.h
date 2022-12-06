@@ -601,7 +601,7 @@ private:
         }
     }
 
-    std::string _debug_string() override {
+    std::string _debug_string() const override {
         std::string info =
                 "ComparisonPredicateBase(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
         return info;
@@ -610,8 +610,5 @@ private:
     T _value;
     static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 };
-
-template <PrimitiveType Type, PredicateType PT>
-constexpr PrimitiveType ComparisonPredicateBase<Type, PT>::EvalType;
 
 } //namespace doris

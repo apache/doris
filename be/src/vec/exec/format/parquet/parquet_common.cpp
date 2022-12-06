@@ -90,17 +90,17 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
         for (auto& run_length : run_length_null_map) {
             if (is_null) {
                 _num_nulls += run_length;
-                for (uint16_t i = 0; i < run_length; ++i) {
+                for (int i = 0; i < run_length; ++i) {
                     _data_map[map_index++] = FILTERED_NULL;
                 }
             } else {
-                for (uint16_t i = 0; i < run_length; ++i) {
+                for (int i = 0; i < run_length; ++i) {
                     _data_map[map_index++] = FILTERED_CONTENT;
                 }
             }
             is_null = !is_null;
         }
-        uint16_t num_read = 0;
+        size_t num_read = 0;
         DCHECK_LE(_filter_map_index + num_values, _filter_map_size);
         for (size_t i = 0; i < num_values; ++i) {
             if (_filter_map[_filter_map_index++]) {
@@ -141,6 +141,13 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
                 }
                 is_null = !is_null;
             }
+        } else {
+            for (auto& run_length : run_length_null_map) {
+                if (is_null) {
+                    _num_nulls += run_length;
+                }
+                is_null = !is_null;
+            }
         }
     }
 }
@@ -167,13 +174,13 @@ void ColumnSelectVector::skip(size_t num_values) {
     _filter_map_index += num_values;
 }
 
-uint16_t ColumnSelectVector::get_next_run(DataReadType* data_read_type) {
+size_t ColumnSelectVector::get_next_run(DataReadType* data_read_type) {
     if (_has_filter) {
         if (_read_index == _num_values) {
             return 0;
         }
         const DataReadType& type = _data_map[_read_index++];
-        uint16_t run_length = 1;
+        size_t run_length = 1;
         while (_read_index < _num_values) {
             if (_data_map[_read_index] == type) {
                 run_length++;
@@ -185,7 +192,7 @@ uint16_t ColumnSelectVector::get_next_run(DataReadType* data_read_type) {
         *data_read_type = type;
         return run_length;
     } else {
-        uint16_t run_length = 0;
+        size_t run_length = 0;
         while (run_length == 0) {
             if (_read_index == (*_run_length_null_map).size()) {
                 return 0;
@@ -381,6 +388,15 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
             return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, select_vector);
         }
         break;
+    case TypeIndex::Decimal128I:
+        if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+            return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+        } else if (_physical_type == tparquet::Type::INT32) {
+            return _decode_primitive_decimal<Int128, Int32>(doris_column, data_type, select_vector);
+        } else if (_physical_type == tparquet::Type::INT64) {
+            return _decode_primitive_decimal<Int128, Int64>(doris_column, data_type, select_vector);
+        }
+        break;
     case TypeIndex::String:
     case TypeIndex::FixedString:
         if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
@@ -399,12 +415,12 @@ Status FixLengthDecoder::_decode_string(MutableColumnPtr& doris_column,
                                         ColumnSelectVector& select_vector) {
     size_t dict_index = 0;
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             std::vector<StringRef> string_values;
             string_values.reserve(run_length);
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
                 string_values.emplace_back(buf_start, _type_length);
                 _FIXED_SHIFT_DATA_OFFSET();
@@ -501,12 +517,12 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
         size_t dict_index = 0;
 
         ColumnSelectVector::DataReadType read_type;
-        while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+        while (size_t run_length = select_vector.get_next_run(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 std::vector<StringRef> string_values;
                 string_values.reserve(run_length);
-                for (int i = 0; i < run_length; ++i) {
+                for (size_t i = 0; i < run_length; ++i) {
                     if (_has_dict) {
                         string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
                     } else {
@@ -565,6 +581,8 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
         return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
     case TypeIndex::Decimal128:
         return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+    case TypeIndex::Decimal128I:
+        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
     default:
         break;
     }
@@ -604,11 +622,11 @@ Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
 
     ColumnSelectVector::DataReadType read_type;
-    while (uint16_t run_length = select_vector.get_next_run(&read_type)) {
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             bool value;
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 if (UNLIKELY(!_decode_value(&value))) {
                     return Status::IOError("Can't read enough booleans in plain decoder");
                 }

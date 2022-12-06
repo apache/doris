@@ -42,7 +42,7 @@ None
 
 * `token`
 
-    The token of the cluster. It can be viewed in the file `palo-meta/image/VERSION`.
+    The token of the cluster. It can be viewed in the file `doris-meta/image/VERSION`.
 
 * `file_id`
     

@@ -44,7 +44,7 @@ Status IntersectNode::init(const TPlanNode& tnode, RuntimeState* state) {
 // repeat [2] this for all the rest child
 Status IntersectNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(SetOperationNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();
@@ -85,7 +85,7 @@ Status IntersectNode::open(RuntimeState* state) {
 Status IntersectNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     *eos = true;
     if (reached_limit()) {
         return Status::OK();

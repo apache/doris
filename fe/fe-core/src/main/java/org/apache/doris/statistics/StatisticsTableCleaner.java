@@ -22,8 +22,9 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
@@ -45,7 +46,8 @@ public class StatisticsTableCleaner extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsTableCleaner.class);
 
     public StatisticsTableCleaner() {
-        super("Statistics Table Cleaner", (long) Config.statistic_clean_interval_in_hours * 3600 * 1000);
+        super("Statistics Table Cleaner",
+                StatisticConstants.STATISTIC_CLEAN_INTERVAL_IN_HOURS * 3600 * 1000);
     }
 
     @Override
@@ -97,7 +99,7 @@ public class StatisticsTableCleaner extends MasterDaemon {
 
     private void deleteExpired(String colName, List<String> constants) {
         // TODO: must promise count of children of predicate is less than the FE limits.
-        String deleteTemplate = "DELETE FROM " + StatisticConstants.STATISTIC_DB_NAME
+        String deleteTemplate = "DELETE FROM " + FeConstants.INTERNAL_DB_NAME
                 + "." + StatisticConstants.STATISTIC_TBL_NAME + "WHERE ${colName} NOT IN ${predicate}";
         StringJoiner predicateBuilder = new StringJoiner(",", "(", ")");
         constants.forEach(predicateBuilder::add);

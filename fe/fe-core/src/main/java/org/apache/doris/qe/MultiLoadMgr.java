@@ -424,7 +424,7 @@ public class MultiLoadMgr {
             Iterator<Map.Entry<String, List<Pair<String, Long>>>> it = filesByLabel.entrySet().iterator();
             while (it.hasNext()) {
                 List<Pair<String, Long>> value = it.next().getValue();
-                value.stream().forEach(pair -> {
+                value.forEach(pair -> {
                     files.add(pair.first);
                     fileSizes.add(pair.second);
                 });

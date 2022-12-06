@@ -29,6 +29,9 @@ namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
 } // namespace vectorized
+namespace pipeline {
+class TaskScheduler;
+}
 class BfdParser;
 class BrokerMgr;
 
@@ -110,6 +113,8 @@ public:
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
+    pipeline::TaskScheduler* pipeline_task_scheduler() { return _pipeline_task_scheduler; }
+
     // using template to simplify client cache management
     template <typename T>
     ClientCache<T>* get_client_cache() {
@@ -137,6 +142,7 @@ public:
     }
     void init_download_cache_buf();
     void init_download_cache_required_components();
+    Status init_pipeline_task_scheduler();
     char* get_download_cache_buf(ThreadPoolToken* token) {
         if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
             return nullptr;
@@ -233,6 +239,7 @@ private:
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
+    pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;

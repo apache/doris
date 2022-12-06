@@ -18,7 +18,11 @@
 #include "http/default_path_handlers.h"
 
 #include <gperftools/heap-profiler.h>
+#ifdef USE_JEMALLOC
+#include "jemalloc/jemalloc.h"
+#else
 #include <gperftools/malloc_extension.h>
+#endif
 
 #include <boost/algorithm/string.hpp>
 #include <sstream>
@@ -91,9 +95,17 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
               << "</pre>";
 
     (*output) << "<pre>";
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
-        defined(USE_JEMALLOC)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (*output) << "Memory tracking is not available with address sanitizer builds.";
+#elif defined(USE_JEMALLOC)
+    std::string tmp;
+    auto write_cb = [](void* opaque, const char* buf) {
+        auto* _opaque = static_cast<std::string*>(opaque);
+        _opaque->append(buf);
+    };
+    je_malloc_stats_print(write_cb, &tmp, "a");
+    boost::replace_all(tmp, "\n", "<br>");
+    (*output) << tmp << "</pre>";
 #else
     char buf[2048];
     MallocExtension::instance()->GetStats(buf, 2048);
@@ -144,7 +156,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     } else {
         (*output) << "<h4>*Note: (see documentation for details)</h4>\n";
         (*output) << "<h4>     1.`/mem_tracker?type=global` to view the memory statistics of each "
-                     "type</h4>\n";
+                     "type, `global`life cycle is the same as the process, e.g. each Cache, "
+                     "StorageEngine, each Manager.</h4>\n";
         (*output) << "<h4>     2.`/mem_tracker` counts virtual memory, which is equal to `Actual "
                      "memory used` in `/memz`</h4>\n";
         (*output) << "<h4>     3.`process` is equal to the sum of all types of memory, "

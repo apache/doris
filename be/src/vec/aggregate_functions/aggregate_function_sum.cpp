@@ -31,7 +31,7 @@ namespace doris::vectorized {
 template <typename T>
 struct SumSimple {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    using ResultType = std::conditional_t<IsDecimalNumber<T>, Decimal128, NearestFieldType<T>>;
+    using ResultType = DisposeDecimal<T, NearestFieldType<T>>;
     // using ResultType = NearestFieldType<T>;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
     using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;

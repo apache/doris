@@ -35,7 +35,8 @@ public:
 
     Status close() override { return _remote_file_reader->close(); }
 
-    Status read_at(size_t offset, Slice result, size_t* bytes_read) override;
+    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
+                   size_t* bytes_read) override;
 
     const Path& path() const override { return _remote_file_reader->path(); }
 

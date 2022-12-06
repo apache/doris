@@ -500,7 +500,7 @@ Status NewJsonReader::_parse_json(bool* is_empty_row, bool* eof) {
 
 // read one json string from line reader or file reader and parse it to json doc.
 // return Status::DataQualityError() if data has quality error.
-// return other error if encounter other problemes.
+// return other error if encounter other problems.
 // return Status::OK() if parse succeed or reach EOF.
 Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message
@@ -620,7 +620,7 @@ Status NewJsonReader::_parse_json_doc(size_t* size, bool* eof) {
 // for simple format json
 // set valid to true and return OK if succeed.
 // set valid to false and return OK if we met an invalid row.
-// return other status if encounter other problmes.
+// return other status if encounter other problems.
 Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue,
                                         std::vector<MutableColumnPtr>& columns,
                                         const std::vector<SlotDescriptor*>& slot_descs,
@@ -767,7 +767,8 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
 
     // TODO: if the vexpr can support another 'slot_desc type' than 'TYPE_VARCHAR',
     // we need use a function to support these types to insert data in columns.
-    DCHECK(slot_desc->type().type == TYPE_VARCHAR);
+    DCHECK(slot_desc->type().type == TYPE_VARCHAR || slot_desc->type().type == TYPE_STRING)
+            << slot_desc->type().type << ", query id: " << print_id(_state->query_id());
     assert_cast<ColumnString*>(column_ptr)->insert_data(str_value, wbytes);
 
     *valid = true;

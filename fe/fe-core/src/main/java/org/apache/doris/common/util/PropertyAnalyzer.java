@@ -46,7 +46,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,8 +93,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
-    public static final String PROPERTIES_REMOTE_STORAGE_POLICY = "remote_storage_policy";
-
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
@@ -105,6 +102,7 @@ public class PropertyAnalyzer {
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
@@ -146,12 +144,10 @@ public class PropertyAnalyzer {
         }
 
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
-        long cooldownTimeStamp = oldDataProperty.getCooldownTimeMs();
-        String remoteStoragePolicy = oldDataProperty.getRemoteStoragePolicy();
-        long remoteCooldownTimeMs = oldDataProperty.getRemoteCooldownTimeMs();
+        long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
+        String newStoragePolicy = oldDataProperty.getStoragePolicy();
         boolean hasStoragePolicy = false;
 
-        long dataBaseTimeMs = 0;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -165,74 +161,66 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
-                cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-            } else if (key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_POLICY)) {
-                remoteStoragePolicy = value;
-            } else if (key.equalsIgnoreCase(PROPERTIES_DATA_BASE_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
-                dataBaseTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             } else if (!hasStoragePolicy && key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 if (!Strings.isNullOrEmpty(value)) {
                     hasStoragePolicy = true;
+                    newStoragePolicy = value;
                 }
             }
         } // end for properties
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
-        properties.remove(PROPERTIES_REMOTE_STORAGE_POLICY);
+        properties.remove(PROPERTIES_STORAGE_POLICY);
         properties.remove(PROPERTIES_DATA_BASE_TIME);
 
         Preconditions.checkNotNull(storageMedium);
 
         if (storageMedium == TStorageMedium.HDD) {
-            cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+            cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
             LOG.info("Can not assign cool down timestamp to HDD storage medium, ignore user setting.");
         }
 
-        boolean hasCooldown = cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS;
-        boolean hasRemoteStoragePolicy = StringUtils.isNotEmpty(remoteStoragePolicy);
-
+        boolean hasCooldown = cooldownTimestamp != DataProperty.MAX_COOLDOWN_TIME_MS;
         long currentTimeMs = System.currentTimeMillis();
         if (storageMedium == TStorageMedium.SSD && hasCooldown) {
-            if (cooldownTimeStamp <= currentTimeMs) {
-                throw new AnalysisException("Cool down time should later than now");
+            if (cooldownTimestamp <= currentTimeMs) {
+                throw new AnalysisException(
+                        "Cool down time: " + cooldownTimestamp + " should later than now: " + currentTimeMs);
             }
         }
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             // set default cooldown time
-            cooldownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+            cooldownTimestamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
         }
 
-        if (hasRemoteStoragePolicy) {
+        if (hasStoragePolicy) {
             // check remote storage policy
-            StoragePolicy checkedPolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
+            StoragePolicy checkedPolicy = StoragePolicy.ofCheck(newStoragePolicy);
             Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedPolicy);
             if (!(policy instanceof StoragePolicy)) {
-                throw new AnalysisException("No PolicyStorage: " + remoteStoragePolicy);
+                throw new AnalysisException("No PolicyStorage: " + newStoragePolicy);
             }
 
             StoragePolicy storagePolicy = (StoragePolicy) policy;
             // check remote storage cool down timestamp
-            if (storagePolicy.getCooldownDatetime() != null) {
-                if (storagePolicy.getCooldownDatetime().getTime() <= currentTimeMs) {
-                    throw new AnalysisException("Remote storage cool down time should later than now");
+            if (storagePolicy.getCooldownTimestampMs() != -1) {
+                if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {
+                    throw new AnalysisException(
+                            "remote storage cool down time: " + storagePolicy.getCooldownTimestampMs()
+                                    + " should later than now: " + currentTimeMs);
                 }
-                if (hasCooldown && storagePolicy.getCooldownDatetime().getTime() <= cooldownTimeStamp) {
-                    throw new AnalysisException("`remote_storage_cooldown_time`"
-                            + " should later than `storage_cooldown_time`.");
+                if (hasCooldown && storagePolicy.getCooldownTimestampMs() <= cooldownTimestamp) {
+                    throw new AnalysisException(
+                            "remote storage cool down time: " + storagePolicy.getCooldownTimestampMs()
+                                    + " should later than storage cool down time: " + cooldownTimestamp);
                 }
-                remoteCooldownTimeMs = storagePolicy.getCooldownDatetime().getTime();
-            } else if (storagePolicy.getCooldownTtl() != null && dataBaseTimeMs > 0) {
-                remoteCooldownTimeMs = dataBaseTimeMs + storagePolicy.getCooldownTtlMs();
             }
         }
 
-        if (dataBaseTimeMs <= 0) {
-            remoteCooldownTimeMs = DataProperty.MAX_COOLDOWN_TIME_MS;
-        }
-        return new DataProperty(storageMedium, cooldownTimeStamp, remoteStoragePolicy, remoteCooldownTimeMs);
+        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy);
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
@@ -559,28 +547,6 @@ public class PropertyAnalyzer {
         return defaultVal;
     }
 
-    /**
-     * analyze remote storage policy.
-     *
-     * @param properties property for table
-     * @return remote storage policy name
-     * @throws AnalysisException policy name doesn't exist
-     */
-    public static String analyzeRemoteStoragePolicy(Map<String, String> properties) throws AnalysisException {
-        String remoteStoragePolicy = "";
-        if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_POLICY)) {
-            remoteStoragePolicy = properties.get(PROPERTIES_REMOTE_STORAGE_POLICY);
-            // check remote storage policy existence
-            StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(remoteStoragePolicy);
-            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
-            if (!(policy instanceof StoragePolicy)) {
-                throw new AnalysisException("StoragePolicy: " + remoteStoragePolicy + " does not exist.");
-            }
-        }
-
-        return remoteStoragePolicy;
-    }
-
     public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
         String storagePolicy = "";
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
@@ -618,6 +584,20 @@ public class PropertyAnalyzer {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
         return ScalarType.createType(type);
+    }
+
+    public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        String sequenceCol = null;
+        String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_COL;
+        if (properties != null && properties.containsKey(propertyName)) {
+            sequenceCol = properties.get(propertyName);
+            properties.remove(propertyName);
+        }
+        if (sequenceCol != null && keysType != KeysType.UNIQUE_KEYS) {
+            throw new AnalysisException("sequence column only support UNIQUE_KEYS");
+        }
+        return sequenceCol;
     }
 
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,
@@ -795,7 +775,7 @@ public class PropertyAnalyzer {
         }
 
         // validate the properties of es catalog
-        if (properties.get("type").equalsIgnoreCase("es")) {
+        if ("es".equalsIgnoreCase(properties.get("type"))) {
             try {
                 if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
                     EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
@@ -818,3 +798,5 @@ public class PropertyAnalyzer {
         }
     }
 }
+
+

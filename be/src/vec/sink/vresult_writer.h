@@ -26,6 +26,8 @@ public:
     VResultWriter() : ResultWriter() {}
 
     virtual Status append_block(Block& block) = 0;
+
+    virtual bool can_sink() { return true; }
 };
 } // namespace vectorized
 } // namespace doris

@@ -179,14 +179,13 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
-    MemTracker* segment_meta_mem_tracker() { return _segment_meta_mem_tracker.get(); }
-    MemTracker* segcompaction_mem_tracker() { return _segcompaction_mem_tracker.get(); }
+    std::shared_ptr<MemTracker> segment_meta_mem_tracker() { return _segment_meta_mem_tracker; }
+    std::shared_ptr<MemTracker> segcompaction_mem_tracker() { return _segcompaction_mem_tracker; }
 
     // check cumulative compaction config
     void check_cumulative_compaction_config();
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
-    Status submit_quick_compaction_task(TabletSharedPtr tablet);
     Status submit_seg_compaction_task(BetaRowsetWriter* writer,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -267,8 +266,6 @@ private:
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
 
-    Status _handle_quick_compaction(TabletSharedPtr);
-
     void _adjust_compaction_thread_num();
 
     void _cooldown_tasks_producer_callback();
@@ -326,10 +323,10 @@ private:
     // StorageEngine oneself
     std::shared_ptr<MemTracker> _mem_tracker;
     // Count the memory consumption of segment compaction tasks.
-    std::unique_ptr<MemTracker> _segcompaction_mem_tracker;
+    std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
-    std::unique_ptr<MemTracker> _segment_meta_mem_tracker;
+    std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -366,7 +363,6 @@ private:
 
     HeartbeatFlags* _heartbeat_flags;
 
-    std::unique_ptr<ThreadPool> _quick_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;

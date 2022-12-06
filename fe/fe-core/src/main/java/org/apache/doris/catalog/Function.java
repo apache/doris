@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -29,11 +30,13 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.io.output.NullOutputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 
@@ -178,10 +181,6 @@ public class Function implements Writable {
 
     public void setReturnType(Type type) {
         this.retType = type;
-    }
-
-    public void setArgType(Type type, int i) {
-        argTypes[i] = type;
     }
 
     public Type[] getArgs() {
@@ -802,5 +801,17 @@ public class Function implements Writable {
 
     public NullableMode getNullableMode() {
         return nullableMode;
+    }
+
+    // Try to serialize this function and write to nowhere.
+    // Just for checking if we forget to implement write() method for some Exprs.
+    // To avoid FE exist when writing edit log.
+    public void checkWritable() throws UserException {
+        try {
+            DataOutputStream out = new DataOutputStream(new NullOutputStream());
+            write(out);
+        } catch (Throwable t) {
+            throw new UserException("failed to serialize function: " + functionName(), t);
+        }
     }
 }

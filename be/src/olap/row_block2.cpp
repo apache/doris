@@ -26,7 +26,6 @@
 #include "util/bitmap.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
@@ -321,14 +320,14 @@ Status RowBlockV2::_copy_data_to_column(int cid,
         insert_data_directly(cid, column_decimal);
         break;
     }
-    case OLAP_FIELD_TYPE_DECIMAL128: {
+    case OLAP_FIELD_TYPE_DECIMAL128I: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
         insert_data_directly(cid, column_decimal);
         break;
     }
     case OLAP_FIELD_TYPE_JSONB: {
-        auto json_string = assert_cast<vectorized::ColumnJsonb*>(column);
+        auto json_string = assert_cast<vectorized::ColumnString*>(column);
         size_t limit = config::jsonb_type_length_soft_limit_bytes;
         for (uint16_t j = 0; j < _selected_size; ++j) {
             if (!nullable_mark_array[j]) {
@@ -341,6 +340,7 @@ Status RowBlockV2::_copy_data_to_column(int cid,
                             fmt::format("Not support json len over than {} in vec engine.", limit));
                 }
             } else {
+                // TODO
                 json_string->insert_default();
             }
         }
@@ -601,7 +601,7 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
 
         for (uint32_t j = 0; j < selected_size; ++j) {
             if (!nullable_mark_array[j]) {
@@ -628,9 +628,9 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
                 assert_cast<vectorized::ColumnDecimal<vectorized::Decimal64>*>(column);
         insert_data_directly(batch, column_decimal, start, len);
     }
-    case OLAP_FIELD_TYPE_DECIMAL128: {
+    case OLAP_FIELD_TYPE_DECIMAL128I: {
         auto column_decimal =
-                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(column);
+                assert_cast<vectorized::ColumnDecimal<vectorized::Decimal128I>*>(column);
         insert_data_directly(batch, column_decimal, start, len);
     }
     case OLAP_FIELD_TYPE_ARRAY: {

@@ -19,6 +19,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
@@ -62,11 +63,8 @@ public:
         bool direct_mode = false;
         bool aggregation = false;
         bool need_agg_finalize = true;
-        // 1. when read column data page:
-        //     for compaction, schema_change, check_sum: we don't use page cache
-        //     for query and config::disable_storage_page_cache is false, we use page cache
-        // 2. when read column index page
-        //     if config::disable_storage_page_cache is false, we use page cache
+        // for compaction, schema_change, check_sum: we don't use page cache
+        // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
@@ -77,6 +75,7 @@ public:
 
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+        std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
         std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
@@ -94,7 +93,7 @@ public:
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
-        // used for comapction to record row ids
+        // used for compaction to record row ids
         bool record_rowids = false;
         // used for special optimization for query : ORDER BY key LIMIT n
         bool read_orderby_key = false;
@@ -102,6 +101,9 @@ public:
         bool read_orderby_key_reverse = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
+
+        // for vertical compaction
+        bool is_key_column_group = false;
 
         void check_validation() const;
 
@@ -135,7 +137,7 @@ public:
         return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
     }
 
-    uint64_t merged_rows() const { return _merged_rows; }
+    virtual uint64_t merged_rows() const { return _merged_rows; }
 
     uint64_t filtered_rows() const {
         return _stats.rows_del_filtered + _stats.rows_del_by_bitmap +
@@ -170,6 +172,9 @@ protected:
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
+
+    ColumnPredicate* _parse_to_predicate(
+            const std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>& bitmap_filter);
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter);

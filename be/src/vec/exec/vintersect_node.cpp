@@ -73,7 +73,7 @@ Status VIntersectNode::open(RuntimeState* state) {
                             LOG(FATAL) << "FATAL: uninited hash table";
                         }
                     },
-                    _hash_table_variants);
+                    *_hash_table_variants);
         }
     }
     return st;
@@ -98,7 +98,7 @@ Status VIntersectNode::get_next(RuntimeState* state, Block* output_block, bool* 
                     LOG(FATAL) << "FATAL: uninited hash table";
                 }
             },
-            _hash_table_variants);
+            *_hash_table_variants);
 
     RETURN_IF_ERROR(
             VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));

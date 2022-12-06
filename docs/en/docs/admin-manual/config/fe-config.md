@@ -132,6 +132,20 @@ MasterOnly：true
 
 Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.. 
 
+<version since="1.2.0">
+
+### max_multi_partition_num
+
+Default：4096
+
+IsMutable：false
+
+MasterOnly：true
+
+Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
+
+</version>
+
 ### grpc_max_message_size_bytes
 
 Default：1G
@@ -412,6 +426,18 @@ MasterOnly：true
    2. Perform a decommission operation on a certain BE node. This operation will migrate all data on the BE to other nodes.
    3. After the decommission operation is completed, the BE will not be dropped. At this time, cancel the decommission status of the BE. Then the data will start to balance from other BE nodes back to this node. At this time, the data will be evenly distributed to all disks of the BE.
    4. Perform steps 2 and 3 for all BE nodes in sequence, and finally achieve the purpose of disk balancing for all nodes
+
+### decommission_tablet_check_threshold
+
+Default：5000
+
+IsMutable：true
+
+MasterOnly：true
+
+This configuration is used to control whether the Master FE need to check the status of tablets on decommissioned BE. If the size of tablets on decommissioned BE is lower than this threshold, FE will start a periodic check, if all tablets on decommissioned BE have been recycled, FE will drop this BE immediately.
+
+For performance consideration, please don't set a very high value for this configuration.
 
 ### period_of_auto_resume_min
 
@@ -2258,3 +2284,85 @@ Default: 1
 Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
+
+### `max_replica_count_when_schema_change`
+
+The maximum number of replicas allowed when OlapTable is doing schema changes. Too many replicas will lead to FE OOM.
+
+Default: 100000
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### `max_hive_partition_cache_num`
+
+The maximum number of caches for the hive partition.
+
+Default: 100000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_external_file_cache_num`
+
+Maximum number of file cache to use for external external tables.
+
+Default: 100000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_external_schema_cache_num`
+
+Maximum number of schema cache to use for external external tables.
+
+Default: 10000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `external_cache_expire_time_minutes_after_access`
+
+Set how long the data in the cache expires after the last access. The unit is minutes.
+Applies to External Schema Cache as well as Hive Partition Cache.
+
+Default: 1440
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_same_name_catalog_trash_num`
+
+It is used to set the maximum number of meta information with the same name in the catalog recycle bin. When the maximum value is exceeded, the earliest deleted meta trash will be completely deleted and cannot be recovered. 0 means not to keep objects of the same name. < 0 means no limit.
+
+Note: The judgment of metadata with the same name will be limited to a certain range. For example, the judgment of the database with the same name will be limited to the same cluster, the judgment of the table with the same name will be limited to the same database (with the same database id), the judgment of the partition with the same name will be limited to the same database (with the same database id) and the same table (with the same table) same table id).
+
+Default: 3
+
+Is it possible to dynamically configure: true
+
+### `enable_storage_policy`
+
+Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
+
+Default: false
+
+Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: true
+
+### `enable_fqdn_mode`
+
+This configuration is mainly used in the k8s cluster environment. When enable_fqdn_mode is true, the name of the pod where the be is located will remain unchanged after reconstruction, while the ip can be changed.
+
+Default: false
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+

@@ -24,7 +24,6 @@
 
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_common.h"
@@ -366,7 +365,7 @@ struct ConvertImplNumberToJsonb {
                           const size_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
 
-        auto col_jsonb = ColumnJsonb::create();
+        auto column_string = ColumnString::create();
         JsonbWriter writer;
 
         const auto* col =
@@ -390,10 +389,11 @@ struct ConvertImplNumberToJsonb {
             } else {
                 LOG(FATAL) << "unsupported type ";
             }
-            col_jsonb->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+            column_string->insert_data(writer.getOutput()->getBuffer(),
+                                       writer.getOutput()->getSize());
         }
 
-        block.replace_by_position(result, std::move(col_jsonb));
+        block.replace_by_position(result, std::move(column_string));
         return Status::OK();
     }
 };
@@ -406,7 +406,7 @@ struct ConvertImplGenericToJsonb {
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
 
-        auto col_jsonb = ColumnJsonb::create();
+        auto column_string = ColumnString::create();
         JsonbWriter writer;
 
         auto tmp_col = ColumnString::create();
@@ -422,10 +422,11 @@ struct ConvertImplGenericToJsonb {
             auto str_ref = tmp_col->get_data_at(0);
             writer.writeString(str_ref.data, str_ref.size);
             writer.writeEndString();
-            col_jsonb->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+            column_string->insert_data(writer.getOutput()->getBuffer(),
+                                       writer.getOutput()->getSize());
         }
 
-        block.replace_by_position(result, std::move(col_jsonb));
+        block.replace_by_position(result, std::move(column_string));
         return Status::OK();
     }
 };
@@ -439,7 +440,7 @@ struct ConvertImplFromJsonb {
         // result column must set type
         DCHECK(block.get_by_position(result).type != nullptr);
         auto data_type_to = block.get_by_position(result).type;
-        if (const ColumnJsonb* col_jsonb = check_and_get_column<ColumnJsonb>(&col_from)) {
+        if (const ColumnString* column_string = check_and_get_column<ColumnString>(&col_from)) {
             auto null_map_col = ColumnUInt8::create(input_rows_count, 0);
             auto& null_map = null_map_col->get_data();
             auto col_to = ColumnType::create();
@@ -451,7 +452,7 @@ struct ConvertImplFromJsonb {
             res.resize(input_rows_count);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
-                const auto& val = col_jsonb->get_data_at(i);
+                const auto& val = column_string->get_data_at(i);
                 // ReadBuffer read_buffer((char*)(val.data), val.size);
                 // RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
 
@@ -563,6 +564,9 @@ struct NameToDecimal64 {
 };
 struct NameToDecimal128 {
     static constexpr auto name = "toDecimal128";
+};
+struct NameToDecimal128I {
+    static constexpr auto name = "toDecimal128I";
 };
 struct NameToUInt8 {
     static constexpr auto name = "toUInt8";
@@ -805,9 +809,9 @@ public:
     using Monotonic = MonotonicityImpl;
 
     static constexpr auto name = Name::name;
-    static constexpr bool to_decimal = std::is_same_v<Name, NameToDecimal32> ||
-                                       std::is_same_v<Name, NameToDecimal64> ||
-                                       std::is_same_v<Name, NameToDecimal128>;
+    static constexpr bool to_decimal =
+            std::is_same_v<Name, NameToDecimal32> || std::is_same_v<Name, NameToDecimal64> ||
+            std::is_same_v<Name, NameToDecimal128> || std::is_same_v<Name, NameToDecimal128I>;
 
     static FunctionPtr create() { return std::make_shared<FunctionConvert>(); }
 
@@ -918,6 +922,8 @@ using FunctionToDecimal64 =
         FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64, UnknownMonotonicity>;
 using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
+using FunctionToDecimal128I =
+        FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
@@ -981,6 +987,10 @@ struct FunctionTo<DataTypeDecimal<Decimal64>> {
 template <>
 struct FunctionTo<DataTypeDecimal<Decimal128>> {
     using Type = FunctionToDecimal128;
+};
+template <>
+struct FunctionTo<DataTypeDecimal<Decimal128I>> {
+    using Type = FunctionToDecimal128I;
 };
 template <>
 struct FunctionTo<DataTypeDate> {
@@ -1131,6 +1141,9 @@ struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128>, Name> {};
+template <typename Name>
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128I>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128I>, Name> {};
 
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
@@ -1649,7 +1662,8 @@ private:
 
             if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>>) {
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));
                 return true;
@@ -1716,8 +1730,7 @@ protected:
         need_to_be_nullable |= arguments[0].type->is_nullable();
         // 2. from_type is string, to_type is not string
         need_to_be_nullable |= (arguments[0].type->get_type_id() == TypeIndex::String) &&
-                               (type->get_type_id() != TypeIndex::String) &&
-                               (type->get_type_id() != TypeIndex::JSONB);
+                               (type->get_type_id() != TypeIndex::String);
         // 3. from_type is not DateTime/Date, to_type is DateTime/Date
         need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::Date &&
                                 arguments[0].type->get_type_id() != TypeIndex::DateTime) &&

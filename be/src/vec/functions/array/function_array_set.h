@@ -21,9 +21,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
-#include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 
 namespace doris::vectorized {
@@ -69,6 +67,7 @@ struct OpenSetImpl {
     void reset() {
         set.clear();
         result_set.clear();
+        action.reset();
     }
     template <bool is_left>
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
@@ -105,6 +104,7 @@ struct OpenSetImpl<operation, ColumnString> {
     void reset() {
         set.clear();
         result_set.clear();
+        action.reset();
     }
     template <bool is_left>
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,

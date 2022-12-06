@@ -22,6 +22,7 @@
 #include <stack>
 #include <string>
 
+#include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "vec/core/block.h"
@@ -33,6 +34,8 @@ namespace doris::vectorized {
 class VNestedLoopJoinNode final : public VJoinNodeBase {
 public:
     VNestedLoopJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     Status prepare(RuntimeState* state) override;
 
@@ -48,6 +51,16 @@ public:
 
     void debug_string(int indentation_level, std::stringstream* out) const override;
 
+    const RowDescriptor& intermediate_row_desc() const override {
+        return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
+    }
+
+    const RowDescriptor& row_desc() const override {
+        return _old_version_flag
+                       ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
+                       : *_output_row_desc;
+    }
+
 private:
     Status _materialize_build_side(RuntimeState* state) override;
 
@@ -58,12 +71,22 @@ private:
                                    const Block& now_process_build_block) const;
 
     template <bool SetBuildSideFlag, bool SetProbeSideFlag>
-    Status _do_filtering_and_update_visited_flags(Block* block, std::stack<uint16_t>& offset_stack);
+    Status _do_filtering_and_update_visited_flags(Block* block, std::stack<uint16_t>& offset_stack,
+                                                  bool materialize);
 
-    template <bool BuildSide>
-    void _output_null_data(MutableColumns& dst_columns, size_t batch_size);
+    template <bool BuildSide, bool IsSemi>
+    void _finalize_current_phase(MutableColumns& dst_columns, size_t batch_size);
 
     void _reset_with_next_probe_row(MutableColumns& dst_columns);
+
+    void _release_mem();
+
+    Status get_left_side(RuntimeState* state, Block* block);
+
+    // add tuple is null flag column to Block for filter conjunct and output expr
+    void _update_tuple_is_null_column(Block* block);
+
+    void _add_tuple_is_null_column(Block* block) override;
 
     // List of build blocks, constructed in prepare()
     Blocks _build_blocks;
@@ -89,6 +112,17 @@ private:
 
     int _left_block_pos; // current scan pos in _left_block
     bool _left_side_eos; // if true, left child has no more rows to process
+
+    bool _old_version_flag;
+
+    MutableColumns _dst_columns;
+
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<vectorized::VExprContext*> _filter_src_expr_ctxs;
+    bool _is_output_left_side_only = false;
+    std::unique_ptr<VExprContext*> _vjoin_conjunct_ptr;
+
+    friend struct RuntimeFilterBuild;
 };
 
 } // namespace doris::vectorized

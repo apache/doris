@@ -98,7 +98,7 @@ class PStatus;
     M(OLAP_ERR_TABLE_INDEX_FIND_ERROR, -403, "", true)                   \
     M(OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR, -404, "", true)           \
     M(OLAP_ERR_TABLE_CREATE_META_ERROR, -405, "", true)                  \
-    M(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR, -406, "", true)              \
+    M(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR, -406, "", false)             \
     M(OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE, -500, "", true)               \
     M(OLAP_ERR_ENGINE_DROP_NOEXISTS_TABLE, -501, "", true)               \
     M(OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR, -502, "", true)            \
@@ -264,13 +264,13 @@ public:
 
     Status(const PStatus& pstatus);
 
+    // Not allow user create status using constructors, could only use util methods
+private:
     Status(TStatusCode::type code, std::string_view msg, int16_t precise_code = 1)
             : _code(code), _precise_code(precise_code), _err_msg(msg) {}
 
     Status(TStatusCode::type code, std::string&& msg, int16_t precise_code = 1)
             : _code(code), _precise_code(precise_code), _err_msg(std::move(msg)) {}
-
-    static Status OK() { return Status(); }
 
     template <typename... Args>
     static Status ErrorFmt(TStatusCode::type code, std::string_view fmt, Args&&... args) {
@@ -281,6 +281,20 @@ public:
             return Status(code, fmt::format(fmt, std::forward<Args>(args)...));
         }
     }
+
+    template <typename... Args>
+    static Status ErrorFmtWithStackTrace(TStatusCode::type code, std::string_view fmt,
+                                         Args&&... args) {
+        // In some cases, fmt contains '{}' but there are no args.
+        if constexpr (sizeof...(args) == 0) {
+            return ConstructErrorStatus(code, -1, fmt);
+        } else {
+            return ConstructErrorStatus(code, -1, fmt::format(fmt, std::forward<Args>(args)...));
+        }
+    }
+
+public:
+    static Status OK() { return Status(); }
 
     template <typename... Args>
     static Status PublishTimeout(std::string_view fmt, Args&&... args) {
@@ -355,7 +369,8 @@ public:
 
     template <typename... Args>
     static Status RpcError(std::string_view fmt, Args&&... args) {
-        return ErrorFmt(TStatusCode::THRIFT_RPC_ERROR, fmt, std::forward<Args>(args)...);
+        return ErrorFmtWithStackTrace(TStatusCode::THRIFT_RPC_ERROR, fmt,
+                                      std::forward<Args>(args)...);
     }
 
     template <typename... Args>
@@ -391,17 +406,15 @@ public:
     // A wrapper for ErrorCode
     //      Precise code is for ErrorCode's enum value
     //      All Status Error is treated as Internal Error
-    static Status OLAPInternalError(int16_t precise_code) {
-        return ConstructErrorStatus(precise_code);
-    }
+    static Status OLAPInternalError(int16_t precise_code, std::string_view msg = "");
 
-    static Status ConstructErrorStatus(int16_t precise_code);
+    static Status ConstructErrorStatus(TStatusCode::type tcode, int16_t precise_code,
+                                       std::string_view msg);
 
     bool ok() const { return _code == TStatusCode::OK; }
 
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
-    bool is_rpc_error() const { return code() == TStatusCode::THRIFT_RPC_ERROR; }
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
     bool is_already_exist() const { return code() == TStatusCode::ALREADY_EXIST; }

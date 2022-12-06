@@ -21,6 +21,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 

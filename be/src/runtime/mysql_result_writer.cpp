@@ -187,7 +187,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
                     iter.get(&data);
                     auto datetime_value = DateTimeValue::from_datetime_val(data);
                     buf_ret = _add_row_value(index, child_type, &datetime_value);
-                } else if (child_type.is_decimal_type()) {
+                } else if (child_type.is_decimal_v2_type()) {
                     DecimalV2Val data;
                     iter.get(&data);
                     auto decimal_value = DecimalV2Value::from_decimal_val(data);

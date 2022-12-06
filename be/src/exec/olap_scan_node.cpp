@@ -88,7 +88,7 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
                 RuntimeFilterRole::CONSUMER, filter_desc, state->query_options(), id()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
                                                                         &runtime_filter));
@@ -180,7 +180,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 Status OlapScanNode::prepare(RuntimeState* state) {
     init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // create scanner profile
     // create timer
     _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
@@ -232,7 +232,7 @@ Status OlapScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _resource_info = ResourceTls::get_resource_tls();
 
@@ -276,7 +276,7 @@ Status OlapScanNode::open(RuntimeState* state) {
 
 Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // check if Canceled.
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_row_batches_lock);
@@ -773,7 +773,9 @@ Status OlapScanNode::build_key_ranges_and_filters() {
     // we use `exact_range` to identify a key range is an exact range or not when we convert
     // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filter`.
     bool exact_range = true;
-    for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
+    bool eos = false;
+    for (int column_index = 0;
+         column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
          ++column_index) {
         auto iter = _column_value_ranges.find(column_names[column_index]);
         if (_column_value_ranges.end() == iter) {
@@ -782,8 +784,8 @@ Status OlapScanNode::build_key_ranges_and_filters() {
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& range) {
-                    RETURN_IF_ERROR(
-                            _scan_keys.extend_scan_key(range, _max_scan_key_num, &exact_range));
+                    RETURN_IF_ERROR(_scan_keys.extend_scan_key(range, _max_scan_key_num,
+                                                               &exact_range, &eos));
                     if (exact_range) {
                         _column_value_ranges.erase(iter->first);
                     }
@@ -791,11 +793,13 @@ Status OlapScanNode::build_key_ranges_and_filters() {
                 },
                 iter->second));
     }
+    _eos |= eos;
+
     for (auto& iter : _column_value_ranges) {
         std::vector<TCondition> filters;
         std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
-        for (const auto& filter : filters) {
+        for (auto& filter : filters) {
             _olap_filter.push_back(std::move(filter));
         }
     }
@@ -1483,7 +1487,7 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1660,7 +1664,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     Thread::set_self_name("olap_scanner");
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;

@@ -41,15 +41,15 @@ struct ComparePairFirst final {
     }
 };
 
-static constexpr size_t max_events = 32;
+static constexpr size_t MAX_EVENTS = 32;
 
 /// Max number of iterations to match the pattern against a sequence, exception thrown when exceeded
-constexpr auto sequence_match_max_iterations = 1000000;
+constexpr auto sequence_match_max_iterations = 1000000l;
 
 template <typename DateValueType, typename NativeType, typename Derived>
 struct AggregateFunctionSequenceMatchData final {
     using Timestamp = DateValueType;
-    using Events = std::bitset<max_events>;
+    using Events = std::bitset<MAX_EVENTS>;
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
 
@@ -188,7 +188,7 @@ private:
         const char* begin = pos;
         const char* end = pos + pattern.size();
 
-        // Pattern is checked in fe, so pattern should be vaild here, we check it and if pattern is invalid, we return.
+        // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
         auto throw_exception = [&](const std::string& msg) {
             LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
                                     std::to_string(pos - begin);
@@ -542,9 +542,9 @@ public:
     bool sorted = true;
     PODArrayWithStackMemory<TimestampEvents, 64> events_list;
     // sequenceMatch conditions met at least once in events_list
-    std::bitset<max_events> conditions_met;
+    std::bitset<MAX_EVENTS> conditions_met;
     // sequenceMatch conditions met at least once in the pattern
-    std::bitset<max_events> conditions_in_pattern;
+    std::bitset<MAX_EVENTS> conditions_in_pattern;
     // `True` if the parsed pattern contains time assertions (?t...), `false` otherwise.
     bool pattern_has_time;
 

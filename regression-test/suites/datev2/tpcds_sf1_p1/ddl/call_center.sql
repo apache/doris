@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS call_center (
     cc_state char(2),
     cc_zip char(10),
     cc_country varchar(20),
-    cc_gmt_offset decimal(5,2),
-    cc_tax_percentage decimal(5,2)
+    cc_gmt_offset decimalv3(5,2),
+    cc_tax_percentage decimalv3(5,2)
  )
 DUPLICATE KEY(cc_call_center_sk, cc_call_center_id)
 DISTRIBUTED BY HASH(cc_call_center_sk) BUCKETS 3

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_MAX Function",
+    "title": "array_max",
     "language": "en"
 }
 ---
@@ -23,12 +23,9 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
-## ARRAY_MAX
-
-### Name
-
-ARRAY_MAX
+## array_max
 
 ### description
 
@@ -59,3 +56,4 @@ mysql> select k2, array_max(k2) from array_type_table;
 
 ARRAY,MAX,ARRAY_MAX
 
+</version>

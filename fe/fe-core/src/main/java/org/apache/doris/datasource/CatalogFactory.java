@@ -55,7 +55,7 @@ public class CatalogFactory {
         } else if (stmt instanceof RefreshCatalogStmt) {
             log.setCatalogId(catalogId);
         } else {
-            throw new RuntimeException("Unknown stmt for datasource manager " + stmt.getClass().getSimpleName());
+            throw new RuntimeException("Unknown stmt for catalog manager " + stmt.getClass().getSimpleName());
         }
         return log;
     }
@@ -78,6 +78,9 @@ public class CatalogFactory {
             case "es":
                 validateEsCatalogProperties(props);
                 catalog = new EsExternalCatalog(catalogId, name, props);
+                break;
+            case "jdbc":
+                catalog = new JdbcExternalCatalog(catalogId, name, props);
                 break;
             default:
                 throw new RuntimeException("Unknown catalog type: " + type);

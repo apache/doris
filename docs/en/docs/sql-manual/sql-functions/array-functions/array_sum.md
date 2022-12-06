@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_SUM Function",
+    "title": "array_sum",
     "language": "en"
 }
 ---
@@ -23,12 +23,9 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+<version since="1.2.0">
 
-## ARRAY_SUM
-
-### Name
-
-ARRAY_SUM
+## array_sum
 
 ### description
 
@@ -59,3 +56,4 @@ mysql> select k2, array_sum(k2) from array_type_table;
 
 ARRAY,SUM,ARRAY_SUM
 
+</version>

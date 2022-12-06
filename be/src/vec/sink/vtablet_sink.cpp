@@ -24,7 +24,6 @@
 #include "util/proto_util.h"
 #include "util/time.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -68,6 +67,12 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request.set_eos(false);
 
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
+    // The node channel will send _batch_size rows of data each rpc. When the
+    // number of tablets is large, the number of data rows received by each
+    // tablet is small, TabletsChannel need to traverse each tablet for import.
+    // so the import performance is poor. Therefore, we set _batch_size to
+    // a relatively large value to improve the import performance.
+    _batch_size = std::max(_batch_size, 8192);
 
     return Status::OK();
 }
@@ -90,7 +95,10 @@ Status VNodeChannel::open_wait() {
         }
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                       _add_block_closure->cntl.ErrorText(), -1);
+                                       fmt::format("rpc failed, error coed:{}, error text:{}",
+                                                   _add_block_closure->cntl.ErrorCode(),
+                                                   _add_block_closure->cntl.ErrorText()),
+                                       -1);
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
             _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
@@ -114,8 +122,8 @@ Status VNodeChannel::open_wait() {
         if (status.ok()) {
             // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {
-                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
-                                               error.tablet_id());
+                _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                               "tablet error: " + error.msg(), error.tablet_id());
             }
 
             Status st = _index_channel->check_intolerable_failure();
@@ -486,7 +494,7 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
     return status;
 }
 
-Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
+Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
@@ -705,11 +713,14 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         break;
     }
     case TYPE_JSONB: {
-        const auto column_jsonb =
-                assert_cast<const vectorized::ColumnJsonb*>(real_column_ptr.get());
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
         for (size_t j = 0; j < column->size(); ++j) {
             if (!filter_bitmap->Get(j)) {
-                auto str_val = column_jsonb->get_data_at(j);
+                if (is_nullable && column_ptr && column_ptr->is_null_at(j)) {
+                    continue;
+                }
+                auto str_val = column_string->get_data_at(j);
                 bool invalid = str_val.size == 0;
                 if (invalid) {
                     error_msg.clear();

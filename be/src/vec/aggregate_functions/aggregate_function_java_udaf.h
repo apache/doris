@@ -44,7 +44,7 @@ const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZJJ)V";
 const char* UDAF_EXECUTOR_SERIALIZE_SIGNATURE = "(J)[B";
 const char* UDAF_EXECUTOR_MERGE_SIGNATURE = "(J[B)V";
 const char* UDAF_EXECUTOR_RESULT_SIGNATURE = "(JJ)Z";
-// Calling Java method about those signture means: "(argument-types)return-type"
+// Calling Java method about those signature means: "(argument-types)return-type"
 // https://www.iitk.ac.in/esc101/05Aug/tutorial/native1.1/implementing/method.html
 
 struct AggregateJavaUdafData {
@@ -313,6 +313,12 @@ public:
                                        const Array& parameters, const DataTypePtr& return_type) {
         return std::make_shared<AggregateJavaUdaf>(fn, argument_types, parameters, return_type);
     }
+    //Note: The condition is added because maybe the BE can't find java-udaf impl jar
+    //So need to check as soon as possible, before call Data function
+    Status check_udaf(const TFunction& fn) {
+        auto function_cache = UserFunctionCache::instance();
+        return function_cache->check_jar(fn.id, fn.hdfs_location, fn.checksum);
+    }
 
     void create(AggregateDataPtr __restrict place) const override {
         if (_first_created) {
@@ -336,14 +342,14 @@ public:
 
     DataTypePtr get_return_type() const override { return _return_type; }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+    void add(AggregateDataPtr __restrict /*place*/, const IColumn** /*columns*/, size_t /*row_num*/,
              Arena*) const override {
         LOG(WARNING) << " shouldn't going add function, there maybe some error about function "
                      << _fn.name.function_name;
     }
 
-    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* arena, bool /*agg_many*/) const override {
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t /*place_offset*/,
+                   const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
         int64_t places_address[batch_size];
         for (size_t i = 0; i < batch_size; ++i) {
             places_address[i] = reinterpret_cast<int64_t>(places[i]);
@@ -354,14 +360,14 @@ public:
     // TODO: Here we calling method by jni, And if we get a thrown from FE,
     // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena* /*arena*/) const override {
         int64_t places_address[1];
         places_address[0] = reinterpret_cast<int64_t>(place);
         this->data(_exec_place).add(places_address, true, columns, 0, batch_size, argument_types);
     }
 
     // TODO: reset function should be implement also in struct data
-    void reset(AggregateDataPtr place) const override {
+    void reset(AggregateDataPtr /*place*/) const override {
         LOG(WARNING) << " shouldn't going reset function, there maybe some error about function "
                      << _fn.name.function_name;
     }

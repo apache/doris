@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_AVG 函数",
+    "title": "array_avg",
     "language": "zh-CN"
 }
 ---
@@ -24,11 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_AVG
+## array_avg
 
-### Name
-
-ARRAY_AVG
+<version since="1.2">array_avg</version>
 
 ### description
 

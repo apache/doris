@@ -562,7 +562,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         decimal_literal.__set_value(ss.str());
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
-    } else if constexpr (T == TYPE_DECIMAL128) {
+    } else if constexpr (T == TYPE_DECIMAL128I) {
         auto origin_value = reinterpret_cast<const int128_t*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
@@ -570,7 +570,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         vectorized::write_text<int128_t>(*origin_value, scale, ss);
         decimal_literal.__set_value(ss.str());
         (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128, precision, scale));
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
     } else if constexpr (T == TYPE_FLOAT) {
         auto origin_value = reinterpret_cast<const float*>(data);
         (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);

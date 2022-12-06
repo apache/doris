@@ -70,7 +70,7 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
 
     auto sort_size = sort_info.ordering_exprs.size();
     auto real_arguments_size = agg_fn_evaluator->_argument_types_with_sort.size() - sort_size;
-    // Child arguments conatins [real arguments, order by arguments], we pass the arguments
+    // Child arguments contains [real arguments, order by arguments], we pass the arguments
     // to the order by functions
     for (int i = 0; i < sort_size; ++i) {
         agg_fn_evaluator->_sort_description.emplace_back(real_arguments_size + i,
@@ -86,10 +86,9 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortIn
     return Status::OK();
 }
 
-Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, MemPool* pool,
+Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                const SlotDescriptor* intermediate_slot_desc,
                                const SlotDescriptor* output_slot_desc) {
-    DCHECK(pool != nullptr);
     DCHECK(intermediate_slot_desc != nullptr);
     DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
@@ -116,10 +115,11 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         if (config::enable_java_support) {
             _function = AggregateJavaUdaf::create(_fn, argument_types, {}, _data_type);
+            RETURN_IF_ERROR(static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(_fn));
         } else {
             return Status::InternalError(
-                    "Java UDF is not enabled, you can change be config enable_java_support to true "
-                    "and restart be.");
+                    "Java UDAF is not enabled, you can change be config enable_java_support to "
+                    "true and restart be.");
         }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, {}, _data_type);

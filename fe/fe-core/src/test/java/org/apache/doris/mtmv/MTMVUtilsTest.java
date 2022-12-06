@@ -31,12 +31,17 @@ import java.util.concurrent.TimeUnit;
 
 public class MTMVUtilsTest {
     public static final String dbName = "test";
+
+    public static final String MV_NAME = "mvName";
     public static final String S_JOB = "SchedulerJob";
     public static final String O_JOB = "OnceJob";
+
+
 
     public static MTMVJob createDummyJob() {
         MTMVJob job = new MTMVJob("dummy");
         job.setDbName(dbName);
+        job.setMvName(MV_NAME);
         return job;
     }
 
@@ -45,6 +50,7 @@ public class MTMVUtilsTest {
         job.setTriggerMode(TriggerMode.ONCE);
         job.setDbName(dbName);
         job.setName(O_JOB);
+        job.setMvName(MV_NAME);
         return job;
     }
 
@@ -55,6 +61,7 @@ public class MTMVUtilsTest {
         job.setTriggerMode(TriggerMode.PERIODICAL);
         job.setDbName(dbName);
         job.setName(S_JOB);
+        job.setMvName(MV_NAME);
         return job;
     }
 

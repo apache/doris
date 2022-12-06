@@ -272,11 +272,7 @@ if [[ -z "${USE_MEM_TRACKER}" ]]; then
     fi
 fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
-    if [[ "$(uname -s)" != 'Darwin' ]]; then
-        USE_JEMALLOC='OFF'
-    else
-        USE_JEMALLOC='OFF'
-    fi
+    USE_JEMALLOC='ON'
 fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'
@@ -284,6 +280,10 @@ fi
 
 if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
+fi
+
+if [[ -z "${OUTPUT_BE_BINARY}" ]]; then
+    OUTPUT_BE_BINARY=${BUILD_BE}
 fi
 
 if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
@@ -311,7 +311,7 @@ if [[ "${BUILD_JAVA_UDF}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     fi
 
     if [[ -n "${CAUSE}" ]]; then
-        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with JAVA UDF due to ${CAUSE}.\033[0m"
+        echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with Java UDF due to ${CAUSE}.\033[0m"
         BUILD_JAVA_UDF=0
     fi
 fi
@@ -415,8 +415,12 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         "${DORIS_HOME}/be"
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
+
+    if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
+        "${BUILD_SYSTEM}" -j "${PARALLEL}"
+        "${BUILD_SYSTEM}" install
+    fi
+
     cd "${DORIS_HOME}"
 fi
 
@@ -446,6 +450,7 @@ function build_ui() {
         ui_dist="${CUSTOM_UI_DIST}"
     else
         cd "${DORIS_HOME}/ui"
+        "${NPM}" cache clean --force
         "${NPM}" install --legacy-peer-deps
         "${NPM}" run build
     fi
@@ -507,7 +512,7 @@ if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/fe/spark-dpp/target"/spark-dpp-*-jar-with-dependencies.jar "${DORIS_OUTPUT}/fe/spark-dpp"/
 fi
 
-if [[ "${BUILD_BE}" -eq 1 ]]; then
+if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/bin" \
         "${DORIS_OUTPUT}/be/conf" \
         "${DORIS_OUTPUT}/be/lib" \
@@ -517,6 +522,15 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
+
+    if [[ "${BUILD_JAVA_UDF}" -eq 0 ]]; then
+        echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
+        cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
+
+# Java UDF support
+enable_java_support = false
+EOF
+    fi
 
     # Fix Killed: 9 error on MacOS (arm64).
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash

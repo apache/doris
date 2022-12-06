@@ -131,6 +131,20 @@ FE 的配置项有两种方式进行配置：
 
 用于限制创建动态分区表时可以创建的最大分区数，避免一次创建过多分区。 数量由动态分区参数中的“开始”和“结束”决定。
 
+<version since="1.2.0">
+
+### `max_multi_partition_num`
+
+默认值：4096
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true
+
+用于限制批量创建分区表时可以创建的最大分区数，避免一次创建过多分区。
+
+</version>
+
 ### `grpc_max_message_size_bytes`
 
 默认值：1G
@@ -398,6 +412,18 @@ show data （其他用法：HELP SHOW DATA）
 2. 对某一个 BE 节点，执行 decommission 操作，该操作会将该 BE 上的数据全部迁移到其他节点中。
 3. decommission 操作完成后，该 BE 不会被删除。此时，取消掉该 BE 的 decommission 状态。则数据会开始从其他 BE 节点均衡回这个节点。此时，数据将会均匀的分布到该 BE 的所有磁盘上。
 4. 对所有 BE 节点依次执行 2，3 两个步骤，最终达到所有节点磁盘均衡的目的。
+
+### `decommission_tablet_check_threshold`
+
+默认值: 5000
+
+是否可以动态配置: true
+
+是否为 Master FE 节点独有的配置项：true
+
+该配置用于控制FE是否执行检测（Decommission）BE上Tablets状态的阈值。如果（Decommission）BE上的Tablets个数大于0但小于该阈值，FE会定时对该BE开启一项检测，
+
+如果该BE上的Tablets数量大于0但是所有Tablets均处于被回收的状态，那么FE会立即下线该（Decommission）BE。注意，不要把该值配置的太大，不然在Decommission阶段可能会对FE造成性能压力。
 
 ### `period_of_auto_resume_min`
 
@@ -2233,7 +2259,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### backend_rpc_timeout_ms
 
- FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
+FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 默认值：60000
 
@@ -2252,10 +2278,11 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否为 Master FE 节点独有的配置项：false
 
 
+### enable_fqdn_mode
 
- FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
+此配置用于 k8s 部署环境。当 enable_k8s_detect_container_drift_mode 为 true 时，将允许更改 be 或 broker 的重建 pod的 ip。
 
-默认值：60000
+默认值： false
 
 是否可以动态配置：false
 
@@ -2314,13 +2341,85 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 是否为 Master FE 节点独有的配置项：true
 
-
-### max_replica_count_when_schema_change
+### `max_replica_count_when_schema_change`
 
 OlapTable在做schema change时，允许的最大副本数，副本数过大会导致FE OOM。
 
 默认值：100000
 
 是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `max_hive_partition_cache_num`
+
+hive partition 的最大缓存数量。
+
+默认值：100000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_external_file_cache_num`
+
+用于 external 外部表的最大文件缓存数量。
+
+默认值：100000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_external_schema_cache_num`
+
+用于 external 外部表的最大 schema 缓存数量。
+
+默认值：10000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `external_cache_expire_time_minutes_after_access`
+
+设置缓存中的数据，在最后一次访问后多久失效。单位为分钟。
+适用于 External Schema Cache 以及 Hive Partition Cache.
+
+默认值：1440
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_same_name_catalog_trash_num`
+
+用于设置回收站中同名元数据的最大个数，超过最大值时，最早删除的元数据将被彻底删除，不能再恢复。0 表示不保留同名对象。< 0 表示不做限制。
+
+注意：同名元数据的判断会局限在一定的范围内。比如同名database的判断会限定在相同cluster下，同名table的判断会限定在相同database（指相同database id）下，同名partition的判断会限定在相同database（指相同database id）并且相同table（指相同table id）下。
+
+默认值：3
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `enable_storage_policy`
+
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+
+默认值：false。即不开启
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `enable_fqdn_mode`
+
+此配置用于 k8s 部署环境。当 enable_fqdn_mode 为 true 时，将允许更改 be 的重建 pod的 ip。
+
+默认值： false
+
+是否可以动态配置：false
 
 是否为 Master FE 节点独有的配置项：true

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -226,5 +227,19 @@ public interface Patterns {
      */
     default PatternDescriptor<PhysicalRelation> physicalRelation() {
         return new PatternDescriptor(new TypePattern(PhysicalRelation.class), defaultPromise());
+    }
+
+    /**
+     * create a aggregate pattern.
+     */
+    default PatternDescriptor<Aggregate<GroupPlan>> aggregate() {
+        return new PatternDescriptor(new TypePattern(Aggregate.class, Pattern.GROUP), defaultPromise());
+    }
+
+    /**
+     * create a aggregate pattern.
+     */
+    default <C extends Plan> PatternDescriptor<Aggregate<C>> aggregate(PatternDescriptor<C> child) {
+        return new PatternDescriptor(new TypePattern(Aggregate.class, child.pattern), defaultPromise());
     }
 }

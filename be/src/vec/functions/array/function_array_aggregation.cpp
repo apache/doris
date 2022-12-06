@@ -55,18 +55,18 @@ struct ArrayAggregateResultImpl<Element, AggregateOperation::MAX> {
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::AVERAGE> {
-    using Result = std::conditional_t<IsDecimalNumber<Element>, Decimal128, Float64>;
+    using Result = DisposeDecimal<Element, Float64>;
 };
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT> {
-    using Result = std::conditional_t<IsDecimalNumber<Element>, Decimal128, Float64>;
+    using Result = DisposeDecimal<Element, Float64>;
 };
 
 template <typename Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::SUM> {
-    using Result = std::conditional_t<
-            IsDecimalNumber<Element>, Decimal128,
+    using Result = DisposeDecimal<
+            Element,
             std::conditional_t<IsFloatNumber<Element>, Float64,
                                std::conditional_t<std::is_same_v<Element, Int128>, Int128, Int64>>>;
 };
@@ -168,6 +168,7 @@ struct ArrayAggregateImpl {
             execute_type<Float32>(res, type, data, offsets) ||
             execute_type<Float64>(res, type, data, offsets) ||
             execute_type<Decimal128>(res, type, data, offsets) ||
+            execute_type<Decimal128I>(res, type, data, offsets) ||
             execute_type<Date>(res, type, data, offsets) ||
             execute_type<DateTime>(res, type, data, offsets) ||
             execute_type<DateV2>(res, type, data, offsets) ||

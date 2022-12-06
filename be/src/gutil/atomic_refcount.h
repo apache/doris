@@ -79,9 +79,9 @@ inline bool RefCountDec(volatile Atomic32* ptr) {
 
 // Return whether the reference count is one.
 // If the reference count is used in the conventional way, a
-// refrerence count of 1 implies that the current thread owns the
+// reference count of 1 implies that the current thread owns the
 // reference and no other thread shares it.
-// This call performs the test for a referenece count of one, and
+// This call performs the test for a reference count of one, and
 // performs the memory barrier needed for the owning thread
 // to act on the object, knowing that it has exclusive access to the
 // object.

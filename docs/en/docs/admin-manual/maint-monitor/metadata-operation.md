@@ -36,10 +36,10 @@ For the time being, read the [Doris metadata design document](/community/design/
 
 ## Metadata catalog structure
 
-Let's assume that the path of `meta_dir` specified in fe.conf is `path/to/palo-meta`. In a normal Doris cluster, the directory structure of metadata should be as follows:
+Let's assume that the path of `meta_dir` specified in fe.conf is `path/to/doris-meta`. In a normal Doris cluster, the directory structure of metadata should be as follows:
 
 ```
-/path/to/palo-meta/
+/path/to/doris-meta/
             |-- bdb/
             |   |-- 00000000.jdb
             |   |-- je.config.csv
@@ -83,13 +83,13 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 
 1. First start-up
 
-	1. Suppose the path of `meta_dir` specified in fe.conf is `path/to/palo-meta`.
-	2. Ensure that `path/to/palo-meta` already exists, that the permissions are correct and that the directory is empty.
+	1. Suppose the path of `meta_dir` specified in fe.conf is `path/to/doris-meta`.
+	2. Ensure that `path/to/doris-meta` already exists, that the permissions are correct and that the directory is empty.
 	3. Start directly through `sh bin/start_fe.sh`.
 	4. After booting, you should be able to see the following log in fe.log:
 
 		* Palo FE starting...
-		* image does not exist: /path/to/palo-meta/image/image.0
+		* image does not exist: /path/to/doris-meta/image/image.0
 		* transfer from INIT to UNKNOWN
 		* transfer from UNKNOWN to MASTER
 		* the very first time to open bdb, dbname is 1
@@ -110,10 +110,10 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 		* Palo FE starting...
 		* finished to get cluster id: xxxx, role: FOLLOWER and node name: xxxx
 		* If no image has been generated before reboot, you will see:
-		* image does not exist: /path/to/palo-meta/image/image.0
+		* image does not exist: /path/to/doris-meta/image/image.0
 
 		* If an image is generated before the restart, you will see:
-		* start load image from /path/to/palo-meta/image/image.xxx. is ckpt: false
+		* start load image from /path/to/doris-meta/image/image.xxx. is ckpt: false
 		* finished load image in xxx ms
 
 		* transfer from INIT to UNKNOWN
@@ -122,8 +122,8 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 		* finish replay in xxx msec
 		* master finish replay journal, can write now.
 		* begin to generate new image: image.xxxx
-		*  start save image to /path/to/palo-meta/image/image.ckpt. is ckpt: true
-		*  finished save image /path/to/palo-meta/image/image.ckpt in xxx ms. checksum is xxxx
+		*  start save image to /path/to/doris-meta/image/image.ckpt. is ckpt: true
+		*  finished save image /path/to/doris-meta/image/image.ckpt in xxx ms. checksum is xxxx
 		*  push image.xxx to other nodes. totally xx nodes, push successed xx nodes
 		* QE service start
 		* thrift server started
@@ -141,7 +141,7 @@ Adding FE processes is described in detail in the [Elastic Expansion Documents](
 1. Notes
 
 	* Before adding a new FE, make sure that the current Master FE runs properly (connection is normal, JVM is normal, image generation is normal, bdbje data directory is too large, etc.)
-	* The first time you start a new FE, you must make sure that the `--helper` parameter is added to point to Master FE. There is no need to add `--helper` when restarting. (If `--helper` is specified, FE will directly ask the helper node for its role. If not, FE will try to obtain information from `ROLE` and `VERSION` files in the `palo-meta/image/` directory.
+	* The first time you start a new FE, you must make sure that the `--helper` parameter is added to point to Master FE. There is no need to add `--helper` when restarting. (If `--helper` is specified, FE will directly ask the helper node for its role. If not, FE will try to obtain information from `ROLE` and `VERSION` files in the `doris-meta/image/` directory.
 	* The first time you start a new FE, you must make sure that the `meta_dir` of the FE is created, has correct permissions and is empty.
 	* Starting a new FE and executing the `ALTER SYSTEM ADD FOLLOWER/OBSERVER` statement adds FE to metadata in a sequence that is not required. If a new FE is started first and no statement is executed, the `current node is not added to the group. Please add it first.` in the new FE log. When the statement is executed, it enters the normal process.
 	* Make sure that after the previous FE is added successfully, the next FE is added.
@@ -151,7 +151,7 @@ Adding FE processes is described in detail in the [Elastic Expansion Documents](
 
 	1. this need is DETACHED
 
-		When you first start a FE to be added, if the data in palo-meta/bdb on Master FE is large, you may see the words `this node is DETACHED`. in the FE log to be added. At this point, bdbje is copying data, and you can see that the `bdb/` directory of FE to be added is growing. This process usually takes several minutes (depending on the amount of data in bdbje). Later, there may be some bdbje-related error stack information in fe. log. If `QE service start` and `thrift server start` are displayed in the final log, the start is usually successful. You can try to connect this FE via mysql-client. If these words do not appear, it may be the problem of bdbje replication log timeout. At this point, restarting the FE directly will usually solve the problem.
+		When you first start a FE to be added, if the data in doris-meta/bdb on Master FE is large, you may see the words `this node is DETACHED`. in the FE log to be added. At this point, bdbje is copying data, and you can see that the `bdb/` directory of FE to be added is growing. This process usually takes several minutes (depending on the amount of data in bdbje). Later, there may be some bdbje-related error stack information in fe. log. If `QE service start` and `thrift server start` are displayed in the final log, the start is usually successful. You can try to connect this FE via mysql-client. If these words do not appear, it may be the problem of bdbje replication log timeout. At this point, restarting the FE directly will usually solve the problem.
 
 	2. Failure to add due to various reasons
 
@@ -227,7 +227,7 @@ If you need to migrate one FE from the current node to another, there are severa
 
 2. Single-node MASTER migration
 
-	When there is only one FE, refer to the `Failure Recovery` section. Copy the palo-meta directory of FE to the new node and start the new MASTER in Step 3 of the `Failure Recovery` section
+	When there is only one FE, refer to the `Failure Recovery` section. Copy the doris-meta directory of FE to the new node and start the new MASTER in Step 3 of the `Failure Recovery` section
 
 3. A set of FOLLOWER migrates from one set of nodes to another set of new nodes
 
@@ -268,6 +268,18 @@ In some extreme cases, the image file on the disk may be damaged, but the metada
 curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
 3. Replace the image file in the `meta_dir/image` directory on the OBSERVER FE node with the image_mem file, restart the OBSERVER FE node, and verify the integrity and correctness of the image_mem file. You can check whether the DB and Table metadata are normal on the FE Web page, whether there is an exception in `fe.log`, whether it is in a normal replayed jour.
+
+    Since 1.2.0, it is recommanded to use following method to verify the `image_mem` file:
+
+    ```
+    sh start_fe.sh --image path_to_image_mem
+    ```
+
+    > Notice: `path_to_image_mem` is the path of `image_mem`.
+    >
+    > If verify succeed, it will print: `Load image success. Image file /absolute/path/to/image.xxxxxx is valid`.
+    >
+    > If verify failed, it will print: `Load image failed. Image file /absolute/path/to/image.xxxxxx is invalid`.
 
 4. Replace the image file in the `meta_dir/image` directory on the FOLLOWER FE node with the image_mem file in turn, restart the FOLLOWER FE node, and confirm that the metadata and query services are normal.
 
@@ -393,3 +405,4 @@ The deployment recommendation of FE is described in the Installation and [Deploy
     ```
 
 This means that some transactions that have been persisted need to be rolled back, but the number of entries exceeds the upper limit. Here our default upper limit is 100, which can be changed by setting `txn_rollback_limit`. This operation is only used to attempt to start FE normally, but lost metadata cannot be recovered.
+

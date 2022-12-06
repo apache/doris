@@ -133,29 +133,26 @@ void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Pri
     auto s = hashes.size();
     DCHECK(s == size());
 
-    if constexpr (!std::is_same_v<T, Decimal128>) {
+    if constexpr (!IsDecimalV2<T>) {
         DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
     } else {
-        if (type == TYPE_DECIMALV2) {
-            auto decimalv2_do_crc = [&](size_t i) {
-                const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
-                int64_t int_val = dec_val.int_value();
-                int32_t frac_val = dec_val.frac_value();
-                hashes[i] = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hashes[i]);
-                hashes[i] = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hashes[i]);
-            };
+        DCHECK(type == TYPE_DECIMALV2);
+        auto decimalv2_do_crc = [&](size_t i) {
+            const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+            int64_t int_val = dec_val.int_value();
+            int32_t frac_val = dec_val.frac_value();
+            hashes[i] = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hashes[i]);
+            hashes[i] = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hashes[i]);
+        };
 
-            if (null_data == nullptr) {
-                for (size_t i = 0; i < s; i++) {
-                    decimalv2_do_crc(i);
-                }
-            } else {
-                for (size_t i = 0; i < s; i++) {
-                    if (null_data[i] == 0) decimalv2_do_crc(i);
-                }
+        if (null_data == nullptr) {
+            for (size_t i = 0; i < s; i++) {
+                decimalv2_do_crc(i);
             }
         } else {
-            DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+            for (size_t i = 0; i < s; i++) {
+                if (null_data[i] == 0) decimalv2_do_crc(i);
+            }
         }
     }
 }
@@ -409,7 +406,8 @@ void ColumnDecimal<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
         size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
             auto value_a = get_data()[row_id];
-            int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
+            int res = 0;
+            res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
             if (res * direction < 0) {
                 filter[row_id] = 1;
                 cmp_res[row_id] = 1;
@@ -436,7 +434,13 @@ Decimal128 ColumnDecimal<Decimal128>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
+template <>
+Decimal128I ColumnDecimal<Decimal128I>::get_scale_multiplier() const {
+    return common::exp10_i128(scale);
+}
+
 template class ColumnDecimal<Decimal32>;
 template class ColumnDecimal<Decimal64>;
 template class ColumnDecimal<Decimal128>;
+template class ColumnDecimal<Decimal128I>;
 } // namespace doris::vectorized

@@ -75,7 +75,7 @@ private:
 
         // Only use in unique reader. Heap will set _skip_row = true.
         // when build heap find the row in LevelIterator have same key but lower version or sequence
-        // the row of LevelIteratro should be skiped to prevent useless compare and function call
+        // the row of LevelIteratro should be skipped to prevent useless compare and function call
         mutable bool _skip_row = false;
     };
 
@@ -173,7 +173,7 @@ private:
         Status _normal_next(const RowCursor** row, bool* delete_flag);
 
         // Each LevelIterator corresponds to a rowset reader,
-        // it will be cleared after '_heap' has been initilized when '_merge == true'.
+        // it will be cleared after '_heap' has been initialized when '_merge == true'.
         std::list<LevelIterator*> _children;
         // point to the Level0Iterator containing the next output row.
         // null when CollectIterator hasn't been initialized or reaches EOF.
@@ -201,7 +201,7 @@ private:
     std::unique_ptr<LevelIterator> _inner_iter;
 
     // Each LevelIterator corresponds to a rowset reader,
-    // it will be cleared after '_inner_iter' has been initilized.
+    // it will be cleared after '_inner_iter' has been initialized.
     std::list<LevelIterator*> _children;
 
     bool _merge = true;

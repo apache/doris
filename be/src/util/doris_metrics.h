@@ -139,7 +139,7 @@ public:
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits;
-    // permits required by the compaction task which is waitting for permits
+    // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits;
 
     HistogramMetric* tablet_version_num_distribution;
@@ -198,6 +198,9 @@ public:
     UIntGauge* query_cache_memory_total_byte;
     UIntGauge* query_cache_sql_total_count;
     UIntGauge* query_cache_partition_total_count;
+
+    IntCounter* tablet_schema_cache_count;
+    UIntGauge* tablet_schema_cache_memory_bytes;
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;

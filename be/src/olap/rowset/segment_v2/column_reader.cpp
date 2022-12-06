@@ -156,6 +156,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.kept_in_memory = _opts.kept_in_memory;
     opts.type = iter_opts.type;
     opts.encoding_info = _encoding_info;
+    opts.io_ctx = iter_opts.io_ctx;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -615,6 +616,9 @@ FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
+    if (!_opts.use_page_cache) {
+        _reader->disable_index_meta_cache();
+    }
     RETURN_IF_ERROR(get_block_compression_codec(_reader->get_compression(), &_compress_codec));
     if (config::enable_low_cardinality_optimize &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {

@@ -20,25 +20,34 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 
 import com.google.common.collect.ImmutableList;
 
@@ -58,12 +67,6 @@ public class BindFunction implements AnalysisRuleFactory {
                     LogicalOneRowRelation oneRowRelation = ctx.root;
                     List<NamedExpression> projects = oneRowRelation.getProjects();
                     List<NamedExpression> boundProjects = bind(projects, ctx.connectContext.getEnv());
-                    // TODO:
-                    // trick logic: currently XxxRelation in GroupExpression always difference to each other,
-                    // so this rule must check the expression whether is changed to prevent dead loop because
-                    // new LogicalOneRowRelation can hit this rule too. we would remove code until the pr
-                    // (@wangshuo128) mark the id in XxxRelation, then we can compare XxxRelation in
-                    // GroupExpression by id
                     if (projects.equals(boundProjects)) {
                         return oneRowRelation;
                     }
@@ -85,6 +88,17 @@ public class BindFunction implements AnalysisRuleFactory {
                     return agg.withGroupByAndOutput(groupBy, output);
                 })
             ),
+            RuleType.BINDING_REPEAT_FUNCTION.build(
+                logicalRepeat().thenApply(ctx -> {
+                    LogicalRepeat<GroupPlan> repeat = ctx.root;
+                    List<List<Expression>> groupingSets = repeat.getGroupingSets()
+                            .stream()
+                            .map(groupingSet -> bind(groupingSet, ctx.connectContext.getEnv()))
+                            .collect(ImmutableList.toImmutableList());
+                    List<NamedExpression> output = bind(repeat.getOutputExpressions(), ctx.connectContext.getEnv());
+                    return repeat.withGroupSetsAndOutput(groupingSets, output);
+                })
+            ),
             RuleType.BINDING_FILTER_FUNCTION.build(
                logicalFilter().thenApply(ctx -> {
                    LogicalFilter<GroupPlan> filter = ctx.root;
@@ -100,17 +114,23 @@ public class BindFunction implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_SORT_FUNCTION.build(
-                    logicalSort().thenApply(ctx -> {
-                        LogicalSort<GroupPlan> sort = ctx.root;
-                        List<OrderKey> orderKeys = sort.getOrderKeys().stream()
-                                .map(orderKey -> new OrderKey(
-                                        FunctionBinder.INSTANCE.bind(orderKey.getExpr(), ctx.connectContext.getEnv()),
-                                        orderKey.isAsc(),
-                                        orderKey.isNullFirst()
-                                ))
-                                .collect(ImmutableList.toImmutableList());
-                        return new LogicalSort<>(orderKeys, sort.child());
-                    })
+                logicalSort().thenApply(ctx -> {
+                    LogicalSort<GroupPlan> sort = ctx.root;
+                    List<OrderKey> orderKeys = sort.getOrderKeys().stream()
+                            .map(orderKey -> new OrderKey(
+                                    FunctionBinder.INSTANCE.bind(orderKey.getExpr(), ctx.connectContext.getEnv()),
+                                    orderKey.isAsc(),
+                                    orderKey.isNullFirst()
+                            ))
+                            .collect(ImmutableList.toImmutableList());
+                    return new LogicalSort<>(orderKeys, sort.child());
+                })
+            ),
+            RuleType.BINDING_UNBOUND_TVF_RELATION_FUNCTION.build(
+                unboundTVFRelation().thenApply(ctx -> {
+                    UnboundTVFRelation relation = ctx.root;
+                    return FunctionBinder.INSTANCE.bindTableValuedFunction(relation, ctx.statementContext);
+                })
             )
         );
     }
@@ -128,6 +148,23 @@ public class BindFunction implements AnalysisRuleFactory {
             return (E) expression.accept(this, env);
         }
 
+        public LogicalTVFRelation bindTableValuedFunction(UnboundTVFRelation unboundTVFRelation,
+                StatementContext statementContext) {
+            Env env = statementContext.getConnectContext().getEnv();
+            FunctionRegistry functionRegistry = env.getFunctionRegistry();
+
+            String functionName = unboundTVFRelation.getFunctionName();
+            TVFProperties arguments = unboundTVFRelation.getProperties();
+            FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
+            BoundFunction function = functionBuilder.build(functionName, arguments);
+            if (!(function instanceof TableValuedFunction)) {
+                throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
+            }
+
+            RelationId relationId = statementContext.getNextRelationId();
+            return new LogicalTVFRelation(relationId, (TableValuedFunction) function);
+        }
+
         @Override
         public BoundFunction visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
             unboundFunction = (UnboundFunction) super.visitUnboundFunction(unboundFunction, env);
@@ -140,8 +177,8 @@ public class BindFunction implements AnalysisRuleFactory {
                     return new Count();
                 }
                 if (arguments.size() == 1) {
-                    boolean isGlobalAgg = true;
-                    AggregateParam aggregateParam = new AggregateParam(unboundFunction.isDistinct(), isGlobalAgg);
+                    AggregateParam aggregateParam = new AggregateParam(
+                            unboundFunction.isDistinct(), true, AggPhase.LOCAL, false);
                     return new Count(aggregateParam, unboundFunction.getArguments().get(0));
                 }
             }

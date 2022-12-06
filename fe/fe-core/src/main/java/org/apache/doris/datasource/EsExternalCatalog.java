@@ -18,10 +18,9 @@
 package org.apache.doris.datasource;
 
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
-import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.external.elasticsearch.EsRestClient;
 import org.apache.doris.external.elasticsearch.EsUtil;
@@ -32,7 +31,6 @@ import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -89,6 +87,8 @@ public class EsExternalCatalog extends ExternalCatalog {
             nodes = properties.get(PROP_HOSTS).trim().split(",");
             if (properties.containsKey(PROP_SSL)) {
                 enableSsl = EsUtil.getBoolean(properties, PROP_SSL);
+            } else {
+                properties.put(PROP_SSL, String.valueOf(enableSsl));
             }
 
             if (StringUtils.isNotBlank(properties.get(PROP_USERNAME))) {
@@ -101,14 +101,20 @@ public class EsExternalCatalog extends ExternalCatalog {
 
             if (properties.containsKey(PROP_DOC_VALUE_SCAN)) {
                 enableDocValueScan = EsUtil.getBoolean(properties, PROP_DOC_VALUE_SCAN);
+            } else {
+                properties.put(PROP_DOC_VALUE_SCAN, String.valueOf(enableDocValueScan));
             }
 
             if (properties.containsKey(PROP_KEYWORD_SNIFF)) {
                 enableKeywordSniff = EsUtil.getBoolean(properties, PROP_KEYWORD_SNIFF);
+            } else {
+                properties.put(PROP_KEYWORD_SNIFF, String.valueOf(enableKeywordSniff));
             }
 
             if (properties.containsKey(PROP_NODES_DISCOVERY)) {
                 enableNodesDiscovery = EsUtil.getBoolean(properties, PROP_NODES_DISCOVERY);
+            } else {
+                properties.put(PROP_NODES_DISCOVERY, String.valueOf(enableNodesDiscovery));
             }
         } catch (DdlException e) {
             // should not happen. the properties are already checked in analysis phase.
@@ -150,25 +156,15 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
-        return esRestClient.listTable();
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(String dbName) {
         makeSureInitialized();
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
+        EsExternalDatabase db = (EsExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (db != null && db.isInitialized()) {
+            List<String> names = Lists.newArrayList();
+            db.getTables().stream().forEach(table -> names.add(table.getName()));
+            return names;
+        } else {
+            return esRestClient.listTable();
         }
-        return idToDb.get(dbNameToId.get(realDbName));
-    }
-
-    @Nullable
-    @Override
-    public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
-        return idToDb.get(dbId);
     }
 
     @Override
@@ -177,17 +173,14 @@ public class EsExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<Long> getDbIds() {
-        return Lists.newArrayList(dbNameToId.values());
-    }
-
-    public ExternalDatabase getDbForReplay(long dbId) {
-        return idToDb.get(dbId);
-    }
-
-    @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
         setProperties(this.catalogProperty.getProperties());
+    }
+
+    @Override
+    public List<Column> getSchema(String dbName, String tblName) {
+        makeSureInitialized();
+        return EsUtil.genColumnsFromEs(getEsRestClient(), tblName, null);
     }
 }

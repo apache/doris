@@ -29,7 +29,7 @@
 #include "util/hash_util.hpp"
 #include "util/thrift_server.h"
 
-// TCompactProtocol requires some #defines to work right.  They also define UNLIKLEY
+// TCompactProtocol requires some #defines to work right.  They also define UNLIKELY
 // so we need to undef this.
 // TODO: is there a better include to use?
 #ifdef UNLIKELY

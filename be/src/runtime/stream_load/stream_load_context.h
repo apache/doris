@@ -114,7 +114,7 @@ public:
     bool unref() { return _refs.fetch_sub(1) == 1; }
 
 public:
-    // load type, eg: ROUTINE LOAD/MANUL LOAD
+    // load type, eg: ROUTINE LOAD/MANUAL LOAD
     TLoadType::type load_type;
     // load data source: eg: KAFKA/RAW
     TLoadSourceType::type load_src_type;
@@ -200,7 +200,7 @@ public:
     // to identified a specified data consumer.
     int64_t consumer_id;
 
-    // If this is an tranactional insert operation, this will be true
+    // If this is an transactional insert operation, this will be true
     bool need_commit_self = false;
 
     // csv with header type

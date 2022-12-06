@@ -31,11 +31,11 @@ ThreadContextPtr::ThreadContextPtr() {
 
 ScopeMemCount::ScopeMemCount(int64_t* scope_mem) {
     _scope_mem = scope_mem;
-    thread_context()->_thread_mem_tracker_mgr->start_count_scope_mem();
+    thread_context()->thread_mem_tracker_mgr->start_count_scope_mem();
 }
 
 ScopeMemCount::~ScopeMemCount() {
-    *_scope_mem = thread_context()->_thread_mem_tracker_mgr->stop_count_scope_mem();
+    *_scope_mem += thread_context()->thread_mem_tracker_mgr->stop_count_scope_mem();
 }
 
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
@@ -58,30 +58,32 @@ AttachTask::~AttachTask() {
 
 SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-    _old_mem_tracker = thread_context()->_thread_mem_tracker_mgr->limiter_mem_tracker();
-    thread_context()->_thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
+    _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+    thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
 }
 
 SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
-    thread_context()->_thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
+    thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    _need_pop = thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+    if (mem_tracker)
+        _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
         const std::shared_ptr<MemTracker>& mem_tracker)
         : _mem_tracker(mem_tracker) {
-    _need_pop =
-            thread_context()->_thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+    if (_mem_tracker)
+        _need_pop =
+                thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
 }
 
 AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
 #ifndef NDEBUG
     DorisMetrics::instance()->add_thread_mem_tracker_consumer_count->increment(1);
 #endif // NDEBUG
-    if (_need_pop) thread_context()->_thread_mem_tracker_mgr->pop_consumer_tracker();
+    if (_need_pop) thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
 }
 
 } // namespace doris

@@ -17,7 +17,7 @@ WITH
       , i_category_id
       , i_manufact_id
       , (cs_quantity - COALESCE(cr_return_quantity, 0)) sales_cnt
-      , (cs_ext_sales_price - COALESCE(cr_return_amount, CAST('0.0' AS DECIMAL))) sales_amt
+      , (cs_ext_sales_price - COALESCE(cr_return_amount, CAST('0.0' AS DECIMAL(2,1)))) sales_amt
       FROM
         catalog_sales
       INNER JOIN item ON (i_item_sk = cs_item_sk)
@@ -32,7 +32,7 @@ UNION       SELECT
       , i_category_id
       , i_manufact_id
       , (ss_quantity - COALESCE(sr_return_quantity, 0)) sales_cnt
-      , (ss_ext_sales_price - COALESCE(sr_return_amt, CAST('0.0' AS DECIMAL))) sales_amt
+      , (ss_ext_sales_price - COALESCE(sr_return_amt, CAST('0.0' AS DECIMAL(2,1)))) sales_amt
       FROM
         store_sales
       INNER JOIN item ON (i_item_sk = ss_item_sk)
@@ -47,7 +47,7 @@ UNION       SELECT
       , i_category_id
       , i_manufact_id
       , (ws_quantity - COALESCE(wr_return_quantity, 0)) sales_cnt
-      , (ws_ext_sales_price - COALESCE(wr_return_amt, CAST('0.0' AS DECIMAL))) sales_amt
+      , (ws_ext_sales_price - COALESCE(wr_return_amt, CAST('0.0' AS DECIMAL(2,1)))) sales_amt
       FROM
         web_sales
       INNER JOIN item ON (i_item_sk = ws_item_sk)
@@ -78,6 +78,6 @@ WHERE (curr_yr.i_brand_id = prev_yr.i_brand_id)
    AND (curr_yr.i_manufact_id = prev_yr.i_manufact_id)
    AND (curr_yr.d_year = 2002)
    AND (prev_yr.d_year = (2002 - 1))
-   AND ((CAST(curr_yr.sales_cnt AS DECIMAL(17,2)) / CAST(prev_yr.sales_cnt AS DECIMAL(17,2))) < CAST('0.9' AS DECIMAL))
+   AND ((CAST(curr_yr.sales_cnt AS DECIMAL(17,2)) / CAST(prev_yr.sales_cnt AS DECIMAL(17,2))) < CAST('0.9' AS DECIMAL(2,1)))
 ORDER BY sales_cnt_diff ASC, sales_amt_diff ASC
 LIMIT 100
