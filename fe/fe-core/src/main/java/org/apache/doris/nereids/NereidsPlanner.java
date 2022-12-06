@@ -28,6 +28,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
+import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
@@ -206,6 +207,8 @@ public class NereidsPlanner extends Planner {
     }
 
     private void joinReorder() {
+        cascadesContext.pushJob(new JoinOrderJob(getRoot(), cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
     /**

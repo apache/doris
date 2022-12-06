@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
@@ -320,6 +321,10 @@ public class Group {
 
     public boolean isJoinGroup() {
         return getLogicalExpression().getPlan() instanceof LogicalJoin;
+    }
+
+    public boolean isProjectGroup() {
+        return getLogicalExpression().getPlan() instanceof LogicalProject;
     }
 
     @Override

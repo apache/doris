@@ -19,7 +19,9 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -29,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
@@ -37,8 +40,10 @@ import java.util.Set;
  * It's used for join ordering
  */
 public class HyperGraph {
-    private List<Edge> edges = new ArrayList<>();
-    private List<Node> nodes = new ArrayList<>();
+    private final List<Edge> edges = new ArrayList<>();
+    private final List<Node> nodes = new ArrayList<>();
+    private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
+    private final HashMap<Long, NamedExpression> complexProject = new HashMap<>();
 
     public List<Edge> getEdges() {
         return edges;
@@ -60,10 +65,50 @@ public class HyperGraph {
         return nodes.get(index);
     }
 
+    /**
+     * Store the relation between Alias Slot and Original Slot and its expression
+     * e.g. a = b
+     * project((c + d) as b)
+     * Note if the alias if the alias only associated with one endNode,
+     * e.g. a = b
+     * project((c + 1) as b)
+     * we need to replace the group of that node with this project group.
+     *
+     * @param alias The alias Expression in project Operator
+     */
+    public boolean addAlias(Alias alias, Group group) {
+        long bitmap = LongBitmap.newBitmap();
+        for (Slot slot : alias.getInputSlots()) {
+            bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
+        }
+        Slot aliasSlot = alias.toSlot();
+        Preconditions.checkArgument(!slotToNodeMap.containsKey(aliasSlot));
+        slotToNodeMap.put(aliasSlot, bitmap);
+        if (LongBitmap.getCardinality(bitmap) == 1) {
+            int index = LongBitmap.lowestOneIndex(bitmap);
+            nodes.get(index).replaceGroupWith(group);
+            return false;
+        }
+        complexProject.put(bitmap, alias);
+        return true;
+    }
+
+    /**
+     * add end node to HyperGraph
+     *
+     * @param group The group that is the end node in graph
+     */
     public void addNode(Group group) {
         Preconditions.checkArgument(!group.isJoinGroup());
-        // TODO: replace plan with group expression or others
+        for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
+            Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
+            slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
+        }
         nodes.add(new Node(nodes.size(), group));
+    }
+
+    public HashMap<Long, NamedExpression> getComplexProject() {
+        return complexProject;
     }
 
     /**
@@ -78,15 +123,12 @@ public class HyperGraph {
             LogicalJoin singleJoin = new LogicalJoin(join.getJoinType(), ImmutableList.of(expression), join.left(),
                     join.right());
             Edge edge = new Edge(singleJoin, edges.size());
-            long bitmap = findNodes(expression.getInputSlots());
-            Preconditions.checkArgument(LongBitmap.getCardinality(bitmap) == 2,
-                    String.format("HyperGraph has not supported polynomial %s yet", expression));
-            int leftIndex = LongBitmap.nextSetBit(bitmap, 0);
-            long left = LongBitmap.newBitmap(leftIndex);
-            edge.addLeftNode(left);
-            int rightIndex = LongBitmap.nextSetBit(bitmap, leftIndex + 1);
-            long right = LongBitmap.newBitmap(rightIndex);
-            edge.addRightNode(right);
+            Preconditions.checkArgument(expression.children().size() == 2);
+
+            long left = calNodeMap(expression.child(0).getInputSlots());
+            edge.setLeft(left);
+            long right = calNodeMap(expression.child(1).getInputSlots());
+            edge.setRight(right);
             for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
                 nodes.get(nodeIndex).attachEdge(edge);
             }
@@ -96,15 +138,12 @@ public class HyperGraph {
         // We don't implement this trick now.
     }
 
-    private long findNodes(Set<Slot> slots) {
+    private long calNodeMap(Set<Slot> slots) {
+        Preconditions.checkArgument(slots.size() != 0);
         long bitmap = LongBitmap.newBitmap();
-        for (Node node : nodes) {
-            for (Slot slot : node.getPlan().getOutput()) {
-                if (slots.contains(slot)) {
-                    bitmap = LongBitmap.set(bitmap, node.getIndex());
-                    break;
-                }
-            }
+        for (Slot slot : slots) {
+            Preconditions.checkArgument(slotToNodeMap.containsKey(slot));
+            bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
         }
         return bitmap;
     }

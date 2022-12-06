@@ -17,42 +17,107 @@
 
 package org.apache.doris.nereids.jobs.joinorder;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.util.LogicalPlanBuilder;
-import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
-public class JoinOrderJobTest {
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(1, "t1", 0);
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(2, "t2", 0);
-    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(3, "t3", 0);
-    private final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(4, "t4", 0);
-    private final LogicalOlapScan scan5 = PlanConstructor.newLogicalOlapScan(5, "t5", 0);
+public class JoinOrderJobTest extends TestWithFeService {
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+
+        connectContext.setDatabase("default_cluster:test");
+
+        createTables(
+                "CREATE TABLE IF NOT EXISTS T1 (\n"
+                        + "    id bigint,\n"
+                        + "    score bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n",
+                "CREATE TABLE IF NOT EXISTS T2 (\n"
+                        + "    id bigint,\n"
+                        + "    score bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n",
+                "CREATE TABLE IF NOT EXISTS T3 (\n"
+                        + "    id bigint,\n"
+                        + "    score bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n",
+                "CREATE TABLE IF NOT EXISTS T4 (\n"
+                        + "    id bigint,\n"
+                        + "    score bigint\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n"
+        );
+    }
 
     @Test
-    void testJoinOrderJob() {
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(
-                        new LogicalPlanBuilder(scan2)
-                                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 1))
-                                .hashJoinUsing(scan4, JoinType.INNER_JOIN, Pair.of(0, 1))
-                                .hashJoinUsing(scan5, JoinType.INNER_JOIN, Pair.of(0, 1))
-                                .build(),
-                        JoinType.INNER_JOIN, Pair.of(0, 1)
-                )
-                .project(Lists.newArrayList(1))
-                .build();
-        System.out.println(plan.treeString());
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+    protected void testSimpleSQL() {
+        String sql = "select count(*) from T1, T2, T3, T4 "
+                + "where "
+                + "T1.id = T2.id and "
+                + "T2.score = T3.score and "
+                + "T3.id = T4.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
                 .deriveStats()
                 .orderJoin()
+                .printlnTree();
+    }
+
+    @Test
+    protected void testComplexProject() {
+        String sql = "select count(*) \n"
+                + "from \n"
+                + "T1, \n"
+                + "(\n"
+                + "select (T2.score + T3.score) as score from T2 join T3 on T2.id = T3.id"
+                + ") subTable, \n"
+                + "( \n"
+                + "select (T4.id*2) as id from T4"
+                + ") doubleT4 \n"
+                + "where \n"
+                + "T1.id = doubleT4.id and \n"
+                + "T1.score = subTable.score;\n";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .deriveStats()
+                .orderJoin()
+                .printlnTree();
+    }
+
+    @Test
+    protected void test() {
+        String sql = "select count(*) \n"
+                + "from \n"
+                + "T1 \n"
+                + " join (\n"
+                + "select (1) from T2"
+                + ") subTable; \n";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .deriveStats()
                 .printlnTree();
     }
 }

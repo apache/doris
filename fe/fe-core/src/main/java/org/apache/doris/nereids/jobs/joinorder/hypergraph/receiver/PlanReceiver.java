@@ -24,8 +24,10 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -60,7 +62,8 @@ public class PlanReceiver implements AbstractReceiver {
      * @return the left and the right can be connected by the edge
      */
     @Override
-    public boolean emitCsgCmp(long left, long right, List<Edge> edges) {
+    public boolean emitCsgCmp(long left, long right, List<Edge> edges,
+            HashMap<Long, NamedExpression> projectExpression) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
         emitCount += 1;
@@ -81,9 +84,12 @@ public class PlanReceiver implements AbstractReceiver {
         if (!planTable.containsKey(fullKey)
                 || planTable.get(fullKey).getLogicalExpression().getCostByProperties(PhysicalProperties.ANY)
                 > winnerGroup.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY)) {
+            // When we decide to store the new Plan, we need to add the complex project to it.
+            winnerGroup = tryAddProject(winnerGroup, projectExpression, fullKey);
             planTable.put(fullKey, winnerGroup);
         }
         return true;
+
     }
 
     @Override
@@ -113,6 +119,34 @@ public class PlanReceiver implements AbstractReceiver {
             return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
         }
         return plan.getGroupExpression().get().getCostByProperties(PhysicalProperties.ANY);
+    }
+
+    private Group tryAddProject(Group group, HashMap<Long, NamedExpression> projectExpression, long fullKey) {
+        List<NamedExpression> projects = new ArrayList<>();
+        List<Long> removedKey = new ArrayList<>();
+        for (Long bitmap : projectExpression.keySet()) {
+            if (LongBitmap.isSubset(bitmap, fullKey)) {
+                NamedExpression namedExpression = projectExpression.get(bitmap);
+                projects.add(namedExpression);
+                removedKey.add(bitmap);
+            }
+        }
+        for (Long bitmap : removedKey) {
+            projectExpression.remove(bitmap);
+        }
+        if (projects.size() != 0) {
+            LogicalProject logicalProject = new LogicalProject<>(projects,
+                    group.getLogicalExpression().getPlan());
+            GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
+            groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
+                    Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY),
+                    group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY));
+            Group projectGroup = new Group();
+            projectGroup.addGroupExpression(groupExpression);
+            StatsCalculator.estimate(groupExpression);
+            return projectGroup;
+        }
+        return group;
     }
 
     private Group constructGroup(long left, long right, List<Edge> edges) {
