@@ -82,7 +82,7 @@ Status HdfsFileReader::open() {
             RETURN_IF_ERROR(HdfsFsCache::instance()->get_connection(_hdfs_params, &_fs_handle));
             _hdfs_fs = _fs_handle->hdfs_fs;
             _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
-            if (_hdfs_fs == nullptr) {
+            if (_hdfs_file == nullptr) {
                 return Status::InternalError(
                         "open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
                         BackendOptions::get_localhost(), _namenode, _path, hdfsGetLastError());

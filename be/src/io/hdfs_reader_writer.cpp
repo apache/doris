@@ -17,6 +17,7 @@
 
 #include "io/hdfs_reader_writer.h"
 
+#include "io/fs/hdfs_file_system.h"
 #include "io/hdfs_file_reader.h"
 #include "io/hdfs_writer.h"
 
@@ -39,6 +40,15 @@ Status HdfsReaderWriter::create_writer(const std::map<std::string, std::string>&
                                        const std::string& path,
                                        std::unique_ptr<FileWriter>& writer) {
     writer.reset(new HDFSWriter(properties, path));
+    return Status::OK();
+}
+
+Status HdfsReaderWriter::create_new_reader(const THdfsParams& hdfs_params, const std::string& path,
+                                           io::FileSystem** hdfs_file_system,
+                                           io::FileReaderSPtr* reader) {
+    *hdfs_file_system = new io::HdfsFileSystem(hdfs_params, path);
+    (dynamic_cast<io::HdfsFileSystem*>(*hdfs_file_system))->connect();
+    (*hdfs_file_system)->open_file(path, reader);
     return Status::OK();
 }
 
