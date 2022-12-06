@@ -207,7 +207,6 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -741,7 +740,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public UnboundFunction visitExtract(DorisParser.ExtractContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.field.getText();
-            return new UnboundFunction(functionName, false, false,
+            return new UnboundFunction(functionName, false,
                     Collections.singletonList(getExpression(ctx.source)));
         });
     }
@@ -749,18 +748,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public UnboundFunction visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO:In the future, instead of specifying the function name,
-            //      the function information is obtained by parsing the catalog. This method is more scalable.
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
-            List<ExpressionContext> expressionContexts = ctx.expression();
-            List<Expression> params = visit(expressionContexts, Expression.class);
-            for (Expression expression : params) {
-                if (expression instanceof UnboundStar && functionName.equalsIgnoreCase("count") && !isDistinct) {
-                    return new UnboundFunction(functionName, false, true, new ArrayList<>());
-                }
-            }
-            return new UnboundFunction(functionName, isDistinct, false, params);
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            return new UnboundFunction(functionName, isDistinct, params);
         });
     }
 

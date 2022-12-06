@@ -352,6 +352,10 @@ public class ExpressionUtils {
                 .anyMatch(expr -> expr.anyMatch(predicate));
     }
 
+    public static boolean containsType(List<? extends Expression> expressions, Class type) {
+        return anyMatch(expressions, type::isInstance);
+    }
+
     public static <E> Set<E> collect(List<? extends Expression> expressions,
             Predicate<TreeNode<Expression>> predicate) {
         return expressions.stream()

@@ -31,7 +31,13 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 import java.util.Objects;
 
-/** AggregateExpression */
+/**
+ * AggregateExpression.
+ *
+ * It is used to wrap some physical information for the aggregate function,
+ * so the aggregate function don't need to care about the phase of
+ * aggregate.
+ */
 public class AggregateExpression extends Expression implements UnaryExpression, PropagateNullable {
     private final AggregateFunction function;
 

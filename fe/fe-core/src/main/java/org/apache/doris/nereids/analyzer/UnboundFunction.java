@@ -35,13 +35,11 @@ public class UnboundFunction extends Expression implements Unbound, PropagateNul
 
     private final String name;
     private final boolean isDistinct;
-    private final boolean isStar;
 
-    public UnboundFunction(String name, boolean isDistinct, boolean isStar, List<Expression> arguments) {
+    public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
         super(arguments.toArray(new Expression[0]));
         this.name = Objects.requireNonNull(name, "name cannot be null");
         this.isDistinct = isDistinct;
-        this.isStar = isStar;
     }
 
     public String getName() {
@@ -52,17 +50,13 @@ public class UnboundFunction extends Expression implements Unbound, PropagateNul
         return isDistinct;
     }
 
-    public boolean isStar() {
-        return isStar;
-    }
-
     public List<Expression> getArguments() {
         return children();
     }
 
     @Override
     public String toSql() throws UnboundException {
-        String params = isStar ? "*" : children.stream()
+        String params = children.stream()
                 .map(Expression::toSql)
                 .collect(Collectors.joining(", "));
         return name + "(" + (isDistinct ? "distinct " : "") + params + ")";
@@ -70,7 +64,7 @@ public class UnboundFunction extends Expression implements Unbound, PropagateNul
 
     @Override
     public String toString() {
-        String params = isStar ? "*" : Joiner.on(", ").join(children);
+        String params = Joiner.on(", ").join(children);
         return "'" + name + "(" + (isDistinct ? "distinct " : "") + params + ")";
     }
 
@@ -81,7 +75,7 @@ public class UnboundFunction extends Expression implements Unbound, PropagateNul
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(name, isDistinct, isStar, children);
+        return new UnboundFunction(name, isDistinct, children);
     }
 
     @Override

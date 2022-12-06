@@ -27,16 +27,12 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -180,31 +176,17 @@ public class BindFunction implements AnalysisRuleFactory {
         public Expression visitUnboundFunction(UnboundFunction unboundFunction, Env env) {
             unboundFunction = (UnboundFunction) super.visitUnboundFunction(unboundFunction, env);
 
-            BoundFunction boundFunction = null;
-            // FunctionRegistry can't support boolean arg now, tricky here.
-            if (unboundFunction.getName().equalsIgnoreCase("count")) {
-                List<Expression> arguments = unboundFunction.getArguments();
-                if ((arguments.size() == 0 && unboundFunction.isStar()) || arguments.stream()
-                        .allMatch(Expression::isConstant)) {
-                    boundFunction = new Count();
-                }
-                if (arguments.size() == 1) {
-                    boundFunction = new Count(unboundFunction.isDistinct(), unboundFunction.getArguments().get(0));
-                }
-            }
+            FunctionRegistry functionRegistry = env.getFunctionRegistry();
+            String functionName = unboundFunction.getName();
+            List<Object> arguments = unboundFunction.isDistinct()
+                    ? ImmutableList.builder()
+                        .add(unboundFunction.isDistinct())
+                        .addAll(unboundFunction.getArguments())
+                        .build()
+                    : (List) unboundFunction.getArguments();
 
-            if (boundFunction == null) {
-                FunctionRegistry functionRegistry = env.getFunctionRegistry();
-                String functionName = unboundFunction.getName();
-                FunctionBuilder builder = functionRegistry.findFunctionBuilder(
-                        functionName, unboundFunction.getArguments());
-                boundFunction = builder.build(functionName, unboundFunction.getArguments());
-            }
-
-            if (boundFunction instanceof AggregateFunction) {
-                return new AggregateExpression((AggregateFunction) boundFunction, AggregateParam.localGather());
-            }
-
+            FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
+            BoundFunction boundFunction = builder.build(functionName, arguments);
             return boundFunction;
         }
 

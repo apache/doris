@@ -156,6 +156,7 @@ public enum RuleType {
 
     // Join Reorder
     JOIN_REORDER(RuleTypeClass.REWRITE),
+    WRAP_AGGREGATE_EXPRESSION_FOR_AGGREGATE_FUNCTION(RuleTypeClass.REWRITE),
 
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),

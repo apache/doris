@@ -20,20 +20,16 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -79,39 +75,39 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             // begin normalize aggregate
 
             // replace groupBy and arguments of aggregate function to slot, may be this output contains
-            // some expression on the aggregate expression, e.g. `sum(value) + 1`, we should replace
+            // some expression on the aggregate functions, e.g. `sum(value) + 1`, we should replace
             // the sum(value) to slot and move the `slot + 1` to the upper project later.
-            List<NamedExpression> normalizeOutputPhase1 = groupByAndArgumentToSlotContext.normalizeToUseSlotRef(
-                    aggregate.getOutputExpressions(), this::normalizeAggregateExpression);
-            Set<AggregateExpression> normalizedAggregateExpressions =
-                    ExpressionUtils.collect(normalizeOutputPhase1, AggregateExpression.class::isInstance);
+            List<NamedExpression> normalizeOutputPhase1 = groupByAndArgumentToSlotContext
+                    .normalizeToUseSlotRef(aggregate.getOutputExpressions());
+            Set<AggregateFunction> normalizedAggregateFunctions =
+                    ExpressionUtils.collect(normalizeOutputPhase1, AggregateFunction.class::isInstance);
 
             existsAliases = ExpressionUtils.collect(normalizeOutputPhase1, Alias.class::isInstance);
 
-            // now reuse the exists alias for the aggregate expressions,
-            // or create new alias for the aggregate expressions
-            NormalizeToSlotContext aggregateExpressionToSlotContext =
-                    NormalizeToSlotContext.buildContext(existsAliases, normalizedAggregateExpressions);
+            // now reuse the exists alias for the aggregate functions,
+            // or create new alias for the aggregate functions
+            NormalizeToSlotContext aggregateFunctionToSlotContext =
+                    NormalizeToSlotContext.buildContext(existsAliases, normalizedAggregateFunctions);
 
-            Set<NamedExpression> normalizedAggregateExpressionsWithAlias =
-                    aggregateExpressionToSlotContext.pushDownToNamedExpression(normalizedAggregateExpressions);
+            Set<NamedExpression> normalizedAggregateFunctionsWithAlias =
+                    aggregateFunctionToSlotContext.pushDownToNamedExpression(normalizedAggregateFunctions);
 
             List<Slot> normalizedGroupBy =
                     (List) groupByAndArgumentToSlotContext.normalizeToUseSlotRef(aggregate.getGroupByExpressions());
 
-            // we can safely add all groupBy and aggregate expressions to output, because we will
+            // we can safely add all groupBy and aggregate functions to output, because we will
             // add a project on it, and the upper project can protect the scope of visible of slot
             List<NamedExpression> normalizedAggregateOutput = ImmutableList.<NamedExpression>builder()
                     .addAll(normalizedGroupBy)
-                    .addAll(normalizedAggregateExpressionsWithAlias)
+                    .addAll(normalizedAggregateFunctionsWithAlias)
                     .build();
 
             LogicalAggregate<Plan> normalizedAggregate = aggregate.withNormalized(
                     (List) normalizedGroupBy, normalizedAggregateOutput, normalizedChild);
 
-            // replace aggregate expressions to slot
+            // replace aggregate function to slot
             List<NamedExpression> upperProjects =
-                    aggregateExpressionToSlotContext.normalizeToUseSlotRef(normalizeOutputPhase1);
+                    aggregateFunctionToSlotContext.normalizeToUseSlotRef(normalizeOutputPhase1);
             return new LogicalProject<>(upperProjects, normalizedAggregate);
         }).toRule(RuleType.NORMALIZE_AGGREGATE);
     }
@@ -137,32 +133,5 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                 .addAll(argumentsOfAggregateFunction)
                 .build();
         return needPushDown;
-    }
-
-    private Expression normalizeAggregateExpression(NormalizeToSlotContext context, Expression expr) {
-        if (expr instanceof AggregateExpression) {
-            AggregateExpression aggregateExpression = (AggregateExpression) expr;
-            AggregateParam aggregateParam = aggregateExpression.getAggregateParam();
-            AggMode aggMode = aggregateParam.aggMode;
-            Preconditions.checkState(aggMode == AggMode.INPUT_TO_RESULT,
-                    "When normalize the AggregateExpression, the aggregate mode"
-                            + " of AggregateExpression should be INPUT_TO_RESULT: " + aggMode);
-            Expression child = aggregateExpression.child();
-            Preconditions.checkState(child instanceof AggregateFunction,
-                    "When normalize the AggregateExpression,"
-                            + " the child of AggregateExpression should be AggregateFunction: " + child);
-            Preconditions.checkState(child == aggregateExpression.getFunction(),
-                    "When normalize the AggregateExpression,"
-                            + " the child of AggregateExpression should be equal to the function of AggregateFunction");
-
-            AggregateFunction aggregateFunction = (AggregateFunction) child;
-            List<Expression> normalizedArgumentsOfAggregateFunction =
-                    context.normalizeToUseSlotRef(aggregateFunction.getArguments());
-            AggregateFunction normalizedAggregateFunction =
-                    aggregateFunction.withChildren(normalizedArgumentsOfAggregateFunction);
-            return new AggregateExpression(normalizedAggregateFunction, aggregateParam);
-        } else {
-            return expr;
-        }
     }
 }
