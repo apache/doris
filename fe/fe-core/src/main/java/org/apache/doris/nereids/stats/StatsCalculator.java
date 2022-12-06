@@ -98,7 +98,6 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
-
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
