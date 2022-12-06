@@ -40,10 +40,6 @@ public:
     }
     const std::string& expr_name() const override;
 
-    ColumnPtrWrapper* get_const_col(VExprContext* context) override {
-        return _impl->get_const_col(context);
-    }
-
     const VExpr* get_impl() const override { return _impl; }
 
     // if filter rate less than this, bloom filter will set always true
