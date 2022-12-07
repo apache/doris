@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.thrift.THdfsConf;
@@ -68,15 +67,6 @@ public class HdfsResource extends Resource {
     public void modifyProperties(Map<String, String> properties) throws DdlException {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-        }
-    }
-
-    @Override
-    public void checkProperties(Map<String, String> properties) throws AnalysisException {
-        for (String field : REQUIRED_FIELDS) {
-            if (!properties.containsKey(field)) {
-                throw new AnalysisException("Missing [" + field + "] in properties.");
-            }
         }
     }
 

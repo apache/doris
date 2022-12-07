@@ -107,12 +107,7 @@ public class ResourceMgr implements Writable {
         }
 
         Resource resource = nameToResource.get(resourceName);
-        if (resource.getType().equals(ResourceType.S3_COOLDOWN)
-                && !((S3CoolDownResource) resource).getCopiedUsedByPolicySet().isEmpty()) {
-            LOG.warn("S3 resource used by policy {}, can't drop it",
-                    ((S3CoolDownResource) resource).getCopiedUsedByPolicySet());
-            throw new DdlException("S3 resource used by policy, can't drop it.");
-        }
+        resource.dropResource();
 
         // Check whether the resource is in use before deleting it, except spark resource
         StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(null);

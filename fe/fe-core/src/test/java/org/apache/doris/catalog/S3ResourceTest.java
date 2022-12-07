@@ -43,7 +43,7 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
-public class S3CoolDownResourceTest {
+public class S3ResourceTest {
     private String name;
     private String type;
 
@@ -99,7 +99,7 @@ public class S3CoolDownResourceTest {
         // resource with default settings
         CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
-        S3CoolDownResource s3Resource = (S3CoolDownResource) Resource.fromStmt(stmt);
+        S3Resource s3Resource = (S3Resource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
         Assert.assertEquals(s3Endpoint, s3Resource.getProperty("AWS_ENDPOINT"));
@@ -118,7 +118,7 @@ public class S3CoolDownResourceTest {
         stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
 
-        s3Resource = (S3CoolDownResource) Resource.fromStmt(stmt);
+        s3Resource = (S3Resource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, s3Resource.getName());
         Assert.assertEquals(type, s3Resource.getType().name().toLowerCase());
         Assert.assertEquals(s3Endpoint, s3Resource.getProperty("AWS_ENDPOINT"));
@@ -157,7 +157,7 @@ public class S3CoolDownResourceTest {
         Path path = Files.createFile(Paths.get("./s3Resource"));
         DataOutputStream s3Dos = new DataOutputStream(Files.newOutputStream(path));
 
-        S3CoolDownResource s3Resource1 = new S3CoolDownResource("s3_1");
+        S3Resource s3Resource1 = new S3Resource("s3_1");
         s3Resource1.write(s3Dos);
 
         Map<String, String> properties = new HashMap<>();
@@ -167,7 +167,7 @@ public class S3CoolDownResourceTest {
         properties.put("AWS_ACCESS_KEY", "xxx");
         properties.put("AWS_SECRET_KEY", "yyy");
         properties.put("AWS_BUCKET", "test-bucket");
-        S3CoolDownResource s3Resource2 = new S3CoolDownResource("s3_2");
+        S3Resource s3Resource2 = new S3Resource("s3_2");
         s3Resource2.setProperties(properties);
         s3Resource2.write(s3Dos);
 
@@ -176,8 +176,8 @@ public class S3CoolDownResourceTest {
 
         // 2. read
         DataInputStream s3Dis = new DataInputStream(Files.newInputStream(path));
-        S3CoolDownResource rS3Resource1 = (S3CoolDownResource) S3CoolDownResource.read(s3Dis);
-        S3CoolDownResource rS3Resource2 = (S3CoolDownResource) S3CoolDownResource.read(s3Dis);
+        S3Resource rS3Resource1 = (S3Resource) S3Resource.read(s3Dis);
+        S3Resource rS3Resource2 = (S3Resource) S3Resource.read(s3Dis);
 
         Assert.assertEquals("s3_1", rS3Resource1.getName());
         Assert.assertEquals("s3_2", rS3Resource2.getName());

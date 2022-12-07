@@ -25,7 +25,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.S3CoolDownResource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -1162,18 +1162,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     Optional.ofNullable(iter.getStorageResource()).ifPresent(resource -> {
                         Map<String, String> storagePolicyProperties = Env.getCurrentEnv().getResourceMgr()
                                 .getResource(resource).getCopiedProperties();
-                        s3Info.setS3Endpoint(storagePolicyProperties.get(S3CoolDownResource.S3_ENDPOINT));
-                        s3Info.setS3Region(storagePolicyProperties.get(S3CoolDownResource.S3_REGION));
-                        s3Info.setRootPath(storagePolicyProperties.get(S3CoolDownResource.S3_ROOT_PATH));
-                        s3Info.setS3Ak(storagePolicyProperties.get(S3CoolDownResource.S3_ACCESS_KEY));
-                        s3Info.setS3Sk(storagePolicyProperties.get(S3CoolDownResource.S3_SECRET_KEY));
-                        s3Info.setBucket(storagePolicyProperties.get(S3CoolDownResource.S3_BUCKET));
+                        s3Info.setS3Endpoint(storagePolicyProperties.get(S3Resource.S3_ENDPOINT));
+                        s3Info.setS3Region(storagePolicyProperties.get(S3Resource.S3_REGION));
+                        s3Info.setRootPath(storagePolicyProperties.get(S3Resource.S3_ROOT_PATH));
+                        s3Info.setS3Ak(storagePolicyProperties.get(S3Resource.S3_ACCESS_KEY));
+                        s3Info.setS3Sk(storagePolicyProperties.get(S3Resource.S3_SECRET_KEY));
+                        s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
                         s3Info.setS3MaxConn(
-                                Integer.parseInt(storagePolicyProperties.get(S3CoolDownResource.S3_MAX_CONNECTIONS)));
+                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
                         s3Info.setS3RequestTimeoutMs(Integer.parseInt(
-                                storagePolicyProperties.get(S3CoolDownResource.S3_REQUEST_TIMEOUT_MS)));
+                                storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
                         s3Info.setS3ConnTimeoutMs(Integer.parseInt(
-                                storagePolicyProperties.get(S3CoolDownResource.S3_CONNECTION_TIMEOUT_MS)));
+                                storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
                     });
 
                     rEntry.setS3StorageParam(s3Info);

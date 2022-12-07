@@ -44,9 +44,8 @@ public abstract class Resource implements Writable {
         UNKNOWN,
         SPARK,
         ODBC_CATALOG,
-        S3_COOLDOWN,
-        JDBC,
         S3,
+        JDBC,
         HDFS,
         HMS;
 
@@ -95,14 +94,11 @@ public abstract class Resource implements Writable {
             case ODBC_CATALOG:
                 resource = new OdbcCatalogResource(name);
                 break;
-            case S3_COOLDOWN:
-                resource = new S3CoolDownResource(name);
+            case S3:
+                resource = new S3Resource(name);
                 break;
             case JDBC:
                 resource = new JdbcResource(name);
-                break;
-            case S3:
-                resource = new S3Resource(name);
                 break;
             case HDFS:
                 resource = new HdfsResource(name);
@@ -137,7 +133,7 @@ public abstract class Resource implements Writable {
      * @param properties
      * @throws AnalysisException
      */
-    public abstract void checkProperties(Map<String, String> properties) throws AnalysisException;
+    public void checkProperties(Map<String, String> properties) throws AnalysisException { }
 
     protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
         if (!Strings.isNullOrEmpty(value)) {
@@ -152,6 +148,8 @@ public abstract class Resource implements Writable {
 
 
     public abstract Map<String, String> getCopiedProperties();
+
+    public void dropResource() throws DdlException { }
 
     /**
      * Fill BaseProcResult with different properties in child resources
