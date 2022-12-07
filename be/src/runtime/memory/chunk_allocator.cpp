@@ -120,6 +120,19 @@ public:
         _chunk_lists[idx].push_back(ptr);
     }
 
+    void clear() {
+        std::lock_guard<SpinLock> l(_lock);
+        for (int i = 0; i < 64; ++i) {
+            if (_chunk_lists[i].empty()) {
+                continue;
+            }
+            for (auto ptr : _chunk_lists[i]) {
+                ::free(ptr);
+            }
+            std::vector<uint8_t*>().swap(_chunk_lists[i]);
+        }
+    }
+
 private:
     SpinLock _lock;
     std::vector<std::vector<uint8_t*>> _chunk_lists;
@@ -254,6 +267,13 @@ void ChunkAllocator::free(uint8_t* data, size_t size) {
     chunk.size = size;
     chunk.core_id = CpuInfo::get_current_core();
     free(chunk);
+}
+
+void ChunkAllocator::clear() {
+    for (int i = 0; i < _arenas.size(); ++i) {
+        _arenas[i]->clear();
+    }
+    THREAD_MEM_TRACKER_TRANSFER_FROM(_mem_tracker->consumption(), _mem_tracker.get());
 }
 
 } // namespace doris
