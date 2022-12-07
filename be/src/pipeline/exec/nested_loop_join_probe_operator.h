@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -14,33 +15,36 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
 
 #include "operator.h"
 
 namespace doris {
 namespace vectorized {
-class AggregationNode;
-}
-
+class VNestedLoopJoinNode;
+class VExprContext;
+class Block;
+} // namespace vectorized
 namespace pipeline {
 
-class AggSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
+class NestLoopJoinProbeOperatorBuilder final
+        : public OperatorBuilder<vectorized::VNestedLoopJoinNode> {
 public:
-    AggSourceOperatorBuilder(int32_t, ExecNode*);
-
-    bool is_source() const override { return true; }
+    NestLoopJoinProbeOperatorBuilder(int32_t id, ExecNode* node);
 
     OperatorPtr build_operator() override;
 };
 
-class AggSourceOperator final : public Operator<AggSourceOperatorBuilder> {
+class NestLoopJoinProbeOperator final : public DataStateOperator<NestLoopJoinProbeOperatorBuilder> {
 public:
-    AggSourceOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resoucre()` function call, only sink operator
-    // call the function
+    NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
+
+    Status prepare(RuntimeState* state) override;
+
     Status open(RuntimeState*) override { return Status::OK(); }
+
+    Status close(RuntimeState* state) override;
 };
 
 } // namespace pipeline
