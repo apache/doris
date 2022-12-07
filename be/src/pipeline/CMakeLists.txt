@@ -45,7 +45,9 @@ set(PIPELINE_FILES
         exec/sort_sink_operator.cpp
         exec/repeat_operator.cpp
         exec/table_function_operator.cpp
-        )
+        exec/set_sink_operator.cpp
+        exec/set_source_operator.cpp
+        exec/set_probe_sink_operator.cpp)
 
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}

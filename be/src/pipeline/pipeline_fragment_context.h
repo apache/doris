@@ -24,6 +24,11 @@ namespace doris {
 class ExecNode;
 class DataSink;
 
+namespace vectorized {
+template <bool is_intersect>
+class VSetOperationNode;
+}
+
 namespace pipeline {
 
 class PipelineTask;
@@ -121,6 +126,9 @@ private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
+
+    template <bool is_intersect>
+    Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
 };
 } // namespace pipeline
 } // namespace doris

@@ -33,6 +33,9 @@
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
 #include "exec/scan_operator.h"
+#include "exec/set_probe_sink_operator.h"
+#include "exec/set_sink_operator.h"
+#include "exec/set_source_operator.h"
 #include "exec/sort_sink_operator.h"
 #include "exec/sort_source_operator.h"
 #include "exec/streaming_aggregation_sink_operator.h"
@@ -56,6 +59,7 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vrepeat_node.h"
+#include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vresult_sink.h"
@@ -383,11 +387,42 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         cur_pipe->add_dependency(new_pipe);
         break;
     }
+    case TPlanNodeType::INTERSECT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(node, cur_pipe));
+        break;
+    }
+    case TPlanNodeType::EXCEPT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(node, cur_pipe));
+        break;
+    }
     default:
         return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(node_type));
     }
     return Status::OK();
+}
+
+template <bool is_intersect>
+Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode* node,
+                                                                        PipelinePtr cur_pipe) {
+    auto build_pipeline = add_pipeline();
+    RETURN_IF_ERROR(_build_pipelines(node->child(0), build_pipeline));
+    OperatorBuilderPtr sink_builder = std::make_shared<SetSinkOperatorBuilder<is_intersect>>(
+            next_operator_builder_id(), node);
+    RETURN_IF_ERROR(build_pipeline->set_sink(sink_builder));
+
+    for (int child_id = 1; child_id < node->children_count(); ++child_id) {
+        auto probe_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(child_id), probe_pipeline));
+        OperatorBuilderPtr probe_sink_builder =
+                std::make_shared<SetProbeSinkOperatorBuilder<is_intersect>>(
+                        next_operator_builder_id(), child_id, node);
+        RETURN_IF_ERROR(probe_pipeline->set_sink(probe_sink_builder));
+    }
+
+    OperatorBuilderPtr source_builder = std::make_shared<SetSourceOperatorBuilder<is_intersect>>(
+            next_operator_builder_id(), node);
+    return cur_pipe->add_operator(source_builder);
 }
 
 Status PipelineFragmentContext::submit() {
