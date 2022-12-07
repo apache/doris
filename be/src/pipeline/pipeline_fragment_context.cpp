@@ -23,6 +23,7 @@
 #include "exec/aggregation_sink_operator.h"
 #include "exec/aggregation_source_operator.h"
 #include "exec/data_sink.h"
+#include "exec/datagen_operator.h"
 #include "exec/empty_set_operator.h"
 #include "exec/exchange_sink_operator.h"
 #include "exec/exchange_source_operator.h"
@@ -295,6 +296,12 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::EMPTY_SET_NODE: {
         OperatorBuilderPtr operator_t =
                 std::make_shared<EmptySetSourceOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::DATA_GEN_SCAN_NODE: {
+        OperatorBuilderPtr operator_t =
+                std::make_shared<DataGenOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
