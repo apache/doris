@@ -18,7 +18,7 @@
 suite("spark_connector", "connector") {
 
     def tableName = "spark_connector"
-    sql """DROP TABLE  ${tableName}"""
+    sql """DROP TABLE IF EXISTS ${tableName}"""
     sql new File("""${context.file.parent}/ddl/create.sql""").text
     logger.info("start delete local spark doris demo jar...")
     def delete_local_spark_jar = "rm -rf spark-doris-demo.jar".execute()
