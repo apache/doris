@@ -49,8 +49,9 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
 
     @Override
     public FunctionSignature customSignature() {
-        DataType implicitCastType = implicitCast(getArgument(0).getDataType());
-        return FunctionSignature.ret(implicitCastType).args(implicitCastType);
+        DataType originDataType = getArgument(0).getDataType();
+        DataType implicitCastType = implicitCast(originDataType);
+        return FunctionSignature.ret(implicitCastType).args(originDataType);
     }
 
     @Override

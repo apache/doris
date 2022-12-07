@@ -71,7 +71,6 @@ public class RuleSet {
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
-            .add(new AggregateStrategies())
             // .add(new DisassembleDistinctAggregate())
             .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())
@@ -104,6 +103,7 @@ public class RuleSet {
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
             .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
             .add(new LogicalTVFRelationToPhysicalTVFRelation())
+            .add(new AggregateStrategies())
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()

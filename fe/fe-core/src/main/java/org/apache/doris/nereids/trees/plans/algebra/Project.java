@@ -87,9 +87,11 @@ public interface Project {
                 .collect(Collectors.toList());
     }
 
-    /** find projects */
+    /**
+     * find projects, if not found the slot, then throw AnalysisException
+     */
     static List<NamedExpression> findProject(
-            Collection<? extends SlotReference> slotReferences,
+            Collection<? extends Slot> slotReferences,
             List<NamedExpression> projects) throws AnalysisException {
         Map<ExprId, NamedExpression> exprIdToProject = projects.stream()
                 .collect(ImmutableMap.toImmutableMap(p -> p.getExprId(), p -> p));
@@ -103,6 +105,20 @@ public interface Project {
                     }
                     return project;
                 })
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * findUsedProject. if not found the slot, then skip it
+     */
+    static <OUTPUT_TYPE extends NamedExpression> List<OUTPUT_TYPE> filterUsedOutputs(
+            Collection<? extends Slot> slotReferences, List<OUTPUT_TYPE> childOutput) {
+        Map<ExprId, OUTPUT_TYPE> exprIdToChildOutput = childOutput.stream()
+                .collect(ImmutableMap.toImmutableMap(p -> p.getExprId(), p -> p));
+
+        return slotReferences.stream()
+                .map(slot -> exprIdToChildOutput.get(slot.getExprId()))
+                .filter(project -> project != null)
                 .collect(ImmutableList.toImmutableList());
     }
 

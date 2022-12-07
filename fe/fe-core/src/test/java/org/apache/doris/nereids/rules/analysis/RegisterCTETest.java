@@ -198,9 +198,9 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 false, ImmutableList.of("cte1"));
         SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.INSTANCE,
                 false, ImmutableList.of("cte2"));
-        SlotReference count = new SlotReference(new ExprId(14), "count()", BigIntType.INSTANCE,
+        SlotReference count = new SlotReference(new ExprId(14), "count(*)", BigIntType.INSTANCE,
                 false, ImmutableList.of());
-        Alias countAlias = new Alias(new ExprId(14), new Count(), "count()");
+        Alias countAlias = new Alias(new ExprId(14), new Count(), "count(*)");
 
         PlanChecker.from(connectContext)
                 .analyze(sql3)

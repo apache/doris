@@ -209,7 +209,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 && Objects.equals(partitionExpressions, that.partitionExpressions)
                 && Objects.equals(aggregateParam, that.aggregateParam)
                 && usingStream == that.usingStream
-                && requestProperties == that.requestProperties;
+                && Objects.equals(requestProperties, that.requestProperties);
     }
 
     @Override

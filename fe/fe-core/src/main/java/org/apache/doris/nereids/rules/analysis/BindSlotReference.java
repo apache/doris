@@ -384,9 +384,6 @@ public class BindSlotReference implements AnalysisRuleFactory {
 
         @Override
         public Expression visitUnboundStar(UnboundStar unboundStar, PlannerContext context) {
-            if (!(plan instanceof LogicalProject)) {
-                throw new AnalysisException("UnboundStar must exists in Projection");
-            }
             List<String> qualifier = unboundStar.getQualifier();
             switch (qualifier.size()) {
                 case 0: // select *
