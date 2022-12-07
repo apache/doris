@@ -156,9 +156,14 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
     return ExecNode::init(tnode, state);
 }
 
+Status VJoinNodeBase::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    return VExpr::open(_output_expr_ctxs, state);
+}
+
 Status VJoinNodeBase::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::open");
-    RETURN_IF_ERROR(ExecNode::open(state));
+    RETURN_IF_ERROR(alloc_resource(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
 

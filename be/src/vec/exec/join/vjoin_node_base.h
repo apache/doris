@@ -47,6 +47,8 @@ public:
 
     virtual Status open(RuntimeState* state) override;
 
+    Status alloc_resource(doris::RuntimeState* state) override;
+
     virtual const RowDescriptor& row_desc() const override { return *_output_row_desc; }
 
     virtual const RowDescriptor& intermediate_row_desc() const override {
