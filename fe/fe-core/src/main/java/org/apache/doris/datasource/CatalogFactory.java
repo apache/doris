@@ -54,6 +54,7 @@ public class CatalogFactory {
             log.setNewCatalogName(((AlterCatalogNameStmt) stmt).getNewCatalogName());
         } else if (stmt instanceof RefreshCatalogStmt) {
             log.setCatalogId(catalogId);
+            log.setInvalidCache(((RefreshCatalogStmt) stmt).isInvalidCache());
         } else {
             throw new RuntimeException("Unknown stmt for catalog manager " + stmt.getClass().getSimpleName());
         }
