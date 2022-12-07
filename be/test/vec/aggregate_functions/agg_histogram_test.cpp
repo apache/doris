@@ -22,6 +22,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_histogram.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
@@ -36,12 +37,12 @@ void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& facto
 
 class VAggHistogramTest : public testing::Test {
 public:
-    void SetUp() {
+    void SetUp() override {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         register_aggregate_function_histogram(factory);
     }
 
-    void TearDown() {}
+    void TearDown() override {}
 
     template <typename DataType>
     void agg_histogram_add_elements(AggregateFunctionPtr agg_function, AggregateDataPtr place,
@@ -82,7 +83,8 @@ public:
 
         agg_histogram_add_elements<DataType>(agg_function, place, input_nums);
 
-        ColumnString buf;
+        ColumnString* ptr = ColumnString::create();
+        auto& buf = static_cast<ColumnString&>(*ptr);
         VectorBufferWriter buf_writer(buf);
         agg_function->serialize(place, buf_writer);
         buf_writer.commit();
