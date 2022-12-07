@@ -134,16 +134,29 @@ public class RoleManager implements Writable {
             
             // global
             boolean hasGlobal = false;
+            PrivBitSet privBitSet = PrivBitSet.of();
             for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
                 if (entry.getKey().getPrivLevel() == PrivLevel.GLOBAL) {
                     hasGlobal = true;
-                    info.add(entry.getValue().toString());
+                    privBitSet.or(entry.getValue());
                     // global priv should only has one
                     break;
                 }
             }
+
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : role.getResourcePatternToPrivs().entrySet()) {
+                if (entry.getKey().getPrivLevel() == PrivLevel.GLOBAL) {
+                    hasGlobal = true;
+                    privBitSet.or(entry.getValue());
+                    // global priv should only has one
+                    break;
+                }
+            }
+
             if (!hasGlobal) {
                 info.add(FeConstants.null_string);
+            } else {
+                info.add(privBitSet.toString());
             }
 
             // db
