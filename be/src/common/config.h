@@ -778,6 +778,8 @@ CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
 // OrcReader
 CONF_mInt32(orc_natural_read_size_mb, "8");
+CONF_mInt64(big_column_size_buffer, "65535");
+CONF_mInt64(small_column_size_buffer, "100");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.

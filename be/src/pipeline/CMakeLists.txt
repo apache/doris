@@ -28,7 +28,7 @@ set(PIPELINE_FILES
         task_scheduler.cpp
         exec/operator.cpp
         exec/scan_operator.cpp
-        exec/olap_scan_operator.cpp
+        exec/datagen_operator.cpp
         exec/empty_set_operator.cpp
         exec/exchange_source_operator.cpp
         exec/exchange_sink_operator.cpp
@@ -41,7 +41,9 @@ set(PIPELINE_FILES
         exec/agg_context.cpp
         exec/sort_source_operator.cpp
         exec/sort_sink_operator.cpp
-        exec/repeat_operator.cpp)
+        exec/repeat_operator.cpp
+        exec/table_function_operator.cpp
+        )
 
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}

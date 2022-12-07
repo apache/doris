@@ -120,9 +120,9 @@ public:
         HighWaterMarkCounter(TUnit::type unit) : Counter(unit), current_value_(0) {}
 
         virtual void add(int64_t delta) {
-            int64_t new_val = current_value_.fetch_add(delta, std::memory_order_relaxed);
+            current_value_.fetch_add(delta, std::memory_order_relaxed);
             if (delta > 0) {
-                UpdateMax(new_val);
+                UpdateMax(current_value_);
             }
         }
 

@@ -28,15 +28,26 @@ class Block;
 } // namespace vectorized
 
 namespace pipeline {
-class StreamingAggSinkOperatorBuilder;
-class StreamingAggSinkOperator : public Operator {
+
+class StreamingAggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
 public:
-    StreamingAggSinkOperator(StreamingAggSinkOperatorBuilder* operator_builder,
-                             vectorized::AggregationNode*, std::shared_ptr<AggContext>);
+    StreamingAggSinkOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<AggContext>);
+
+    OperatorPtr build_operator() override;
+
+    bool is_sink() const override { return true; };
+    bool is_source() const override { return false; };
+
+private:
+    std::shared_ptr<AggContext> _agg_context;
+};
+
+class StreamingAggSinkOperator final : public Operator<StreamingAggSinkOperatorBuilder> {
+public:
+    StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
+                             std::shared_ptr<AggContext>);
 
     Status prepare(RuntimeState*) override;
-
-    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* block, SourceState source_state) override;
 
@@ -44,30 +55,12 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    Status finalize(doris::RuntimeState* state) override { return Status::OK(); }
-
 private:
-    vectorized::AggregationNode* _agg_node;
     vectorized::Block _preagg_block = vectorized::Block();
 
     RuntimeProfile::Counter* _queue_byte_size_counter;
     RuntimeProfile::Counter* _queue_size_counter;
 
-    std::shared_ptr<AggContext> _agg_context;
-};
-
-class StreamingAggSinkOperatorBuilder : public OperatorBuilder {
-public:
-    StreamingAggSinkOperatorBuilder(int32_t, const std::string&, vectorized::AggregationNode*,
-                                    std::shared_ptr<AggContext>);
-
-    OperatorPtr build_operator() override;
-
-    bool is_sink() const override;
-    bool is_source() const override;
-
-private:
-    vectorized::AggregationNode* _agg_node;
     std::shared_ptr<AggContext> _agg_context;
 };
 

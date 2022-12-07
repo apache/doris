@@ -15,32 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "datagen_operator.h"
 
-#include <utility>
-
-#include "scan_operator.h"
-#include "vec/exec/scan/new_olap_scan_node.h"
+#include "vec/exec/vdata_gen_scan_node.h"
 
 namespace doris::pipeline {
 
-class OlapScanOperatorBuilder;
-class OlapScanOperator : public ScanOperator {
-public:
-    OlapScanOperator(OperatorBuilder* operator_builder, vectorized::NewOlapScanNode* scan_node);
-};
+OPERATOR_CODE_GENERATOR(DataGenOperator, Operator)
 
-class OlapScanOperatorBuilder : public ScanOperatorBuilder {
-public:
-    OlapScanOperatorBuilder(uint32_t id, const std::string& name,
-                            vectorized::NewOlapScanNode* new_olap_scan_node);
+Status DataGenOperator::open(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(Operator::open(state));
+    return _node->open(state);
+}
 
-    OperatorPtr build_operator() override {
-        return std::make_shared<OlapScanOperator>(this, _new_olap_scan_node);
-    }
-
-private:
-    vectorized::NewOlapScanNode* _new_olap_scan_node;
-};
+Status DataGenOperator::close(RuntimeState* state) {
+    RETURN_IF_ERROR(Operator::close(state));
+    _node->close(state);
+    return Status::OK();
+}
 
 } // namespace doris::pipeline

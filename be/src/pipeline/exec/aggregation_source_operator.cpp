@@ -22,46 +22,7 @@
 namespace doris {
 namespace pipeline {
 
-AggregationSourceOperator::AggregationSourceOperator(OperatorBuilder* templ,
-                                                     vectorized::AggregationNode* node)
-        : Operator(templ), _agg_node(node) {}
-
-Status AggregationSourceOperator::prepare(RuntimeState* state) {
-    _agg_node->increase_ref();
-    return Status::OK();
-}
-
-bool AggregationSourceOperator::can_read() {
-    return _agg_node->can_read();
-}
-
-Status AggregationSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                                            SourceState& source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    bool eos = false;
-    RETURN_IF_ERROR(_agg_node->pull(state, block, &eos));
-    source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
-    return Status::OK();
-}
-
-Status AggregationSourceOperator::close(RuntimeState* state) {
-    _fresh_exec_timer(_agg_node);
-    if (!_agg_node->decrease_ref()) {
-        _agg_node->release_resource(state);
-    }
-    return Status::OK();
-}
-
-///////////////////////////////  operator template  ////////////////////////////////
-
-AggregationSourceOperatorBuilder::AggregationSourceOperatorBuilder(
-        int32_t id, const std::string& name, vectorized::AggregationNode* exec_node)
-        : OperatorBuilder(id, name, exec_node) {}
-
-OperatorPtr AggregationSourceOperatorBuilder::build_operator() {
-    return std::make_shared<AggregationSourceOperator>(
-            this, assert_cast<vectorized::AggregationNode*>(_related_exec_node));
-}
+OPERATOR_CODE_GENERATOR(AggSourceOperator, Operator)
 
 } // namespace pipeline
 } // namespace doris

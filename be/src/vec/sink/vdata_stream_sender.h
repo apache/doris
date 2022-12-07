@@ -88,6 +88,8 @@ public:
 
     bool channel_all_can_write();
 
+    const RowDescriptor& row_desc() { return _row_desc; }
+
 protected:
     friend class Channel;
     friend class pipeline::ExchangeSinkBuffer;
