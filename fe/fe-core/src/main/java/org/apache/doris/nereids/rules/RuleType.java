@@ -140,6 +140,7 @@ public enum RuleType {
     REWRITE_SORT_EXPRESSION(RuleTypeClass.REWRITE),
     REWRITE_HAVING_EXPRESSSION(RuleTypeClass.REWRITE),
     REWRITE_REPEAT_EXPRESSSION(RuleTypeClass.REWRITE),
+    EXTRACT_FILTER_FROM_JOIN(RuleTypeClass.REWRITE),
     REORDER_JOIN(RuleTypeClass.REWRITE),
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
