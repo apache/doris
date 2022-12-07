@@ -32,7 +32,7 @@ public:
     AnalyticSinkOperatorBuilder(int32_t, ExecNode*);
 
     OperatorPtr build_operator() override;
-    
+
     bool is_sink() const override { return true; };
 };
 
