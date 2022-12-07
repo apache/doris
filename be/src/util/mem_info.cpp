@@ -34,6 +34,7 @@
 
 #include "common/config.h"
 #include "gutil/strings/split.h"
+#include "olap/page_cache.h"
 #include "util/cgroup_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -51,12 +52,15 @@ int64_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
 int64_t MemInfo::_s_virtual_memory_used = 0;
 int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
+std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
 int64_t MemInfo::_s_sys_mem_available = 0;
 std::string MemInfo::_s_sys_mem_available_str = "";
 int64_t MemInfo::_s_sys_mem_available_low_water_mark = 0;
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = 0;
+int64_t MemInfo::_s_process_minor_gc_size = -1;
+int64_t MemInfo::_s_process_full_gc_size = -1;
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -83,6 +87,42 @@ void MemInfo::refresh_allocator_mem() {
     _s_virtual_memory_used = get_tc_metrics("generic.total_physical_bytes") +
                              get_tc_metrics("tcmalloc.pageheap_unmapped_bytes");
 #endif
+}
+
+void MemInfo::process_minor_gc() {
+    // TODO, free more cache, and should free a certain percentage of capacity, not all.
+    int64_t freed_mem = 0;
+    Defer defer {[&]() {
+        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes", freed_mem);
+    }};
+
+    freed_mem += ChunkAllocator::instance()->mem_consumption();
+    ChunkAllocator::instance()->clear();
+    if (freed_mem > _s_process_minor_gc_size) {
+        return;
+    }
+    freed_mem +=
+            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
+    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+}
+
+void MemInfo::process_full_gc() {
+    int64_t freed_mem = 0;
+    Defer defer {
+            [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
+
+    freed_mem +=
+            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
+    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    if (freed_mem > _s_process_full_gc_size) {
+        return;
+    }
+    freed_mem += ChunkAllocator::instance()->mem_consumption();
+    ChunkAllocator::instance()->clear();
+    if (freed_mem > _s_process_full_gc_size) {
+        return;
+    }
+    freed_mem += MemTrackerLimiter::free_top_query(_s_process_full_gc_size - freed_mem);
 }
 
 #ifndef __APPLE__
@@ -142,6 +182,11 @@ void MemInfo::init() {
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+
+    _s_process_minor_gc_size =
+            ParseUtil::parse_mem_spec(config::process_minor_gc_size, -1, _s_mem_limit, &is_percent);
+    _s_process_full_gc_size =
+            ParseUtil::parse_mem_spec(config::process_full_gc_size, -1, _s_mem_limit, &is_percent);
 
     std::string line;
     int64_t _s_vm_min_free_kbytes = 0;

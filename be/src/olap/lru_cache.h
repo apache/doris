@@ -217,6 +217,8 @@ public:
     // may hold lock for a long time to execute predicate.
     virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
 
+    virtual int64_t mem_consumption() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
 };
@@ -370,6 +372,7 @@ public:
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
     virtual int64_t prune_if(CacheValuePredicate pred) override;
+    int64_t mem_consumption() override;
 
 private:
     void update_cache_metrics() const;
