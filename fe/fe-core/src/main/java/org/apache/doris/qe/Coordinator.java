@@ -633,6 +633,7 @@ public class Coordinator {
                                     profileFragmentId, tParam, this.addressToBackendID);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
+                    // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
                     tParam.setBackendId(execState.backend.getId());
                     tParam.setNeedWaitExecutionTrigger(twoPhaseExecution);
