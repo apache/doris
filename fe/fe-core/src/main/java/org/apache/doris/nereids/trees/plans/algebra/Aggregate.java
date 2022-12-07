@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -43,14 +43,14 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
     @Override
     Aggregate<Plan> withChildren(List<Plan> children);
 
-    default Set<AggregateExpression> getAggregateExpressions() {
-        return ExpressionUtils.collect(getOutputExpressions(), AggregateExpression.class::isInstance);
+    default Set<AggregateFunction> getAggregateFunctions() {
+        return ExpressionUtils.collect(getOutputExpressions(), AggregateFunction.class::isInstance);
     }
 
     default Set<Expression> getDistinctArguments() {
-        return getAggregateExpressions().stream()
-                .filter(aggregateExpression -> aggregateExpression.isDistinct())
-                .flatMap(aggregateExpression -> aggregateExpression.getFunction().children().stream())
+        return getAggregateFunctions().stream()
+                .filter(AggregateFunction::isDistinct)
+                .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }
 }

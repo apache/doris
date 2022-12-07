@@ -60,6 +60,12 @@ public class Sum extends AggregateFunction implements UnaryExpression, Propagate
     }
 
     @Override
+    public Sum withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Sum(isDistinct, children.get(0));
+    }
+
+    @Override
     public Sum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Sum(isDistinct, children.get(0));

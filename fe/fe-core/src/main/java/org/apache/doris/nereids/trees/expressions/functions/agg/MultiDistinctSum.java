@@ -32,7 +32,11 @@ import java.util.List;
 public class MultiDistinctSum extends AggregateFunction
         implements UnaryExpression, AlwaysNotNullable, ExplicitlyCastableSignature {
     public MultiDistinctSum(Expression arg0) {
-        super("multi_distinct_sum", arg0);
+        super("multi_distinct_sum", true, arg0);
+    }
+
+    public MultiDistinctSum(boolean isDistinct, Expression arg0) {
+        super("multi_distinct_sum", true, arg0);
     }
 
     @Override
@@ -44,6 +48,12 @@ public class MultiDistinctSum extends AggregateFunction
     public MultiDistinctSum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new MultiDistinctSum(children.get(0));
+    }
+
+    @Override
+    public MultiDistinctSum withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new MultiDistinctSum(isDistinct, children.get(0));
     }
 
     @Override

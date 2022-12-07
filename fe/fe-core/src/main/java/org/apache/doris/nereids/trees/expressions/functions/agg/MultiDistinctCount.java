@@ -35,7 +35,11 @@ import java.util.List;
 public class MultiDistinctCount extends AggregateFunction
         implements AlwaysNotNullable, ExplicitlyCastableSignature {
     public MultiDistinctCount(Expression arg0, Expression... varArgs) {
-        super("multi_distinct_count", ExpressionUtils.mergeArguments(arg0, varArgs));
+        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs));
+    }
+
+    public MultiDistinctCount(boolean isDistinct, Expression arg0, Expression... varArgs) {
+        super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs));
     }
 
     @Override
@@ -47,7 +51,14 @@ public class MultiDistinctCount extends AggregateFunction
     @Override
     public MultiDistinctCount withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() > 0);
-        return new MultiDistinctCount(children.get(0), children.subList(1, children.size()).toArray(new Expression[0]));
+        return new MultiDistinctCount(children.get(0),
+                children.subList(1, children.size()).toArray(new Expression[0]));
+    }
+
+    @Override
+    public MultiDistinctCount withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return new MultiDistinctCount(isDistinct, children.get(0),
+                children.subList(1, children.size()).toArray(new Expression[0]));
     }
 
     @Override

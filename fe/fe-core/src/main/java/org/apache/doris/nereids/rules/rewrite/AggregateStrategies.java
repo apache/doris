@@ -32,7 +32,6 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.CountDistinctMult
 import org.apache.doris.nereids.rules.implementation.ImplementationRuleFactory;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
-import org.apache.doris.nereids.rules.rewrite.logical.WrapAggregateExpressionForAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -77,8 +76,7 @@ import javax.annotation.Nullable;
 /** AggregateStrategies */
 @DependsRules({
     NormalizeAggregate.class,
-    CountDistinctMultiExprToSingle.class,
-    WrapAggregateExpressionForAggregateFunction.class
+    CountDistinctMultiExprToSingle.class
 })
 public class AggregateStrategies implements ImplementationRuleFactory {
 
@@ -124,10 +122,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .when(agg -> agg.getDistinctArguments().size() == 1)
                     .thenApplyMulti(ctx -> twoPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             ),
+            RuleType.ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
+                basePattern
+                    .when(agg -> agg.getDistinctArguments().size() == 1)
+                    .thenApplyMulti(ctx -> onePhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
+            ),
             RuleType.TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
                 basePattern
-                        .when(agg -> agg.getDistinctArguments().size() == 1)
-                        .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
+                    .when(agg -> agg.getDistinctArguments().size() == 1)
+                    .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
@@ -250,9 +253,17 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private List<PhysicalHashAggregate<Plan>> onePhaseAggregateWithoutDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
         RequestProperties requestGather = RequestProperties.of(PhysicalProperties.GATHER);
+        AggregateParam inputToResultParam = AggregateParam.localResult();
+        List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
+                logicalAgg.getOutputExpressions(), outputChild -> {
+                    if (outputChild instanceof AggregateFunction) {
+                        return new AggregateExpression((AggregateFunction) outputChild, inputToResultParam);
+                    }
+                    return outputChild;
+                });
         PhysicalHashAggregate<Plan> gatherLocalAgg = new PhysicalHashAggregate<>(
-                logicalAgg.getGroupByExpressions(), logicalAgg.getOutputExpressions(), Optional.empty(),
-                AggregateParam.localGather(), useStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
+                logicalAgg.getGroupByExpressions(), newOutput, Optional.empty(),
+                inputToResultParam, maybeUsingStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
                 logicalAgg.getLogicalProperties(),
                 requestGather, logicalAgg.child());
 
@@ -272,11 +283,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
 
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-        Map<AggregateExpression, Alias> inputToBufferAliases = logicalAgg.getAggregateExpressions()
+        Map<AggregateFunction, Alias> inputToBufferAliases = logicalAgg.getAggregateFunctions()
                 .stream()
-                .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
-                    AggregateExpression inputToBuffer =
-                            new AggregateExpression(expr.getFunction(), inputToBufferParam);
+                .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
+                    AggregateExpression inputToBuffer = new AggregateExpression(function, inputToBufferParam);
                     return new Alias(inputToBuffer, inputToBuffer.toSql());
                 }));
 
@@ -290,7 +300,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         RequestProperties requestAny = RequestProperties.of(PhysicalProperties.ANY);
         PhysicalHashAggregate<? extends Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localAggOutput, Optional.of(partitionExpressions),
-                inputToBufferParam, useStreamAgg(connectContext, localAggGroupBy),
+                inputToBufferParam, maybeUsingStreamAgg(connectContext, localAggGroupBy),
                 logicalAgg.getLogicalProperties(), requestAny,
                 logicalAgg.child());
 
@@ -301,9 +311,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     if (inputToBufferAlias == null) {
                         return outputChild;
                     }
-                    AggregateExpression inputToResult = (AggregateExpression) outputChild;
-                    return new AggregateExpression(inputToResult.getFunction(),
-                            bufferToResultParam, inputToBufferAlias.toSlot());
+                    AggregateFunction function = (AggregateFunction) outputChild;
+                    return new AggregateExpression(function, bufferToResultParam, inputToBufferAlias.toSlot());
                 });
 
         RequestProperties requestGather = RequestProperties.of(PhysicalProperties.GATHER);
@@ -342,15 +351,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 localAgg.withAggOutput(globalAgg.getOutputExpressions())
                 .withRequest(requestGather);
 
-        PhysicalHashAggregate<Plan> gatherLocalGatherDistinctAgg
+        PhysicalHashAggregate<Plan> gatherLocalGatherGlobalAgg
                 = distinctAgg.withRequestPropertiesAndChild(requestGather, mergedLocalGatherAgg);
 
         PhysicalProperties hashPartition = PhysicalProperties.createHash(
                 localAgg.getPartitionExpressions().get(), ShuffleType.AGGREGATE);
         RequestProperties requestHash = RequestProperties.of(hashPartition);
         return ImmutableList.<PhysicalHashAggregate<Plan>>builder()
-                .add(gatherLocalGatherDistinctAgg)
-                .add(gatherLocalGatherDistinctAgg.withRequestTree(
+                .add(gatherLocalGatherGlobalAgg)
+                .add(gatherLocalGatherGlobalAgg.withRequestTree(
                     requestHash.withChildren(requestHash)
                 ))
                 .build();
@@ -358,11 +367,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
     private PhysicalHashAggregate<? extends Plan> threePhaseAggregateWithDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
-        Set<AggregateExpression> aggregateExpressions = logicalAgg.getAggregateExpressions();
+        Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
 
-        Set<Expression> distinctArguments = aggregateExpressions.stream()
+        Set<Expression> distinctArguments = aggregateFunctions.stream()
                 .filter(aggregateExpression -> aggregateExpression.isDistinct())
-                .flatMap(aggregateExpression -> aggregateExpression.getFunction().children().stream())
+                .flatMap(aggregateExpression -> aggregateExpression.getArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
 
         Set<NamedExpression> localAggGroupBy = ImmutableSet.<NamedExpression>builder()
@@ -372,33 +381,32 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
 
-        Map<AggregateExpression, Alias> nonDistinctAggExprToAliasPhase1 = aggregateExpressions.stream()
-                .filter(aggregateExpression -> !aggregateExpression.isDistinct())
+        Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase1 = aggregateFunctions.stream()
+                .filter(aggregateFunction -> !aggregateFunction.isDistinct())
                 .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
-                    AggregateExpression localAggExpr = new AggregateExpression(expr.getFunction(), inputToBufferParam);
+                    AggregateExpression localAggExpr = new AggregateExpression(expr, inputToBufferParam);
                     return new Alias(localAggExpr, localAggExpr.toSql());
                 }));
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(localAggGroupBy)
-                .addAll(nonDistinctAggExprToAliasPhase1.values())
+                .addAll(nonDistinctAggFunctionToAliasPhase1.values())
                 .build();
 
-        boolean useStreamAgg = useStreamAgg(connectContext, localAggGroupBy);
+        boolean maybeUsingStreamAgg = maybeUsingStreamAgg(connectContext, localAggGroupBy);
         List<Expression> partitionExpressions = getHashAggregatePartitionExpressions(logicalAgg);
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(ImmutableList.copyOf(localAggGroupBy),
                 localAggOutput, Optional.of(partitionExpressions), inputToBufferParam,
-                useStreamAgg, Optional.empty(), logicalAgg.getLogicalProperties(),
+                maybeUsingStreamAgg, Optional.empty(), logicalAgg.getLogicalProperties(),
                 RequestProperties.of(PhysicalProperties.ANY), logicalAgg.child());
 
         AggregateParam bufferToBufferParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_BUFFER);
-        Map<AggregateExpression, Alias> nonDistinctAggExprToAliasPhase2 =
-                nonDistinctAggExprToAliasPhase1.entrySet()
+        Map<AggregateFunction, Alias> nonDistinctAggFunctionToAliasPhase2 =
+                nonDistinctAggFunctionToAliasPhase1.entrySet()
                     .stream()
                     .collect(ImmutableMap.toImmutableMap(kv -> kv.getKey(), kv -> {
-                        AggregateExpression originExpr = kv.getKey();
+                        AggregateFunction originFunction = kv.getKey();
                         Alias localOutput = kv.getValue();
-                        AggregateFunction originFunction = originExpr.getFunction();
                         AggregateExpression globalAggExpr = new AggregateExpression(
                                 originFunction, bufferToBufferParam, localOutput.toSlot());
                         return new Alias(globalAggExpr, globalAggExpr.toSql());
@@ -406,7 +414,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         List<NamedExpression> globalAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(localAggGroupBy)
-                .addAll(nonDistinctAggExprToAliasPhase2.values())
+                .addAll(nonDistinctAggFunctionToAliasPhase2.values())
                 .build();
 
         RequestProperties requestHash = RequestProperties.of(
@@ -419,12 +427,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> distinctOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), expr -> {
-                    Alias alias = nonDistinctAggExprToAliasPhase2.get(expr);
-                    if (alias == null) {
-                        return expr;
+                    if (expr instanceof AggregateFunction) {
+                        AggregateFunction aggregateFunction = (AggregateFunction) expr;
+                        if (aggregateFunction.isDistinct()) {
+                            Preconditions.checkArgument(aggregateFunction.arity() == 1);
+                            AggregateFunction nonDistinct = aggregateFunction
+                                    .withDistinctAndChildren(false, aggregateFunction.getArguments());
+                            return new AggregateExpression(nonDistinct,
+                                    bufferToResultParam, aggregateFunction.child(0));
+                        } else {
+                            Alias alias = nonDistinctAggFunctionToAliasPhase2.get(expr);
+                            return new AggregateExpression(aggregateFunction, bufferToResultParam, alias.toSlot());
+                        }
                     }
-                    AggregateExpression globalAggExpr = (AggregateExpression) alias.child();
-                    return new AggregateExpression(globalAggExpr.getFunction(), bufferToResultParam, alias.toSlot());
+                    return expr;
                 });
 
         PhysicalHashAggregate<Plan> anyLocalHashGlobalHashDistinctAgg = new PhysicalHashAggregate<>(
@@ -435,43 +451,66 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return anyLocalHashGlobalHashDistinctAgg;
     }
 
-    private Plan twoPhaseAggregateWithMultiDistinct(
+    private List<PhysicalHashAggregate<? extends Plan>> onePhaseAggregateWithMultiDistinct(
             LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
-        Set<AggregateExpression> aggregateExpressions = logicalAgg.getAggregateExpressions();
-        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-        Map<AggregateExpression, Alias> aggExprToAliasPhase1 = aggregateExpressions.stream()
-                .collect(ImmutableMap.toImmutableMap(expr -> expr, expr -> {
-                    AggregateFunction function = expr.getFunction();
-                    AggregateFunction rewriteFunction = function;
-                    if (function instanceof Count && function.isDistinct()) {
-                        rewriteFunction = new MultiDistinctCount(function.getArgument(0),
-                                function.getArguments().subList(1, function.arity()).toArray(new Expression[0]));
-                    } else if (function instanceof Sum && function.isDistinct()) {
-                        rewriteFunction = new MultiDistinctSum(function.getArgument(0));
+        AggregateParam inputToResultParam = AggregateParam.localResult();
+        List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
+                logicalAgg.getOutputExpressions(), outputChild -> {
+                    if (outputChild instanceof AggregateFunction) {
+                        AggregateFunction function = tryConvertToMultiDistinct((AggregateFunction) outputChild);
+                        return new AggregateExpression(function, inputToResultParam);
                     }
-                    AggregateExpression localAggExpr = new AggregateExpression(rewriteFunction, inputToBufferParam);
+                    return outputChild;
+                });
+
+        RequestProperties requestGather = RequestProperties.of(PhysicalProperties.GATHER);
+        PhysicalHashAggregate<? extends Plan> localGatherAgg = new PhysicalHashAggregate<>(
+                logicalAgg.getGroupByExpressions(), newOutput, inputToResultParam,
+                maybeUsingStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
+                logicalAgg.getLogicalProperties(), requestGather, logicalAgg.child());
+        if (logicalAgg.getGroupByExpressions().isEmpty()) {
+            return ImmutableList.of(localGatherAgg);
+        } else {
+            RequestProperties requestHash = RequestProperties.of(
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+            return ImmutableList.<PhysicalHashAggregate<? extends Plan>>builder()
+                    .add(localGatherAgg)
+                    .add(localGatherAgg.withRequest(requestHash))
+                    .build();
+        }
+    }
+
+    private PhysicalHashAggregate<Plan> twoPhaseAggregateWithMultiDistinct(
+            LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+        Set<AggregateFunction> aggregateFunctions = logicalAgg.getAggregateFunctions();
+        AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
+        Map<AggregateFunction, Alias> aggFunctionToAliasPhase1 = aggregateFunctions.stream()
+                .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
+                    AggregateFunction multiDistinct = tryConvertToMultiDistinct(function);
+                    AggregateExpression localAggExpr = new AggregateExpression(multiDistinct, inputToBufferParam);
                     return new Alias(localAggExpr, localAggExpr.toSql());
                 }));
 
         List<NamedExpression> localAggOutput = ImmutableList.<NamedExpression>builder()
                 // already normalize group by expression to List<SlotReference>
                 .addAll((List<NamedExpression>) (List) logicalAgg.getGroupByExpressions())
-                .addAll(aggExprToAliasPhase1.values())
+                .addAll(aggFunctionToAliasPhase1.values())
                 .build();
 
         RequestProperties requestAny = RequestProperties.of(PhysicalProperties.ANY);
         PhysicalHashAggregate<? extends Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), localAggOutput,
-                inputToBufferParam, useStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
+                inputToBufferParam, maybeUsingStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
                 logicalAgg.getLogicalProperties(), requestAny, logicalAgg.child());
 
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
         List<NamedExpression> globalOutput = ExpressionUtils.rewriteDownShortCircuit(
                 logicalAgg.getOutputExpressions(), outputChild -> {
-                    if (outputChild instanceof AggregateExpression) {
-                        Alias alias = aggExprToAliasPhase1.get(outputChild);
+                    if (outputChild instanceof AggregateFunction) {
+                        Alias alias = aggFunctionToAliasPhase1.get(outputChild);
                         AggregateExpression localAggExpr = (AggregateExpression) alias.child();
-                        return new AggregateExpression(localAggExpr.getFunction(), bufferToResultParam, alias.toSlot());
+                        return new AggregateExpression(localAggExpr.getFunction(),
+                                bufferToResultParam, alias.toSlot());
                     } else {
                         return outputChild;
                     }
@@ -485,14 +524,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
         }
 
-        PhysicalHashAggregate<? extends Plan> gatherOrHashGlobalAgg = new PhysicalHashAggregate<>(
+        PhysicalHashAggregate<Plan> gatherOrHashGlobalAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), globalOutput, Optional.of(logicalAgg.getGroupByExpressions()),
                 bufferToResultParam, false, logicalAgg.getLogicalProperties(),
                 globalAggRequest, anyLocalAgg);
         return gatherOrHashGlobalAgg;
     }
 
-    private boolean useStreamAgg(ConnectContext connectContext, Collection<? extends Expression> groupByExpressions) {
+    private boolean maybeUsingStreamAgg(
+            ConnectContext connectContext, Collection<? extends Expression> groupByExpressions) {
         return !connectContext.getSessionVariable().disableStreamPreaggregations
                 && !groupByExpressions.isEmpty();
     }
@@ -506,5 +546,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 "group by and arguments of aggregate function should be slot: " + logicalAggregate);
 
         return partitionExpressions;
+    }
+
+    private AggregateFunction tryConvertToMultiDistinct(AggregateFunction function) {
+        if (function instanceof Count && function.isDistinct()) {
+            return new MultiDistinctCount(function.getArgument(0),
+                    function.getArguments().subList(1, function.arity()).toArray(new Expression[0]));
+        } else if (function instanceof Sum && function.isDistinct()) {
+            return new MultiDistinctSum(function.getArgument(0));
+        }
+        return function;
     }
 }

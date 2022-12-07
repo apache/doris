@@ -262,10 +262,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!aggregate.getAggMode().isFinalPhase) {
             aggregationNode.unsetNeedsFinalize();
         }
+        PhysicalHashAggregate firstAggregateInFragment = context.getFirstAggregateInFragment(currentFragment);
+
         switch (aggregate.getAggPhase()) {
             case LOCAL:
-                aggregationNode.setUseStreamingPreagg(aggregate.isUsingStream());
-                aggregationNode.setIntermediateTuple();
+                if (firstAggregateInFragment == null) {
+                    aggregationNode.setUseStreamingPreagg(aggregate.isMaybeUsingStream());
+                    aggregationNode.setIntermediateTuple();
+                }
                 break;
             case DISTINCT_LOCAL:
                 aggregationNode.setIntermediateTuple();
@@ -275,6 +279,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 break;
             default:
                 throw new RuntimeException("Unsupported yet");
+        }
+        if (firstAggregateInFragment == null) {
+            context.setFirstAggregateInFragment(currentFragment, aggregate);
         }
         currentFragment.setPlanRoot(aggregationNode);
         if (aggregate.getStats() != null) {

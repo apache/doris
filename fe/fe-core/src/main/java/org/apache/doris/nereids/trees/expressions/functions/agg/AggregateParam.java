@@ -35,7 +35,7 @@ public class AggregateParam {
         this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
     }
 
-    public static AggregateParam localGather() {
+    public static AggregateParam localResult() {
         return new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
     }
 

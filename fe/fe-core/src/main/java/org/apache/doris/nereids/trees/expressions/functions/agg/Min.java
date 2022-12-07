@@ -37,8 +37,8 @@ public class Min extends AggregateFunction implements UnaryExpression, Propagate
         super("min", child);
     }
 
-    public Min(boolean isDistinct, Expression... arguments) {
-        super("min", false, arguments);
+    public Min(boolean isDistinct, Expression arg) {
+        super("min", false, arg);
     }
 
     @Override
@@ -50,6 +50,12 @@ public class Min extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(getDataType());
+    }
+
+    @Override
+    public Min withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Min(isDistinct, children.get(0));
     }
 
     @Override

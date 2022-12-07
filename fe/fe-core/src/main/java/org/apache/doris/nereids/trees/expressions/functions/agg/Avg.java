@@ -62,6 +62,12 @@ public class Avg extends AggregateFunction implements UnaryExpression, Propagate
     }
 
     @Override
+    public AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Avg(isDistinct, children.get(0));
+    }
+
+    @Override
     public Avg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new Avg(isDistinct, children.get(0));

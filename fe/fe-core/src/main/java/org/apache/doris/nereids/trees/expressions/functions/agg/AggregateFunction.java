@@ -65,6 +65,8 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         return ImmutableList.of(VarcharType.SYSTEM_DEFAULT);
     }
 
+    public abstract AggregateFunction withDistinctAndChildren(boolean isDistinct, List<Expression> children);
+
     /** getIntermediateTypes */
     public final PartialAggType getIntermediateTypes() {
         return new PartialAggType(getArguments(), intermediateTypes());

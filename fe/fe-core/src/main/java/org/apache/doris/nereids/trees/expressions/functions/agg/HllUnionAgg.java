@@ -48,6 +48,11 @@ public class HllUnionAgg extends AggregateFunction
     }
 
     @Override
+    public HllUnionAgg withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
+    }
+
+    @Override
     public HllUnionAgg withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new HllUnionAgg(children.get(0));

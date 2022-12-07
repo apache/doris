@@ -36,8 +36,8 @@ public class Max extends AggregateFunction implements UnaryExpression, Propagate
         super("max", child);
     }
 
-    public Max(boolean isDistinct, Expression... arguments) {
-        super("max", false, arguments);
+    public Max(boolean isDistinct, Expression arg) {
+        super("max", false, arg);
     }
 
     @Override
@@ -49,6 +49,12 @@ public class Max extends AggregateFunction implements UnaryExpression, Propagate
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(getDataType());
+    }
+
+    @Override
+    public Max withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Max(isDistinct, children.get(0));
     }
 
     @Override

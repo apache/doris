@@ -47,6 +47,11 @@ public class GroupBitmapXor extends AggregateFunction
     }
 
     @Override
+    public GroupBitmapXor withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
+    }
+
+    @Override
     public GroupBitmapXor withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new GroupBitmapXor(children.get(0));

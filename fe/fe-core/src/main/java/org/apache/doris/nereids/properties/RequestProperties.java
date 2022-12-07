@@ -62,6 +62,14 @@ public class RequestProperties {
         return new RequestPropertiesTree(this, ImmutableList.copyOf(children));
     }
 
+    public boolean isFollowParentProperties() {
+        return followParentProperties;
+    }
+
+    public List<PhysicalProperties> getProperties() {
+        return properties;
+    }
+
     /** computeRequestPhysicalProperties */
     public List<PhysicalProperties> computeRequestPhysicalProperties(
             Plan currentPlan, PhysicalProperties parentRequest) {

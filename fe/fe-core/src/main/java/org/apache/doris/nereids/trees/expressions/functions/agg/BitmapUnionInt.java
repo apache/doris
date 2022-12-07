@@ -54,6 +54,11 @@ public class BitmapUnionInt extends AggregateFunction
     }
 
     @Override
+    public BitmapUnionInt withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
+    }
+
+    @Override
     public BitmapUnionInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new BitmapUnionInt(children.get(0));

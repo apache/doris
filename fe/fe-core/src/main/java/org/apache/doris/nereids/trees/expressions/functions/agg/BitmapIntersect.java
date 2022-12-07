@@ -47,6 +47,11 @@ public class BitmapIntersect extends AggregateFunction
     }
 
     @Override
+    public BitmapIntersect withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+        return withChildren(children);
+    }
+
+    @Override
     public BitmapIntersect withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new BitmapIntersect(children.get(0));
