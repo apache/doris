@@ -842,7 +842,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         }
     }
 
-    if (eos) {
+    if (eos || !_should_build_hash_table) {
         _process_hashtable_ctx_variants_init(state);
     }
     return Status::OK();
