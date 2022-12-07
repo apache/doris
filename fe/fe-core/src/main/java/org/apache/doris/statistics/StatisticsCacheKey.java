@@ -25,16 +25,22 @@ public class StatisticsCacheKey {
      * May be index id either, since they are natively same in the code.
      */
     public final long tableId;
+    public final long idxId;
     public final String colName;
 
     public StatisticsCacheKey(long tableId, String colName) {
+        this(tableId, -1, colName);
+    }
+
+    public StatisticsCacheKey(long tableId, long idxId, String colName) {
         this.tableId = tableId;
+        this.idxId = idxId;
         this.colName = colName;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(tableId, colName);
+        return Objects.hash(tableId, idxId, colName);
     }
 
     @Override
@@ -46,6 +52,6 @@ public class StatisticsCacheKey {
             return false;
         }
         StatisticsCacheKey k = (StatisticsCacheKey) obj;
-        return this.tableId == k.tableId && this.colName.equals(k.colName);
+        return this.tableId == k.tableId && this.idxId == k.idxId && this.colName.equals(k.colName);
     }
 }

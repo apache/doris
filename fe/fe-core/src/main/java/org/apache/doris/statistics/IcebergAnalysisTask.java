@@ -50,7 +50,7 @@ public class IcebergAnalysisTask extends HMSAnalysisTask {
 
     private static final String INSERT_TABLE_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '${colId}', NULL, "
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', NULL, "
             + "${numRows}, 0, ${nulls}, '0', '0', ${dataSize}, '${update_time}')";
 
 
