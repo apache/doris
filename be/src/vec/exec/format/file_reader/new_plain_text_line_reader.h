@@ -22,7 +22,7 @@
 
 namespace doris {
 namespace io {
-    class FileReader;
+class FileReader;
 }
 
 class Decompressor;
@@ -31,8 +31,9 @@ class Status;
 class NewPlainTextLineReader : public LineReader {
 public:
     NewPlainTextLineReader(RuntimeProfile* profile, io::FileReader* file_reader,
-                        Decompressor* decompressor, size_t length,
-                        const std::string& line_delimiter, size_t line_delimiter_length, size_t current_offset);
+                           Decompressor* decompressor, size_t length,
+                           const std::string& line_delimiter, size_t line_delimiter_length,
+                           size_t current_offset);
 
     ~NewPlainTextLineReader() override;
 
@@ -97,4 +98,3 @@ private:
     RuntimeProfile::Counter* _decompress_timer;
 };
 } // namespace doris
-

@@ -24,7 +24,7 @@
 
 namespace doris {
 namespace io {
-    class FileSystem;
+class FileSystem;
 }
 
 class ExecEnv;
@@ -67,7 +67,8 @@ public:
      * If buffer_size > 0, use BufferedReader to wrap the underlying FileReader;
      * Otherwise, return the underlying FileReader directly.
      */
-    static Status create_file_reader(RuntimeProfile* profile, const FileSystemProperties& system_properties,
+    static Status create_file_reader(RuntimeProfile* profile,
+                                     const FileSystemProperties& system_properties,
                                      const FileDescription& file_description,
                                      std::unique_ptr<io::FileSystem>* file_system,
                                      io::FileReaderSPtr* file_reader);
@@ -78,16 +79,16 @@ public:
 
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
-            case TStorageBackendType::LOCAL:
-                return TFileType::FILE_LOCAL;
-            case TStorageBackendType::S3:
-                return TFileType::FILE_S3;
-            case TStorageBackendType::BROKER:
-                return TFileType::FILE_BROKER;
-            case TStorageBackendType::HDFS:
-                return TFileType::FILE_HDFS;
-            default:
-                LOG(FATAL) << "not match type to convert, from type:" << type;
+        case TStorageBackendType::LOCAL:
+            return TFileType::FILE_LOCAL;
+        case TStorageBackendType::S3:
+            return TFileType::FILE_S3;
+        case TStorageBackendType::BROKER:
+            return TFileType::FILE_BROKER;
+        case TStorageBackendType::HDFS:
+            return TFileType::FILE_HDFS;
+        default:
+            LOG(FATAL) << "not match type to convert, from type:" << type;
         }
         __builtin_unreachable();
     }

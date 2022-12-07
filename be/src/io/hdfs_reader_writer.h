@@ -46,7 +46,6 @@ public:
                                 const std::string& path, std::unique_ptr<FileWriter>& writer);
 
     static Status create_new_reader(const THdfsParams& hdfs_params, const std::string& path,
-                                    io::FileSystem** hdfs_file_system,
-                                    io::FileReaderSPtr* reader);
+                                    io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader);
 };
 } // namespace doris

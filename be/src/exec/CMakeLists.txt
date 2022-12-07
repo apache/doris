@@ -54,7 +54,6 @@ set(EXEC_FILES
     tablet_sink.cpp
     plain_binary_line_reader.cpp
     plain_text_line_reader.cpp
-    new_plain_text_line_reader.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
     table_function_node.cpp

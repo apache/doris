@@ -20,8 +20,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <hdfs/hdfs.h>
 
-#include <memory>
-
 #include "common/status.h"
 #include "io/fs/remote_file_system.h"
 #include "io/hdfs_file_reader.h"

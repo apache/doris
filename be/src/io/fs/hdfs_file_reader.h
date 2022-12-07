@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <memory>
-
 #include "io/fs/file_reader.h"
 #include "io/fs/hdfs_file_system.h"
 namespace doris {
