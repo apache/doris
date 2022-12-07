@@ -462,7 +462,8 @@ void HashJoinNode::prepare_for_next() {
     _prepare_probe_block();
 }
 
-Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
+                          bool* eos) {
     if (_short_circuit_for_null_in_probe_side) {
         // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
         // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
@@ -550,7 +551,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     return Status::OK();
 }
 
-Status HashJoinNode::push(RuntimeState* state, vectorized::Block* input_block, bool eos) {
+Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool /*eos*/) {
     COUNTER_UPDATE(_probe_rows_counter, _probe_block.rows());
     int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
     _probe_columns.resize(probe_expr_ctxs_sz);
@@ -685,7 +686,9 @@ void HashJoinNode::release_resource(RuntimeState* state) {
     VExpr::close(_build_expr_ctxs, state);
     VExpr::close(_probe_expr_ctxs, state);
 
-    if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
+    if (_vother_join_conjunct_ptr) {
+        (*_vother_join_conjunct_ptr)->close(state);
+    }
     _release_mem();
     VJoinNodeBase::release_resource(state);
 }

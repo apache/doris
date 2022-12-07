@@ -205,8 +205,8 @@ public:
     void add_hash_buckets_info(const std::string& info);
     void add_hash_buckets_filled_info(const std::string& info);
 
-    virtual Status alloc_resource(RuntimeState* state) override;
-    virtual void release_resource(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     bool need_more_input_data();
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
