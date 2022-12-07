@@ -26,9 +26,17 @@ under the License.
 
 ## ARRAY
 
+### name
+
+<version since="1.2.0">
+
+ARRAY
+
+</version>
+
 ### description
 
-`ARRAY<T>`
+`ARRAY\<T\>`
 
 由T类型元素组成的数组，不能作为key列使用。目前支持在Duplicate模型的表中使用。
 

@@ -300,6 +300,10 @@ public:
         return result;
     }
 
+    size_t dict_size() const { return _dict.size(); }
+
+    std::string dict_debug_string() const { return _dict.debug_string(); }
+
     class Dictionary {
     public:
         Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {};
@@ -435,6 +439,27 @@ public:
         bool empty() { return _dict_data->empty(); }
 
         size_t avg_str_len() { return empty() ? 0 : _total_str_len / _dict_data->size(); }
+
+        size_t size() const {
+            if (!_dict_data) {
+                return 0;
+            }
+            return _dict_data->size();
+        }
+
+        std::string debug_string() const {
+            std::string str = "[";
+            if (_dict_data) {
+                for (size_t i = 0; i < _dict_data->size(); i++) {
+                    if (i) {
+                        str += ',';
+                    }
+                    str += (*_dict_data)[i].to_string();
+                }
+            }
+            str += ']';
+            return str;
+        }
 
     private:
         StringValue _null_value = StringValue();

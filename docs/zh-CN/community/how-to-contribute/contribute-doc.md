@@ -24,8 +24,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-
-
 # Doris 文档贡献
 
 这里我们主要介绍 Doris 的文档怎么修改和贡献，
@@ -310,6 +308,70 @@ under the License.
 4. 图片
 
    所有图片都在 `static/images `目录下面
+
+## 如何编写命令帮助手册
+
+命令帮助手册文档，是指在 `docs/sql-manual` 下的文档。这些文档用于两个地方：
+
+1. 官网文档展示。
+2. HELP 命令的输出。
+
+为了支持 HELP 命令输出，这些文档需要严格按照以下格式排版编写，否则无法通过准入检查。
+
+以 `SHOW ALTER` 命令示例如下：
+
+```
+---
+{
+    "title": "SHOW-ALTER",
+    "language": "zh-CN"
+}
+---
+
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+## SHOW-ALTER
+
+### Nameo
+
+SHOW ALTER
+
+### Description
+
+（描述命令语法。）
+
+### Example
+
+（提供命令示例。）
+
+### Keywords
+
+SHOW, ALTER
+
+### Best Practice
+
+（最佳实践（如有））
+
+```
+
+注意，不论中文还是英文文档，以上标题都是用英文，并且注意标题的层级。
 
 ## 文档多版本
 

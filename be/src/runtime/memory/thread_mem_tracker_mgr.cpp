@@ -17,6 +17,9 @@
 
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 
+#include <chrono>
+#include <thread>
+
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "service/backend_options.h"
@@ -27,36 +30,48 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
         const TUniqueId& fragment_instance_id) {
     DCHECK(mem_tracker);
-    flush_untracked_mem<false>();
+    flush_untracked_mem<false, true>();
     _fragment_instance_id = fragment_instance_id;
     _limiter_tracker = mem_tracker;
     _limiter_tracker_raw = mem_tracker.get();
+    _check_limit = true;
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
-    flush_untracked_mem<false>();
+    flush_untracked_mem<false, true>();
     _fragment_instance_id = TUniqueId();
     _limiter_tracker = old_mem_tracker;
     _limiter_tracker_raw = old_mem_tracker.get();
 }
 
-void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
-    if (_fragment_instance_id != TUniqueId()) {
-        ExecEnv::GetInstance()->fragment_mgr()->cancel(
-                _fragment_instance_id, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
-                cancel_details);
-    }
+void ThreadMemTrackerMgr::cancel_fragment() {
+    ExecEnv::GetInstance()->fragment_mgr()->cancel(_fragment_instance_id,
+                                                   PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
+                                                   _exceed_mem_limit_msg);
+    _check_limit = false; // Make sure it will only be canceled once
 }
 
-void ThreadMemTrackerMgr::exceeded() {
+void ThreadMemTrackerMgr::exceeded(int64_t size) {
     if (_cb_func != nullptr) {
         _cb_func();
     }
+    _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
+
     if (is_attach_query()) {
-        exceeded_cancel_task(_exceed_mem_limit_msg);
+        if (_is_process_exceed && _wait_gc) {
+            int64_t wait_milliseconds = config::thread_wait_gc_max_milliseconds;
+            while (wait_milliseconds > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Check every 100 ms.
+                if (!MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
+                    MemInfo::refresh_interval_memory_growth += size;
+                    return; // Process memory is sufficient, no cancel query.
+                }
+                wait_milliseconds -= 100;
+            }
+        }
+        cancel_fragment();
     }
-    _check_limit = false; // Make sure it will only be canceled once
 }
 
 } // namespace doris

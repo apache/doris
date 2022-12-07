@@ -55,7 +55,7 @@ public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSuppo
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "((d_year = 1997) OR (d_year = 1998))",
+                        "d_year IN (1997, 1998)",
                         "(c_region = 'AMERICA')",
                         "(s_region = 'AMERICA')",
                         "((p_mfgr = 'MFGR#1') OR (p_mfgr = 'MFGR#2'))"
@@ -74,7 +74,7 @@ public class SSBJoinReorderTest extends SSBTestBase implements PatternMatchSuppo
                         "(lo_partkey = p_partkey)"
                 ),
                 ImmutableList.of(
-                        "((d_year = 1997) OR (d_year = 1998))",
+                        "d_year IN (1997, 1998)",
                         "(s_nation = 'UNITED STATES')",
                         "(p_category = 'MFGR#14')"
                 )

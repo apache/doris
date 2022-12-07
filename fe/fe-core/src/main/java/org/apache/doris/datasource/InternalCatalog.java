@@ -1218,7 +1218,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
-                    typeDef = new TypeDef(ScalarType.createDecimalType(resultType.getPrecision(),
+                    typeDef = new TypeDef(ScalarType.createDecimalV3Type(resultType.getPrecision(),
                             ((ScalarType) resultType).getScalarScale()));
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
@@ -1925,15 +1925,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 false);
         olapTable.setIsInMemory(isInMemory);
 
-        // set remote storage
-        String remoteStoragePolicy = PropertyAnalyzer.analyzeRemoteStoragePolicy(properties);
-        olapTable.setRemoteStoragePolicy(remoteStoragePolicy);
-
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
-
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
-
         olapTable.setStoragePolicy(storagePolicy);
 
         TTabletType tabletType;
@@ -2640,7 +2634,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Partition oldPartition = olapTable.replacePartition(newPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
-                index.getTablets().stream().forEach(t -> {
+                index.getTablets().forEach(t -> {
                     oldTabletIds.add(t.getId());
                 });
             }

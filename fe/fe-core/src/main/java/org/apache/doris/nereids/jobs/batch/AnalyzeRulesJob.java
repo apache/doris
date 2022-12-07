@@ -21,7 +21,9 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.analysis.BindFunction;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindSlotReference;
+import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
@@ -46,18 +48,23 @@ public class AnalyzeRulesJob extends BatchRulesJob {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
                 bottomUpBatch(ImmutableList.of(
-                        new RegisterCTE()
+                    new RegisterCTE()
                 )),
                 bottomUpBatch(ImmutableList.of(
-                        new BindRelation(),
-                        new UserAuthentication(),
-                        new BindSlotReference(scope),
-                        new BindFunction(),
-                        new ProjectToGlobalAggregate(),
-                        new ReplaceExpressionByChildOutput()
+                    new BindRelation(),
+                    new CheckPolicy(),
+                    new UserAuthentication(),
+                    new BindSlotReference(scope),
+                    new BindFunction(),
+                    new ProjectToGlobalAggregate(),
+                    new ReplaceExpressionByChildOutput()
                 )),
                 topDownBatch(ImmutableList.of(
-                        new FillUpMissingSlots()
+                    new FillUpMissingSlots(),
+                    // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
+                    // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
+                    // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
+                    new NormalizeRepeat()
                 ))
         ));
     }

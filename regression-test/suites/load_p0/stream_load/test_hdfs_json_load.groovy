@@ -47,7 +47,7 @@ suite("test_hdfs_json_load", "p0") {
         // should be delete after new_load_scan is ready
         sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "${new_json_reader_flag}");"""
         
-        def hdfsFilePath = "${fsPath}/user/doris/json_format_test/${fileName}"
+        def hdfsFilePath = "${fsPath}/user/doris/preinstalled_data/json_format_test/${fileName}"
         def result1= sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
@@ -82,18 +82,18 @@ suite("test_hdfs_json_load", "p0") {
     }
 
     def check_load_result = {checklabel, testTablex ->
-        max_try_milli_secs = 10000
+        def max_try_milli_secs = 30000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
-                log.info("LOAD FINISHED!")
+                log.info("LOAD FINISHED: ${checklabel}")
                 break
             } else {
                 sleep(1000) // wait 1 second every time
                 max_try_milli_secs -= 1000
                 if(max_try_milli_secs <= 0) {
                     log.info("Broker load result: ${result}".toString())
-                    assertEquals(1, 2)
+                    assertEquals(1 == 2, "load timeout: ${checklabel}")
                 }
             }
         }

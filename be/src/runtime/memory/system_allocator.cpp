@@ -46,7 +46,7 @@ uint8_t* SystemAllocator::allocate_via_malloc(size_t length) {
         auto err = fmt::format("fail to allocate mem via posix_memalign, res={}, errmsg={}.", res,
                                strerror_r(res, buf, 64));
         LOG(ERROR) << err;
-        if (enable_thread_cache_bad_alloc) throw std::bad_alloc {};
+        if (enable_thread_catch_bad_alloc) throw std::bad_alloc {};
         MemTrackerLimiter::print_log_process_usage(err);
         return nullptr;
     }

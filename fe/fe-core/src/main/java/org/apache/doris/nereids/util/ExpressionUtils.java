@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -31,8 +36,10 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -123,6 +130,14 @@ public class ExpressionUtils {
 
     public static Expression and(Expression... expressions) {
         return combine(And.class, Lists.newArrayList(expressions));
+    }
+
+    public static Optional<Expression> optionalOr(List<Expression> expressions) {
+        if (expressions.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(ExpressionUtils.or(expressions));
+        }
     }
 
     public static Expression or(Expression... expressions) {
@@ -293,6 +308,10 @@ public class ExpressionUtils {
         return children.stream().allMatch(c -> c instanceof Literal);
     }
 
+    public static boolean matchNumericType(List<Expression> children) {
+        return children.stream().allMatch(c -> c.getDataType().isNumericType());
+    }
+
     public static boolean hasNullLiteral(List<Expression> children) {
         return children.stream().anyMatch(c -> c instanceof NullLiteral);
     }
@@ -313,5 +332,78 @@ public class ExpressionUtils {
         }
         return coveredPredicates;
     }
-}
 
+    public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {
+        return expressions.stream()
+                .flatMap(List::stream)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    public static boolean anyMatch(List<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .anyMatch(expr -> expr.anyMatch(predicate));
+    }
+
+    public static <E> Set<E> collect(List<? extends Expression> expressions,
+            Predicate<TreeNode<Expression>> predicate) {
+        return expressions.stream()
+                .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public static List<List<Expression>> rollupToGroupingSets(List<Expression> rollupExpressions) {
+        List<List<Expression>> groupingSets = Lists.newArrayList();
+        for (int end = rollupExpressions.size(); end >= 0; --end) {
+            groupingSets.add(rollupExpressions.subList(0, end));
+        }
+        return groupingSets;
+    }
+
+    /**
+     * check and maybe commute for predications except not pred.
+     */
+    public static Optional<Expression> checkAndMaybeCommute(Expression expression) {
+        if (expression instanceof Not) {
+            return Optional.empty();
+        }
+        if (expression instanceof InPredicate) {
+            InPredicate predicate = ((InPredicate) expression);
+            if (!predicate.getCompareExpr().isSlot()) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(predicate.getOptions().stream()
+                    .allMatch(Expression::isLiteral) ? expression : null);
+        } else if (expression instanceof ComparisonPredicate) {
+            ComparisonPredicate predicate = ((ComparisonPredicate) expression);
+            if (predicate.left() instanceof Literal) {
+                predicate = predicate.commute();
+            }
+            return Optional.ofNullable(predicate.left().isSlot() && predicate.right().isLiteral() ? predicate : null);
+        } else if (expression instanceof IsNull) {
+            return Optional.ofNullable(((IsNull) expression).child().isSlot() ? expression : null);
+        }
+        return Optional.empty();
+    }
+
+    public static List<List<Expression>> cubeToGroupingSets(List<Expression> cubeExpressions) {
+        List<List<Expression>> groupingSets = Lists.newArrayList();
+        cubeToGroupingSets(cubeExpressions, 0, Lists.newArrayList(), groupingSets);
+        return groupingSets;
+    }
+
+    private static void cubeToGroupingSets(List<Expression> cubeExpressions, int activeIndex,
+            List<Expression> currentGroupingSet, List<List<Expression>> groupingSets) {
+        if (activeIndex == cubeExpressions.size()) {
+            groupingSets.add(currentGroupingSet);
+            return;
+        }
+
+        // use current expression
+        List<Expression> newCurrentGroupingSet = Lists.newArrayList(currentGroupingSet);
+        newCurrentGroupingSet.add(cubeExpressions.get(activeIndex));
+        cubeToGroupingSets(cubeExpressions, activeIndex + 1, newCurrentGroupingSet, groupingSets);
+
+        // skip current expression
+        cubeToGroupingSets(cubeExpressions, activeIndex + 1, currentGroupingSet, groupingSets);
+    }
+}

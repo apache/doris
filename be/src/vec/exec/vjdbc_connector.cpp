@@ -113,15 +113,25 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         std::string local_location;
         std::hash<std::string> hash_str;
         auto function_cache = UserFunctionCache::instance();
-        RETURN_IF_ERROR(function_cache->get_jarpath(
-                std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
-                _conn_param.driver_checksum, &local_location));
+        if (_conn_param.resource_name.empty()) {
+            // for jdbcExternalTable, _conn_param.resource_name == ""
+            // so, we use _conn_param.driver_path as key of jarpath
+            RETURN_IF_ERROR(function_cache->get_jarpath(
+                    std::abs((int64_t)hash_str(_conn_param.driver_path)), _conn_param.driver_path,
+                    _conn_param.driver_checksum, &local_location));
+        } else {
+            RETURN_IF_ERROR(function_cache->get_jarpath(
+                    std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
+                    _conn_param.driver_checksum, &local_location));
+        }
+
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
+        ctor_params.__set_driver_path(local_location);
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
 
@@ -308,8 +318,8 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
         std::string data = _jobject_to_string(env, jobj);
         DecimalV2Value decimal_slot;
         decimal_slot.parse_from_str(data.c_str(), data.length());
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
-                decimal_slot.value());
+        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+                const_cast<const char*>(reinterpret_cast<char*>(&decimal_slot)), 0);
         break;
     }
     case TYPE_DECIMAL32: {
@@ -335,7 +345,7 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     case TYPE_DECIMAL128I: {
         std::string data = _jobject_to_string(env, jobj);
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        const Int128I decimal_slot = StringParser::string_to_decimal<Int128I>(
+        const Int128 decimal_slot = StringParser::string_to_decimal<Int128>(
                 data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
                 &result);
         reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(

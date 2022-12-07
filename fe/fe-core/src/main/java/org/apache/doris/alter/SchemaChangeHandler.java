@@ -1712,9 +1712,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
                         Env.getCurrentEnv().modifyTableReplicaAllocation(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY)) {
-                        olapTable.setRemoteStoragePolicy(
-                                properties.get(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY));
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
+                        olapTable.setStoragePolicy(properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
                         return;
                     }
                 }

@@ -282,6 +282,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 }
 
 Status SegmentIterator::_get_row_ranges_by_column_conditions() {
+    SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_ns);
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }
@@ -524,6 +525,34 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
         return status;
     }
     *rowid = index_iterator->get_current_ordinal();
+
+    // The sequence column needs to be removed from primary key index when comparing key
+    bool has_seq_col = _segment->_tablet_schema->has_sequence_col();
+    if (has_seq_col) {
+        size_t seq_col_length =
+                _segment->_tablet_schema->column(_segment->_tablet_schema->sequence_col_idx())
+                        .length() +
+                1;
+        MemPool pool;
+        size_t num_to_read = 1;
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        RETURN_IF_ERROR(ColumnVectorBatch::create(
+                num_to_read, false, _segment->_pk_index_reader->type_info(), nullptr, &cvb));
+        ColumnBlock block(cvb.get(), &pool);
+        ColumnBlockView column_block_view(&block);
+        size_t num_read = num_to_read;
+        RETURN_IF_ERROR(index_iterator->next_batch(&num_read, &column_block_view));
+        DCHECK(num_to_read == num_read);
+
+        const Slice* sought_key = reinterpret_cast<const Slice*>(cvb->cell_ptr(0));
+        Slice sought_key_without_seq =
+                Slice(sought_key->get_data(), sought_key->get_size() - seq_col_length);
+
+        // compare key
+        if (Slice(index_key).compare(sought_key_without_seq) == 0) {
+            exact_match = true;
+        }
+    }
 
     // find the key in primary key index, and the is_include is false, so move
     // to the next row.
@@ -1085,6 +1114,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             if (_is_pred_column[cid]) {
                 _current_return_columns[cid] =
                         Schema::get_predicate_column_nullable_ptr(*column_desc);
+                _current_return_columns[cid]->set_rowset_segment_id(
+                        {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
@@ -1231,7 +1262,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
         ColumnPredicate* predicate) {
     auto& column = _current_return_columns[predicate->column_id()];
     auto* col_ptr = column.get();
-    column->set_rowset_segment_id({_segment->rowset_id(), _segment->id()});
 
     if (PredicateTypeTraits::is_range(predicate->type())) {
         col_ptr->convert_dict_codes_if_necessary();

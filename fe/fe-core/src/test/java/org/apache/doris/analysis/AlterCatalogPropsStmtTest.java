@@ -56,8 +56,8 @@ public class AlterCatalogPropsStmtTest {
         props.put("hive.metastore.uris", "thrift://localhost:9083");
         AlterCatalogPropertyStmt stmt = new AlterCatalogPropertyStmt("testCatalog", props);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCatalog",  stmt.getCatalogName());
-        Assert.assertEquals(2,  stmt.getNewProperties().size());
+        Assert.assertEquals("testCatalog", stmt.getCatalogName());
+        Assert.assertEquals(2, stmt.getNewProperties().size());
     }
 
     @Test(expected = AnalysisException.class)

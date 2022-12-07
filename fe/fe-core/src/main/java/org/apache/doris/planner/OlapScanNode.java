@@ -484,15 +484,12 @@ public class OlapScanNode extends ScanNode {
      * Remove the method after statistics collection is working properly
      */
     public void mockRowCountInStatistic() {
-        long tableId = desc.getTable().getId();
         cardinality = 0;
         for (long selectedPartitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(selectedPartitionId);
             final MaterializedIndex baseIndex = partition.getBaseIndex();
             cardinality += baseIndex.getRowCount();
         }
-        Env.getCurrentEnv().getStatisticsManager()
-                .getStatistics().mockTableStatsWithRowCount(tableId, cardinality);
     }
 
     @Override
@@ -944,7 +941,7 @@ public class OlapScanNode extends ScanNode {
         output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
-            output.append("\n").append(prefix).append(String.format("cardinality=%s", cardinality));
+            output.append("\n").append(prefix).append(String.format("cardinality=%,d", cardinality));
             if (!runtimeFilters.isEmpty()) {
                 output.append("\n").append(prefix).append("Apply RFs: ");
                 output.append(getRuntimeFilterExplainString(false, true));
@@ -1175,7 +1172,8 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void filterDeletedRows(Analyzer analyzer) throws AnalysisException {
-        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign()) {
+        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign() && !ConnectContext.get().getSessionVariable()
+                .skipDeleteSign()) {
             SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
             deleteSignSlot.analyze(analyzer);
             deleteSignSlot.getDesc().setIsMaterialized(true);

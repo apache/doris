@@ -50,23 +50,23 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.ANALYZE_FILTER_SUBQUERY.build(
-                        logicalFilter().thenApply(ctx -> {
-                            LogicalFilter filter = ctx.root;
-                            Set<SubqueryExpr> subqueryExprs = filter.getPredicates()
-                                    .collect(SubqueryExpr.class::isInstance);
-                            if (subqueryExprs.isEmpty()) {
-                                return filter;
-                            }
+            RuleType.ANALYZE_FILTER_SUBQUERY.build(
+                logicalFilter().thenApply(ctx -> {
+                    LogicalFilter filter = ctx.root;
+                    Set<SubqueryExpr> subqueryExprs = filter.getPredicates()
+                            .collect(SubqueryExpr.class::isInstance);
+                    if (subqueryExprs.isEmpty()) {
+                        return filter;
+                    }
 
-                            // first step: Replace the subquery of predicate in LogicalFilter
-                            // second step: Replace subquery with LogicalApply
-                            return new LogicalFilter<>(new ReplaceSubquery().replace(filter.getPredicates()),
-                                    analyzedSubquery(
-                                    subqueryExprs, (LogicalPlan) filter.child(), ctx.cascadesContext
-                            ));
-                        })
-                )
+                    // first step: Replace the subquery of predicate in LogicalFilter
+                    // second step: Replace subquery with LogicalApply
+                    return new LogicalFilter<>(new ReplaceSubquery().replace(filter.getPredicates()),
+                            analyzedSubquery(
+                            subqueryExprs, (LogicalPlan) filter.child(), ctx.cascadesContext
+                    ));
+                })
+            )
         );
     }
 

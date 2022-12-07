@@ -130,6 +130,10 @@ private:
             set.clear();
             size_t null_size = 0;
             for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
+                if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
+                    // ignore duplicated nulls
+                    continue;
+                }
                 if (src_null_map && (*src_null_map)[j]) {
                     DCHECK(dest_null_map != nullptr);
                     (*dest_null_map).push_back(true);
@@ -180,6 +184,10 @@ private:
             set.clear();
             size_t null_size = 0;
             for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
+                if (null_size != 0 && src_null_map && (*src_null_map)[j]) {
+                    // ignore duplicated nulls
+                    continue;
+                }
                 if (src_null_map && (*src_null_map)[j]) {
                     DCHECK(dest_null_map != nullptr);
                     // Note: here we need to update the offset of ColumnString

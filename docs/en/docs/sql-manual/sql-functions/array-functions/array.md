@@ -1,6 +1,6 @@
 ---
 {
-    "title": "array constructor",
+    "title": "array",
     "language": "en"
 }
 ---
@@ -23,6 +23,12 @@ under the License.
 -->
 
 ## array()
+
+<version since="1.2.0">
+
+array()
+
+</version>
 
 ### description
 
@@ -82,3 +88,4 @@ mysql>  select array(qid, creationDate, null) from nested  limit 4;
 ### keywords
 
 ARRAY,ARRAY,CONSTRUCTOR
+

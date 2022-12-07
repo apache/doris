@@ -19,15 +19,22 @@ package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 import java.util.List;
 
 /**
  * Common interface for logical/physical Aggregate.
  */
-public interface Aggregate {
+public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE> {
 
     List<Expression> getGroupByExpressions();
 
     List<NamedExpression> getOutputExpressions();
+
+    Aggregate withAggOutput(List<NamedExpression> newOutput);
+
+    @Override
+    Aggregate<Plan> withChildren(List<Plan> children);
 }

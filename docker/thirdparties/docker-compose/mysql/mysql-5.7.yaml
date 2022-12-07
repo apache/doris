@@ -25,6 +25,8 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: 123456
       MYSQL_DATABASE: init_db
+      # set terminal charset
+      LANG: C.UTF-8
     ports:
       - ${DOCKER_MYSQL_57_EXTERNAL_PORT}:3306
     healthcheck:

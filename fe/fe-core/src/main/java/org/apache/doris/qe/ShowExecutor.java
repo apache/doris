@@ -85,7 +85,6 @@ import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
-import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
@@ -179,7 +178,6 @@ import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -360,8 +358,6 @@ public class ShowExecutor {
             handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
             handleShowSqlBlockRule();
-        } else if (stmt instanceof ShowTableStatsStmt) {
-            handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof ShowTableCreationStmt) {
@@ -2141,12 +2137,6 @@ public class ShowExecutor {
 
     }
 
-    private void handleShowTableStats() throws AnalysisException {
-        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
-        List<List<String>> results = Env.getCurrentEnv().getStatisticsManager().showTableStatsList(showTableStatsStmt);
-        resultSet = new ShowResultSet(showTableStatsStmt.getMetaData(), results);
-    }
-
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
@@ -2167,7 +2157,7 @@ public class ShowExecutor {
                 columnStatistics.add(Pair.of(column.getName(), columnStatistic));
             } else {
                 columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                        colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
                         .stream().map(s -> Pair.of(colName, s))
                         .collect(Collectors.toList()));
             }
@@ -2309,14 +2299,11 @@ public class ShowExecutor {
 
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
-        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt);
+        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog().getName());
     }
 
     private void handleShowAnalyze() throws AnalysisException {
-        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
-        List<List<String>> results = jobManager.getAnalyzeJobInfos(showStmt);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        // TODO: Support later
     }
 
     private void handleCopyTablet() throws AnalysisException {

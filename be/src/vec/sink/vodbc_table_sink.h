@@ -33,7 +33,7 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status send(RuntimeState* state, vectorized::Block* block) override;
+    Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
     Status close(RuntimeState* state, Status exec_status) override;
 

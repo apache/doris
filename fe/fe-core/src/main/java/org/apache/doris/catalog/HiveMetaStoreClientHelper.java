@@ -96,6 +96,7 @@ public class HiveMetaStoreClientHelper {
     public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
     public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
     public static final String DLF_TYPE = "dlf";
+    public static final String COMMENT = "comment";
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
 
@@ -835,6 +836,9 @@ public class HiveMetaStoreClientHelper {
                 }
             }
             output.append(")\n");
+            if (remoteTable.getParameters().containsKey(COMMENT)) {
+                output.append(String.format("COMMENT '%s'", remoteTable.getParameters().get(COMMENT))).append("\n");
+            }
             if (remoteTable.getPartitionKeys().size() > 0) {
                 output.append("PARTITIONED BY (\n")
                         .append(remoteTable.getPartitionKeys().stream().map(
@@ -869,7 +873,15 @@ public class HiveMetaStoreClientHelper {
             }
             if (remoteTable.isSetParameters()) {
                 output.append("TBLPROPERTIES (\n");
-                Iterator<Map.Entry<String, String>> params = remoteTable.getParameters().entrySet().iterator();
+                Map<String, String> parameters = Maps.newHashMap();
+                // Copy the parameters to a new Map to keep them unchanged.
+                parameters.putAll(remoteTable.getParameters());
+                if (parameters.containsKey(COMMENT)) {
+                    // Comment is always added to the end of remote table parameters.
+                    // It has already showed above in COMMENT section, so remove it here.
+                    parameters.remove(COMMENT);
+                }
+                Iterator<Map.Entry<String, String>> params = parameters.entrySet().iterator();
                 while (params.hasNext()) {
                     Map.Entry<String, String> param = params.next();
                     output.append(String.format("  '%s'='%s'", param.getKey(), param.getValue()));
@@ -897,8 +909,11 @@ public class HiveMetaStoreClientHelper {
         // 1. region and endpoint. eg: cn-beijing
         String region = hiveConf.get("dlf.catalog.region");
         if (!Strings.isNullOrEmpty(region)) {
+            // See: https://help.aliyun.com/document_detail/31837.html
+            // And add "-internal" to access oss within vpc
+            // TODO: find to way to access oss on public?
             res.put(HiveTable.AWS_REGION, "oss-" + region);
-            res.put(HiveTable.S3_ENDPOINT, "http://oss-" + region + ".aliyuncs.com");
+            res.put(HiveTable.S3_ENDPOINT, "http://oss-" + region + "-internal.aliyuncs.com");
         }
 
         // 2. ak and sk

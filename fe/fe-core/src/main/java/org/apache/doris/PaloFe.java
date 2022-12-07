@@ -39,6 +39,8 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
+import io.grpc.netty.shaded.io.netty.util.internal.logging.InternalLoggerFactory;
+import io.grpc.netty.shaded.io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -56,6 +58,10 @@ import java.nio.channels.OverlappingFileLockException;
 
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
+
+    static {
+        InternalLoggerFactory.setDefaultFactory(Log4JLoggerFactory.INSTANCE);
+    }
 
     public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
     public static final String PID_DIR = System.getenv("PID_DIR");

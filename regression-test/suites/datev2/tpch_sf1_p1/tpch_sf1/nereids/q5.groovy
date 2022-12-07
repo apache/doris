@@ -26,7 +26,8 @@ suite("tpch_sf1_q5_nereids") {
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql 'set exec_mem_limit=17179869184'
+    sql 'set exec_mem_limit=8589934592'
+
 
     qt_select """
     select

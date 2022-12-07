@@ -23,9 +23,11 @@ suite("tpch_sf1_q2_nereids") {
     realDb = realDb.substring(0, realDb.lastIndexOf("_"))
 
     sql "use ${realDb}"
-
+    
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set exec_mem_limit=8589934592'
+
 
     qt_select """
 select

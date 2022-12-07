@@ -57,6 +57,6 @@ FROM
   v2
 WHERE (d_year = 1999)
    AND (avg_monthly_sales > 0)
-   AND ((CASE WHEN (avg_monthly_sales > 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > CAST('0.1' AS DECIMAL))
+   AND ((CASE WHEN (avg_monthly_sales > 0) THEN (abs((sum_sales - avg_monthly_sales)) / avg_monthly_sales) ELSE null END) > 0.1)
 ORDER BY (sum_sales - avg_monthly_sales) ASC, 3 ASC
 LIMIT 100

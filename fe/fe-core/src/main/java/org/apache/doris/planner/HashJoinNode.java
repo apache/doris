@@ -35,7 +35,6 @@ import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -266,38 +265,16 @@ public class HashJoinNode extends JoinNodeBase {
         }
     }
 
-    // output slots + predicate slots = input slots
     @Override
-    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
-        Set<SlotId> result = Sets.newHashSet();
-        Preconditions.checkState(outputSlotIds != null);
-        // step1: change output slot id to src slot id
-        if (vSrcToOutputSMap != null) {
-            for (SlotId slotId : outputSlotIds) {
-                SlotRef slotRef = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
-                Expr srcExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
-                if (srcExpr == null) {
-                    result.add(slotId);
-                } else {
-                    List<SlotRef> srcSlotRefList = Lists.newArrayList();
-                    srcExpr.collect(SlotRef.class, srcSlotRefList);
-                    result.addAll(srcSlotRefList.stream().map(e -> e.getSlotId()).collect(Collectors.toList()));
-                }
-            }
-        }
+    protected List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer) {
         // eq conjunct
-        List<SlotId> eqConjunctSlotIds = Lists.newArrayList();
-        Expr.getIds(eqJoinConjuncts, null, eqConjunctSlotIds);
-        result.addAll(eqConjunctSlotIds);
+        List<SlotId> joinConjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(eqJoinConjuncts, null, joinConjunctSlotIds);
         // other conjunct
         List<SlotId> otherConjunctSlotIds = Lists.newArrayList();
         Expr.getIds(otherJoinConjuncts, null, otherConjunctSlotIds);
-        result.addAll(otherConjunctSlotIds);
-        // conjunct
-        List<SlotId> conjunctSlotIds = Lists.newArrayList();
-        Expr.getIds(conjuncts, null, conjunctSlotIds);
-        result.addAll(conjunctSlotIds);
-        return result;
+        joinConjunctSlotIds.addAll(otherConjunctSlotIds);
+        return joinConjunctSlotIds;
     }
 
     @Override
@@ -308,7 +285,6 @@ public class HashJoinNode extends JoinNodeBase {
         List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
         eqJoinConjuncts =
                 newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
-        assignedConjuncts = analyzer.getAssignedConjuncts();
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
         // Only for Vec: create new tuple for join result
@@ -783,7 +759,8 @@ public class HashJoinNode extends JoinNodeBase {
                         .append(distrModeStr).append(")").append("[").append(colocateReason).append("]\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
-            output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+            output.append(detailPrefix).append(
+                    String.format("cardinality=%,d", cardinality)).append("\n");
             if (!runtimeFilters.isEmpty()) {
                 output.append(detailPrefix).append("Build RFs: ");
                 output.append(getRuntimeFilterExplainString(true, true));
@@ -805,7 +782,7 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(true));
         }
-        output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
+        output.append(detailPrefix).append(String.format("cardinality=%,d", cardinality)).append("\n");
         // todo unify in plan node
         if (vOutputTupleDesc != null) {
             output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId()).append("\n");

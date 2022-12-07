@@ -465,3 +465,8 @@ WITH (
 
 Exactly-Once场景下，Flink Job重启时必须从最新的Checkpoint/Savepoint启动，否则会报如上错误。
 不要求Exactly-Once时，也可通过关闭2PC提交（sink.enable-2pc=false） 或更换不同的sink.label-prefix解决。
+
+3. **errCode = 2, detailMessage = transaction [19650] not found**
+
+发生在Commit阶段，checkpoint里面记录的事务ID，在FE侧已经过期，此时再次commit就会出现上述错误。
+此时无法从checkpoint启动，后续可通过修改fe.conf的streaming_label_keep_max_second配置来延长过期时间，默认12小时。

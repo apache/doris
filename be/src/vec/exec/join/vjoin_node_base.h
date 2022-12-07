@@ -68,6 +68,11 @@ protected:
     // Initialize the join operation.
     void _init_join_op();
 
+    virtual void _add_tuple_is_null_column(Block* block) = 0;
+
+    // reset the tuple is null flag column for the next call
+    void _reset_tuple_is_null_column();
+
     // Materialize build relation. For HashJoin, it will build a hash table while a list of build blocks for NLJoin.
     virtual Status _materialize_build_side(RuntimeState* state) = 0;
 
@@ -97,10 +102,16 @@ protected:
 
     Block _join_block;
 
+    MutableColumnPtr _tuple_is_null_left_flag_column;
+    MutableColumnPtr _tuple_is_null_right_flag_column;
+
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _probe_timer;
     RuntimeProfile::Counter* _build_rows_counter;
     RuntimeProfile::Counter* _probe_rows_counter;
+    RuntimeProfile::Counter* _push_down_timer;
+    RuntimeProfile::Counter* _push_compute_timer;
+    RuntimeProfile::Counter* _join_filter_timer;
 };
 
 } // namespace doris::vectorized

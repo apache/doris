@@ -143,7 +143,7 @@ Status MemPool::find_chunk(size_t min_size, bool check_limits, bool free_old_chu
         free_all();
     }
     Chunk chunk;
-    RETURN_IF_ERROR(ChunkAllocator::instance()->allocate(chunk_size, &chunk));
+    RETURN_IF_ERROR(ChunkAllocator::instance()->allocate_align(chunk_size, &chunk));
     if (_mem_tracker) _mem_tracker->consume(chunk_size);
     ASAN_POISON_MEMORY_REGION(chunk.data, chunk_size);
     // Put it before the first free chunk. If no free chunks, it goes at the end.

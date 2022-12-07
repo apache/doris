@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -36,6 +37,7 @@ import org.apache.doris.common.ColumnAliasGenerator;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
@@ -559,6 +561,7 @@ public class SelectStmt extends QueryStmt {
         }
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
+        eliminatingSortNode();
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
@@ -622,7 +625,7 @@ public class SelectStmt extends QueryStmt {
     @Override
     public List<TupleId> collectTupleIds() {
         List<TupleId> result = Lists.newArrayList();
-        resultExprs.stream().forEach(expr -> expr.getIds(result, null));
+        resultExprs.forEach(expr -> expr.getIds(result, null));
         result.addAll(getTableRefIds());
         if (whereClause != null) {
             whereClause.getIds(result, null);
@@ -982,7 +985,23 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
-            havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+            if (groupByClause != null) {
+                // according to mysql
+                // if there is a group by clause, the having clause should use column name not alias
+                // this is the same as group by clause
+                try {
+                    // use col name from tableRefs first
+                    havingClauseAfterAnaylzed = havingClause.clone();
+                    havingClauseAfterAnaylzed.analyze(analyzer);
+                } catch (AnalysisException ex) {
+                    // then consider alias name
+                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                }
+            } else {
+                // according to mysql
+                // if there is no group by clause, the having clause should use alias
+                havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+            }
             havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
             havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
             if (groupingInfo != null) {
@@ -1734,6 +1753,79 @@ public class SelectStmt extends QueryStmt {
         return expr;
     }
 
+    public void eliminatingSortNode() {
+        // initial sql: select * from t1 where k1 = 1 order by k1
+        // optimized sql: select * from t1 where k1 = 1
+        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableEliminateSortNode) {
+            return;
+        }
+        if (!evaluateOrderBy() || getSortInfo() == null || getWhereClause() == null) {
+            return;
+        }
+        List<SlotRef> sortSlots = new ArrayList<>();
+        // get source slot ref from order by clause
+        for (Expr expr : getSortInfo().getOrderingExprs()) {
+            SlotRef source = expr.getSrcSlotRef();
+            if (source == null) {
+                return;
+            }
+            sortSlots.add(source);
+        }
+        if (sortSlots.isEmpty()) {
+            return;
+        }
+        if (checkSortNodeEliminable(getWhereClause(), sortSlots) && sortSlots.isEmpty()) {
+            evaluateOrderBy = false;
+        }
+    }
+
+    private boolean checkSortNodeEliminable(Expr expr, List<SlotRef> sortSlotRefs) {
+        // 1. Check that the CompoundPredicates in the whereClause are all AndCompound
+        if (expr instanceof CompoundPredicate) {
+            if (((CompoundPredicate) expr).getOp() != Operator.AND) {
+                // fail to eliminate
+                return false;
+            }
+        }
+        // 2. Check that all sort slots have:
+        // 2.1 at least one BinaryPredicate expression equal to a constant
+        // 2.2 OR at least one InPredicate expression containing only one constant
+        // in the whereClause
+        if (expr instanceof BinaryPredicate) {
+            Reference<SlotRef> slotRefRef = new Reference<>();
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            if (binaryPredicate.isSingleColumnPredicate(slotRefRef, null)) {
+                if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
+                    // it's ok, try to check next expr
+                    return true;
+                }
+                // remove it
+                sortSlotRefs.remove(slotRefRef.getRef());
+            }
+        } else if (expr instanceof InPredicate) {
+            if (((InPredicate) expr).isNotIn()) {
+                return true;
+            }
+            // there can only be two child nodes, one is a slotref and the other is a constant
+            if (expr.getChildren().size() != 2) {
+                // it's ok, try to check next expr
+                return true;
+            }
+            if (!expr.getChild(1).isConstant()) {
+                // it's ok, try to check next expr
+                return true;
+            }
+            // remove it
+            sortSlotRefs.remove(expr.getChild(0).unwrapSlotRef());
+        }
+        for (Expr child : expr.getChildren()) {
+            if (!checkSortNodeEliminable(child, sortSlotRefs)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     @Override
     public String toSql() {
         if (sqlString != null) {
@@ -1750,18 +1842,26 @@ public class SelectStmt extends QueryStmt {
         if (selectList.isDistinct()) {
             strBuilder.append("DISTINCT ");
         }
-        for (int i = 0; i < resultExprs.size(); ++i) {
-            // strBuilder.append(selectList.getItems().get(i).toSql());
-            // strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
-            if (i != 0) {
-                strBuilder.append(", ");
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList) {
+            for (int i = 0; i < selectList.getItems().size(); i++) {
+                strBuilder.append(selectList.getItems().get(i).toSql());
+                strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
             }
-            if (needToSql) {
-                strBuilder.append(originalExpr.get(i).toSql());
-            } else {
-                strBuilder.append(resultExprs.get(i).toSql());
+        } else {
+            for (int i = 0; i < resultExprs.size(); ++i) {
+                // strBuilder.append(selectList.getItems().get(i).toSql());
+                // strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
+                if (i != 0) {
+                    strBuilder.append(", ");
+                }
+                if (needToSql) {
+                    strBuilder.append(originalExpr.get(i).toSql());
+                } else {
+                    strBuilder.append(resultExprs.get(i).toSql());
+                }
+                strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
             }
-            strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
         }
 
         // From clause

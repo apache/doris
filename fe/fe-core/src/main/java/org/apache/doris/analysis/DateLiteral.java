@@ -909,14 +909,32 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public DateLiteral plusHours(int hour) throws AnalysisException {
+        if (type.isDate()) {
+            return new DateLiteral(getTimeFormatter().plusHours(hour), Type.DATETIME);
+        }
+        if (type.isDateV2()) {
+            return new DateLiteral(getTimeFormatter().plusHours(hour), Type.DATETIMEV2);
+        }
         return new DateLiteral(getTimeFormatter().plusHours(hour), type);
     }
 
     public DateLiteral plusMinutes(int minute) {
+        if (type.isDate()) {
+            return new DateLiteral(getTimeFormatter().plusMinutes(minute), Type.DATETIME);
+        }
+        if (type.isDateV2()) {
+            return new DateLiteral(getTimeFormatter().plusMinutes(minute), Type.DATETIMEV2);
+        }
         return new DateLiteral(getTimeFormatter().plusMinutes(minute), type);
     }
 
     public DateLiteral plusSeconds(int second) {
+        if (type.isDate()) {
+            return new DateLiteral(getTimeFormatter().plusSeconds(second), Type.DATETIME);
+        }
+        if (type.isDateV2()) {
+            return new DateLiteral(getTimeFormatter().plusSeconds(second), Type.DATETIMEV2);
+        }
         return new DateLiteral(getTimeFormatter().plusSeconds(second), type);
     }
 

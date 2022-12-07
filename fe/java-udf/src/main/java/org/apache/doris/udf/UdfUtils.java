@@ -33,6 +33,7 @@ import org.apache.log4j.Logger;
 import sun.misc.Unsafe;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -213,8 +214,13 @@ public class UdfUtils {
         }
     }
 
-    public static URLClassLoader getClassLoader(String jarPath, ClassLoader parent) throws MalformedURLException {
-        URL url = new File(jarPath).toURI().toURL();
+    public static URLClassLoader getClassLoader(String jarPath, ClassLoader parent)
+                                    throws MalformedURLException, FileNotFoundException {
+        File file = new File(jarPath);
+        if (!file.exists()) {
+            throw new FileNotFoundException("Can not find local file: " + jarPath);
+        }
+        URL url = file.toURI().toURL();
         return URLClassLoader.newInstance(new URL[] {url}, parent);
     }
 

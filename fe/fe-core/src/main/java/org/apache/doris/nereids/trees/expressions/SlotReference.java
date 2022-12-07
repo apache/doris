@@ -43,15 +43,15 @@ public class SlotReference extends Slot {
     private final Column column;
 
     public SlotReference(String name, DataType dataType) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of());
+        this(NamedExpressionUtil.newExprId(), name, dataType, true, ImmutableList.of(), null);
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of());
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, ImmutableList.of(), null);
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier);
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier, null);
     }
 
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
@@ -133,7 +133,7 @@ public class SlotReference extends Slot {
             return false;
         }
         SlotReference that = (SlotReference) o;
-        // The equals of slotRefrance only compares exprId,
+        // The equals of slotReference only compares exprId,
         // because in subqueries with aliases,
         // there will be scenarios where the same exprId but different qualifiers are used,
         // resulting in an error due to different qualifiers during comparison.
@@ -170,7 +170,7 @@ public class SlotReference extends Slot {
         return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
     }
 
-    public Slot withNullable(boolean newNullable) {
+    public SlotReference withNullable(boolean newNullable) {
         if (this.nullable == newNullable) {
             return this;
         }
@@ -178,8 +178,20 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public Slot withQualifier(List<String> qualifiers) {
+    public SlotReference withQualifier(List<String> qualifiers) {
         return new SlotReference(exprId, name, dataType, nullable, qualifiers, column);
     }
 
+    @Override
+    public Slot withName(String name) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
+    }
+
+    /** withCommonGroupingSetExpression */
+    public Slot withCommonGroupingSetExpression(boolean isCommonGroupingSetExpression) {
+        if (!isCommonGroupingSetExpression) {
+            return withNullable(true);
+        }
+        return this;
+    }
 }

@@ -242,8 +242,32 @@ suite("test_aggregate_all_functions") {
     qt_select18 "select id,MIN(level) from ${tableName_11} group by id order by id"
     qt_select19 "select MIN(level) from ${tableName_11}"
 
-    sql "DROP TABLE IF EXISTS ${tableName_11}"
 
+    sql "DROP TABLE IF EXISTS ${tableName_11}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName_11} (
+          `k1` int(11) NULL,
+          `a1` int(11) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        )
+        """
+    sql "INSERT INTO ${tableName_11} values(1,1),(2,2),(3,3),(4,null),(null,5)"
+
+    qt_select "select * from (select k1 from ${tableName_11} union select null) t order by k1"
+    qt_select "select * from (select k1,a1 from ${tableName_11} union select null,null) t order by k1, a1"
+
+    qt_select "select min(k1) from (select k1 from ${tableName_11} union select null) t"
+    qt_select "select min(k1) from (select k1,a1 from ${tableName_11} union select null,null) t"
+
+    sql "DROP TABLE IF EXISTS ${tableName_11}"
     
     // PERCENTILE
     def tableName_13 = "percentile"
@@ -469,5 +493,11 @@ suite("test_aggregate_all_functions") {
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
 
-    qt_select44 """ select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
+    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
+
+    qt_select45 """select * from ${tableName_12} order by id,level"""
+
+    qt_select46 """select * from ${tableName_12} where id>=5 and id <=5 and level >10  order by id,level;"""
+
+    qt_select47 """select count(*) from ${tableName_12}"""
 }
