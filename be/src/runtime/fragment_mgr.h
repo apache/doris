@@ -32,7 +32,6 @@
 #include "http/rest_monitor_iface.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
-#include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thread.h"
 
@@ -65,12 +64,10 @@ public:
     using FinishCallback = std::function<void(PlanFragmentExecutor*)>;
 
     FragmentMgr(ExecEnv* exec_env);
-    virtual ~FragmentMgr();
+    ~FragmentMgr() override;
 
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
-
-    Status exec_pipeline(const TExecPlanFragmentParams& params);
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
@@ -92,7 +89,7 @@ public:
 
     void cancel_worker();
 
-    virtual void debug(std::stringstream& ss);
+    void debug(std::stringstream& ss) override;
 
     // input: TScanOpenParams fragment_instance_id
     // output: selected_columns
