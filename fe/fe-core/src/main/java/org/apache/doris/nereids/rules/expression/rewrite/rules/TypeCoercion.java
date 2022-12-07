@@ -18,15 +18,19 @@
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -158,6 +162,17 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
                     return newInPredicate.withChildren(newChildren);
                 })
                 .orElse(newInPredicate);
+    }
+
+    @Override
+    public Expression visitBitNot(BitNot bitNot, ExpressionRewriteContext context) {
+        Expression child = bitNot.child();
+        if (child.getDataType().toCatalogDataType().getPrimitiveType().ordinal()
+                > PrimitiveType.LARGEINT.ordinal()) {
+            child = new Cast(child, BigIntType.INSTANCE);
+            return bitNot.withChildren(child);
+        }
+        return bitNot;
     }
 
     /**

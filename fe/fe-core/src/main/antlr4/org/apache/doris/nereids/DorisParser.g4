@@ -251,9 +251,10 @@ predicate
 
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
-    | operator=(MINUS | PLUS) valueExpression                                                #arithmeticUnary
+    | operator=(MINUS | PLUS | TILDE) valueExpression                                        #arithmeticUnary
     | left=valueExpression operator=(ASTERISK | SLASH | PERCENT) right=valueExpression       #arithmeticBinary
-    | left=valueExpression operator=(PLUS | MINUS) right=valueExpression                     #arithmeticBinary
+    | left=valueExpression operator=(PLUS | MINUS | DIV | HAT | PIPE | AMPERSAND)
+                           right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
     ;
 
@@ -681,6 +682,7 @@ nonReserved
     | DIRECTORY
     | DISTINCT
     | DISTRIBUTE
+    | DIV
     | DROP
     | ELSE
     | END

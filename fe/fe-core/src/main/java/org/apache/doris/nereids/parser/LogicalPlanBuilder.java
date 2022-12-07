@@ -98,6 +98,10 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
+import org.apache.doris.nereids.trees.expressions.BitAnd;
+import org.apache.doris.nereids.trees.expressions.BitNot;
+import org.apache.doris.nereids.trees.expressions.BitOr;
+import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -493,12 +497,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitArithmeticUnary(ArithmeticUnaryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            Expression e = getExpression(ctx);
+            Expression e = typedVisit(ctx.valueExpression());
             switch (ctx.operator.getType()) {
                 case DorisParser.PLUS:
                     return e;
                 case DorisParser.MINUS:
-                    // TODO: Add single operator subtraction
+                    IntegerLiteral zero = new IntegerLiteral(0);
+                    return new Subtract(zero, e);
+                case DorisParser.TILDE:
+                    return new BitNot(e);
                 default:
                     throw new ParseException("Unsupported arithmetic unary type: " + ctx.operator.getText(), ctx);
             }
@@ -545,6 +552,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         return new Add(left, right);
                     case DorisParser.MINUS:
                         return new Subtract(left, right);
+                    case DorisParser.DIV:
+                        return new Divide(left, right);
+                    case DorisParser.HAT:
+                        return new BitXor(left, right);
+                    case DorisParser.PIPE:
+                        return new BitOr(left, right);
+                    case DorisParser.AMPERSAND:
+                        return new BitAnd(left, right);
                     default:
                         throw new ParseException(
                                 "Unsupported arithmetic binary type: " + ctx.operator.getText(), ctx);
