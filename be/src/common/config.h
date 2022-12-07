@@ -298,7 +298,7 @@ CONF_mInt64(compaction_min_size_mbytes, "64");
 
 // cumulative compaction policy: min and max delta file's number
 CONF_mInt64(cumulative_compaction_min_deltas, "5");
-CONF_mInt64(cumulative_compaction_max_deltas, "1000");
+CONF_mInt64(cumulative_compaction_max_deltas, "100");
 
 // This config can be set to limit thread number in  segcompaction thread pool.
 CONF_mInt32(seg_compaction_max_threads, "10");
