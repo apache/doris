@@ -44,12 +44,12 @@ Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     Status ret = Status::OK();
     if (in_block && in_block->rows() > 0) {
-        auto bock_from_ctx = _agg_context->get_free_block();
-        RETURN_IF_ERROR(_node->do_pre_agg(in_block, bock_from_ctx.get()));
-        if (bock_from_ctx->rows() == 0) {
-            _agg_context->return_free_block(std::move(bock_from_ctx));
+        auto block_from_ctx = _agg_context->get_free_block();
+        RETURN_IF_ERROR(_node->do_pre_agg(in_block, block_from_ctx.get()));
+        if (block_from_ctx->rows() == 0) {
+            _agg_context->return_free_block(std::move(block_from_ctx));
         } else {
-            _agg_context->push_block(std::move(bock_from_ctx));
+            _agg_context->push_block(std::move(block_from_ctx));
         }
     }
 

@@ -98,7 +98,7 @@ public:
     OperatorBuilder(int32_t id, const std::string& name, ExecNode* exec_node = nullptr)
             : OperatorBuilderBase(id, name), _node(reinterpret_cast<NodeType*>(exec_node)) {}
 
-    virtual ~OperatorBuilder() = default;
+    ~OperatorBuilder() override = default;
 
     const RowDescriptor& row_desc() override { return _node->row_desc(); }
 
@@ -114,7 +114,7 @@ public:
     DataSinkOperatorBuilder(int32_t id, const std::string& name, DataSink* sink = nullptr)
             : OperatorBuilderBase(id, name), _sink(reinterpret_cast<SinkType*>(sink)) {}
 
-    virtual ~DataSinkOperatorBuilder() = default;
+    ~DataSinkOperatorBuilder() override = default;
 
     bool is_sink() const override { return true; }
 
@@ -232,9 +232,9 @@ public:
     DataSinkOperator(OperatorBuilderBase* builder, DataSink* sink)
             : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {};
 
-    virtual ~DataSinkOperator() = default;
+    ~DataSinkOperator() override = default;
 
-    virtual Status prepare(RuntimeState* state) override {
+    Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
         _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
@@ -243,13 +243,13 @@ public:
         return Status::OK();
     }
 
-    virtual Status open(RuntimeState* state) override {
+    Status open(RuntimeState* state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         return _sink->open(state);
     }
 
-    virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
-                        SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         if (!UNLIKELY(in_block)) {
             DCHECK(source_state == SourceState::FINISHED)
@@ -259,12 +259,12 @@ public:
         return _sink->send(state, in_block, source_state == SourceState::FINISHED);
     }
 
-    virtual Status close(RuntimeState* state) override {
+    Status close(RuntimeState* state) override {
         _fresh_exec_timer(_sink);
         return _sink->close(state, Status::OK());
     }
 
-    virtual Status finalize(RuntimeState* state) override { return Status::OK(); }
+    Status finalize(RuntimeState* state) override { return Status::OK(); }
 
 protected:
     void _fresh_exec_timer(NodeType* node) {
@@ -284,9 +284,9 @@ public:
     Operator(OperatorBuilderBase* builder, ExecNode* node)
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {};
 
-    virtual ~Operator() = default;
+    ~Operator() override = default;
 
-    virtual Status prepare(RuntimeState* state) override {
+    Status prepare(RuntimeState* state) override {
         _runtime_profile.reset(new RuntimeProfile(_operator_builder->get_name()));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
         _mem_tracker = std::make_unique<MemTracker>("Operator:" + _runtime_profile->name(),
@@ -295,19 +295,19 @@ public:
         return Status::OK();
     }
 
-    virtual Status open(RuntimeState* state) override {
+    Status open(RuntimeState* state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(_node->alloc_resource(state));
         return Status::OK();
     }
 
-    virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
-                        SourceState source_state) override {
+    Status sink(RuntimeState* state, vectorized::Block* in_block,
+                SourceState source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         return _node->sink(state, in_block, source_state == SourceState::FINISHED);
     }
 
-    virtual Status close(RuntimeState* state) override {
+    Status close(RuntimeState* state) override {
         _fresh_exec_timer(_node);
         if (!_node->decrease_ref()) {
             _node->release_resource(state);
@@ -315,8 +315,8 @@ public:
         return Status::OK();
     }
 
-    virtual Status get_block(RuntimeState* state, vectorized::Block* block,
-                             SourceState& source_state) override {
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         bool eos = false;
         RETURN_IF_ERROR(_node->pull(state, block, &eos));
@@ -324,9 +324,9 @@ public:
         return Status::OK();
     }
 
-    virtual Status finalize(RuntimeState* state) override { return Status::OK(); }
+    Status finalize(RuntimeState* state) override { return Status::OK(); }
 
-    virtual bool can_read() override { return _node->can_read(); }
+    bool can_read() override { return _node->can_read(); }
 
 protected:
     void _fresh_exec_timer(NodeType* node) {
@@ -350,8 +350,8 @@ public:
 
     virtual ~DataStateOperator() = default;
 
-    virtual Status get_block(RuntimeState* state, vectorized::Block* block,
-                             SourceState& source_state) override {
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override {
         auto& node = Operator<OperatorBuilderType>::_node;
         auto& child = Operator<OperatorBuilderType>::_child;
 
