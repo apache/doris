@@ -42,10 +42,10 @@ public:
     }
 
     void TearDown() {}
-    
+
     template <typename DataType>
     void agg_histogram_add_elements(AggregateFunctionPtr agg_function, AggregateDataPtr place,
-                                  size_t input_nums) {
+                                    size_t input_nums) {
         using FieldType = typename DataType::FieldType;
         auto type = std::make_shared<DataType>();
         auto input_col = type->create_column();
@@ -69,7 +69,8 @@ public:
     template <typename DataType>
     void test_agg_histogram(const std::string& fn_name, size_t input_nums = 0) {
         DataTypes data_types = {(DataTypePtr)std::make_shared<DataType>()};
-        LOG(INFO) << "test_agg_histogram for " << fn_name << "(" << data_types[0]->get_name() << ")";
+        LOG(INFO) << "test_agg_histogram for " << fn_name << "(" << data_types[0]->get_name()
+                  << ")";
         Array array;
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         auto agg_function = factory.get(fn_name, data_types, array);

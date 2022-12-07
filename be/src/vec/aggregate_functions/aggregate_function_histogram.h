@@ -91,7 +91,8 @@ public:
 
     template <typename T>
     static std::string build_json_from_bucket(const std::vector<Bucket<T>>& buckets,
-                                              const DataTypePtr& data_type, int64_t max_bucket_size, int64_t sample_rate) {
+                                              const DataTypePtr& data_type, int64_t max_bucket_size,
+                                              int64_t sample_rate) {
         rapidjson::Document doc;
         doc.SetObject();
         rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
@@ -229,7 +230,8 @@ struct AggregateFunctionHistogramData : public AggregateFunctionHistogramBase {
 
         std::sort(vec_data.begin(), vec_data.end());
         auto buckets = build_bucket_from_data<ElementType>(vec_data, MAX_BUCKET_SIZE);
-        auto result_str = build_json_from_bucket<ElementType>(buckets, data_type, MAX_BUCKET_SIZE, SAMPLE_RATE);
+        auto result_str = build_json_from_bucket<ElementType>(buckets, data_type, MAX_BUCKET_SIZE,
+                                                              SAMPLE_RATE);
 
         return result_str;
     }
@@ -291,7 +293,8 @@ struct AggregateFunctionHistogramData<StringRef> : public AggregateFunctionHisto
 
         std::sort(str_data.begin(), str_data.end());
         const auto buckets = build_bucket_from_data<std::string>(str_data, MAX_BUCKET_SIZE);
-        auto result_str = build_json_from_bucket<std::string>(buckets, data_type, MAX_BUCKET_SIZE, SAMPLE_RATE);
+        auto result_str = build_json_from_bucket<std::string>(buckets, data_type, MAX_BUCKET_SIZE,
+                                                              SAMPLE_RATE);
 
         return result_str;
     }

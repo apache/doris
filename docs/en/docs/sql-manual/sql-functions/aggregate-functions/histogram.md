@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`histogram(expr[, DOUBLE sample_rate][, INT max_bucket_size])`
+`histogram(expr)`
 
 The histogram function is used to describe the distribution of the data. It uses an "equal height" bucking strategy, and divides the data into buckets according to the value of the data. It describes each bucket with some simple data, such as the number of values that fall in the bucket. It is mainly used by the optimizer to estimate the range query.
 
@@ -36,11 +36,11 @@ The histogram function is used to describe the distribution of the data. It uses
 
 ```
 MySQL [test]> select histogram(login_time) from dev_table;
-+------------------------------------------------------------------------------------------------------------+
-| histogram(`login_time`)                                                                                       |
-+------------------------------------------------------------------------------------------------------------+
-| {"bucket_size":5,"buckets":[{"lower":"2022-09-21 17:30:29","upper":"2022-09-21 22:30:29","count":9,"pre_sum":0,"ndv":1},{"lower":"2022-09-22 17:30:29","upper":"2022-09-22 22:30:29","count":10,"pre_sum":9,"ndv":1},{"lower":"2022-09-23 17:30:29","upper":"2022-09-23 22:30:29","count":9,"pre_sum":19,"ndv":1},{"lower":"2022-09-24 17:30:29","upper":"2022-09-24 22:30:29","count":9,"pre_sum":28,"ndv":1},{"lower":"2022-09-25 17:30:29","upper":"2022-09-25 22:30:29","count":9,"pre_sum":37,"ndv":1}]}                                       |
-+------------------------------------------------------------------------------------------------------------+
++------------------------------------------------------------------------------------------------------------------------------+
+| histogram(`login_time`)                                                                                                      |
++------------------------------------------------------------------------------------------------------------------------------+
+| {"bucket_size":5,"buckets":[{"lower":"2022-09-21 17:30:29","upper":"2022-09-21 22:30:29","count":9,"pre_sum":0,"ndv":1},...]}|
++------------------------------------------------------------------------------------------------------------------------------+
 ```
 Query result description：
 
