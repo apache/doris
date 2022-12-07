@@ -17,8 +17,6 @@
 
 #include "exec/schema_scanner.h"
 
-#include <gen_cpp/Descriptors_types.h>
-
 #include "exec/schema_scanner/schema_backends_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
