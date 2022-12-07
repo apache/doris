@@ -72,7 +72,7 @@ Status SchemaProcsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     {
         // add arguments type
         std::string args;
-        for (auto t: _batch_data[_row_idx].arg_types) {
+        for (auto t : _batch_data[_row_idx].arg_types) {
             args += " " + thrift_to_string(t.types.data()->scalar_type.type);
         }
         vals[2] = std::move(args);
@@ -82,7 +82,8 @@ Status SchemaProcsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         vals[3] = std::move(_batch_data[_row_idx].signature);
     }
     for (size_t idx = 0; idx < _column_num; idx++) {
-        RETURN_IF_ERROR(fill_one_col(&vals[idx], pool, tuple->get_slot(_tuple_desc->slots()[idx]->tuple_offset())));
+        RETURN_IF_ERROR(fill_one_col(&vals[idx], pool,
+                                     tuple->get_slot(_tuple_desc->slots()[idx]->tuple_offset())));
     }
     _row_idx++;
     return Status::OK();
