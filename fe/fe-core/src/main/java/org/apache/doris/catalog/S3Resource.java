@@ -71,6 +71,8 @@ public class S3Resource extends Resource {
     }
 
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
+    public static final String S3_PROPERTIES_PREFIX = "AWS";
+    public static final String S3_FS_PREFIX = "fs.s3";
     // required
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
     public static final String S3_REGION = "AWS_REGION";
@@ -83,6 +85,7 @@ public class S3Resource extends Resource {
     public static final String S3_BUCKET = "AWS_BUCKET";
 
     // optional
+    public static final String USE_PATH_STYLE = "use_path_style";
     public static final String S3_MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
     public static final String S3_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
     public static final String S3_CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";

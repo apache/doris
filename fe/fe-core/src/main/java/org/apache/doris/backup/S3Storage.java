@@ -112,7 +112,7 @@ public class S3Storage extends BlobStorage {
         // That is, for S3 endpoint, ignore the `use_path_style` property, and the s3 client will automatically use
         // virtual hosted-sytle.
         // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
-        if (!caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT).toString().toLowerCase().startsWith("s3")) {
+        if (!caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT).toLowerCase().startsWith("s3")) {
             forceHostedStyle = !caseInsensitiveProperties.getOrDefault(S3Resource.USE_PATH_STYLE, "false")
                     .equalsIgnoreCase("true");
         } else {

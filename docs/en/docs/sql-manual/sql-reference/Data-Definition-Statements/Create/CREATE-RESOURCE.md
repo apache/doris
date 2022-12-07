@@ -117,31 +117,33 @@ illustrate:
    CREATE RESOURCE "remote_s3"
    PROPERTIES
    (
-   "type" = "s3",
-   "AWS_ENDPOINT" = "bj.s3.com",
-   "AWS_REGION" = "bj",
-   "AWS_ACCESS_KEY" = "bbb",
-   "AWS_SECRET_KEY" = "aaaa"
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- the followings are optional
+      "AWS_MAX_CONNECTIONS" = "50",
+      "AWS_REQUEST_TIMEOUT_MS" = "3000",
+      "AWS_CONNECTION_TIMEOUT_MS" = "1000"
    );
-   ````
+   ```
 
-   If S3 resource is used for [cold hot separation](../../../../../docs/advanced/cold_hot_separation.md), we should add more required fields, and set type as s3_cooldown.
+   If S3 resource is used for [cold hot separation](../../../../../docs/advanced/cold_hot_separation.md), we should add more required fields.
    ```sql
    CREATE RESOURCE "remote_s3"
    PROPERTIES
    (
-   "type" = "s3_cooldown",
-   "AWS_ENDPOINT" = "bj.s3.com",
-   "AWS_REGION" = "bj",
-   "AWS_BUCKET" = "test-bucket",
-   "AWS_ROOT_PATH" = "/path/to/root",
-   "AWS_ACCESS_KEY" = "bbb",
-   "AWS_SECRET_KEY" = "aaaa",
-   "AWS_MAX_CONNECTIONS" = "50",
-   "AWS_REQUEST_TIMEOUT_MS" = "3000",
-   "AWS_CONNECTION_TIMEOUT_MS" = "1000"
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- required by cooldown
+      "AWS_ROOT_PATH" = "/path/to/root",
+      "AWS_BUCKET" = "test-bucket",
    );
-   ````
+   ```
 
    S3 related parameters are as follows:
    - Required parameters

@@ -63,7 +63,7 @@ public class S3ResourceTest {
     @Before
     public void setUp() {
         name = "s3";
-        type = "s3_cooldown";
+        type = "s3";
         s3Endpoint = "aaa";
         s3Region = "bj";
         s3RootPath = "/path/to/root";
@@ -141,7 +141,7 @@ public class S3ResourceTest {
                 result = true;
             }
         };
-        s3Properties.remove("AWS_ROOT_PATH");
+        s3Properties.remove("AWS_ENDPOINT");
         CreateResourceStmt stmt = new CreateResourceStmt(true, false, name, s3Properties);
         stmt.analyze(analyzer);
         Resource.fromStmt(stmt);

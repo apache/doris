@@ -77,7 +77,7 @@ public class ResourceMgrTest {
         sparkProperties.put("broker", broker);
 
         s3ResName = "s30";
-        s3ResType = "s3_cooldown";
+        s3ResType = "s3";
         s3Endpoint = "aaa";
         s3Region = "bj";
         s3RootPath = "/path/to/root";

@@ -134,7 +134,7 @@ public class AlterTest {
 
         // s3 resource
         createRemoteStorageResource(
-                "create resource \"remote_s3\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3_cooldown\", \n"
+                "create resource \"remote_s3\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
                         + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
@@ -143,7 +143,7 @@ public class AlterTest {
                         + ");");
 
         createRemoteStorageResource(
-                "create resource \"remote_s3_1\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3_cooldown\", \n"
+                "create resource \"remote_s3_1\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
                         + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"

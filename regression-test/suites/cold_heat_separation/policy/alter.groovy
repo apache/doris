@@ -25,7 +25,7 @@ suite("alter_policy") {
         sql """
         CREATE RESOURCE "has_resouce_policy_alter"
         PROPERTIES(
-            "type"="s3_cooldown",
+            "type"="s3",
             "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
@@ -36,6 +36,14 @@ suite("alter_policy") {
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
             "AWS_BUCKET" = "test-bucket"
         );
+        """
+
+        sql """
+        CREATE STORAGE POLICY has_resouce_policy_alter_policy
+        PROPERTIES(
+            "storage_resource" = "has_resouce_policy_alter",
+            "cooldown_ttl" = "1d"
+        )
         """
     }
 
@@ -84,16 +92,16 @@ suite("alter_policy") {
         SHOW RESOURCES WHERE NAME = "has_resouce_policy_alter";
     """
 
-    // [[has_resouce_policy_alter, s3_cooldown, AWS_ACCESS_KEY, 6666],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_BUCKET, test-bucket],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_CONNECTION_TIMEOUT_MS, 2222],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_ENDPOINT, http://bj.s3.comaaaa],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_MAX_CONNECTIONS, 1111],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_REGION, bj],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_REQUEST_TIMEOUT_MS, 7777],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_ROOT_PATH, path/to/rootaaaa],
-    // [has_resouce_policy_alter, s3_cooldown, AWS_SECRET_KEY, ******],
-    // [has_resouce_policy_alter, s3_cooldown, type, s3_cooldown]]
+    // [[has_resouce_policy_alter, s3, AWS_ACCESS_KEY, 6666],
+    // [has_resouce_policy_alter, s3, AWS_BUCKET, test-bucket],
+    // [has_resouce_policy_alter, s3, AWS_CONNECTION_TIMEOUT_MS, 2222],
+    // [has_resouce_policy_alter, s3, AWS_ENDPOINT, http://bj.s3.comaaaa],
+    // [has_resouce_policy_alter, s3, AWS_MAX_CONNECTIONS, 1111],
+    // [has_resouce_policy_alter, s3, AWS_REGION, bj],
+    // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
+    // [has_resouce_policy_alter, s3, AWS_ROOT_PATH, path/to/rootaaaa],
+    // [has_resouce_policy_alter, s3, AWS_SECRET_KEY, ******],
+    // [has_resouce_policy_alter, s3, type, s3]]
     // AWS_ACCESS_KEY
     assertEquals(show_alter_result[0][3], "6666")
     // AWS_BUCKET
@@ -113,7 +121,7 @@ suite("alter_policy") {
     // AWS_SECRET_KEY
     assertEquals(show_alter_result[8][3], "******")
     // type
-    assertEquals(show_alter_result[9][3], "s3_cooldown")
+    assertEquals(show_alter_result[9][3], "s3")
 
     def storage_exist = { name ->
         def show_storage_policy = sql """

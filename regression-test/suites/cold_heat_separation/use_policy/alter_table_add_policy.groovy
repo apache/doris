@@ -55,7 +55,7 @@ suite("add_table_policy_by_alter_table") {
         def create_s3_resource = try_sql """
             CREATE RESOURCE "test_create_alter_table_use_resource"
             PROPERTIES(
-                "type"="s3_cooldown",
+                "type"="s3",
                 "AWS_REGION" = "bj",
                 "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
@@ -90,7 +90,7 @@ suite("add_table_policy_by_alter_table") {
         def create_s3_resource = try_sql """
             CREATE RESOURCE "test_create_alter_table_use_resource_1"
             PROPERTIES(
-                "type"="s3_cooldown",
+                "type"="s3",
                 "AWS_REGION" = "bj",
                 "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",

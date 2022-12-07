@@ -57,7 +57,7 @@ For example:
 CREATE RESOURCE "remote_s3"
 PROPERTIES
 (
-    "type" = "s3_cooldown",
+    "type" = "s3",
     "AWS_ENDPOINT" = "bj.s3.com",
     "AWS_REGION" = "bj",
     "AWS_BUCKET" = "test-bucket",

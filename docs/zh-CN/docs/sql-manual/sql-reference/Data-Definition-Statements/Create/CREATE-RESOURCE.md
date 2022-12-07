@@ -117,29 +117,31 @@ PROPERTIES ("key"="value", ...);
    CREATE RESOURCE "remote_s3"
    PROPERTIES
    (
-   	"type" = "s3",
-   	"AWS_ENDPOINT" = "bj.s3.com",
-   	"AWS_REGION" = "bj",
-   	"AWS_ACCESS_KEY" = "bbb",
-   	"AWS_SECRET_KEY" = "aaaa"
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- the followings are optional
+      "AWS_MAX_CONNECTIONS" = "50",
+      "AWS_REQUEST_TIMEOUT_MS" = "3000",
+      "AWS_CONNECTION_TIMEOUT_MS" = "1000"
    );
    ```
 
-   如果 s3 reource 在[冷热分离](../../../../../docs/advanced/cold_hot_separation.md)中使用，需要添加额外的字段，并把type设置为 s3_cooldown。
+   如果 s3 reource 在[冷热分离](../../../../../docs/advanced/cold_hot_separation.md)中使用，需要添加额外的字段。
    ```sql
    CREATE RESOURCE "remote_s3"
    PROPERTIES
    (
-   	"type" = "s3_cooldown",
-   	"AWS_ENDPOINT" = "bj.s3.com",
-   	"AWS_REGION" = "bj",
-   	"AWS_ROOT_PATH" = "/path/to/root",
-   	"AWS_ACCESS_KEY" = "bbb",
-   	"AWS_SECRET_KEY" = "aaaa",
-    "AWS_BUCKET" = "test-bucket",
-   	"AWS_MAX_CONNECTIONS" = "50",
-   	"AWS_REQUEST_TIMEOUT_MS" = "3000",
-   	"AWS_CONNECTION_TIMEOUT_MS" = "1000"
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- required by cooldown
+      "AWS_ROOT_PATH" = "/path/to/root",
+      "AWS_BUCKET" = "test-bucket"
    );
    ```
 

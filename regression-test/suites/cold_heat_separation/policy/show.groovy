@@ -36,7 +36,7 @@ suite("show_policy") {
         def create_s3_resource = try_sql """
             CREATE RESOURCE "showPolicy_1_resource"
             PROPERTIES(
-                "type"="s3_cooldown",
+                "type"="s3",
                 "AWS_REGION" = "bj",
                 "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",

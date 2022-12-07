@@ -38,7 +38,7 @@ suite("drop_policy") {
             sql """
             CREATE RESOURCE "resouce_policy_drop"
             PROPERTIES(
-                "type"="s3_cooldown",
+                "type"="s3",
                 "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
                 "AWS_REGION" = "bj",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
@@ -61,7 +61,7 @@ suite("drop_policy") {
         sql """
         CREATE RESOURCE "resouce_policy_drop"
         PROPERTIES(
-            "type"="s3_cooldown",
+            "type"="s3",
             "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
