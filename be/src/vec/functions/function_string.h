@@ -1366,6 +1366,12 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(is_string(arguments[0]))
+                << "first argument for function: " << name << " should be string"
+                << " and arguments[0] is " << arguments[0]->get_name();
+        DCHECK(is_string(arguments[1]))
+                << "second argument for function: " << name << " should be string"
+                << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
     }
 
@@ -1389,12 +1395,9 @@ public:
         dest_offsets.reserve(0);
 
         NullMapType* dest_nested_null_map = nullptr;
-        if (dest_nested_column->is_nullable()) {
-            ColumnNullable* dest_nullable_col =
-                    reinterpret_cast<ColumnNullable*>(dest_nested_column);
-            dest_nested_column = dest_nullable_col->get_nested_column_ptr();
-            dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
-        }
+        ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        dest_nested_column = dest_nullable_col->get_nested_column_ptr();
+        dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
         _execute(*src_column, *delimiter_column, *dest_nested_column, dest_offsets,
                  dest_nested_null_map);
