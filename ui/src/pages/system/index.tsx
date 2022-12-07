@@ -80,6 +80,7 @@ export default function System(params: any) {
                 isSort={true}
                 isFilter={true}
                 isInner={true}
+                scroll={{ x: 'max-content' }}
                 path = 'System'
                 isSystem = {true}
                 allTableData={allTableData}
