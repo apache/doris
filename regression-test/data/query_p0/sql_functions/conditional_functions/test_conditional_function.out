@@ -191,3 +191,14 @@ true
 999
 999
 
+-- !if_true_then_nullable --
+4
+
+-- !if_true_else_nullable --
+2
+
+-- !if_false_then_nullable --
+2
+
+-- !if_false_else_nullable --
+4
