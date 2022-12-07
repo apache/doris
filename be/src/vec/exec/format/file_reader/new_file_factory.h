@@ -33,7 +33,7 @@ class RuntimeProfile;
 
 struct FileSystemProperties {
     TFileType::type system_type;
-    std::unordered_map<std::string, std::string> properties;
+    std::map<std::string, std::string> properties;
     THdfsParams hdfs_params;
     std::vector<TNetworkAddress> broker_addresses;
 };

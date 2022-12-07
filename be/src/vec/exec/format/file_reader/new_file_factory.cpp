@@ -21,6 +21,7 @@
 #include "io/broker_writer.h"
 #include "io/buffered_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "io/hdfs_reader_writer.h"
 #include "io/local_file_reader.h"
 #include "io/local_file_writer.h"
@@ -28,6 +29,7 @@
 #include "io/s3_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
+#include "util/s3_util.h"
 
 namespace doris {
 
@@ -112,13 +114,20 @@ Status NewFileFactory::create_file_reader(RuntimeProfile* /*profile*/,
     TFileType::type type = system_properties.system_type;
     switch (type) {
     case TFileType::FILE_S3: {
-        //            file_reader_ptr = new S3Reader(system_properties.properties, file_description.path, file_description.start_offset);
+        S3URI s3_uri(file_description.path);
+        if (!s3_uri.parse()) {
+            return Status::InvalidArgument("s3 uri is invalid: {}", file_description.path);
+        }
+        S3Conf s3_conf;
+        RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(system_properties.properties,
+                                                                     s3_uri, &s3_conf));
+        io::FileSystem* s3_file_system_ptr = new io::S3FileSystem(s3_conf, "");
+        (dynamic_cast<io::S3FileSystem*>(s3_file_system_ptr))->connect();
+        s3_file_system_ptr->open_file(s3_uri.get_key(), file_reader);
+        file_system->reset(s3_file_system_ptr);
         break;
     }
     case TFileType::FILE_HDFS: {
-        //            RETURN_IF_ERROR(HdfsReaderWriter::create_reader(system_properties.hdfs_params, file_description.path,
-        //                                                            file_description.start_offset,
-        //                                                            &file_reader_ptr));
         io::FileSystem* hdfs_file_system_ptr;
         RETURN_IF_ERROR(HdfsReaderWriter::create_new_reader(system_properties.hdfs_params,
                                                             file_description.path,
