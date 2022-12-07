@@ -59,7 +59,6 @@ private:
     void extend_input_buf();
     void extend_output_buf();
 
-private:
     RuntimeProfile* _profile;
     io::FileReader* _file_reader;
     Decompressor* _decompressor;

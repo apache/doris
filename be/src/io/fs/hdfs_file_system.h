@@ -123,7 +123,7 @@ public:
     // Delete all files under path.
     Status delete_directory(const Path& path) override;
 
-    Status link_file(const Path& src, const Path& dest) override {
+    Status link_file(const Path& /*src*/, const Path& /*dest*/) override {
         return Status::NotSupported("Not supported");
     }
 

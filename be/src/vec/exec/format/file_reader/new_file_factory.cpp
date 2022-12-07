@@ -104,7 +104,7 @@ Status NewFileFactory::create_file_reader(TFileType::type type, ExecEnv* env,
 
 // ============================
 // file scan node/unique ptr
-Status NewFileFactory::create_file_reader(RuntimeProfile* profile,
+Status NewFileFactory::create_file_reader(RuntimeProfile* /*profile*/,
                                           const FileSystemProperties& system_properties,
                                           const FileDescription& file_description,
                                           std::unique_ptr<io::FileSystem>* file_system,
