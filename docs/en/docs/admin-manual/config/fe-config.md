@@ -1999,7 +1999,7 @@ The max keep time of some kind of jobs. like schema change job and rollup job.
 
 ### label_clean_interval_second
 
-Default：4 * 3600  （4 hour）
+Default：1 * 3600  （1 hour）
 
 Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
 
