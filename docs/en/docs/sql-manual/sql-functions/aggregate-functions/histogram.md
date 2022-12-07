@@ -32,6 +32,12 @@ under the License.
 
 The histogram function is used to describe the distribution of the data. It uses an "equal height" bucking strategy, and divides the data into buckets according to the value of the data. It describes each bucket with some simple data, such as the number of values that fall in the bucket. It is mainly used by the optimizer to estimate the range query.
 
+### notice
+
+```
+Only supported in vectorized engine
+```
+
 ### example
 
 ```
