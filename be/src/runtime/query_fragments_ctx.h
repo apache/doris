@@ -140,6 +140,8 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
+    std::vector<TUniqueId> fragment_ids;
+
 private:
     ExecEnv* _exec_env;
     DateTimeValue _start_time;

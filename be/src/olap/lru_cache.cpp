@@ -523,6 +523,10 @@ int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
     return num_prune;
 }
 
+int64_t ShardedLRUCache::mem_consumption() {
+    return _mem_tracker->consumption();
+}
+
 void ShardedLRUCache::update_cache_metrics() const {
     size_t total_capacity = 0;
     size_t total_usage = 0;

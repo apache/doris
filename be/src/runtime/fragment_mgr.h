@@ -87,6 +87,9 @@ public:
     void cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
                 const std::string& msg = "");
 
+    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                      const std::string& msg = "");
+
     void cancel_worker();
 
     virtual void debug(std::stringstream& ss);
