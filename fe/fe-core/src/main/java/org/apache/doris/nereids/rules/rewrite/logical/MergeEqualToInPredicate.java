@@ -69,8 +69,13 @@ public class MergeEqualToInPredicate extends OneRewriteRuleFactory {
 
         for(Entry<Slot, List<Expression>> entry: equalMap.entrySet()) {
             if (entry.getValue().size() >= MERGE_LIMIT) {
-                InPredicate in = new InPredicate(entry.getKey(), (List<Expression>) entry.getValue());
+                InPredicate in = new InPredicate(entry.getKey(), entry.getValue());
                 result = addDisconjunct(result, in);
+            } else {
+                for (Expression right: entry.getValue()) {
+                    result = addDisconjunct(result,
+                            new EqualTo(entry.getKey(), right));
+                }
             }
         }
         return result;
