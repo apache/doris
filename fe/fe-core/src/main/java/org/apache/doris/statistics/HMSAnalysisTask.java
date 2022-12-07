@@ -22,12 +22,12 @@ import org.apache.doris.common.Config;
 
 import org.apache.commons.lang.NotImplementedException;
 
-public class HMSAnalysisJob extends AnalysisJob {
+public class HMSAnalysisTask extends BaseAnalysisTask {
 
     protected HMSExternalTable table;
 
-    public HMSAnalysisJob(AnalysisJobScheduler analysisJobScheduler, AnalysisJobInfo info) {
-        super(analysisJobScheduler, info);
+    public HMSAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
+        super(analysisTaskScheduler, info);
         table = (HMSExternalTable) tbl;
     }
 

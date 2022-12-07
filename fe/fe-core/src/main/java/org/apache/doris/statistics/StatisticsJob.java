@@ -267,12 +267,7 @@ public class StatisticsJob {
      * tableIdToColumnName: {t1: [c1,c2,c3]}
      */
     public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt stmt) throws AnalysisException {
-        long dbId = stmt.getDbId();
-        Set<Long> tblIds = stmt.getTblIds();
-        Map<Long, List<String>> tableIdToPartitionName = stmt.getTableIdToPartitionName();
-        Map<Long, List<String>> tableIdToColumnName = stmt.getTableIdToColumnName();
-        Map<String, String> properties = stmt.getProperties();
-        return new StatisticsJob(dbId, tblIds, tableIdToPartitionName, tableIdToColumnName, properties);
+        return null;
     }
 
     public List<Comparable> getShowInfo(@Nullable Long tableId) throws AnalysisException {

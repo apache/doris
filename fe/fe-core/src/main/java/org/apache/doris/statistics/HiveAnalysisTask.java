@@ -43,26 +43,26 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class HiveAnalysisJob extends HMSAnalysisJob {
-    private static final Logger LOG = LogManager.getLogger(HiveAnalysisJob.class);
+public class HiveAnalysisTask extends HMSAnalysisTask {
+    private static final Logger LOG = LogManager.getLogger(HiveAnalysisTask.class);
 
     public static final String TOTAL_SIZE = "totalSize";
     public static final String NUM_ROWS = "numRows";
     public static final String NUM_FILES = "numFiles";
     public static final String TIMESTAMP = "transient_lastDdlTime";
 
-    public HiveAnalysisJob(AnalysisJobScheduler analysisJobScheduler, AnalysisJobInfo info) {
-        super(analysisJobScheduler, info);
+    public HiveAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
+        super(analysisTaskScheduler, info);
     }
 
     private static final String ANALYZE_PARTITION_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '${colId}', '${partId}', "
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', '${partId}', "
             + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
 
     private static final String ANALYZE_TABLE_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '${colId}', NULL, "
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', 'NULL', '${colId}', NULL, "
             + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
 
     @Override

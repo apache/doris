@@ -38,10 +38,14 @@ public class StatisticsCache {
             .buildAsync(new StatisticsCacheLoader());
 
     public ColumnStatistic getColumnStatistics(long tblId, String colName) {
+        return getColumnStatistics(tblId, -1, colName);
+    }
+
+    public ColumnStatistic getColumnStatistics(long tblId, long idxId, String colName) {
         if (ConnectContext.get().getSessionVariable().internalSession) {
             return ColumnStatistic.DEFAULT;
         }
-        StatisticsCacheKey k = new StatisticsCacheKey(tblId, colName);
+        StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
         try {
             CompletableFuture<ColumnStatistic> f = cache.get(k);
             if (f.isDone()) {
@@ -55,15 +59,15 @@ public class StatisticsCache {
     }
 
     // TODO: finish this method.
-    public void eraseExpiredCache(long tblId, String colName) {
-        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, colName));
+    public void eraseExpiredCache(long tblId, long idxId, String colName) {
+        cache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
     }
 
-    public void updateCache(long tblId, String colName, ColumnStatistic statistic) {
-        cache.synchronous().put(new StatisticsCacheKey(tblId, colName), statistic);
+    public void updateCache(long tblId, long idxId, String colName, ColumnStatistic statistic) {
+        cache.synchronous().put(new StatisticsCacheKey(tblId, idxId, colName), statistic);
     }
 
-    public void refreshSync(long tblId, String colName) {
-        cache.synchronous().refresh(new StatisticsCacheKey(tblId, colName));
+    public void refreshSync(long tblId, long idxId, String colName) {
+        cache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
     }
 }

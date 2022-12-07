@@ -1818,7 +1818,6 @@ public class StmtExecutor implements ProfileWriter {
             try {
                 analyze(context.getSessionVariable().toThrift());
             } catch (UserException e) {
-                LOG.warn("Internal SQL execution failed, SQL: {}", originStmt, e);
                 return null;
             }
             planner.getFragments();
@@ -1838,7 +1837,6 @@ public class StmtExecutor implements ProfileWriter {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                LOG.warn("Unexpected exception when SQL running", e);
             } finally {
                 queryScheduleSpan.end();
             }
@@ -1855,7 +1853,6 @@ public class StmtExecutor implements ProfileWriter {
                     }
                 }
             } catch (Exception e) {
-                LOG.warn("Unexpected exception when SQL running", e);
                 fetchResultSpan.recordException(e);
                 return null;
             } finally {
