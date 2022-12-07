@@ -112,14 +112,5 @@ public class EventChannel {
      */
     public void stop() {
         isStop.set(true);
-        if (thread != null) {
-            try {
-                thread.join();
-            } catch (InterruptedException e) {
-                LOG.warn("join worker failed.", e);
-            } finally {
-                thread = null;
-            }
-        }
     }
 }
