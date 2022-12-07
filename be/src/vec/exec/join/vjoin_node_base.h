@@ -53,6 +53,9 @@ public:
         return *_intermediate_row_desc;
     }
 
+    virtual Status alloc_resource(RuntimeState* state) override;
+    virtual void release_resource(RuntimeState* state) override;
+
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
 protected:

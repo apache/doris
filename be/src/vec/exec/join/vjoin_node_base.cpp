@@ -69,10 +69,14 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
 }
 
 Status VJoinNodeBase::close(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::close");
+    return ExecNode::close(state);
+}
+
+void VJoinNodeBase::release_resource(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::release_resource");
     VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
-    return ExecNode::close(state);
+    ExecNode::release_resource(state);
 }
 
 void VJoinNodeBase::_construct_mutable_join_block() {
@@ -174,8 +178,14 @@ Status VJoinNodeBase::open(RuntimeState* state) {
     Status status = _materialize_build_side(state);
     RETURN_IF_ERROR(thread_status.get_future().get());
 
-    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
+
     return status;
+}
+
+Status VJoinNodeBase::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
+    return Status::OK();
 }
 
 void VJoinNodeBase::_reset_tuple_is_null_column() {
