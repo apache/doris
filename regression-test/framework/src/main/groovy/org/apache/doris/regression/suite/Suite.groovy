@@ -310,16 +310,6 @@ class Suite implements GroovyInterceptable {
         return s3Region
     }
 
-    String getSf1BucketName() {
-        String sf1BucketName = context.config.otherConfigs.get("sf1BucketName");
-        return sf1BucketName
-    }
-
-    String getSf1Endpoint() {
-        String sf1Endpoint = context.config.otherConfigs.get("sf1Endpoint");
-        return sf1Endpoint
-    }
-
     String getS3BucketName() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
         return s3BucketName

@@ -39,11 +39,9 @@ suite("test_bitmap_index_load") {
         set 'column_separator', '|'
         set 'columns', 'a,temp'
         
-        def sf1BucketName = getSf1BucketName()
-        def sf1Endpoint = getSf1Endpoint()
         // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
         // also, you can stream load a http stream, e.g. http://xxx/some.csv
-        file """https://${sf1BucketName}.${sf1Endpoint}/regression/bitmap_index_test.csv"""
+        file """${getS3Url()}/regression/bitmap_index_test.csv"""
         time 10000 // limit inflight 10s
 
         // if declared a check callback, the default check condition will ignore.
