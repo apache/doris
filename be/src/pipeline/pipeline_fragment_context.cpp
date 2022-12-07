@@ -363,8 +363,8 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto* join_node = assert_cast<vectorized::HashJoinNode*>(node);
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
-        OperatorBuilderPtr join_sink = std::make_shared<HashJoinBuildSinkBuilder>(
-                next_operator_builder_id(), join_node);
+        OperatorBuilderPtr join_sink =
+                std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
         RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
 
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));

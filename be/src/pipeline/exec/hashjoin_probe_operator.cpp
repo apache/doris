@@ -16,6 +16,7 @@
 // under the License.
 
 #include "hashjoin_probe_operator.h"
+
 #include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {

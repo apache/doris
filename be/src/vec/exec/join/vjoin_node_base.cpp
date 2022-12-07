@@ -178,7 +178,6 @@ Status VJoinNodeBase::open(RuntimeState* state) {
     Status status = _materialize_build_side(state);
     RETURN_IF_ERROR(thread_status.get_future().get());
 
-
     return status;
 }
 
