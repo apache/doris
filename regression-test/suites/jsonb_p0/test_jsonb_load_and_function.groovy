@@ -52,6 +52,16 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
+
+            StringBuilder sb = new StringBuilder()
+            sb.append("curl -X GET " + json.ErrorURL)
+            String command = sb.toString()
+            def process = command.execute()
+            def code = process.waitFor()
+            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
+            def out = process.getText()
+            log.info("error result: " + out)
+
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
             assertEquals(25, json.NumberTotalRows)
@@ -59,16 +69,6 @@ suite("test_jsonb_load_and_function", "p0") {
             assertEquals(7, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
             log.info("url: " + json.ErrorURL)
-
-            StringBuilder sb = new StringBuilder()
-            sb.append("curl -X GET " + json.ErrorURL)
-            String command = sb.toString()
-            // wait for cleaning stale_rowsets
-            def process = command.execute()
-            def code = process.waitFor()
-            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
-            def out = process.getText()
-            log.info("error result: " + out)
         }
     }
 
@@ -91,21 +91,21 @@ suite("test_jsonb_load_and_function", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
-            assertEquals(7, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
 
             StringBuilder sb = new StringBuilder()
             sb.append("curl -X GET " + json.ErrorURL)
             String command = sb.toString()
-            // wait for cleaning stale_rowsets
             def process = command.execute()
             def code = process.waitFor()
             def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())))
             def out = process.getText()
             log.info("error result: " + out)
+
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(25, json.NumberTotalRows)
+            assertEquals(18, json.NumberLoadedRows)
+            assertEquals(7, json.NumberFilteredRows)
+            assertTrue(json.LoadBytes > 0)
         }
     }
 
