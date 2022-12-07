@@ -1150,6 +1150,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-1.2.0",
                 "releasenotes/release-1.1.4",
                 "releasenotes/release-1.1.3",
                 "releasenotes/release-1.1.2",
