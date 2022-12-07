@@ -23,9 +23,10 @@
 #include <queue>
 #include <shared_mutex>
 
+#include "common/global_types.h"
+#include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
 namespace vectorized {
@@ -74,7 +75,6 @@ private:
 
     PipelineFragmentContext* _context;
 
-private:
     Status _send_rpc(InstanceLoId);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera
     void _construct_request(InstanceLoId id);

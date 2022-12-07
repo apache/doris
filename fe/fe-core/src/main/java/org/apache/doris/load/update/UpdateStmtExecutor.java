@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
@@ -142,6 +143,7 @@ public class UpdateStmtExecutor {
                 updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
         coordinator.setQueryType(TQueryType.LOAD);
         coordinator.setExecVecEngine(VectorizedUtil.isVectorized());
+        coordinator.setExecPipEngine(Config.enable_pipeline_load);
         QeProcessorImpl.INSTANCE.registerQuery(queryId, coordinator);
         analyzer.getContext().getExecutor().setCoord(coordinator);
 

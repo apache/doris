@@ -18,26 +18,32 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/exec/vempty_set_node.h"
+#include "vec/sink/vtablet_sink.h"
 
 namespace doris {
 
 namespace pipeline {
 
-class EmptySetSourceOperatorBuilder final : public OperatorBuilder<vectorized::VEmptySetNode> {
+class OlapTableSinkOperatorBuilder final
+        : public DataSinkOperatorBuilder<stream_load::VOlapTableSink> {
 public:
-    EmptySetSourceOperatorBuilder(int32_t id, ExecNode* empty_set_node);
-
-    bool is_source() const override { return true; }
+    OlapTableSinkOperatorBuilder(int32_t id, DataSink* sink)
+            : DataSinkOperatorBuilder(id, "OlapTableSinkOperator", sink) {};
 
     OperatorPtr build_operator() override;
 };
 
-class EmptySetSourceOperator final : public Operator<EmptySetSourceOperatorBuilder> {
+class OlapTableSinkOperator final : public DataSinkOperator<OlapTableSinkOperatorBuilder> {
 public:
-    EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
-    bool can_read() override { return true; };
+    OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
+            : DataSinkOperator(operator_builder, sink) {};
+
+    bool can_write() override { return true; } // TODO: need use mem_limit
 };
+
+OperatorPtr OlapTableSinkOperatorBuilder::build_operator() {
+    return std::make_shared<OlapTableSinkOperator>(this, _sink);
+}
 
 } // namespace pipeline
 } // namespace doris
