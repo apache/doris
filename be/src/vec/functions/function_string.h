@@ -1227,8 +1227,8 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -1246,9 +1246,11 @@ public:
 
         size_t argument_size = arguments.size();
         ColumnPtr argument_columns[argument_size];
+
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+
             if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
@@ -1259,21 +1261,32 @@ public:
             }
         }
 
+        ColumnPtr argument_column = block.get_by_position(arguments[2]).column;
+        ColumnPtr columnPtr = remove_nullable(argument_column);
+
+        if (!is_column_const(*columnPtr)) {
+            return Status::RuntimeError("Argument at index 3 for function {} must be constant",
+                                        get_name());
+        }
+
         auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
         auto part_num_col = assert_cast<const ColumnInt32*>(argument_columns[2].get());
         auto& part_num_col_data = part_num_col->get_data();
 
-        //TODO check part_num_col_data is const, if not return error
         auto part_number = part_num_col_data[0];
 
         if (part_number >= 0) {
             for (size_t i = 0; i < input_rows_count; ++i) {
+                if (part_number == 0) {
+                    StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
+                    continue;
+                }
                 auto delimiter = delimiter_col->get_data_at(i);
                 auto delimiter_str = delimiter_col->get_data_at(i).to_string();
 
                 auto str = str_col->get_data_at(i);
-                if (delimiter.size == 0 || part_number == 0) {
+                if (delimiter.size == 0) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 } else if (delimiter.size == 1) {
                     // If delimiter is a char, use memchr to split
