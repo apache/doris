@@ -18,7 +18,9 @@
 #pragma once
 
 #include <memory>
+#include <queue>
 #include <shared_mutex>
+#include <string>
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"
@@ -31,8 +33,8 @@ const std::string CACHE_DONE_FILE_SUFFIX = "_DONE";
 
 class FileCache : public FileReader {
 public:
-    FileCache() : _last_match_time(time(nullptr)), _cache_file_size(0) {}
-    virtual ~FileCache() = default;
+    FileCache() : _cache_file_size(0) {}
+    ~FileCache() override = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileCache);
 
@@ -46,25 +48,47 @@ public:
 
     virtual Status clean_all_cache() = 0;
 
+    virtual Status clean_one_cache(size_t* cleaned_size) = 0;
+
+    bool is_gc_finish() { return _gc_lru_queue.empty(); }
+
     virtual bool is_dummy_file_cache() { return false; }
 
     Status download_cache_to_local(const Path& cache_file, const Path& cache_done_file,
                                    io::FileReaderSPtr remote_file_reader, size_t req_size,
                                    size_t offset = 0);
 
-    void update_last_match_time() { _last_match_time = time(nullptr); }
-    int64_t get_last_match_time() const { return _last_match_time; }
+    int64_t get_oldest_match_time() const {
+            return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
+    };
 
 protected:
-    int64_t _last_match_time;
+    Status _remove_file(const Path& cache_file, const Path& cache_done_file, size_t* cleaned_size);
+
+    struct CacheFileInfo {
+        Path file;
+        size_t offset;
+        int64_t last_match_time;
+    };
+
+    struct CacheFileLRUComparator {
+        bool operator()(const CacheFileInfo& lhs, const CacheFileInfo& rhs) const {
+            return lhs.last_match_time > rhs.last_match_time;
+        }
+    };
+
     size_t _cache_file_size;
+
+    using GcQueue =
+            std::priority_queue<CacheFileInfo, std::vector<CacheFileInfo>, CacheFileLRUComparator>;
+    GcQueue _gc_lru_queue;
 };
 
 using FileCachePtr = std::shared_ptr<FileCache>;
 
 struct FileCacheLRUComparator {
     bool operator()(const FileCachePtr& lhs, const FileCachePtr& rhs) const {
-        return lhs->get_last_match_time() > rhs->get_last_match_time();
+        return lhs->get_oldest_match_time() > rhs->get_oldest_match_time();
     }
 };
 

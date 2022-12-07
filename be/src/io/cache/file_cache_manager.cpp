@@ -44,13 +44,31 @@ bool GCContextPerDisk::try_add_file_cache(FileCachePtr cache, int64_t file_size)
     return false;
 }
 
-void GCContextPerDisk::get_gc_file_caches(std::list<FileCachePtr>& result) {
-    while (!_lru_queue.empty() && _used_size > _conf_max_size) {
-        auto file_cache = _lru_queue.top();
-        _used_size -= file_cache->cache_file_size();
-        result.push_back(file_cache);
+FileCachePtr GCContextPerDisk::top() {
+    if (!_lru_queue.empty() && _used_size > _conf_max_size) {
+        return _lru_queue.top();
+    }
+    return nullptr;
+}
+
+void GCContextPerDisk::pop() {
+    if (!_lru_queue.empty()) {
         _lru_queue.pop();
     }
+}
+
+Status GCContextPerDisk::gc_top() {
+    if (!_lru_queue.empty() && _used_size > _conf_max_size) {
+        auto file_cache = _lru_queue.top();
+        size_t cleaned_size = 0;
+        RETURN_IF_ERROR(file_cache->clean_one_cache(&cleaned_size));
+        _used_size -= cleaned_size;
+        _lru_queue.pop();
+        if (!file_cache->is_gc_finish()) {
+            _lru_queue.push(file_cache);
+        }
+    }
+    return Status::OK();
 }
 
 void FileCacheManager::add_file_cache(const std::string& cache_path, FileCachePtr file_cache) {
@@ -175,16 +193,21 @@ void FileCacheManager::gc_file_caches() {
     // policy2: GC file cache by disk size
     if (gc_conf_size > 0) {
         for (size_t i = 0; i < contexts.size(); ++i) {
-            std::list<FileCachePtr> gc_file_list;
-            contexts[i].get_gc_file_caches(gc_file_list);
-            for (auto item : gc_file_list) {
-                std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
-                // for dummy file cache, check already used or not again
-                if (item->is_dummy_file_cache() &&
-                    _file_cache_map.find(item->cache_dir().native()) != _file_cache_map.end()) {
-                    continue;
+            auto context = contexts[i];
+            FileCachePtr file_cache;
+            while ((file_cache = context.top()) != nullptr) {
+                {
+                    std::shared_lock<std::shared_mutex> rdlock(_cache_map_lock);
+                    // for dummy file cache, check already used or not again
+                    if (file_cache->is_dummy_file_cache() &&
+                        _file_cache_map.find(file_cache->cache_dir().native()) !=
+                                _file_cache_map.end()) {
+                        context.pop();
+                        continue;
+                    }
                 }
-                item->clean_all_cache();
+                WARN_IF_ERROR(context.gc_top(),
+                              fmt::format("gc {} error", file_cache->cache_dir().native()));
             }
         }
     }

@@ -19,6 +19,7 @@
 
 #include <future>
 #include <memory>
+#include <queue>
 
 #include "common/status.h"
 #include "io/cache/file_cache.h"
@@ -55,22 +56,22 @@ public:
 
     Status clean_all_cache() override;
 
+    Status clean_one_cache(size_t* cleaned_size) override;
+
     Status load_and_clean();
 
     bool is_dummy_file_cache() override { return true; }
 
 private:
     Status _clean_unfinished_cache();
-    void _update_last_mtime(const Path& done_file);
     void _add_file_cache(const Path& data_file);
     void _load();
-    Status _clean_cache_internal();
+    Status _clean_cache_internal(const Path&, size_t*);
 
 private:
     Path _cache_dir;
     int64_t _alive_time_sec;
 
-    std::map<Path, int64_t> _file_sizes;
     std::list<Path> _unfinished_files;
 };
 

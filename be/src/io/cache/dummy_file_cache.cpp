@@ -28,21 +28,15 @@ namespace io {
 DummyFileCache::DummyFileCache(const Path& cache_dir, int64_t alive_time_sec)
         : _cache_dir(cache_dir), _alive_time_sec(alive_time_sec) {}
 
-DummyFileCache::~DummyFileCache() {}
-
-void DummyFileCache::_update_last_mtime(const Path& done_file) {
-    Path cache_done_file = _cache_dir / done_file;
-    time_t m_time;
-    if (FileUtils::mtime(cache_done_file.native(), &m_time).ok() && m_time > _last_match_time) {
-        _last_match_time = m_time;
-    }
-}
+DummyFileCache::~DummyFileCache() = default;
 
 void DummyFileCache::_add_file_cache(const Path& data_file) {
     Path cache_file = _cache_dir / data_file;
     size_t file_size = 0;
-    if (io::global_local_filesystem()->file_size(cache_file, &file_size).ok()) {
-        _file_sizes[cache_file] = file_size;
+    time_t m_time = 0;
+    if (io::global_local_filesystem()->file_size(cache_file, &file_size).ok() &&
+        FileUtils::mtime(cache_file.native(), &m_time).ok()) {
+        _gc_lru_queue.push({cache_file, 0, m_time});
         _cache_file_size += file_size;
     } else {
         _unfinished_files.push_back(cache_file);
@@ -72,7 +66,6 @@ void DummyFileCache::_load() {
         Path cache_filename = StringReplace(iter->native(), CACHE_DONE_FILE_SUFFIX, "", true);
         if (cache_names.find(cache_filename) != cache_names.end()) {
             cache_names.erase(cache_filename);
-            _update_last_mtime(*iter);
             _add_file_cache(cache_filename);
         } else {
             // not data file, but with DONE file
@@ -110,34 +103,38 @@ Status DummyFileCache::load_and_clean() {
 }
 
 Status DummyFileCache::clean_timeout_cache() {
-    if (time(nullptr) - _last_match_time > _alive_time_sec) {
-        return _clean_cache_internal();
+    while (!_gc_lru_queue.empty() &&
+           time(nullptr) - _gc_lru_queue.top().last_match_time > _alive_time_sec) {
+        size_t cleaned_size = 0;
+        RETURN_IF_ERROR(_clean_cache_internal(_gc_lru_queue.top().file, &cleaned_size));
+        _cache_file_size -= cleaned_size;
+        _gc_lru_queue.pop();
     }
     return Status::OK();
 }
 
 Status DummyFileCache::clean_all_cache() {
-    return _clean_cache_internal();
-}
-
-Status DummyFileCache::_clean_cache_internal() {
-    for (const auto& iter : _file_sizes) {
-        const auto cache_file_path = iter.first;
-        Path done_file_path = cache_file_path.native() + CACHE_DONE_FILE_SUFFIX;
-        LOG(INFO) << "Delete unused done_cache_path: " << done_file_path.native()
-                  << ", cache_file_path: " << cache_file_path.native();
-        if (!io::global_local_filesystem()->delete_file(done_file_path).ok()) {
-            LOG(ERROR) << "delete_file failed: " << done_file_path.native();
-            continue;
-        }
-        if (!io::global_local_filesystem()->delete_file(cache_file_path).ok()) {
-            LOG(ERROR) << "delete_file failed: " << cache_file_path.native();
-            continue;
-        }
+    while (!_gc_lru_queue.empty()) {
+        RETURN_IF_ERROR(_clean_cache_internal(_gc_lru_queue.top().file, nullptr));
+        _gc_lru_queue.pop();
     }
-    _file_sizes.clear();
     _cache_file_size = 0;
     return Status::OK();
+}
+
+Status DummyFileCache::clean_one_cache(size_t* cleaned_size) {
+    if (!_gc_lru_queue.empty()) {
+        const auto& cache = _gc_lru_queue.top();
+        RETURN_IF_ERROR(_clean_cache_internal(cache.file, cleaned_size));
+        _cache_file_size -= *cleaned_size;
+        _gc_lru_queue.pop();
+    }
+    return Status::OK();
+}
+
+Status DummyFileCache::_clean_cache_internal(const Path& cache_file_path, size_t* cleaned_size) {
+    Path done_file_path = cache_file_path.native() + CACHE_DONE_FILE_SUFFIX;
+    return _remove_file(cache_file_path, done_file_path, cleaned_size);
 }
 
 } // namespace io

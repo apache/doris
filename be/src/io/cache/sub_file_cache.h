@@ -52,15 +52,19 @@ public:
 
     Status clean_all_cache() override;
 
+    Status clean_one_cache(size_t* cleaned_size) override;
+
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);
 
-    Status _clean_cache_internal(size_t offset);
+    Status _clean_cache_internal(size_t offset, size_t* cleaned_size);
 
     Status _get_need_cache_offsets(size_t offset, size_t req_size,
                                    std::vector<size_t>* cache_offsets);
 
     size_t _calc_cache_file_size();
+
+    std::pair<Path, Path> _cache_path(size_t offset);
 
 private:
     Path _cache_dir;
