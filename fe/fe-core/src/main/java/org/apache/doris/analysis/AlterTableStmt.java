@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -77,8 +78,11 @@ public class AlterTableStmt extends DdlStmt {
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
-        Table table =
-                Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb()).getTableOrDdlException(tbl.getTbl());
+        Table table = null;
+        if (!FeConstants.runningUnitTest) {
+            table = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb())
+                    .getTableOrDdlException(tbl.getTbl());
+        }
         for (AlterClause op : ops) {
             if (op instanceof AlterTableClause && table instanceof OlapTable) {
                 ((AlterTableClause) op).setOlapTable((OlapTable) table);
