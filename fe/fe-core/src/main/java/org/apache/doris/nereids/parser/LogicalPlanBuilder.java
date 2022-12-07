@@ -989,8 +989,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             SelectColumnClauseContext columnCtx = selectClause.selectColumnClause();
             LogicalPlan aggregate = withAggregate(filter, columnCtx, aggClause);
             // TODO: replace and process having at this position
-            LogicalPlan having = withHaving(aggregate, havingClause);
-            return withProjection(having, selectClause.selectColumnClause(), aggClause);
+            if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
+                // create a project node for pattern match of ProjectToGlobalAggregate rule
+                // then ProjectToGlobalAggregate rule can insert agg node as LogicalFilter node's child
+                LogicalPlan project = new LogicalProject<>(getNamedExpressions(selectClause.namedExpressionSeq()),
+                        aggregate);
+                return new LogicalFilter<>(getExpression((havingClause.get().booleanExpression())), project);
+            } else {
+                LogicalPlan having = withHaving(aggregate, havingClause);
+                return withProjection(having, selectClause, aggClause);
+            }
         });
     }
 
