@@ -2029,7 +2029,7 @@ HOUR: log前缀是：yyyyMMddHH
 
 ### `label_clean_interval_second`
 
-默认值：4 * 3600  （4小时）
+默认值：1 * 3600  （1小时）
 
 load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清理过时的作业。
 
