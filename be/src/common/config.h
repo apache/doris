@@ -263,6 +263,8 @@ CONF_mBool(enable_ordered_data_compaction, "false");
 CONF_mInt32(vertical_compaction_num_columns_per_group, "5");
 // In vertical compaction, max memory usage for row_source_buffer
 CONF_Int32(vertical_compaction_max_row_source_memory_mb, "200");
+// In vertical compaction, max dest segment file size
+CONF_mInt64(max_segment_size_in_vertical_compaction, "268435456");
 
 // In ordered data compaction, min segment size for input rowset
 CONF_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -276,6 +278,7 @@ CONF_mInt64(base_compaction_min_rowset_num, "5");
 CONF_mDouble(base_compaction_min_data_ratio, "0.3");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
+CONF_Bool(enable_skip_tablet_compaction, "true");
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 CONF_mInt64(compaction_promotion_size_mbytes, "1024");
