@@ -26,6 +26,12 @@ under the License.
 
 ## array_contains
 
+<version since="1.2.0">
+
+array_contains
+
+</version>
+
 ### description
 
 #### Syntax
@@ -71,3 +77,4 @@ mysql> select array_contains([null, 1], null);
 ### keywords
 
 ARRAY,CONTAIN,CONTAINS,ARRAY_CONTAINS
+

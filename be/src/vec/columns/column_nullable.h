@@ -314,6 +314,14 @@ public:
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
+    void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) override {
+        nested_column->set_rowset_segment_id(rowset_segment_id);
+    }
+
+    std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
+        return nested_column->get_rowset_segment_id();
+    }
+
 private:
     // the two functions will not update `_need_update_has_null`
     ColumnUInt8& _get_null_map_column() { return assert_cast<ColumnUInt8&>(*null_map); }

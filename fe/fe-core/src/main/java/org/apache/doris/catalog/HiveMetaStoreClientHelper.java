@@ -897,8 +897,11 @@ public class HiveMetaStoreClientHelper {
         // 1. region and endpoint. eg: cn-beijing
         String region = hiveConf.get("dlf.catalog.region");
         if (!Strings.isNullOrEmpty(region)) {
+            // See: https://help.aliyun.com/document_detail/31837.html
+            // And add "-internal" to access oss within vpc
+            // TODO: find to way to access oss on public?
             res.put(HiveTable.AWS_REGION, "oss-" + region);
-            res.put(HiveTable.S3_ENDPOINT, "http://oss-" + region + ".aliyuncs.com");
+            res.put(HiveTable.S3_ENDPOINT, "http://oss-" + region + "-internal.aliyuncs.com");
         }
 
         // 2. ak and sk

@@ -985,12 +985,21 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
-            try {
-                // use col name from tableRefs first
-                havingClauseAfterAnaylzed = havingClause.clone();
-                havingClauseAfterAnaylzed.analyze(analyzer);
-            } catch (AnalysisException ex) {
-                // then consider alias name
+            if (groupByClause != null) {
+                // according to mysql
+                // if there is a group by clause, the having clause should use column name not alias
+                // this is the same as group by clause
+                try {
+                    // use col name from tableRefs first
+                    havingClauseAfterAnaylzed = havingClause.clone();
+                    havingClauseAfterAnaylzed.analyze(analyzer);
+                } catch (AnalysisException ex) {
+                    // then consider alias name
+                    havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+                }
+            } else {
+                // according to mysql
+                // if there is no group by clause, the having clause should use alias
                 havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
             }
             havingClauseAfterAnaylzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnaylzed, analyzer);
@@ -1833,18 +1842,26 @@ public class SelectStmt extends QueryStmt {
         if (selectList.isDistinct()) {
             strBuilder.append("DISTINCT ");
         }
-        for (int i = 0; i < resultExprs.size(); ++i) {
-            // strBuilder.append(selectList.getItems().get(i).toSql());
-            // strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
-            if (i != 0) {
-                strBuilder.append(", ");
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList) {
+            for (int i = 0; i < selectList.getItems().size(); i++) {
+                strBuilder.append(selectList.getItems().get(i).toSql());
+                strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
             }
-            if (needToSql) {
-                strBuilder.append(originalExpr.get(i).toSql());
-            } else {
-                strBuilder.append(resultExprs.get(i).toSql());
+        } else {
+            for (int i = 0; i < resultExprs.size(); ++i) {
+                // strBuilder.append(selectList.getItems().get(i).toSql());
+                // strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
+                if (i != 0) {
+                    strBuilder.append(", ");
+                }
+                if (needToSql) {
+                    strBuilder.append(originalExpr.get(i).toSql());
+                } else {
+                    strBuilder.append(resultExprs.get(i).toSql());
+                }
+                strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
             }
-            strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
         }
 
         // From clause

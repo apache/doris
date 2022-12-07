@@ -50,6 +50,7 @@ struct SerializedHashTableContext {
     Iter iter;
     bool inited = false;
     std::vector<StringRef> keys;
+    size_t keys_memory_usage = 0;
 
     void serialize_keys(const ColumnRawPtrs& key_columns, size_t num_rows) {
         if (keys.size() < num_rows) {
@@ -57,10 +58,12 @@ struct SerializedHashTableContext {
         }
 
         _arena.reset(new Arena());
+        keys_memory_usage = 0;
         size_t keys_size = key_columns.size();
         for (size_t i = 0; i < num_rows; ++i) {
             keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
         }
+        keys_memory_usage = _arena->size();
     }
 
     void init_once() {
@@ -72,17 +75,6 @@ struct SerializedHashTableContext {
 
 private:
     std::unique_ptr<Arena> _arena;
-};
-
-template <typename HashMethod>
-struct IsSerializedHashTableContextTraits {
-    constexpr static bool value = false;
-};
-
-template <typename Value, typename Mapped>
-struct IsSerializedHashTableContextTraits<
-        ColumnsHashing::HashMethodSerialized<Value, Mapped, true>> {
-    constexpr static bool value = true;
 };
 
 // T should be UInt32 UInt64 UInt128
@@ -251,9 +243,12 @@ private:
     RuntimeProfile::Counter* _build_side_compute_hash_timer;
     RuntimeProfile::Counter* _build_side_merge_block_timer;
 
-    RuntimeProfile* _build_phase_profile;
+    RuntimeProfile::Counter* _build_blocks_memory_usage;
+    RuntimeProfile::Counter* _hash_table_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
+    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
 
-    int64_t _mem_used;
+    RuntimeProfile* _build_phase_profile;
 
     std::shared_ptr<Arena> _arena;
 

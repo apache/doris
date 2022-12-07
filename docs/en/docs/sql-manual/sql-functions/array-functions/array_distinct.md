@@ -26,6 +26,12 @@ under the License.
 
 ## array_distinct
 
+<version since="1.2.0">
+
+array_distinct
+
+</version>
+
 ### description
 
 #### Syntax
@@ -77,3 +83,4 @@ mysql> select k1, k2, array_distinct(k2) from array_test01;
 ### keywords
 
 ARRAY, DISTINCT, ARRAY_DISTINCT
+

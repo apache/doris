@@ -56,7 +56,7 @@ Status VOdbcTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VOdbcTableSink::send(RuntimeState* state, Block* block) {
+Status VOdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {

@@ -83,11 +83,22 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
 
     RETURN_IF_CANCELLED(state);
 
-    RETURN_IF_ERROR(get_expanded_block(state, block, eos));
+    // if child_block is empty, get data from child.
+    if (need_more_input_data()) {
+        while (_child_block->rows() == 0 && !_child_eos) {
+            RETURN_IF_ERROR_AND_CHECK_SPAN(
+                    child(0)->get_next_after_projects(state, _child_block.get(), &_child_eos),
+                    child(0)->get_next_span(), _child_eos);
+        }
+        if (_child_eos && _child_block->rows() == 0) {
+            *eos = true;
+            return Status::OK();
+        }
 
-    reached_limit(block, eos);
+        push(state, _child_block.get(), *eos);
+    }
 
-    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    pull(state, block, eos);
 
     return Status::OK();
 }
@@ -111,23 +122,8 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("VTableFunctionNode, while getting next batch."));
 
-        // if child_block is empty, get data from child.
         if (_child_block->rows() == 0) {
-            while (_child_block->rows() == 0 && !_child_eos) {
-                RETURN_IF_ERROR_AND_CHECK_SPAN(
-                        child(0)->get_next_after_projects(state, _child_block.get(), &_child_eos),
-                        child(0)->get_next_span(), _child_eos);
-            }
-            if (_child_eos && _child_block->rows() == 0) {
-                *eos = true;
-                break;
-            }
-
-            for (TableFunction* fn : _fns) {
-                RETURN_IF_ERROR(fn->process_init(_child_block.get()));
-            }
-
-            RETURN_IF_ERROR(_process_next_child_row());
+            break;
         }
 
         bool skip_child_row = false;

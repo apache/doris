@@ -32,7 +32,6 @@
 #include "http/rest_monitor_iface.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
-#include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thread.h"
 
@@ -41,6 +40,10 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
+
+namespace pipeline {
+class PipelineFragmentContext;
+}
 
 class QueryFragmentsCtx;
 class ExecEnv;
@@ -61,26 +64,32 @@ public:
     using FinishCallback = std::function<void(PlanFragmentExecutor*)>;
 
     FragmentMgr(ExecEnv* exec_env);
-    virtual ~FragmentMgr();
+    ~FragmentMgr() override;
 
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
+
+    void remove_pipeline_context(
+            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
-    Status cancel(const TUniqueId& fragment_id) {
-        return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
+    void cancel(const TUniqueId& fragment_id) {
+        cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
     }
 
-    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
-                  const std::string& msg = "");
+    void cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                const std::string& msg = "");
+
+    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                      const std::string& msg = "");
 
     void cancel_worker();
 
-    virtual void debug(std::stringstream& ss);
+    void debug(std::stringstream& ss) override;
 
     // input: TScanOpenParams fragment_instance_id
     // output: selected_columns
@@ -119,6 +128,9 @@ private:
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
+
+    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
+
     // query id -> QueryFragmentsCtx
     std::unordered_map<TUniqueId, std::shared_ptr<QueryFragmentsCtx>> _fragments_ctx_map;
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;

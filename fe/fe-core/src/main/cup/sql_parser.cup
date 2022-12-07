@@ -2619,7 +2619,7 @@ show_create_routine_load_stmt ::=
 
 // analyze statment
 analyze_stmt ::=
-    KW_ANALYZE opt_table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    KW_ANALYZE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
         RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
     :}
@@ -3456,14 +3456,14 @@ show_param ::=
         RESULT = new ShowDbStmt(null, null, catalogName);
     :}
     /* Catalog */
-    | KW_CATALOGS
+    | KW_CATALOGS opt_wild_where
     {:
-        RESULT = new ShowCatalogStmt();
+        RESULT = new ShowCatalogStmt(null, parser.wild);
     :}
     /* show Catalog name */
     | KW_CATALOG ident:catalogName
     {:
-        RESULT = new ShowCatalogStmt(catalogName);
+        RESULT = new ShowCatalogStmt(catalogName, null);
     :}
     /* Dynamic Partition */
     | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db

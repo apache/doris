@@ -130,6 +130,8 @@ Status TabletsChannel::close(
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
+                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << it.first
+                              << ", transaction_id=" << _txn_id;
             }
         }
 
@@ -189,6 +191,8 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
         tablet_error->set_msg(st.get_error_msg());
+        VLOG_PROGRESS << "close wait failed tablet " << writer->tablet_id() << " transaction_id "
+                      << _txn_id << "err msg " << st.get_error_msg();
     }
 }
 
@@ -443,6 +447,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         int64_t tablet_id = request.tablet_ids(i);
         if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
             // skip broken tablets
+            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
             continue;
         }
         auto it = tablet_to_rowidxs.find(tablet_id);

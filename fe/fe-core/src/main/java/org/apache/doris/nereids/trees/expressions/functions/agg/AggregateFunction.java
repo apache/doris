@@ -38,7 +38,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     private final AggregateParam aggregateParam;
 
     public AggregateFunction(String name, Expression... arguments) {
-        this(name, AggregateParam.global(), arguments);
+        this(name, AggregateParam.finalPhase(), arguments);
     }
 
     public AggregateFunction(String name, AggregateParam aggregateParam, Expression... arguments) {
@@ -79,7 +79,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     @Override
     public final DataType getDataType() {
-        if (aggregateParam.isGlobal) {
+        if (aggregateParam.aggPhase.isGlobal() || aggregateParam.isFinalPhase) {
             return getFinalType();
         } else {
             return getIntermediateTypes();
@@ -114,7 +114,11 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
     }
 
     public boolean isGlobal() {
-        return aggregateParam.isGlobal;
+        return aggregateParam.aggPhase.isGlobal();
+    }
+
+    public boolean isFinalPhase() {
+        return aggregateParam.isFinalPhase;
     }
 
     public boolean isDisassembled() {

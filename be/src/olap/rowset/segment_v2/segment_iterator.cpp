@@ -282,6 +282,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 }
 
 Status SegmentIterator::_get_row_ranges_by_column_conditions() {
+    SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_ns);
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }
@@ -1113,6 +1114,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             if (_is_pred_column[cid]) {
                 _current_return_columns[cid] =
                         Schema::get_predicate_column_nullable_ptr(*column_desc);
+                _current_return_columns[cid]->set_rowset_segment_id(
+                        {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
@@ -1259,7 +1262,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
         ColumnPredicate* predicate) {
     auto& column = _current_return_columns[predicate->column_id()];
     auto* col_ptr = column.get();
-    column->set_rowset_segment_id({_segment->rowset_id(), _segment->id()});
 
     if (PredicateTypeTraits::is_range(predicate->type())) {
         col_ptr->convert_dict_codes_if_necessary();

@@ -77,7 +77,25 @@ public class JoinOrderJob extends Job {
                 throw new RuntimeException("DPHyp can not enumerate all sub graphs with limit=" + limit);
             }
         }
-        return planReceiver.getBestPlan(hyperGraph.getNodesMap());
+
+        Group optimized = planReceiver.getBestPlan(hyperGraph.getNodesMap());
+        return copyToMemo(optimized);
+    }
+
+    private Group copyToMemo(Group root) {
+        if (!root.isJoinGroup()) {
+            return root;
+        }
+        GroupExpression groupExpression = root.getLogicalExpression();
+        int arity = groupExpression.arity();
+        for (int i = 0; i < arity; i++) {
+            Group childGroup = groupExpression.child(i);
+            Group newChildGroup = copyToMemo(childGroup);
+            groupExpression.setChild(i, newChildGroup);
+        }
+        Group newRoot = context.getCascadesContext().getMemo().copyInGroupExpression(groupExpression);
+        newRoot.setStatistics(root.getStatistics());
+        return newRoot;
     }
 
     /**

@@ -117,10 +117,9 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
 
     size_t compaction_score = 0;
     int transient_size = _tablet->cumulative_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets,
-            config::max_cumulative_compaction_num_singleton_deltas,
-            config::min_cumulative_compaction_num_singleton_deltas, &_input_rowsets,
-            &_last_delete_version, &compaction_score);
+            _tablet.get(), candidate_rowsets, config::cumulative_compaction_max_deltas,
+            config::cumulative_compaction_min_deltas, &_input_rowsets, &_last_delete_version,
+            &compaction_score);
 
     // Cumulative compaction will process with at least 1 rowset.
     // So when there is no rowset being chosen, we should return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION):
@@ -143,8 +142,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         int64_t last_cumu = _tablet->last_cumu_compaction_success_time();
         int64_t last_base = _tablet->last_base_compaction_success_time();
         if (last_cumu != 0 || last_base != 0) {
-            int64_t interval_threshold =
-                    config::base_compaction_interval_seconds_since_last_operation * 1000;
+            int64_t interval_threshold = 86400 * 1000;
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
             if (cumu_interval > interval_threshold && base_interval > interval_threshold) {

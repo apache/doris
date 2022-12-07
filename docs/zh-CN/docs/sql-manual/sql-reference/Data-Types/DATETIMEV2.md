@@ -26,7 +26,7 @@ under the License.
 
 ## DATETIMEV2
 
-<version since="1.2">
+<version since="1.2.0">
 
 DATATIMEV2
 

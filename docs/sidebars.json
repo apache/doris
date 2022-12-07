@@ -1021,6 +1021,15 @@
                 },
                 {
                     "type": "category",
+                    "label": "Memory Management",
+                    "items": [
+                        "admin-manual/maint-monitor/memory-management/memory-tracker",
+                        "admin-manual/maint-monitor/memory-management/memory-limit-exceeded-analysis",
+                        "admin-manual/maint-monitor/memory-management/be-oom-analysis"
+                    ]
+                },
+                {
+                    "type": "category",
                     "label": "Config",
                     "items": [
                         "admin-manual/config/config-dir",
@@ -1135,6 +1144,17 @@
             "items": [
                 "benchmark/ssb",
                 "benchmark/tpch"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Release notes",
+            "items": [
+                "releasenotes/release-1.1.4",
+                "releasenotes/release-1.1.3",
+                "releasenotes/release-1.1.2",
+                "releasenotes/release-1.1.1",
+                "releasenotes/release-1.1.0"
             ]
         }
     ]

@@ -1214,63 +1214,6 @@ MasterOnly：true
 
 the minimal delay seconds between a replica is failed and fe try to recovery it using clone.
 
-### clone_high_priority_delay_second
-
-Default：0
-
-IsMutable：true
-
-MasterOnly：true
-
-HIGH priority clone job's delay trigger time.
-
-### clone_normal_priority_delay_second 
-
-Default：300 （5min）
-
-IsMutable：true
-
-MasterOnly：true
-
-NORMAL priority clone job's delay trigger time
-
-### clone_low_priority_delay_second
-
-Default：600 （10min）
-
-IsMutable：true
-
-MasterOnly：true
-
-LOW priority clone job's delay trigger time. A clone job contains a tablet which need to be cloned(recovery or migration).  If the priority is LOW, it will be delayed *clone_low_priority_delay_second*  after the job creation and then be executed.  This is to avoid a large number of clone jobs running at same time only because a host is down for a short time. 
- **NOTICE** that this config(and *clone_normal_priority_delay_second* as well)  will not work if it's smaller then *clone_checker_interval_second*
-
-### clone_max_job_num
-
-Default：100
-
-IsMutable：true
-
-MasterOnly：true
-
-Concurrency of LOW priority clone jobs.  Concurrency of High priority clone jobs is currently unlimited.
-
-### clone_job_timeout_second
-
-Default：7200  (2小时)
-
-IsMutable：true
-
-MasterOnly：true
-
-Default timeout of a single clone job. Set long enough to fit your replica size.  The larger the replica data size is, the more time is will cost to finish clone
-
-### clone_checker_interval_second
-
-Default：300 （5min）
-
-Clone checker's running interval
-
 ### tablet_delete_timeout_second
 
 Default：2
@@ -2056,7 +1999,7 @@ The max keep time of some kind of jobs. like schema change job and rollup job.
 
 ### label_clean_interval_second
 
-Default：4 * 3600  （4 hour）
+Default：1 * 3600  （1 hour）
 
 Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
 
@@ -2346,4 +2289,23 @@ Default: 3
 
 Is it possible to dynamically configure: true
 
+### `enable_storage_policy`
+
+Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
+
+Default: false
+
+Is it possible to dynamically configure: true
+
 Is it a configuration item unique to the Master FE node: true
+
+### `enable_fqdn_mode`
+
+This configuration is mainly used in the k8s cluster environment. When enable_fqdn_mode is true, the name of the pod where the be is located will remain unchanged after reconstruction, while the ip can be changed.
+
+Default: false
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+

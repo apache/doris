@@ -208,14 +208,15 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.AnalysisJobScheduler;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsJobManager;
 import org.apache.doris.statistics.StatisticsJobScheduler;
 import org.apache.doris.statistics.StatisticsManager;
-import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.StatisticsTaskScheduler;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -440,11 +441,11 @@ public class Env {
 
     private MTMVJobManager mtmvJobManager;
 
-    private final AnalysisJobScheduler analysisJobScheduler;
-
-    private final StatisticsCache statisticsCache;
+    private AnalysisManager analysisManager;
 
     private ExternalMetaCacheMgr extMetaCacheMgr;
+
+    private FQDNManager fqdnManager;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -644,9 +645,9 @@ public class Env {
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.mtmvJobManager = new MTMVJobManager();
-        this.analysisJobScheduler = new AnalysisJobScheduler();
-        this.statisticsCache = new StatisticsCache();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
+        this.fqdnManager = new FQDNManager(systemInfo);
+        this.analysisManager = new AnalysisManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1431,6 +1432,9 @@ public class Env {
         this.statisticsJobScheduler.start();
         this.statisticsTaskScheduler.start();
         new InternalSchemaInitializer().start();
+        if (Config.enable_fqdn_mode) {
+            fqdnManager.start();
+        }
     }
 
     // start threads that should running on all FE
@@ -1646,7 +1650,7 @@ public class Env {
     }
 
     public StatisticsCache getStatisticsCache() {
-        return statisticsCache;
+        return analysisManager.getStatisticsCache();
     }
 
     public boolean hasReplayer() {
@@ -2971,12 +2975,6 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
 
-            // remote storage
-            String remoteStoragePolicy = olapTable.getRemoteStoragePolicy();
-            if (!Strings.isNullOrEmpty(remoteStoragePolicy)) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY).append("\" = \"");
-                sb.append(remoteStoragePolicy).append("\"");
-            }
             // compression type
             if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
@@ -5232,8 +5230,8 @@ public class Env {
         return count;
     }
 
-    public AnalysisJobScheduler getAnalysisJobScheduler() {
-        return analysisJobScheduler;
+    public AnalysisTaskScheduler getAnalysisJobScheduler() {
+        return analysisManager.taskScheduler;
     }
 
     // TODO:
@@ -5241,6 +5239,11 @@ public class Env {
     //  2. support sample job
     //  3. support period job
     public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
-        StatisticsRepository.createAnalysisJob(analyzeStmt);
+        analysisManager.createAnalysisJob(analyzeStmt);
     }
+
+    public AnalysisManager getAnalysisManager() {
+        return analysisManager;
+    }
+
 }

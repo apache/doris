@@ -190,9 +190,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(
-                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state()->enable_vectorized_exec(), &_sink, *desc_tbl));
+        RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
+                                                   request.fragment.output_exprs, params,
+                                                   row_desc(), runtime_state(), &_sink, *desc_tbl));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -276,6 +276,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         SCOPED_CPU_TIMER(_fragment_cpu_timer);
         SCOPED_TIMER(profile()->total_time_counter());
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
+        RETURN_IF_CANCELLED(_runtime_state);
     }
     if (_sink == nullptr) {
         return Status::OK();
@@ -289,6 +290,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         auto sink_send_span_guard = Defer {[this]() { this->_sink->end_send_span(); }};
         while (true) {
             doris::vectorized::Block* block;
+            RETURN_IF_CANCELLED(_runtime_state);
 
             {
                 SCOPED_CPU_TIMER(_fragment_cpu_timer);

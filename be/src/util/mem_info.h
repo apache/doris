@@ -53,7 +53,9 @@ public:
 
     static void refresh_proc_meminfo();
 
-    static inline int64_t sys_mem_available() { return _s_sys_mem_available; }
+    static inline int64_t sys_mem_available() {
+        return _s_sys_mem_available - refresh_interval_memory_growth;
+    }
     static inline std::string sys_mem_available_str() { return _s_sys_mem_available_str; }
     static inline int64_t sys_mem_available_low_water_mark() {
         return _s_sys_mem_available_low_water_mark;
@@ -83,7 +85,9 @@ public:
     static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
     static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
     static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
-    static inline int64_t proc_mem_no_allocator_cache() { return _s_proc_mem_no_allocator_cache; }
+    static inline int64_t proc_mem_no_allocator_cache() {
+        return _s_proc_mem_no_allocator_cache + refresh_interval_memory_growth;
+    }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
@@ -92,6 +96,7 @@ public:
     static inline void refresh_proc_mem_no_allocator_cache() {
         _s_proc_mem_no_allocator_cache =
                 PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem);
+        refresh_interval_memory_growth = 0;
     }
 
     static inline int64_t mem_limit() {
@@ -109,6 +114,13 @@ public:
 
     static std::string debug_string();
 
+    static void process_minor_gc();
+    static void process_full_gc();
+
+    // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
+    // avoid multiple threads starting at the same time and causing OOM.
+    static std::atomic<int64_t> refresh_interval_memory_growth;
+
 private:
     static bool _s_initialized;
     static int64_t _s_physical_mem;
@@ -125,6 +137,8 @@ private:
     static std::string _s_sys_mem_available_str;
     static int64_t _s_sys_mem_available_low_water_mark;
     static int64_t _s_sys_mem_available_warning_water_mark;
+    static int64_t _s_process_minor_gc_size;
+    static int64_t _s_process_full_gc_size;
 };
 
 } // namespace doris

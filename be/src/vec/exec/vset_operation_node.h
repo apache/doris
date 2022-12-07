@@ -184,7 +184,7 @@ struct HashTableProbe {
 
         if (_probe_index == 0) {
             _arena.reset(new Arena());
-            if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+            if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
                 if (_probe_keys.size() < _probe_rows) {
                     _probe_keys.resize(_probe_rows);
                 }
@@ -196,7 +196,7 @@ struct HashTableProbe {
             }
         }
 
-        if constexpr (IsSerializedHashTableContextTraits<KeyGetter>::value) {
+        if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
             key_getter.set_serialized_keys(_probe_keys.data());
         }
 

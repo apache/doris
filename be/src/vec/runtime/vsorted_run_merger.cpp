@@ -50,7 +50,9 @@ Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs, bool p
     }
 
     for (auto& _cursor : _cursors) {
-        if (!_cursor._is_eof) _priority_queue.push(MergeSortCursor(&_cursor));
+        if (!_cursor._is_eof) {
+            _priority_queue.push(MergeSortCursor(&_cursor));
+        }
     }
 
     for (const auto& cursor : _cursors) {

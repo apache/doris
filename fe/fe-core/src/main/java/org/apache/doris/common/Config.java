@@ -1683,6 +1683,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_vectorized_load = true;
 
+    @ConfField
+    public static boolean enable_pipeline_load = false;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
@@ -1918,5 +1921,20 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_same_name_catalog_trash_num = 3;
+
+    /**
+     * The storage policy is still under developement.
+     * Disable it by default.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_storage_policy = false;
+
+    /**
+     * This config is mainly used in the k8s cluster environment.
+     * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
+     * after reconstruction, while the ip can be changed.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_fqdn_mode = false;
 }
 
