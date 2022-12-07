@@ -12,6 +12,7 @@ Checks: |
   modernize-use-using,
   misc-redundant-expression,
   misc-unused-*,
+  -misc-unused-parameters,
   readability-make-member-function-const,
   readability-non-const-parameter,
   readability-static-accessed-through-instance,
