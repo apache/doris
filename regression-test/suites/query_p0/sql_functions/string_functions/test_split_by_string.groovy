@@ -27,7 +27,7 @@ suite("test_split_by_string") {
 
     qt_sql "select split_by_string('a1b1c1d','1');"
     qt_sql "select split_by_string(',,,',',');"
-    qt_sql "select split_by_string('a,b,c',',');"
+    qt_sql "select split_by_string('a,b,c,abcde',',');"
     qt_sql "select split_by_string(',,a,b,c,',',');"
     qt_sql "select split_by_string('null',',');"
     

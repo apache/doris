@@ -1369,8 +1369,8 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
     }
 
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t /*input_rows_count*/) override {
         DCHECK_EQ(arguments.size(), 2);
 
         ColumnPtr src_column =
