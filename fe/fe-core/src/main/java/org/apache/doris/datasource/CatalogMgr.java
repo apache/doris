@@ -254,6 +254,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
+            if (nameToCatalog.get(stmt.getNewCatalogName()) != null) {
+                throw new DdlException("Catalog with name " + stmt.getNewCatalogName() + " already exist");
+            }
             CatalogLog log = CatalogFactory.constructorCatalogLog(catalog.getId(), stmt);
             replayAlterCatalogName(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_NAME, log);

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -166,6 +167,17 @@ public class CatalogMgrTest extends TestWithFeService {
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(1, showResultSet.getResultRows().size());
+
+        String alterCatalogNameFailSql = "ALTER CATALOG hms_catalog RENAME hive;";
+        AlterCatalogNameStmt alterNameFailStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameFailSql);
+
+        try {
+            mgr.alterCatalogName(alterNameFailStmt);
+            Assert.fail("Catalog with name hive already exist, rename should be failed");
+        } catch (DdlException e) {
+            Assert.assertEquals(e.getMessage(),
+                    "errCode = 2, detailMessage = Catalog with name hive already exist");
+        }
 
         String alterCatalogNameSql = "ALTER CATALOG hms_catalog RENAME " + MY_CATALOG + ";";
         AlterCatalogNameStmt alterNameStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameSql);
