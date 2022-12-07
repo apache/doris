@@ -345,8 +345,8 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringValue predicate.";
                 }
             } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<Type>&>(
-                                           nested_column)
+                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<
+                        PredicateEvaluateType<Type>>&>(nested_column)
                                            .get_data()
                                            .data();
 
@@ -368,7 +368,8 @@ public:
                 }
             } else {
                 auto* data_array =
-                        vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(
+                        vectorized::check_and_get_column<
+                                vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(
                                 column)
                                 ->get_data()
                                 .data();
@@ -546,7 +547,8 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<Type>>(column)
+                    vectorized::check_and_get_column<
+                            vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column)
                             ->get_data()
                             .data();
 
@@ -592,8 +594,8 @@ private:
             }
         } else {
             auto* data_array =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<EvalType>>(
-                            column)
+                    vectorized::check_and_get_column<
+                            vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column)
                             ->get_data()
                             .data();
 
@@ -608,7 +610,6 @@ private:
     }
 
     T _value;
-    static constexpr PrimitiveType EvalType = (Type == TYPE_CHAR ? TYPE_STRING : Type);
 };
 
 template <PrimitiveType Type, PredicateType PT>
