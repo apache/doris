@@ -135,12 +135,6 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 2. 安全（RAID）
 
-#### `meta_publish_timeout_ms`
-
-默认值：1000ms
-
-默认元数据发布超时时间
-
 #### `catalog_try_lock_timeout_ms`
 
 默认值：5000  （ms）
@@ -160,14 +154,6 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 默认值：5000 （5秒）
 
 设置非主 FE 到主 FE 主机之间的最大可接受时钟偏差。 每当非主 FE 通过 BDBJE 建立到主 FE 的连接时，都会检查该值。 如果时钟偏差大于此值，则放弃连接。
-
-#### `ignore_meta_check`
-
-默认值：false
-
-是否可以动态配置：true
-
-如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
 
 #### `metadata_failure_recovery`
 
@@ -223,21 +209,29 @@ bdbje 的Follower FE 同步策略。
 
 Master FE 的 bdbje 同步策略。 如果您只部署一个 Follower FE，请将其设置为“SYNC”。 如果你部署了超过 3 个 Follower FE，你可以将这个和下面的 `replica_sync_policy ` 设置为 WRITE_NO_SYNC。 更多信息，参见：http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
 
+#### `bdbje_reserved_disk_bytes`
+
+用于限制 bdbje 能够保留的文件的最大磁盘空间。
+
+默认值：1073741824
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+#### `ignore_meta_check`
+
+默认值：false
+
+是否可以动态配置：true
+
+如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
+
 #### `meta_delay_toleration_second`
 
 默认值：300 （5分钟）
 
 如果元数据延迟间隔超过  `meta_delay_toleration_second `，非主 FE 将停止提供服务
-
-#### `edit_log_roll_num`
-
-默认值：50000
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-Master FE will save image every  `edit_log_roll_num ` meta journals.。
 
 #### `edit_log_port`
 
@@ -253,15 +247,15 @@ bdbje端口
 BDB：将日志写入 bdbje
 LOCAL：已弃用。
 
-#### `bdbje_reserved_disk_bytes`
+#### `edit_log_roll_num`
 
-用于限制 bdbje 能够保留的文件的最大磁盘空间。
+默认值：50000
 
-默认值：1073741824
+是否可以动态配置：true
 
-是否可以动态配置：false
+是否为 Master FE 节点独有的配置项：true
 
-是否为 Master FE 节点独有的配置项：false
+Master FE will save image every  `edit_log_roll_num ` meta journals.
 
 #### `force_do_metadata_checkpoint`
 
@@ -330,12 +324,6 @@ heartbeat_mgr 中处理心跳事件的线程数。
 3. 更改集群的后端数量
 4. 链接/迁移数据库
 
-#### `with_k8s_certs`
-
-默认值：false
-
-如果在本地使用 k8s 部署管理器，请将其设置为 true 并准备证书文件
-
 #### `enable_deploy_manager`
 
 默认值：disable
@@ -349,15 +337,11 @@ heartbeat_mgr 中处理心跳事件的线程数。
 - ambari：Ambari
 - local：本地文件（用于测试或 Boxer2 BCC 版本）
 
-#### enable_fqdn_mode
+#### `with_k8s_certs`
 
-此配置用于 k8s 部署环境。当 enable_k8s_detect_container_drift_mode 为 true 时，将允许更改 be 或 broker 的重建 pod的 ip。
+默认值：false
 
-默认值： false
-
-是否可以动态配置：false
-
-是否为 Master FE 节点独有的配置项：true
+如果在本地使用 k8s 部署管理器，请将其设置为 true 并准备证书文件
 
 #### `enable_fqdn_mode`
 
@@ -377,35 +361,17 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 ### 服务
 
+#### `query_port`
+
+默认值：9030
+
+Doris FE 通过 mysql 协议查询连接端口
+
 #### `priority_networks`
 
 默认值：空
 
 为那些有很多 ip 的服务器声明一个选择策略。 请注意，最多应该有一个 ip 与此列表匹配。 这是一个以分号分隔格式的列表，用 CIDR 表示法，例如 10.10.10.0/24。 如果没有匹配这条规则的ip，会随机选择一个。
-
-#### `http_backlog_num`
-
-默认值：1024
-
-netty http server 的 backlog_num 当你放大这个 backlog_num 时，你应该同时放大 linux `/proc/sys/net/core/somaxconn`文件中的值
-
-#### `http_max_line_length`
-
-默认值：4096
-
-HTTP 服务允许接收请求的 URL 的最大长度，单位为比特
-
-#### `http_max_header_size`
-
-默认值：8192
-
-HTTP 服务允许接收请求的 Header 的最大长度，单位为比特
-
-#### `http_max_chunk_size`
-
-默认值：8192
-
-http 上下文 chunk 块的最大尺寸
 
 #### `http_port`
 
@@ -418,6 +384,26 @@ FE http 端口，当前所有 FE http 端口都必须相同
 默认值： Apache doris
 
 集群名称，将显示为网页标题
+
+#### `qe_max_connection`
+
+默认值：1024
+
+每个 FE 的最大连接数
+
+#### `max_connection_scheduler_threads_num`
+
+默认值：4096
+
+查询请求调度器中的最大线程数。
+
+前的策略是，有请求过来，就为其单独申请一个线程进行服务
+
+#### `check_java_version`
+
+默认值：true
+
+Doris 将检查已编译和运行的 Java 版本是否兼容，如果不兼容将抛出Java版本不匹配的异常信息，并终止启动
 
 #### `rpc_port`
 
@@ -472,23 +458,11 @@ thrift 服务器的连接超时和套接字超时配置 thrift_client_timeout_ms
 
 mysql 中处理任务的最大线程数。
 
-#### `auth_token`
-
-默认值：空
-
-用于内部身份验证的集群令牌。
-
 #### `mysql_service_io_threads_num`
 
 默认值：4
 
 mysql 中处理 io 事件的线程数。
-
-#### `query_port`
-
-默认值：9030
-
-Doris FE 通过 mysql 协议查询连接端口
 
 #### `mysql_nio_backlog_num`
 
@@ -502,7 +476,7 @@ mysql nio server 的 backlog_num 当你放大这个 backlog_num 时，你应该�
 
 Broker rpc 的默认超时时间
 
-#### backend_rpc_timeout_ms
+#### `backend_rpc_timeout_ms`
 
 FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
@@ -561,12 +535,6 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 是否为 Master FE 节点独有的配置项：true
 
-#### `check_java_version`
-
-默认值：true
-
-Doris 将检查已编译和运行的 Java 版本是否兼容，如果不兼容将抛出Java版本不匹配的异常信息，并终止启动
-
 #### `enable_access_file_without_broker`
 
 默认值：false
@@ -607,11 +575,11 @@ Doris 将检查已编译和运行的 Java 版本是否兼容，如果不兼容�
 
 异步执行远程 fragment 的超时时间。 在正常情况下，异步远程 fragment 将在短时间内执行。 如果系统处于高负载状态，请尝试将此超时设置更长的时间。
 
-#### `enable_auth_check`
+#### `auth_token`
 
-默认值：true
+默认值：空
 
-如果设置为 false，则身份验证检查将被禁用，以防新权限系统出现问题。
+用于内部身份验证的集群令牌。
 
 #### `enable_http_server_v2`
 
@@ -643,7 +611,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 这个是 put 或 post 方法上传文件的最大字节数，默认值：100MB
 
-#### jetty_server_max_http_header_size
+#### `jetty_server_max_http_header_size`
 
 默认值：10240  （10K）
 
@@ -657,6 +625,14 @@ http header size 配置参数
 
 用户属性max_query_instances小于等于0时，使用该配置，用来限制单个用户同一时刻可使用的查询instance个数。该参数小于等于0表示无限制。
 
+#### `max_query_retry_time`
+
+默认值：1
+
+是否可以动态配置：true
+
+查询重试次数。 如果我们遇到 RPC 异常并且没有将结果发送给用户，则可能会重试查询。 您可以减少此数字以避免雪崩灾难。
+
 #### `max_dynamic_partition_num`
 
 默认值：500
@@ -666,65 +642,6 @@ http header size 配置参数
 是否为 Master FE 节点独有的配置项：true
 
 用于限制创建动态分区表时可以创建的最大分区数，避免一次创建过多分区。 数量由动态分区参数中的“开始”和“结束”决定。
-
-<version since="1.2.0">
-
-#### `max_multi_partition_num`
-
-默认值：4096
-
-是否可以动态配置：false
-
-是否为 Master FE 节点独有的配置项：true
-
-用于限制批量创建分区表时可以创建的最大分区数，避免一次创建过多分区。
-
-</version>
-
-#### `cache_enable_partition_mode`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-如果设置为 true，FE 将从 BE cache 中获取数据，该选项适用于部分分区的实时更新。
-
-#### `cache_enable_sql_mode`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
-
-|                        | case1 | case2 | case3 | case4 |
-| ---------------------- | ----- | ----- | ----- | ----- |
-| enable_sql_cache       | false | true  | true  | false |
-| enable_partition_cache | false | false | true  | true  |
-
-#### `cache_result_max_row_count`
-
-默认值：3000
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-设置可以缓存的最大行数，详细的原理可以参考官方文档：操作手册->分区缓存
-
-#### `cache_last_version_interval_second`
-
-默认值：900
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-缓存结果时上一版本的最小间隔，该参数区分离线更新和实时更新
 
 #### `dynamic_partition_enable`
 
@@ -746,13 +663,64 @@ http header size 配置参数
 
 检查动态分区的频率
 
-#### `max_query_retry_time`
+<version since="1.2.0">
 
-默认值：1
+#### `max_multi_partition_num`
+
+默认值：4096
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true
+
+用于限制批量创建分区表时可以创建的最大分区数，避免一次创建过多分区。
+
+</version>
+
+#### `cache_enable_sql_mode`
+
+默认值：true
 
 是否可以动态配置：true
 
-查询重试次数。 如果我们遇到 RPC 异常并且没有将结果发送给用户，则可能会重试查询。 您可以减少此数字以避免雪崩灾难。
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
+
+|                        | case1 | case2 | case3 | case4 |
+| ---------------------- | ----- | ----- | ----- | ----- |
+| enable_sql_cache       | false | true  | true  | false |
+| enable_partition_cache | false | false | true  | true  |
+
+#### `cache_enable_partition_mode`
+
+默认值：true
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为 true，FE 将从 BE cache 中获取数据，该选项适用于部分分区的实时更新。
+
+#### `cache_result_max_row_count`
+
+默认值：3000
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+设置可以缓存的最大行数，详细的原理可以参考官方文档：操作手册->分区缓存
+
+#### `cache_last_version_interval_second`
+
+默认值：900
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+缓存结果时上一版本的最小间隔，该参数区分离线更新和实时更新
 
 #### `enable_batch_delete_by_default`
 
@@ -893,20 +861,6 @@ http header size 配置参数
 是否可以动态配置：true
 
 colocote join PlanFragment instance 的 memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
-
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-前的策略是，有请求过来，就为其单独申请一个线程进行服务
-
-#### `qe_max_connection`
-
-默认值：1024
-
-每个 FE 的最大连接数
 
 #### `rewrite_count_distinct_to_bitmap_hll`
 
