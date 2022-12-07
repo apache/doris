@@ -221,7 +221,8 @@ See the section on `lower_case_table_names` variables in [Variables](../../advan
 * BE webserver_port configuration
 
 	If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
-* <version since="1.2">Install Java UDF functions</version>
+* 	Install Java UDF functions 
+   <version since="1.2.0">Install Java UDF functions</version>
    Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
 	
 * Add all BE nodes to FE
