@@ -68,6 +68,13 @@ CONF_Double(soft_mem_limit_frac, "0.9");
 // Turn down max. will use as much memory as possible.
 CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 
+// The size of the memory that gc wants to release each time, as a percentage of the mem limit.
+CONF_mString(process_minor_gc_size, "10%");
+CONF_mString(process_full_gc_size, "20%");
+
+// The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
+CONF_mInt32(thread_wait_gc_max_milliseconds, "1000");
+
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
@@ -553,7 +560,7 @@ CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
 CONF_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
-CONF_Int32(high_priority_flush_thread_num_per_store, "1");
+CONF_Int32(high_priority_flush_thread_num_per_store, "6");
 
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -778,6 +785,8 @@ CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
 // OrcReader
 CONF_mInt32(orc_natural_read_size_mb, "8");
+CONF_mInt64(big_column_size_buffer, "65535");
+CONF_mInt64(small_column_size_buffer, "100");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.

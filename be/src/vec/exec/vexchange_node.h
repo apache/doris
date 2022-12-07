@@ -33,17 +33,17 @@ class VExchangeNode : public ExecNode {
 public:
     friend class doris::pipeline::ExchangeSourceOperator;
     VExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~VExchangeNode() {}
+    ~VExchangeNode() override = default;
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
-    virtual Status prepare(RuntimeState* state) override;
-    virtual Status alloc_resource(RuntimeState* state) override;
-    virtual Status open(RuntimeState* state) override;
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
-    virtual Status get_next(RuntimeState* state, Block* row_batch, bool* eos) override;
-    virtual void release_resource(RuntimeState* state) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    Status get_next(RuntimeState* state, Block* row_batch, bool* eos) override;
+    void release_resource(RuntimeState* state) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
     // Status collect_query_statistics(QueryStatistics* statistics) override;
     void set_num_senders(int num_senders) { _num_senders = num_senders; }

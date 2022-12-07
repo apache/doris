@@ -71,6 +71,10 @@ public:
     const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
     Status init_to_write(RuntimeProfile* profile);
 
+    // Now we only treat HLL, CHAR, VARCHAR as big column
+    uint32_t big_column_size_buffer = config::big_column_size_buffer;
+    uint32_t small_column_size_buffer = config::small_column_size_buffer;
+
 private:
     static Status error_status(const std::string& prefix, const std::string& error_msg);
 

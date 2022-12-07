@@ -23,9 +23,15 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
+
 
 ## array_enumerate
+
+<version since="1.2.0">
+
+array_enumerate
+
+</version>
 
 ### description
 
@@ -54,5 +60,3 @@ mysql> select k2, array_enumerate(k2) from array_type_table;
 ### keywords
 
 ARRAY,ENUMERATE,ARRAY_ENUMERATE
-
-</version>
