@@ -61,7 +61,9 @@ public:
         }
     }
 
-    bool countdown() { return fragment_num.fetch_sub(1) == 1; }
+    // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
+    // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
+    bool countdown() { return fragment_num.fetch_sub(1) <= 1; }
 
     bool is_timeout(const DateTimeValue& now) const {
         if (timeout_second <= 0) {
