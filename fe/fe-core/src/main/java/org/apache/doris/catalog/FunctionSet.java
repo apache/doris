@@ -928,6 +928,7 @@ public class FunctionSet<T> {
     public static final String TO_QUANTILE_STATE = "to_quantile_state";
     public static final String COLLECT_LIST = "collect_list";
     public static final String COLLECT_SET = "collect_set";
+    public static final String HISTOGRAM = "histogram";
 
     private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -2600,6 +2601,8 @@ public class FunctionSet<T> {
                     AggregateFunction
                             .createBuiltin("topn_weighted", Lists.newArrayList(t, Type.BIGINT, Type.INT, Type.INT),
                                     new ArrayType(t), t,
+                                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t), Type.VARCHAR, t,
                                     "", "", "", "", "", true, false, true, true));
         }
 
