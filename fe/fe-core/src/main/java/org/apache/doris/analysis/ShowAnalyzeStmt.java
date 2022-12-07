@@ -31,7 +31,6 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.statistics.StatisticsJob;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -271,7 +270,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
             stateValue = value.toUpperCase();
             try {
-                StatisticsJob.JobState.valueOf(stateValue);
+                // support it later
             } catch (Exception e) {
                 valid = false;
             }

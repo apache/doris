@@ -36,6 +36,13 @@ import java.util.Set;
 
 public class ColumnStatistic {
 
+    public static final StatsType NDV = StatsType.NDV;
+    public static final StatsType AVG_SIZE = StatsType.AVG_SIZE;
+    public static final StatsType MAX_SIZE = StatsType.MAX_SIZE;
+    public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
+    public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
+    public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
+
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
@@ -137,6 +144,10 @@ public class ColumnStatistic {
         }
     }
 
+    public static boolean isAlmostUnique(double ndv, double rowCount) {
+        return rowCount * 0.9 < ndv && ndv < rowCount * 1.1;
+    }
+
     public ColumnStatistic copy() {
         return new ColumnStatisticBuilder().setCount(count).setNdv(ndv).setAvgSizeByte(avgSizeByte)
                 .setNumNulls(numNulls).setDataSize(dataSize).setMinValue(minValue)
@@ -186,7 +197,7 @@ public class ColumnStatistic {
         }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
         Double rowsAfterFilter = rowCount * selectivity;
-        if (ColumnStat.isAlmostUnique(ndv, rowCount)) {
+        if (isAlmostUnique(ndv, rowCount)) {
             builder.setSelectivity(this.selectivity * selectivity);
             builder.setNdv(ndv * selectivity);
         } else {
