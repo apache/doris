@@ -25,10 +25,13 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -63,6 +66,10 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         return conjuncts;
     }
 
+    public List<Expression> getExpressions() {
+        return Suppliers.memoize(() -> ImmutableList.of(ExpressionUtils.and(getConjuncts()))).get();
+    }
+
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalFilter",
@@ -86,11 +93,6 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public int hashCode() {
         return Objects.hash(conjuncts);
-    }
-
-    @Override
-    public List<? extends Expression> getExpressions() {
-        return conjuncts;
     }
 
     @Override

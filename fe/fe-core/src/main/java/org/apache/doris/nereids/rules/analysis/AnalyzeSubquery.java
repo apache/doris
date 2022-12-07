@@ -55,10 +55,8 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
             RuleType.ANALYZE_FILTER_SUBQUERY.build(
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<GroupPlan> filter = ctx.root;
-                    Set<SubqueryExpr> subqueryExprs = filter.getConjuncts().stream()
-                            .filter(SubqueryExpr.class::isInstance)
-                            .map(SubqueryExpr.class::cast)
-                            .collect(Collectors.toSet());
+                    Set<SubqueryExpr> subqueryExprs = filter.getExpressions().get(0)
+                            .collect(SubqueryExpr.class::isInstance);
                     if (subqueryExprs.isEmpty()) {
                         return filter;
                     }
@@ -67,7 +65,7 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
                     // second step: Replace subquery with LogicalApply
                     return new LogicalFilter<>(new ReplaceSubquery().replace(filter.getConjuncts()),
                             analyzedSubquery(
-                            subqueryExprs, (LogicalPlan) filter.child(), ctx.cascadesContext
+                            subqueryExprs, filter.child(), ctx.cascadesContext
                     ));
                 })
             )

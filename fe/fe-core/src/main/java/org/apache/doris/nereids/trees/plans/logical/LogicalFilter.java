@@ -26,10 +26,15 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -72,20 +77,24 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return conjuncts;
     }
 
+    public List<Expression> getExpressions() {
+        return Suppliers.memoize(() -> ImmutableList.of(ExpressionUtils.and(getConjuncts()))).get();
+    }
+
     @Override
     public List<Plan> extraPlans() {
-        if (predicates != null) {
-            return predicates.children().stream()
-                .flatMap(m -> {
-                    if (m instanceof SubqueryExpr) {
-                        return Stream.of(
-                                new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
-                    } else {
-                        return new LogicalFilter<Plan>(m, child()).extraPlans().stream();
-                    }
-                }).collect(Collectors.toList());
+        if (conjuncts != null) {
+            return conjuncts.stream().map(Expression::children)
+                    .flatMap(Collection::stream)
+                    .flatMap(m -> {
+                        if (m instanceof SubqueryExpr) {
+                            return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
+                        } else {
+                            return new LogicalFilter<Plan>(ImmutableList.of(m), child()).extraPlans().stream();
+                        }
+                    }).collect(Collectors.toList());
         }
-        return ImmutableList.of();
+        return Collections.emptyList();
     }
 
     @Override
@@ -121,11 +130,6 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalFilter(this, context);
-    }
-
-    @Override
-    public List<? extends Expression> getExpressions() {
-        return conjuncts;
     }
 
     @Override

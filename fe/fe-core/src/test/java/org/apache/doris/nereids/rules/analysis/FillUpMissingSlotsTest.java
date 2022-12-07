@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -92,7 +91,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(a1, new TinyIntLiteral((byte) 0))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(a1, new TinyIntLiteral((byte) 0)))))));
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
@@ -108,7 +107,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))))));
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
@@ -119,7 +118,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))))));
 
         sql = "SELECT SUM(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
         a1 = new SlotReference(
@@ -139,7 +138,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(sumA2, a1)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(a1, new TinyIntLiteral((byte) 0))))
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(a1, new TinyIntLiteral((byte) 0)))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(sumA2.toSlot()))));
     }
 
@@ -162,7 +161,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), Literal.of(0L))))
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(sumA2.toSlot(), Literal.of(0L)))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
@@ -174,7 +173,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA2.toSlot(), Literal.of(0L))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(sumA2.toSlot(), Literal.of(0L)))))));
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
         a1 = new SlotReference(
@@ -193,7 +192,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), Literal.of(0L))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(value.toSlot(), Literal.of(0L)))))));
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
@@ -203,7 +202,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, value)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(value.toSlot(), Literal.of(0L))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(value.toSlot(), Literal.of(0L)))))));
 
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING MIN(pk) > 0";
         a1 = new SlotReference(
@@ -227,7 +226,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, minPK)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(minPK.toSlot(), Literal.of((byte) 0))))
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(minPK.toSlot(), Literal.of((byte) 0)))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
 
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2) > 0";
@@ -239,7 +238,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A2.toSlot(), Literal.of(0L))))));
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(sumA1A2.toSlot(), Literal.of(0L)))))));
 
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + 3) > 0";
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new SmallIntLiteral((short) 3))),
@@ -251,7 +250,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA1A2, sumA1A23)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(sumA1A23.toSlot(), Literal.of(0L))))
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(sumA1A23.toSlot(), Literal.of(0L)))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA1A2.toSlot()))));
 
         sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING COUNT(*) > 0";
@@ -263,7 +262,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                             logicalAggregate(
                                 logicalOlapScan()
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, countStar)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(countStar.toSlot(), Literal.of(0L))))
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(countStar.toSlot(), Literal.of(0L)))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot()))));
     }
 
@@ -296,8 +295,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                                     )
                                 )
                             ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1, sumA2, sumB1)))
-                        ).when(FieldChecker.check("predicates", new GreaterThan(new Cast(a1, BigIntType.INSTANCE),
-                                sumB1.toSlot())))
+                        ).when(FieldChecker.check("conjuncts", ImmutableList.of(new GreaterThan(new Cast(a1, BigIntType.INSTANCE),
+                                sumB1.toSlot()))))
                     ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
     }
 
@@ -362,19 +361,15 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
                                 )
                             ).when(FieldChecker.check("outputExpressions",
                                     Lists.newArrayList(pk1, pk11, pk2, sumA1, countA11, sumA1A2, v1, pk)))
-                        ).when(FieldChecker.check("predicates",
-                                new And(
-                                        new And(
-                                                new And(
-                                                        new And(
-                                                                new GreaterThan(pk.toSlot(), Literal.of((byte) 0)),
-                                                                new GreaterThan(countA11.toSlot(), Literal.of(0L))),
-                                                        new GreaterThan(new Add(sumA1A2.toSlot(), Literal.of(1L)), Literal.of(0L))),
-                                                new GreaterThan(new Add(v1.toSlot(), Literal.of(1L)), Literal.of(0L))
-                                        ),
+                        ).when(FieldChecker.check("conjuncts",
+                                ImmutableList.of(
+                                        new GreaterThan(pk.toSlot(), Literal.of((byte) 0)),
+                                        new GreaterThan(countA11.toSlot(), Literal.of(0L)),
+                                        new GreaterThan(new Add(sumA1A2.toSlot(), Literal.of(1L)), Literal.of(0L)),
+                                        new GreaterThan(new Add(v1.toSlot(), Literal.of(1L)), Literal.of(0L)),
                                         new GreaterThan(v1.toSlot(), Literal.of(0L))
-                                )
-                        ))
+                                ))
+                        )
                     ).when(FieldChecker.check(
                         "projects", Lists.newArrayList(
                             pk1, pk11, pk2, sumA1, countA11, sumA1A2, v1).stream()

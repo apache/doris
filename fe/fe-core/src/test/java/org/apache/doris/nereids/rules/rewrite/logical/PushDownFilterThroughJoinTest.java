@@ -156,7 +156,7 @@ public class PushDownFilterThroughJoinTest implements PatternMatchSupported {
                                             logicalFilter(logicalOlapScan())
                                                     .when(filter -> filter.getConjuncts().get(0).equals(rightSide))
                                     )
-                            ).when(filter -> filter.getConjuncts().equals(bothSideEqualTo))
+                            ).when(filter -> filter.getConjuncts().get(0).equals(bothSideEqualTo))
                     );
         }
     }

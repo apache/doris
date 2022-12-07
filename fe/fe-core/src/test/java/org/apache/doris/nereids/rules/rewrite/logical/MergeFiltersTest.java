@@ -28,11 +28,13 @@ import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * MergeConsecutiveFilter ut
@@ -55,8 +57,8 @@ public class MergeFiltersTest {
         Plan resultPlan = cascadesContext.getMemo().copyOut();
         System.out.println(resultPlan.treeString());
         Assertions.assertTrue(resultPlan instanceof LogicalFilter);
-        List<Expression> allPredicates = ImmutableList.of(expression1, expression2, expression3);
-        Assertions.assertEquals(((LogicalFilter<?>) resultPlan).getConjuncts(), allPredicates);
+        Set<Expression> allPredicates = ImmutableSet.of(expression1, expression2, expression3);
+        Assertions.assertEquals(ImmutableSet.copyOf(((LogicalFilter<?>) resultPlan).getConjuncts()), allPredicates);
         Assertions.assertTrue(resultPlan.child(0) instanceof UnboundRelation);
     }
 }

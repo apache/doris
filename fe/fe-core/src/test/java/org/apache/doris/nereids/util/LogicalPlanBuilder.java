@@ -124,7 +124,7 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder filter(Expression conjunct) {
-        return filter(ImmutableList.of(conjunct));
+        return filter(ExpressionUtils.extractConjunction(conjunct));
     }
 
     public LogicalPlanBuilder filter(List<Expression> conjuncts) {
