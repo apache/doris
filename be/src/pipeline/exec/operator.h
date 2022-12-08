@@ -361,6 +361,7 @@ public:
             if (_child_block->rows() == 0) {
                 return Status::OK();
             }
+            node->prepare_for_next();
             node->push(state, _child_block.get(), source_state == SourceState::FINISHED);
         }
 
