@@ -952,7 +952,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return getRuntimeFilterExplainString(isBuildNode, false);
     }
 
-    public void convertToVectoriezd() {
+    public void convertToVectorized() {
         List<Expr> conjunctsExcludeBitmapFilter = Lists.newArrayList();
         for (Expr expr : conjuncts) {
             if (!(expr instanceof BitmapFilterPredicate)) {
@@ -970,7 +970,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
 
         for (PlanNode child : children) {
-            child.convertToVectoriezd();
+            child.convertToVectorized();
         }
     }
 
