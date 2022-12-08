@@ -785,9 +785,9 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
-                || fnName.getFunction().equalsIgnoreCase("HLL_CARDINALITY")
-                || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG"))
+        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_CARDINALITY)
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_RAW_AGG))
                 && !arg.type.isHllType()) {
             throw new AnalysisException(
                     "HLL_UNION_AGG, HLL_RAW_AGG and HLL_CARDINALITY's params must be hll column");
@@ -799,7 +799,7 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("DISTINCT_PC")
                 || fnName.getFunction().equalsIgnoreCase("DISTINCT_PCSA")
                 || fnName.getFunction().equalsIgnoreCase("NDV")
-                || fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)) {
             fnParams.setIsDistinct(false);
         }
 
