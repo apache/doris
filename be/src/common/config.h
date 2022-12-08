@@ -795,8 +795,6 @@ CONF_mInt64(small_column_size_buffer, "100");
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 
-CONF_Bool(enable_decimalv3, "false");
-
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
