@@ -78,7 +78,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 dbId = dbNameToId.get(dbName);
                 tmpDbNameToId.put(dbName, dbId);
                 ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized();
+                db.setUnInitialized(invalidCacheInInit);
                 tmpIdToDb.put(dbId, db);
                 initCatalogLog.addRefreshDb(dbId);
             } else {
