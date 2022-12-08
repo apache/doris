@@ -1221,64 +1221,6 @@ BE副本数的平衡阈值。
 
 副本之间的最小延迟秒数失败，并且尝试使用克隆来恢复它。
 
-### `clone_high_priority_delay_second`
-
-默认值：0
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-高优先级克隆作业的延迟触发时间
-
-### `clone_normal_priority_delay_second`
-
-默认值：300 （5分钟）
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-正常优先级克隆作业的延迟触发时间
-
-### `clone_low_priority_delay_second`
-
-默认值：600 （10分钟）
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-低优先级克隆作业的延迟触发时间。 克隆作业包含需要克隆（恢复或迁移）的tablet。 如果优先级为 LOW，则会延迟  `clone_low_priority_delay_second `，在作业创建之后然后被执行。 这是为了避免仅因为主机短时间停机而同时运行大量克隆作业。
-
-注意这个配置（还有 `clone_normal_priority_delay_second`） 如果它小于 `clone_checker_interval_second` 将不起作用
-
-### `clone_max_job_num`
-
-默认值：100
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-低优先级克隆作业的并发数。 高优先级克隆作业的并发性目前是无限的。
-
-### `clone_job_timeout_second`
-
-默认值：7200  (2小时)
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-单个克隆作业的默认超时。 设置足够长以适合您的副本大小。 副本数据越大，完成克隆所需的时间就越多
-
-### `clone_checker_interval_second`
-
-默认值：300 （5分钟）
-
-克隆检查器的运行间隔
-
 ### `tablet_delete_timeout_second`
 
 默认值：2
@@ -2087,7 +2029,7 @@ HOUR: log前缀是：yyyyMMddHH
 
 ### `label_clean_interval_second`
 
-默认值：4 * 3600  （4小时）
+默认值：1 * 3600  （1小时）
 
 load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清理过时的作业。
 

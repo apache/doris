@@ -53,7 +53,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -350,12 +349,6 @@ public class OlapScanNode extends ScanNode {
                 update = true;
                 break CHECK;
             }
-            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            if (sessionVariable.getTestMaterializedView()) {
-                throw new AnalysisException("The old scan range info is different from the new one when "
-                        + "test_materialized_view is true. "
-                        + scanRangeInfo);
-            }
             situation = "The key type of table is aggregated.";
             update = false;
         } // CHECKSTYLE IGNORE THIS LINE
@@ -484,15 +477,12 @@ public class OlapScanNode extends ScanNode {
      * Remove the method after statistics collection is working properly
      */
     public void mockRowCountInStatistic() {
-        long tableId = desc.getTable().getId();
         cardinality = 0;
         for (long selectedPartitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(selectedPartitionId);
             final MaterializedIndex baseIndex = partition.getBaseIndex();
             cardinality += baseIndex.getRowCount();
         }
-        Env.getCurrentEnv().getStatisticsManager()
-                .getStatistics().mockTableStatsWithRowCount(tableId, cardinality);
     }
 
     @Override

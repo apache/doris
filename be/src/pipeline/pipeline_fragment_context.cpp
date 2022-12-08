@@ -23,6 +23,7 @@
 #include "exec/aggregation_sink_operator.h"
 #include "exec/aggregation_source_operator.h"
 #include "exec/data_sink.h"
+#include "exec/datagen_operator.h"
 #include "exec/empty_set_operator.h"
 #include "exec/exchange_sink_operator.h"
 #include "exec/exchange_source_operator.h"
@@ -36,6 +37,7 @@
 #include "exec/streaming_aggregation_source_operator.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline_task.h"
 #include "runtime/client_cache.h"
@@ -47,12 +49,10 @@
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
-#include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vresult_sink.h"
 
 using apache::thrift::transport::TTransportException;
@@ -298,6 +298,12 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
+    case TPlanNodeType::DATA_GEN_SCAN_NODE: {
+        OperatorBuilderPtr operator_t =
+                std::make_shared<DataGenOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
     case TPlanNodeType::AGGREGATION_NODE: {
         auto* agg_node = assert_cast<vectorized::AggregationNode*>(node);
         auto new_pipe = add_pipeline();
@@ -380,6 +386,11 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     case TDataSinkType::RESULT_SINK: {
         sink_ = std::make_shared<ResultSinkOperatorBuilder>(next_operator_builder_id(),
                                                             _sink.get());
+        break;
+    }
+    case TDataSinkType::OLAP_TABLE_SINK: {
+        sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                               _sink.get());
         break;
     }
     default:
