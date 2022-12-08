@@ -62,10 +62,10 @@ Status AggContext::get_block(std::unique_ptr<vectorized::Block>* block) {
     if (_is_canceled) {
         return Status::InternalError("AggContext canceled");
     }
-    if (_cur_bytes_in_queue > 0) {
-        int block_size_t = 0;
-        std::unique_lock<std::mutex> l(_transfer_lock);
+    if (_cur_blocks_in_queue > 0) {
+        int block_size_t;
         {
+            std::unique_lock<std::mutex> l(_transfer_lock);
             auto [block_ptr, block_size] = std::move(_blocks_queue.front());
             block_size_t = block_size;
             *block = std::move(block_ptr);
