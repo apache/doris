@@ -320,6 +320,19 @@ size_t Block::rows() const {
     return 0;
 }
 
+std::string Block::each_col_size() {
+    std::stringstream ss;
+    for (const auto& elem : data) {
+        if (elem.column) {
+            ss << elem.column->size() << " | ";
+        } else {
+            ss << "-1 | ";
+        }
+    }
+    return ss.str();
+}
+
+
 void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
