@@ -18,6 +18,7 @@
 package org.apache.doris.regression.suite.event
 
 import groovy.transform.CompileStatic
+import org.apache.doris.regression.Config
 import org.apache.doris.regression.suite.ScriptContext
 import org.apache.doris.regression.suite.SuiteContext
 
@@ -27,7 +28,7 @@ interface EventListener {
     void onScriptFailed(ScriptContext scriptContext, Throwable t)
     void onScriptFinished(ScriptContext scriptContext, long elapsed)
     void onSuiteStarted(SuiteContext suiteContext)
-    void onSuiteFailed(SuiteContext suiteContext, Throwable t)
+    void onSuiteFailed(SuiteContext suiteContext, Throwable t, Config config)
     void onSuiteFinished(SuiteContext suiteContext, boolean success, long elapsed)
     void onThreadStarted(SuiteContext suiteContext)
     void onThreadFailed(SuiteContext suiteContext, Throwable t)

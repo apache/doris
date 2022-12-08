@@ -231,7 +231,7 @@ class SuiteContext implements Closeable {
                 if (t instanceof UndeclaredThrowableException) {
                     t = ((UndeclaredThrowableException) t).undeclaredThrowable
                 }
-                scriptContext.eventListeners.each { it.onSuiteFailed(this, t) }
+                scriptContext.eventListeners.each { it.onSuiteFailed(this, t, config) }
                 throwable = t
                 null
             }

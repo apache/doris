@@ -89,3 +89,6 @@ enableEsTest=false
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200
+
+alertOn="ON"
+webhook="https://open.feishu.cn/open-apis/bot/v2/hook/cb92c6db-21da-4d6a-a0d6-0564c614eb09"

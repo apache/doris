@@ -19,6 +19,7 @@ package org.apache.doris.regression.suite.event
 
 import com.google.common.base.Throwables
 import groovy.transform.CompileStatic
+import org.apache.doris.regression.Config
 import org.apache.doris.regression.logger.TeamcityServiceMessageEncoder
 import org.apache.doris.regression.suite.ScriptContext
 import org.apache.doris.regression.suite.SuiteContext
@@ -49,7 +50,7 @@ class TeamcityEventListener implements EventListener {
     }
 
     @Override
-    void onSuiteFailed(SuiteContext suiteContext, Throwable t) {
+    void onSuiteFailed(SuiteContext suiteContext, Throwable t, Config config) {
         def (Integer errorLine, String errorInfo) = LoggerUtils.getErrorInfo(t, suiteContext.scriptContext.file)
         String errorMsg = errorInfo == null
                 ? "Exception in ${suiteContext.scriptContext.name}:"

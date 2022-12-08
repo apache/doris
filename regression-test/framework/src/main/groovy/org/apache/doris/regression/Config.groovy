@@ -80,6 +80,13 @@ class Config {
     public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
     public Integer suiteParallel
+
+    public String repo
+    public String testBranch
+    public String serverUrl
+    public String pipelineId
+    public String buildId
+
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
@@ -90,7 +97,8 @@ class Config {
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
            String suitePath, String dataPath, String realDataPath, String sf1DataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
-           String testDirectories, String excludeDirectories, String pluginPath) {
+           String testDirectories, String excludeDirectories, String pluginPath,String repo,
+           String testBranch, String serverUrl, String pipelineId, String buildId) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -111,6 +119,11 @@ class Config {
         this.testDirectories = testDirectories
         this.excludeDirectories = excludeDirectories
         this.pluginPath = pluginPath
+        this.repo=repo
+        this.buildId=buildId
+        this.serverUrl=serverUrl
+        this.testBranch=testBranch
+        this.pipelineId=pipelineId
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -205,6 +218,14 @@ class Config {
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "10"))
         config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "10"))
+
+        config.repo = cmd.getOptionValue(repoOpt, "Not Configured Yet")
+        config.testBranch = cmd.getOptionValue(testBranchOpt, "Not Configured Yet")
+        config.serverUrl = cmd.getOptionValue(serverUrlOpt, "Not Configured Yet")
+        config.pipelineId = cmd.getOptionValue(pipelineIdOpt, "Not Configured Yet")
+        config.buildId = cmd.getOptionValue(buildIdOpt, "Not Configured Yet")
+
+
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
@@ -247,7 +268,12 @@ class Config {
             configToString(obj.excludeSuites),
             configToString(obj.testDirectories),
             configToString(obj.excludeDirectories),
-            configToString(obj.pluginPath)
+            configToString(obj.pluginPath),
+            configToString(obj.repo),
+            configToString(obj.testBranch),
+            configToString(obj.serverUrl),
+            configToString(obj.pipelineId),
+            configToString(obj.buildId)
         )
 
         def declareFileNames = config.getClass()
@@ -373,6 +399,28 @@ class Config {
         if (config.suiteParallel == null) {
             config.suiteParallel = 1
             log.info("Set suiteParallel to 1 because not specify.".toString())
+        }
+
+
+        if (config.repo == null) {
+            config.repo = ""
+            log.info("Set repo to empty string because not specify.".toString())
+        }
+        if (config.testBranch == null) {
+            config.testBranch = ""
+            log.info("Set testBranch to empty string because not specify.".toString())
+        }
+        if (config.serverUrl == null) {
+            config.serverUrl = ""
+            log.info("Set serverUrl to empty string because not specify.".toString())
+        }
+        if (config.pipelineId == null) {
+            config.pipelineId = ""
+            log.info("Set pipelineId to empty string because not specify.".toString())
+        }
+        if (config.buildId == null) {
+            config.buildId = ""
+            log.info("Set buildId to empty string because not specify.".toString())
         }
 
         if (config.actionParallel == null) {

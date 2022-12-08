@@ -60,6 +60,12 @@ class ConfigOptions {
     static Option withOutLoadDataOpt
     static Option dryRunOpt
 
+    static Option repoOpt
+    static Option testBranchOpt
+    static Option serverUrlOpt
+    static Option pipelineIdOpt
+    static Option buildIdOpt
+
     static CommandLine initCommands(String[] args) {
         helpOption = Option.builder("h")
                 .required(false)
@@ -317,6 +323,47 @@ class ConfigOptions {
                 .desc("just print cases and does not run")
                 .build()
 
+        repoOpt = Option.builder("repo")
+                .argName("repo")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("repo")
+                .desc("repo name")
+                .build()
+        testBranchOpt = Option.builder("testBranch")
+                .argName("testBranch")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("test_branch")
+                .desc("test_branch name")
+                .build()
+        serverUrlOpt = Option.builder("serverUrl")
+                .argName("serverUrl")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("server_url")
+                .desc("teamcity server_url")
+                .build()
+        pipelineIdOpt = Option.builder("pipelineId")
+                .argName("pipelineId")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("pipeline_id")
+                .desc("teamcity pipeline_id")
+                .build()
+        buildIdOpt = Option.builder("buildId")
+                .argName("buildId")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("build_id")
+                .desc("teamcity build_id")
+                .build()
+
         Options options = new Options()
                 .addOption(helpOption)
                 .addOption(jdbcOpt)
@@ -347,6 +394,12 @@ class ConfigOptions {
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
                 .addOption(dryRunOpt)
+                .addOption(repoOpt)
+                .addOption(testBranchOpt)
+                .addOption(serverUrlOpt)
+                .addOption(pipelineIdOpt)
+                .addOption(buildIdOpt)
+
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
         if (cmd.hasOption(helpOption)) {

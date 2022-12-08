@@ -280,5 +280,10 @@ under the License.
             <artifactId>hadoop-mapreduce-client-core</artifactId>
             <version>${hadoop.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.alibaba.csb.sdk</groupId>
+            <artifactId>http-client</artifactId>
+            <version>1.1.5.1</version>
+        </dependency>
     </dependencies>
 </project>

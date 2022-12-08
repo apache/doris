@@ -18,6 +18,7 @@
 package org.apache.doris.regression.suite.event
 
 import groovy.transform.CompileStatic
+import org.apache.doris.regression.Config
 import org.apache.doris.regression.suite.ScriptContext
 import org.apache.doris.regression.suite.SuiteContext
 
@@ -26,7 +27,6 @@ import java.util.function.Consumer
 @CompileStatic
 class StackEventListeners implements EventListener {
     private final Stack<EventListener> listeners = new Stack<>()
-
     synchronized void addListener(EventListener eventListener) {
         this.listeners.push(eventListener)
     }
@@ -65,10 +65,12 @@ class StackEventListeners implements EventListener {
         }
     }
 
+
+
     @Override
-    synchronized void onSuiteFailed(SuiteContext suiteContext, Throwable t) {
+    synchronized void onSuiteFailed(SuiteContext suiteContext, Throwable t,Config config) {
         foreach {
-            it.onSuiteFailed(suiteContext, t)
+            it.onSuiteFailed(suiteContext, t, config)
         }
     }
 
