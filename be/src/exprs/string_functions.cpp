@@ -941,8 +941,8 @@ static int last_index_of(const uint8_t* source, int source_len, const uint8_t* t
             int j = i - 1;
             int end = j - target_len + 1;
             for (int k = target_len - 2; j > end && source[j] == target[k];) {
-                 j--;
-                 k--;
+                j--;
+                k--;
             }
             if (j == end) {
                 return i - target_len + 1;
