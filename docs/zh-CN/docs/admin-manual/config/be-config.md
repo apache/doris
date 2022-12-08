@@ -453,6 +453,42 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：是否开启向量化compaction
 * 默认值：true
 
+#### `enable_vertical_compaction`
+
+* 类型: bool
+* 描述: 是否开启列式compaction
+* 默认值: true
+
+#### `vertical_compaction_num_columns_per_group`
+
+* 类型: bool
+* 描述: 在列式compaction中, 组成一个合并组的列个数
+* 默认值: true
+
+#### `vertical_compaction_max_row_source_memory_mb`
+
+* 类型: bool
+* 描述: 在列式compaction中, row_source_buffer能使用的最大内存
+* 默认值: true
+
+#### `vertical_compaction_max_segment_size`
+
+* 类型: bool
+* 描述: 在列式compaction中, 输出的segment文件最大值
+* 默认值: true
+
+#### `enable_ordered_data_compaction`
+
+* 类型: bool
+* 描述: 是否开启有序数据的compaction
+* 默认值: true
+
+#### `ordered_data_compaction_min_segment_size`
+
+* 类型: bool
+* 描述: 在有序数据compaction中, 满足要求的最小segment大小
+* 默认值: true
+
 #### `max_base_compaction_threads`
 
 * 类型：int32
@@ -480,12 +516,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：被所有的compaction任务所能持有的 "permits" 上限，用来限制compaction占用的内存。
 * 默认值：10000
 * 可动态修改：是
-
-#### `compaction_tablet_compaction_score_factor`
-
-* 类型：int32
-* 描述：选择tablet进行compaction时，计算 tablet score 的公式中 compaction score的权重。
-* 默认值：1
 
 #### `compaction_promotion_size_mbytes`
 

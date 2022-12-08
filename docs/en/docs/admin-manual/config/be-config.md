@@ -439,6 +439,42 @@ There are two ways to configure BE configuration items:
 * Description: Whether to enable vectorized compaction
 * Default value: true
 
+#### `enable_vertical_compaction`
+
+* Type: bool
+* Description: Whether to enable vertical compaction
+* Default value: true
+
+#### `vertical_compaction_num_columns_per_group`
+
+* Type: bool
+* Description: In vertical compaction, column number for every group
+* Default value: true
+
+#### `vertical_compaction_max_row_source_memory_mb`
+
+* Type: bool
+* Description: In vertical compaction, max memory usage for row_source_buffer
+* Default value: true
+
+#### `vertical_compaction_max_segment_size`
+
+* Type: bool
+* Description: In vertical compaction, max dest segment file size
+* Default value: true
+
+#### `enable_ordered_data_compaction`
+
+* Type: bool
+* Description: Whether to enable ordered data compaction
+* Default value: true
+
+#### `ordered_data_compaction_min_segment_size`
+
+* Type: bool
+* Description: In ordered data compaction, min segment size for input rowset
+* Default value: true
+
 #### `max_base_compaction_threads`
 
 * Type: int32
@@ -466,12 +502,6 @@ There are two ways to configure BE configuration items:
 * Description: The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 * Default value: 10000
 * Dynamically modifiable: Yes
-
-#### `compaction_tablet_compaction_score_factor`
-
-* Type: int32
-* Description: Coefficient for compaction score when calculating tablet score to find a tablet for compaction.
-* Default value: 1
 
 #### `compaction_promotion_size_mbytes`
 
