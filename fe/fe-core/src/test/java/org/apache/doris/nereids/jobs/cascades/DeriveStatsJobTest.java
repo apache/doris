@@ -72,8 +72,7 @@ public class DeriveStatsJobTest {
         Assertions.assertEquals(1, statistics.getRowCount());
     }
 
-    private LogicalOlapScan constructOlapSCan() throws AnalysisException {
-
+    private LogicalOlapScan constructOlapSCan() {
         long tableId1 = 0;
 
         List<String> qualifier = ImmutableList.of("test", "t");

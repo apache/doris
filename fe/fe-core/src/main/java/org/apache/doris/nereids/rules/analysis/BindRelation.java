@@ -43,6 +43,8 @@ import java.util.Optional;
  */
 public class BindRelation extends OneAnalysisRuleFactory {
 
+    // TODO: cte will be copied to a sub-query with different names but the id of the unbound relation in them
+    //  are the same, so we use new relation id when binding relation, and will fix this bug later.
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
@@ -79,8 +81,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         Table table = cascadesContext.getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(RelationUtil.newRelationId(),
-                    (OlapTable) table, ImmutableList.of(dbName));
+            return new LogicalOlapScan(RelationUtil.newRelationId(), (OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
@@ -97,8 +98,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         Table table = cascadesContext.getTable(dbName, nameParts.get(1), connectContext.getEnv());
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(RelationUtil.newRelationId(),
-                    (OlapTable) table, ImmutableList.of(dbName));
+            return new LogicalOlapScan(RelationUtil.newRelationId(), (OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);

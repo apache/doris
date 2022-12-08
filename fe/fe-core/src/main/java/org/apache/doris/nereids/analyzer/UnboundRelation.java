@@ -111,6 +111,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     @Override
     public String toString() {
         return Utils.toSqlString("UnboundRelation",
+                "id", id,
                 "nameParts", StringUtils.join(nameParts, ".")
         );
     }
