@@ -50,10 +50,11 @@ import java.util.Objects;
 public class TimestampArithmetic extends Expression implements BinaryExpression, ImplicitCastInputTypes,
         PropagateNullable {
 
+    //the size and order of EXPECTED_INPUT_TYPES must follow the function signature parameters
+    //For example: days_sub('2000-01-01', interval 5 days),
+    // '2000-01-01'->DateTimeType.INSTANCE
+    // 5 -> IntegerType
     private static final List<AbstractDataType> EXPECTED_INPUT_TYPES = ImmutableList.of(
-            DateType.INSTANCE,
-            DateV2Type.INSTANCE,
-            DateTimeV2Type.INSTANCE,
             DateTimeType.INSTANCE,
             IntegerType.INSTANCE
     );
