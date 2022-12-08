@@ -33,7 +33,6 @@ class ScriptContext implements Closeable {
     public final File file
     public final Config config
     public final File dataPath
-    public final String sf1DataPath
     public final File outputFile
     public final String name
     public final String flowName
@@ -63,7 +62,6 @@ class ScriptContext implements Closeable {
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
-        this.sf1DataPath = config.sf1DataPath
     }
 
     private final synchronized Suite newSuite(String suiteName, String group) {

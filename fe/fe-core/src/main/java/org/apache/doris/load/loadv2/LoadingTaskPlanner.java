@@ -161,7 +161,7 @@ public class LoadingTaskPlanner {
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         if (Config.enable_vectorized_load) {
-            scanNode.convertToVectoriezd();
+            scanNode.convertToVectorized();
         }
         scanNodes.add(scanNode);
         descTable.computeStatAndMemLayout();

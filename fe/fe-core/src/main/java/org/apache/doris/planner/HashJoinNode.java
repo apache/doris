@@ -827,12 +827,12 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     @Override
-    public void convertToVectoriezd() {
+    public void convertToVectorized() {
         if (!otherJoinConjuncts.isEmpty()) {
             votherJoinConjunct = convertConjunctsToAndCompoundPredicate(otherJoinConjuncts);
             initCompoundPredicate(votherJoinConjunct);
         }
-        super.convertToVectoriezd();
+        super.convertToVectorized();
     }
 
     /**
