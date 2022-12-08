@@ -22,7 +22,6 @@
 
 #include "common/status.h"
 #include "io/fs/remote_file_system.h"
-#include "io/hdfs_file_reader.h"
 namespace doris {
 
 namespace io {
@@ -79,37 +78,9 @@ private:
     }
 };
 
-// Cache for HdfsFileSystemHandle
-class HdfsFileSystemCache {
-public:
-    static int MAX_CACHE_HANDLE;
-
-    static HdfsFileSystemCache* instance() {
-        static HdfsFileSystemCache s_instance;
-        return &s_instance;
-    }
-
-    HdfsFileSystemCache(const HdfsFileSystemCache&) = delete;
-    const HdfsFileSystemCache& operator=(const HdfsFileSystemCache&) = delete;
-
-    // This function is thread-safe
-    Status get_connection(THdfsParams& hdfs_params, HdfsFileSystemHandle** fs_handle);
-
-private:
-    std::mutex _lock;
-    std::unordered_map<uint64, std::unique_ptr<HdfsFileSystemHandle>> _cache;
-
-    HdfsFileSystemCache() = default;
-
-    uint64 _hdfs_hash_code(THdfsParams& hdfs_params);
-    Status _create_fs(THdfsParams& hdfs_params, hdfsFS* fs);
-    void _clean_invalid();
-    void _clean_oldest();
-};
-
 class HdfsFileSystem final : public RemoteFileSystem {
 public:
-    HdfsFileSystem(THdfsParams hdfs_params, const std::string& path);
+    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path);
     ~HdfsFileSystem() override;
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
@@ -147,7 +118,7 @@ public:
     HdfsFileSystemHandle* get_handle() const;
 
 private:
-    THdfsParams _hdfs_params;
+    const THdfsParams& _hdfs_params;
     std::string _namenode;
     std::string _path;
     // do not use std::shared_ptr or std::unique_ptr

@@ -77,6 +77,13 @@ public:
     static Status create_pipe_reader(const TUniqueId& load_id,
                                      std::shared_ptr<FileReader>& file_reader);
 
+    static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
+                                     io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader);
+
+    static Status create_s3_reader(const std::map<std::string, std::string>& prop,
+                                   const std::string& path, io::FileSystem** s3_file_system,
+                                   io::FileReaderSPtr* reader);
+
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
         case TStorageBackendType::LOCAL:

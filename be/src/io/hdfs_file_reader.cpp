@@ -66,7 +66,7 @@ Status HdfsFileReader::open() {
     }
     // if the format of _path is hdfs://ip:port/path, replace it to /path.
     // path like hdfs://ip:port/path can't be used by libhdfs3.
-    if (_path.find(_namenode) != _path.npos) {
+    if (_path.find(_namenode) != std::string::npos) {
         _path = _path.substr(_namenode.size());
     }
 

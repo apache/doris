@@ -21,6 +21,7 @@
 #include "io/broker_writer.h"
 #include "io/buffered_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_reader_writer.h"
 #include "io/local_file_reader.h"
@@ -112,32 +113,22 @@ Status NewFileFactory::create_file_reader(RuntimeProfile* /*profile*/,
                                           std::unique_ptr<io::FileSystem>* file_system,
                                           io::FileReaderSPtr* file_reader) {
     TFileType::type type = system_properties.system_type;
+    io::FileSystem* file_system_ptr = nullptr;
     switch (type) {
     case TFileType::FILE_S3: {
-        S3URI s3_uri(file_description.path);
-        if (!s3_uri.parse()) {
-            return Status::InvalidArgument("s3 uri is invalid: {}", file_description.path);
-        }
-        S3Conf s3_conf;
-        RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(system_properties.properties,
-                                                                     s3_uri, &s3_conf));
-        io::FileSystem* s3_file_system_ptr = new io::S3FileSystem(s3_conf, "");
-        (dynamic_cast<io::S3FileSystem*>(s3_file_system_ptr))->connect();
-        s3_file_system_ptr->open_file(s3_uri.get_key(), file_reader);
-        file_system->reset(s3_file_system_ptr);
+        RETURN_IF_ERROR(create_s3_reader(system_properties.properties, file_description.path,
+                                         &file_system_ptr, file_reader));
         break;
     }
     case TFileType::FILE_HDFS: {
-        io::FileSystem* hdfs_file_system_ptr;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_new_reader(system_properties.hdfs_params,
-                                                            file_description.path,
-                                                            &hdfs_file_system_ptr, file_reader));
-        file_system->reset(hdfs_file_system_ptr);
+        RETURN_IF_ERROR(create_hdfs_reader(system_properties.hdfs_params, file_description.path,
+                                           &file_system_ptr, file_reader));
         break;
     }
     default:
         return Status::NotSupported("unsupported file reader type: {}", std::to_string(type));
     }
+    file_system->reset(file_system_ptr);
     return Status::OK();
 }
 
@@ -148,6 +139,30 @@ Status NewFileFactory::create_pipe_reader(const TUniqueId& load_id,
     if (!file_reader) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
+    return Status::OK();
+}
+
+Status NewFileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
+                                          io::FileSystem** hdfs_file_system,
+                                          io::FileReaderSPtr* reader) {
+    *hdfs_file_system = new io::HdfsFileSystem(hdfs_params, path);
+    (dynamic_cast<io::HdfsFileSystem*>(*hdfs_file_system))->connect();
+    (*hdfs_file_system)->open_file(path, reader);
+    return Status::OK();
+}
+
+Status NewFileFactory::create_s3_reader(const std::map<std::string, std::string>& prop,
+                                        const std::string& path, io::FileSystem** s3_file_system,
+                                        io::FileReaderSPtr* reader) {
+    S3URI s3_uri(path);
+    if (!s3_uri.parse()) {
+        return Status::InvalidArgument("s3 uri is invalid: {}", path);
+    }
+    S3Conf s3_conf;
+    RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
+    *s3_file_system = new io::S3FileSystem(s3_conf, "");
+    (dynamic_cast<io::S3FileSystem*>(*s3_file_system))->connect();
+    (*s3_file_system)->open_file(s3_uri.get_key(), reader);
     return Status::OK();
 }
 } // namespace doris

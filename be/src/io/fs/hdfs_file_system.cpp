@@ -36,7 +36,35 @@ namespace io {
     }
 #endif
 
-HdfsFileSystem::HdfsFileSystem(THdfsParams hdfs_params, const std::string& path)
+// Cache for HdfsFileSystemHandle
+class HdfsFileSystemCache {
+public:
+    static int MAX_CACHE_HANDLE;
+
+    static HdfsFileSystemCache* instance() {
+        static HdfsFileSystemCache s_instance;
+        return &s_instance;
+    }
+
+    HdfsFileSystemCache(const HdfsFileSystemCache&) = delete;
+    const HdfsFileSystemCache& operator=(const HdfsFileSystemCache&) = delete;
+
+    // This function is thread-safe
+    Status get_connection(const THdfsParams& hdfs_params, HdfsFileSystemHandle** fs_handle);
+
+private:
+    std::mutex _lock;
+    std::unordered_map<uint64, std::unique_ptr<HdfsFileSystemHandle>> _cache;
+
+    HdfsFileSystemCache() = default;
+
+    uint64 _hdfs_hash_code(const THdfsParams& hdfs_params);
+    Status _create_fs(const THdfsParams& hdfs_params, hdfsFS* fs);
+    void _clean_invalid();
+    void _clean_oldest();
+};
+
+HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path)
         : RemoteFileSystem(path, "", FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
           _path(path),
@@ -183,7 +211,7 @@ HdfsFileSystemHandle* HdfsFileSystem::get_handle() const {
 // ************* HdfsFileSystemCache ******************
 int HdfsFileSystemCache::MAX_CACHE_HANDLE = 64;
 
-Status HdfsFileSystemCache::_create_fs(THdfsParams& hdfs_params, hdfsFS* fs) {
+Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, hdfsFS* fs) {
     HDFSCommonBuilder builder = createHDFSBuilder(hdfs_params);
     if (builder.is_need_kinit()) {
         RETURN_IF_ERROR(builder.run_kinit());
@@ -220,7 +248,7 @@ void HdfsFileSystemCache::_clean_oldest() {
     _cache.erase(oldest);
 }
 
-Status HdfsFileSystemCache::get_connection(THdfsParams& hdfs_params,
+Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
                                            HdfsFileSystemHandle** fs_handle) {
     uint64 hash_code = _hdfs_hash_code(hdfs_params);
     {
@@ -257,7 +285,7 @@ Status HdfsFileSystemCache::get_connection(THdfsParams& hdfs_params,
     return Status::OK();
 }
 
-uint64 HdfsFileSystemCache::_hdfs_hash_code(THdfsParams& hdfs_params) {
+uint64 HdfsFileSystemCache::_hdfs_hash_code(const THdfsParams& hdfs_params) {
     uint64 hash_code = 0;
     if (hdfs_params.__isset.fs_name) {
         hash_code += Fingerprint(hdfs_params.fs_name);
