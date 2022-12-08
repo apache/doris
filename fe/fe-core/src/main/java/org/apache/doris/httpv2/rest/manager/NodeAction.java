@@ -57,7 +57,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -596,62 +596,64 @@ public class NodeAction extends RestBaseController {
         return ResponseEntityBuilder.ok(data);
     }
 
-    @PutMapping("/{action}/be")
-    public ResponseEntity operateBackend(@PathVariable String action, @RequestBody BackendReqInfo reqInfo)
-            throws UserException {
-        // action：ADD/DROP/DECOMMISSION
-        List<String> hostPorts = reqInfo.getHostPorts();
-        List<HostInfo> hostInfos = new ArrayList<>();
-        for (String hostPort : hostPorts) {
-            hostInfos.add(SystemInfoService.getIpHostAndPort(hostPort, true));
-        }
-        SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
-        if ("ADD".equals(action)) {
-            Map<String, String> properties;
-            if (reqInfo.getProperties() == null) {
-                properties = new HashMap<>();
-            } else {
-                properties = reqInfo.getProperties();
+    @PostMapping("/{action}/be")
+    public ResponseEntity operateBackend(@PathVariable String action, @RequestBody BackendReqInfo reqInfo) {
+        try {
+            List<String> hostPorts = reqInfo.getHostPorts();
+            List<HostInfo> hostInfos = new ArrayList<>();
+            for (String hostPort : hostPorts) {
+                hostInfos.add(SystemInfoService.getIpHostAndPort(hostPort, true));
             }
-            Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties,
-                    Tag.DEFAULT_BACKEND_TAG);
-            currentSystemInfo.addBackends(hostInfos, false, "", tagMap);
-        } else if ("DROP".equals(action)) {
-            currentSystemInfo.dropBackends(hostInfos);
-        } else if ("DECOMMISSION".equals(action)) {
-            ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getBackendsInCluster(
-                    SystemInfoService.DEFAULT_CLUSTER);
-            backendsInCluster.forEach((k, v) -> {
-                hostInfos.stream()
-                        .filter(h -> v.getHostName().equals(h.getHostName()) && v.getHeartbeatPort() == h.getPort())
-                        .findFirst().ifPresent(h -> {
-                            v.setDecommissioned(true);
-                            Env.getCurrentEnv().getEditLog().logBackendStateChange(v);
-                        });
-            });
+            SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
+            if ("ADD".equals(action)) {
+                Map<String, String> properties;
+                if (reqInfo.getProperties() == null) {
+                    properties = new HashMap<>();
+                } else {
+                    properties = reqInfo.getProperties();
+                }
+                Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+                currentSystemInfo.addBackends(hostInfos, false, "", tagMap);
+            } else if ("DROP".equals(action)) {
+                currentSystemInfo.dropBackends(hostInfos);
+            } else if ("DECOMMISSION".equals(action)) {
+                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getBackendsInCluster(SystemInfoService.DEFAULT_CLUSTER);
+                backendsInCluster.forEach((k, v) -> {
+                    hostInfos.stream().filter(h -> v.getHostName().equals(h.getHostName()) && v.getHeartbeatPort() == h.getPort())
+                            .findFirst().ifPresent(h -> {
+                                v.setDecommissioned(true);
+                                Env.getCurrentEnv().getEditLog().logBackendStateChange(v);
+                            });
+                });
+            }
+        } catch (UserException userException) {
+            return ResponseEntityBuilder.okWithCommonError(userException.getMessage());
         }
         return ResponseEntityBuilder.ok();
     }
 
-    @PutMapping("/{action}/fe")
-    public ResponseEntity operateFrontends(@PathVariable String action, @RequestBody FrontendReqInfo reqInfo) throws DdlException {
-        String role = reqInfo.getRole();
-        String[] split = reqInfo.getHostPort().split(":");
-        String host = split[0];
-        int port = Integer.parseInt(split[1]);
-        Env currentEnv = Env.getCurrentEnv();
-        FrontendNodeType frontendNodeType;
-        if (FrontendNodeType.FOLLOWER.name().equals(role)) {
-            frontendNodeType = FrontendNodeType.FOLLOWER;
-        } else {
-            frontendNodeType = FrontendNodeType.OBSERVER;
+    @PostMapping("/{action}/fe")
+    public ResponseEntity operateFrontends(@PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
+        try {
+            String role = reqInfo.getRole();
+            String[] split = reqInfo.getHostPort().split(":");
+            String host = split[0];
+            int port = Integer.parseInt(split[1]);
+            Env currentEnv = Env.getCurrentEnv();
+            FrontendNodeType frontendNodeType;
+            if (FrontendNodeType.FOLLOWER.name().equals(role)) {
+                frontendNodeType = FrontendNodeType.FOLLOWER;
+            } else {
+                frontendNodeType = FrontendNodeType.OBSERVER;
+            }
+            if ("ADD".equals(action)) {
+                currentEnv.addFrontend(frontendNodeType, host, port);
+            } else if ("DROP".equals(action)) {
+                currentEnv.dropFrontend(frontendNodeType, host, port);
+            }
+        } catch (DdlException ddlException) {
+            return ResponseEntityBuilder.okWithCommonError(ddlException.getMessage());
         }
-        if ("ADD".equals(action)) {
-            currentEnv.addFrontend(frontendNodeType, host, port);
-        } else if ("DROP".equals(action)) {
-            currentEnv.dropFrontend(frontendNodeType, host, port);
-        }
-        // action：ADD/DROP
         return ResponseEntityBuilder.ok();
     }
 
