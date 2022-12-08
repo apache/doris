@@ -59,7 +59,7 @@ public:
                                    size_t offset = 0);
 
     int64_t get_oldest_match_time() const {
-            return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
+        return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
     };
 
 protected:
