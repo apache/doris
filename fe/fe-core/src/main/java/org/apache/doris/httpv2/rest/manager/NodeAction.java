@@ -612,14 +612,17 @@ public class NodeAction extends RestBaseController {
                 } else {
                     properties = reqInfo.getProperties();
                 }
-                Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties, Tag.DEFAULT_BACKEND_TAG);
+                Map<String, String> tagMap = PropertyAnalyzer.analyzeBackendTagsProperties(properties,
+                        Tag.DEFAULT_BACKEND_TAG);
                 currentSystemInfo.addBackends(hostInfos, false, "", tagMap);
             } else if ("DROP".equals(action)) {
                 currentSystemInfo.dropBackends(hostInfos);
             } else if ("DECOMMISSION".equals(action)) {
-                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getBackendsInCluster(SystemInfoService.DEFAULT_CLUSTER);
+                ImmutableMap<Long, Backend> backendsInCluster = currentSystemInfo.getBackendsInCluster(
+                        SystemInfoService.DEFAULT_CLUSTER);
                 backendsInCluster.forEach((k, v) -> {
-                    hostInfos.stream().filter(h -> v.getHostName().equals(h.getHostName()) && v.getHeartbeatPort() == h.getPort())
+                    hostInfos.stream()
+                            .filter(h -> v.getHostName().equals(h.getHostName()) && v.getHeartbeatPort() == h.getPort())
                             .findFirst().ifPresent(h -> {
                                 v.setDecommissioned(true);
                                 Env.getCurrentEnv().getEditLog().logBackendStateChange(v);
