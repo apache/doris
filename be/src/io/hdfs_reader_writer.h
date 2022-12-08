@@ -23,10 +23,6 @@
 
 namespace doris {
 
-namespace io {
-class FileSystem;
-} // namespace io
-
 // TODO(ftw): This file should be deleted when new_file_factory.h replace file_factory.h
 class HdfsReaderWriter {
 public:
