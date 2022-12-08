@@ -178,7 +178,11 @@ public class ConnectProcessor {
 
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
-                .setState(ctx.getState().toString()).setQueryTime(elapseMs)
+                .setState(ctx.getState().toString())
+                .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
+                .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
+                        ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " "))
+                ).setQueryTime(elapseMs)
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
