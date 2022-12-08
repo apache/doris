@@ -17,10 +17,6 @@
 
 #include "io/fs/hdfs_file_system.h"
 
-#include <fcntl.h>
-#include <gen_cpp/PlanNodes_types.h>
-#include <hdfs/hdfs.h>
-
 #include "gutil/hash/hash.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/hdfs_builder.h"
@@ -84,7 +80,6 @@ HdfsFileSystem::~HdfsFileSystem() {
 }
 
 Status HdfsFileSystem::connect() {
-    std::lock_guard lock(_handle_mu);
     RETURN_IF_ERROR(HdfsFileSystemCache::instance()->get_connection(_hdfs_params, &_fs_handle));
     if (!_fs_handle) {
         return Status::InternalError("failed to init Hdfs handle with, please check hdfs params.");
@@ -105,11 +100,10 @@ Status HdfsFileSystem::create_file(const Path& /*path*/, FileWriterPtr* /*writer
 }
 
 Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
-    auto handle = get_handle();
-    CHECK_HDFS_HANDLE(handle);
+    CHECK_HDFS_HANDLE(_fs_handle);
     size_t file_len = -1;
     RETURN_IF_ERROR(file_size(path, &file_len));
-    auto hdfs_file = hdfsOpenFile(handle->hdfs_fs, path.string().c_str(), O_RDONLY, 0, 0, 0);
+    auto hdfs_file = hdfsOpenFile(_fs_handle->hdfs_fs, path.string().c_str(), O_RDONLY, 0, 0, 0);
     if (hdfs_file == nullptr) {
         if (_fs_handle->from_cache) {
             // hdfsFS may be disconnected if not used for a long time
@@ -117,7 +111,7 @@ Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
             _fs_handle->dec_ref();
             // retry
             RETURN_IF_ERROR(connect());
-            hdfs_file = hdfsOpenFile(handle->hdfs_fs, path.string().c_str(), O_RDONLY, 0, 0, 0);
+            hdfs_file = hdfsOpenFile(_fs_handle->hdfs_fs, path.string().c_str(), O_RDONLY, 0, 0, 0);
             if (hdfs_file == nullptr) {
                 return Status::InternalError(
                         "open file failed. (BE: {}) namenode:{}, path:{}, err: {}",
@@ -135,11 +129,10 @@ Status HdfsFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
 }
 
 Status HdfsFileSystem::delete_file(const Path& path) {
-    auto handle = get_handle();
-    CHECK_HDFS_HANDLE(handle);
+    CHECK_HDFS_HANDLE(_fs_handle);
     // The recursive argument `is_recursive` is irrelevant if path is a file.
     int is_recursive = 0;
-    int res = hdfsDelete(handle->hdfs_fs, path.string().c_str(), is_recursive);
+    int res = hdfsDelete(_fs_handle->hdfs_fs, path.string().c_str(), is_recursive);
     if (res == -1) {
         return Status::InternalError("Failed to delete file {}", path.string());
     }
@@ -147,9 +140,8 @@ Status HdfsFileSystem::delete_file(const Path& path) {
 }
 
 Status HdfsFileSystem::create_directory(const Path& path) {
-    auto handle = get_handle();
-    CHECK_HDFS_HANDLE(handle);
-    int res = hdfsCreateDirectory(handle->hdfs_fs, path.string().c_str());
+    CHECK_HDFS_HANDLE(_fs_handle);
+    int res = hdfsCreateDirectory(_fs_handle->hdfs_fs, path.string().c_str());
     if (res == -1) {
         return Status::InternalError("Failed to create directory {}", path.string());
     }
@@ -157,11 +149,10 @@ Status HdfsFileSystem::create_directory(const Path& path) {
 }
 
 Status HdfsFileSystem::delete_directory(const Path& path) {
-    auto handle = get_handle();
-    CHECK_HDFS_HANDLE(handle);
+    CHECK_HDFS_HANDLE(_fs_handle);
     // delete in recursive mode
     int is_recursive = 1;
-    int res = hdfsDelete(handle->hdfs_fs, path.string().c_str(), is_recursive);
+    int res = hdfsDelete(_fs_handle->hdfs_fs, path.string().c_str(), is_recursive);
     if (res == -1) {
         return Status::InternalError("Failed to delete directory {}", path.string());
     }
@@ -169,16 +160,14 @@ Status HdfsFileSystem::delete_directory(const Path& path) {
 }
 
 Status HdfsFileSystem::exists(const Path& path, bool* res) const {
-    auto handle = get_handle();
-    CHECK_HDFS_HANDLE(handle);
-    *res = hdfsExists(handle->hdfs_fs, path.string().c_str());
+    CHECK_HDFS_HANDLE(_fs_handle);
+    *res = hdfsExists(_fs_handle->hdfs_fs, path.string().c_str());
     return Status::OK();
 }
 
 Status HdfsFileSystem::file_size(const Path& path, size_t* file_size) const {
-    auto handle = get_handle();
-    CHECK_HDFS_HANDLE(handle);
-    hdfsFileInfo* file_info = hdfsGetPathInfo(handle->hdfs_fs, path.string().c_str());
+    CHECK_HDFS_HANDLE(_fs_handle);
+    hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handle->hdfs_fs, path.string().c_str());
     if (file_info == nullptr) {
         return Status::InternalError("Failed to get file size of {}", path.string());
     }
@@ -188,11 +177,10 @@ Status HdfsFileSystem::file_size(const Path& path, size_t* file_size) const {
 }
 
 Status HdfsFileSystem::list(const Path& path, std::vector<Path>* files) {
-    auto handle = get_handle();
-    CHECK_HDFS_HANDLE(handle);
+    CHECK_HDFS_HANDLE(_fs_handle);
     int numEntries = 0;
     hdfsFileInfo* file_info =
-            hdfsListDirectory(handle->hdfs_fs, path.string().c_str(), &numEntries);
+            hdfsListDirectory(_fs_handle->hdfs_fs, path.string().c_str(), &numEntries);
     if (file_info == nullptr) {
         return Status::InternalError("Failed to list files/directors of {}", path.string());
     }
@@ -203,8 +191,7 @@ Status HdfsFileSystem::list(const Path& path, std::vector<Path>* files) {
     return Status::OK();
 }
 
-HdfsFileSystemHandle* HdfsFileSystem::get_handle() const {
-    std::lock_guard lock(_handle_mu);
+HdfsFileSystemHandle* HdfsFileSystem::get_handle() {
     return _fs_handle;
 }
 

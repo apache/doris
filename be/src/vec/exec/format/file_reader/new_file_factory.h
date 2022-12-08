@@ -77,8 +77,15 @@ public:
     static Status create_pipe_reader(const TUniqueId& load_id,
                                      std::shared_ptr<FileReader>& file_reader);
 
+    // TODO(ftw): should be delete after new_hdfs_file_reader ready
+    static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
+                                     int64_t start_offset, FileReader** reader);
+
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                      io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader);
+
+    static Status create_hdfs_writer(const std::map<std::string, std::string>& properties,
+                                     const std::string& path, std::unique_ptr<FileWriter>& writer);
 
     static Status create_s3_reader(const std::map<std::string, std::string>& prop,
                                    const std::string& path, io::FileSystem** s3_file_system,

@@ -23,7 +23,8 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "io/hdfs_reader_writer.h"
+#include "io/hdfs_file_reader.h"
+#include "io/hdfs_writer.h"
 #include "io/local_file_reader.h"
 #include "io/local_file_writer.h"
 #include "io/s3_reader.h"
@@ -53,7 +54,7 @@ Status NewFileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
         break;
     }
     case TFileType::FILE_HDFS: {
-        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
+        RETURN_IF_ERROR(create_hdfs_writer(
                 const_cast<std::map<std::string, std::string>&>(properties), path, file_writer));
         break;
     }
@@ -92,8 +93,8 @@ Status NewFileFactory::create_file_reader(TFileType::type type, ExecEnv* env,
     }
     case TFileType::FILE_HDFS: {
         FileReader* hdfs_reader = nullptr;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, start_offset,
-                                                        &hdfs_reader));
+        RETURN_IF_ERROR(
+                create_hdfs_reader(range.hdfs_params, range.path, start_offset, &hdfs_reader));
         file_reader_ptr = new BufferedReader(profile, hdfs_reader);
         break;
     }
@@ -143,11 +144,24 @@ Status NewFileFactory::create_pipe_reader(const TUniqueId& load_id,
 }
 
 Status NewFileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
+                                          int64_t start_offset, FileReader** reader) {
+    *reader = new HdfsFileReader(hdfs_params, path, start_offset);
+    return Status::OK();
+}
+
+Status NewFileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                           io::FileSystem** hdfs_file_system,
                                           io::FileReaderSPtr* reader) {
     *hdfs_file_system = new io::HdfsFileSystem(hdfs_params, path);
     (dynamic_cast<io::HdfsFileSystem*>(*hdfs_file_system))->connect();
     (*hdfs_file_system)->open_file(path, reader);
+    return Status::OK();
+}
+
+Status NewFileFactory::create_hdfs_writer(const std::map<std::string, std::string>& properties,
+                                          const std::string& path,
+                                          std::unique_ptr<FileWriter>& writer) {
+    writer.reset(new HDFSWriter(properties, path));
     return Status::OK();
 }
 

@@ -20,7 +20,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <hdfs/hdfs.h>
 
-#include "common/status.h"
 #include "io/fs/remote_file_system.h"
 namespace doris {
 
@@ -115,7 +114,7 @@ public:
 
     Status connect() override;
 
-    HdfsFileSystemHandle* get_handle() const;
+    HdfsFileSystemHandle* get_handle();
 
 private:
     const THdfsParams& _hdfs_params;
@@ -124,7 +123,6 @@ private:
     // do not use std::shared_ptr or std::unique_ptr
     // _fs_handle is managed by HdfsFileSystemCache
     HdfsFileSystemHandle* _fs_handle;
-    mutable std::mutex _handle_mu;
 };
 } // namespace io
 } // namespace doris
