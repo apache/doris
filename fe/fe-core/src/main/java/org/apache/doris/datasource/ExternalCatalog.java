@@ -69,6 +69,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
+    protected boolean invalidCacheInInit = true;
 
     private ExternalSchemaCache schemaCache;
 
@@ -129,8 +130,15 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // init schema related objects
     protected abstract void init();
 
-    public void setUninitialized() {
+    public void setUninitialized(boolean invalidCache) {
         this.initialized = false;
+        this.invalidCacheInInit = invalidCache;
+        if (invalidCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+        }
+    }
+
+    public void updateDbList() {
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
     }
 
@@ -209,7 +217,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
         for (int i = 0; i < log.getRefreshCount(); i++) {
             ExternalDatabase db = getDbForReplay(log.getRefreshDbIds().get(i));
-            db.setUnInitialized();
+            db.setUnInitialized(invalidCacheInInit);
             tmpDbNameToId.put(db.getFullName(), db.getId());
             tmpIdToDb.put(db.getId(), db);
         }

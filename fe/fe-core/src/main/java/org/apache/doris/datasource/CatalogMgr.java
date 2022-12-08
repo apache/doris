@@ -113,12 +113,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return catalog;
     }
 
-    private void unprotectedRefreshCatalog(long catalogId) {
+    private void unprotectedRefreshCatalog(long catalogId, boolean invalidCache) {
         CatalogIf catalog = idToCatalog.get(catalogId);
         if (catalog != null) {
             String catalogName = catalog.getName();
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                ((ExternalCatalog) catalog).setUninitialized();
+                ((ExternalCatalog) catalog).setUninitialized(invalidCache);
             }
         }
     }
@@ -431,7 +431,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void replayRefreshCatalog(CatalogLog log) throws DdlException {
         writeLock();
         try {
-            unprotectedRefreshCatalog(log.getCatalogId());
+            unprotectedRefreshCatalog(log.getCatalogId(), log.isInvalidCache());
         } finally {
             writeUnlock();
         }
@@ -487,7 +487,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
             ExternalDatabase db = catalog.getDbForReplay(log.getDbId());
-            db.setUnInitialized();
+            db.setUnInitialized(log.isInvalidCache());
         } finally {
             writeUnlock();
         }

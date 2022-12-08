@@ -1137,13 +1137,13 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshTableStmt(tbl);
     :}
-    | KW_REFRESH KW_DATABASE ident:db
+    | KW_REFRESH KW_DATABASE ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(db);
+        RESULT = new RefreshDbStmt(db, properties);
     :}
-    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db
+    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(ctl, db);
+        RESULT = new RefreshDbStmt(ctl, db, properties);
     :}
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
     {:
@@ -1153,9 +1153,9 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
     :}
-    | KW_REFRESH KW_CATALOG ident:catalogName
+    | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
     {:
-        RESULT = new RefreshCatalogStmt(catalogName);
+        RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
     ;
 
