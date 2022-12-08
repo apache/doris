@@ -382,12 +382,29 @@ CREATE CATALOG jdbc PROPERTIES (
     "jdbc.user"="root",
     "jdbc.password"="123456",
     "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/mnt/disk2/ftw/tools/jar/mysql-connector-java-5.1.47/mysql-connector-java-5.1.47.jar",
+    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
     "jdbc.driver_class" = "com.mysql.jdbc.Driver"
 );
 ```
 
-创建后，可以通过 SHOW CATALOGS 命令查看 catalog：
+其中`jdbc.driver_url`可以是远程jar包：
+
+```sql
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="root",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+);
+```
+
+如果`jdbc.driver_url` 是http形式的远程jar包，Doris对其的处理方式为：
+1. 只查询元数据，不查询表数据情况下（如 `show catalogs/database/tables` 等操作）：FE会直接用这个url来加载驱动类，并进行MYSQL数据类型到Doris数据类型的转换。
+2. 在对jdbc catalog中的表进行查询时（`select from`）：BE会将该url指定jar包下载到`be/lib/udf/`目录下，查询时将直接用下载后的路径来加载jar包。
+
+创建catalog后，可以通过 SHOW CATALOGS 命令查看 catalog：
 
 ```sql
 MySQL [(none)]> show catalogs;

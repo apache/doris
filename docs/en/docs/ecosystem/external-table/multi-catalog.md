@@ -319,10 +319,27 @@ CREATE CATALOG jdbc PROPERTIES (
     "jdbc.user"="root",
     "jdbc.password"="123456",
     "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/mnt/disk2/ftw/tools/jar/mysql-connector-java-5.1.47/mysql-connector-java-5.1.47.jar",
+    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
     "jdbc.driver_class" = "com.mysql.jdbc.Driver"
 );
 ```
+
+Where `jdbc.driver_url` can be a remote jar package
+
+```sql
+CREATE CATALOG jdbc PROPERTIES (
+"type"="jdbc",
+"jdbc.user"="root",
+"jdbc.password"="123456",
+"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+"jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+);
+```
+
+If the `jdbc.driver_url` is a remote jar package in the form of http, the Doris processing method is:
+1. Only query the meta-data, without inquiring the table data (such as the operation `show catalogs/database/tables`): This URL will be used to load the driver class by FE.
+2. When querying the tables in JDBC Catalog (like `select from`): BE will download the jar package to the local directory `be/lib/udf/`, and the jar package will be loaded directly from the local path When queried.
 
 Once created, you can view the catalog with the `SHOW CATALOGS` command:
 
