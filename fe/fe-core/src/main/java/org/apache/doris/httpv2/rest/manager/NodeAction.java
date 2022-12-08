@@ -597,7 +597,11 @@ public class NodeAction extends RestBaseController {
     }
 
     @PostMapping("/{action}/be")
-    public ResponseEntity operateBackend(@PathVariable String action, @RequestBody BackendReqInfo reqInfo) {
+    public Object operateBackend(HttpServletRequest request, HttpServletResponse response, @PathVariable String action,
+            @RequestBody BackendReqInfo reqInfo) {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return redirectToMaster(request, response);
+        }
         try {
             List<String> hostPorts = reqInfo.getHostPorts();
             List<HostInfo> hostInfos = new ArrayList<>();
@@ -636,7 +640,11 @@ public class NodeAction extends RestBaseController {
     }
 
     @PostMapping("/{action}/fe")
-    public ResponseEntity operateFrontends(@PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
+    public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return redirectToMaster(request, response);
+        }
         try {
             String role = reqInfo.getRole();
             String[] split = reqInfo.getHostPort().split(":");
