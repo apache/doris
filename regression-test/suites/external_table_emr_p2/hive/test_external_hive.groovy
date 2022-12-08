@@ -56,4 +56,3 @@ suite("test_external_hive", "p2") {
 
 
 
-
