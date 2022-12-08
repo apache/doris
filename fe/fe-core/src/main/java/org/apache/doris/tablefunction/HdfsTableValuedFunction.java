@@ -105,7 +105,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("S3TvfBroker", StorageType.HDFS, locationProperties);
+        return new BrokerDesc("HdfsTvfBroker", StorageType.HDFS, locationProperties);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

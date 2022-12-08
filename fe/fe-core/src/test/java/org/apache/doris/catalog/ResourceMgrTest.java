@@ -88,12 +88,12 @@ public class ResourceMgrTest {
         s3ConnTimeoutMs = "1000";
         s3Properties = new HashMap<>();
         s3Properties.put("type", s3ResType);
-        s3Properties.put("s3_endpoint", s3Endpoint);
-        s3Properties.put("s3_region", s3Region);
-        s3Properties.put("s3_root_path", s3RootPath);
-        s3Properties.put("s3_access_key", s3AccessKey);
-        s3Properties.put("s3_secret_key", s3SecretKey);
-        s3Properties.put("s3_bucket", "test-bucket");
+        s3Properties.put("AWS_ENDPOINT", s3Endpoint);
+        s3Properties.put("AWS_REGION", s3Region);
+        s3Properties.put("AWS_ROOT_PATH", s3RootPath);
+        s3Properties.put("AWS_ACCESS_KEY", s3AccessKey);
+        s3Properties.put("AWS_SECRET_KEY", s3SecretKey);
+        s3Properties.put("AWS_BUCKET", "test-bucket");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
@@ -152,11 +152,11 @@ public class ResourceMgrTest {
         // alter
         s3Region = "sh";
         Map<String, String> copiedS3Properties = Maps.newHashMap(s3Properties);
-        copiedS3Properties.put("s3_region", s3Region);
+        copiedS3Properties.put("AWS_REGION", s3Region);
         copiedS3Properties.remove("type");
         // current not support modify s3 property
         // mgr.alterResource(alterResourceStmt);
-        // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));
+        // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("AWS_REGION"));
 
         // drop
         dropStmt = new DropResourceStmt(false, s3ResName);

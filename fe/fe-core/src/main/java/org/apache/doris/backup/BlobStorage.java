@@ -19,11 +19,15 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.RemoteIterator;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -104,6 +108,10 @@ public abstract class BlobStorage implements Writable {
         this.properties = properties;
     }
 
+    public FileSystem getFileSystem(String remotePath) throws UserException {
+        throw new UserException("Not support to getFileSystem.");
+    }
+
     public abstract Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize);
 
     // directly upload the content to remote file
@@ -115,9 +123,16 @@ public abstract class BlobStorage implements Writable {
 
     public abstract Status delete(String remotePath);
 
+    // only for hdfs and s3
+    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
+        throw new UserException("Not support to listLocatedStatus.");
+    }
+
     // List files in remotePath
     // The remote file name will only contains file name only(Not full path)
     public abstract Status list(String remotePath, List<RemoteFile> result);
+
+    public abstract Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
 
     public abstract Status makeDir(String remotePath);
 
