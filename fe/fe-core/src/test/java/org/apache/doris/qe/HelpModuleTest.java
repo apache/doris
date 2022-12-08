@@ -156,25 +156,25 @@ public class HelpModuleTest {
         // Must ordered by alpha.
         List<String> categories = module.listCategoryByCategory("Admin");
         Assert.assertEquals(2, categories.size());
-        Assert.assertTrue(Arrays.equals(categories.toArray(), Lists.newArrayList("Select", "Show").toArray()));
+        Assert.assertEquals(categories.toArray(), Lists.newArrayList("Select", "Show").toArray());
         // topics
         List<String> topics = module.listTopicByKeyword("SHOW");
         Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
+        Assert.assertEquals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray());
 
         topics = module.listTopicByKeyword("SELECT");
         Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
+        Assert.assertEquals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray());
 
         topics = module.listTopicByCategory("selEct");
         Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray()));
+        Assert.assertEquals(topics.toArray(), Lists.newArrayList("SELECT TIME").toArray());
 
         topics = module.listTopicByCategory("show");
         Assert.assertEquals(1, topics.size());
-        Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
+        Assert.assertEquals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray());
 
-        Assert.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
-                Lists.newArrayList("Admin").toArray()));
+        Assert.assertEquals(module.listCategoryByName("ADMIN").toArray(),
+                Lists.newArrayList("Admin").toArray());
     }
 }

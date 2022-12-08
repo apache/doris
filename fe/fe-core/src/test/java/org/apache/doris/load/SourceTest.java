@@ -68,20 +68,20 @@ public class SourceTest {
         Source rSource2 = new Source();
         rSource2.readFields(dis);
 
-        Assert.assertTrue(rSource0.equals(source0));
-        Assert.assertTrue(source0.equals(source0));
-        Assert.assertFalse(rSource0.equals(this));
-        Assert.assertTrue(rSource1.equals(source1));
-        Assert.assertFalse(rSource2.equals(source2));
-        Assert.assertFalse(rSource0.equals(source1));
+        Assert.assertEquals(rSource0, source0);
+        Assert.assertEquals(source0, source0);
+        Assert.assertNotEquals(rSource0, this);
+        Assert.assertEquals(rSource1, source1);
+        Assert.assertNotEquals(rSource2, source2);
+        Assert.assertNotEquals(rSource0, source1);
 
         rSource2.setFileUrls(null);
-        Assert.assertFalse(rSource2.equals(source2));
+        Assert.assertNotEquals(rSource2, source2);
         rSource2.setColumnNames(null);
         rSource2.setFileUrls(new ArrayList<String>());
         rSource2.setColumnNames(null);
         rSource2.setFileUrls(null);
-        Assert.assertTrue(rSource2.equals(source2));
+        Assert.assertEquals(rSource2, source2);
 
         dis.close();
         file.delete();

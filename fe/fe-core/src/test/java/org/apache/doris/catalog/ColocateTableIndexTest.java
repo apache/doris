@@ -41,7 +41,7 @@ public class ColocateTableIndexTest {
         GroupId groupId1 = new GroupId(1000, 2000);
         GroupId groupId2 = new GroupId(1000, 2000);
         Map<GroupId, Long> map = Maps.newHashMap();
-        Assert.assertTrue(groupId1.equals(groupId2));
+        Assert.assertEquals(groupId1, groupId2);
         Assert.assertTrue(groupId1.hashCode() == groupId2.hashCode());
         map.put(groupId1, 1000L);
         Assert.assertTrue(map.containsKey(groupId2));
