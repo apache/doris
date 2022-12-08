@@ -31,6 +31,7 @@
 #include "exec/hashjoin_probe_operator.h"
 #include "exec/repeat_operator.h"
 #include "exec/result_sink_operator.h"
+#include "exec/mysql_scan_operator.h"
 #include "exec/scan_node.h"
 #include "exec/scan_operator.h"
 #include "exec/sort_sink_operator.h"
@@ -288,6 +289,12 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::OLAP_SCAN_NODE: {
         OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
                 fragment_context->next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::MYSQL_SCAN_NODE: {
+        OperatorBuilderPtr operator_t =
+                std::make_shared<MysqlScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
