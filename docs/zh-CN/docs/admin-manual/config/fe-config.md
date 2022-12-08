@@ -2199,7 +2199,7 @@ OlapTable在做schema change时，允许的最大副本数，副本数过大会�
 
 #### `max_create_table_timeout_second`
 
-默认值：60 （s）
+默认值：1 * 3600  （1小时）
 
 是否可以动态配置：true
 
