@@ -17,15 +17,18 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 import com.google.common.base.Preconditions;
+
+import java.util.Objects;
 
 /**
  * Datetime type in Nereids.
  */
-public class DateTimeV2Type extends PrimitiveType {
+public class DateTimeV2Type extends DateLikeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type INSTANCE = new DateTimeV2Type(0);
 
@@ -38,14 +41,32 @@ public class DateTimeV2Type extends PrimitiveType {
         this.scale = scale;
     }
 
+    public static DateTimeV2Type of(int scale) {
+        if (scale == INSTANCE.scale) {
+            return INSTANCE;
+        } else {
+            return new DateTimeV2Type(scale);
+        }
+    }
+
     @Override
     public Type toCatalogDataType() {
-        return Type.DATETIME;
+        return ScalarType.createDatetimeV2Type(scale);
     }
 
     @Override
     public boolean equals(Object o) {
-        return o instanceof DateTimeV2Type;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        DateTimeV2Type that = (DateTimeV2Type) o;
+        return Objects.equals(scale, that.scale);
     }
 
     @Override

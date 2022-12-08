@@ -60,7 +60,7 @@ public:
 
     Status submit(std::unique_ptr<MemTable> mem_table);
 
-    // error has happpens, so we cancel this token
+    // error has happens, so we cancel this token
     // And remove all tasks in the queue.
     void cancel();
 

@@ -142,12 +142,12 @@ Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status AnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
-    _curr_tuple_pool.reset(new MemPool(mem_tracker()));
-    _prev_tuple_pool.reset(new MemPool(mem_tracker()));
-    _mem_pool.reset(new MemPool(mem_tracker()));
+    _curr_tuple_pool.reset(new MemPool(mem_tracker_held()));
+    _prev_tuple_pool.reset(new MemPool(mem_tracker_held()));
+    _mem_pool.reset(new MemPool(mem_tracker_held()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
@@ -186,7 +186,7 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 Status AnalyticEvalNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(child(0)->open(state));
@@ -426,7 +426,8 @@ inline void AnalyticEvalNode::try_remove_rows_before_window(int64_t stream_idx) 
     // The start of the window may have been before the current partition, in which case
     // there is no tuple to remove in _window_tuples. Check the index of the row at which
     // tuples from _window_tuples should begin to be removed.
-    int64_t remove_idx = stream_idx - _rows_end_offset + std::min(_rows_start_offset, 0L) - 1;
+    int64_t remove_idx =
+            stream_idx - _rows_end_offset + std::min<int64_t>(_rows_start_offset, 0L) - 1;
 
     if (remove_idx < _curr_partition_idx) {
         return;
@@ -434,7 +435,7 @@ inline void AnalyticEvalNode::try_remove_rows_before_window(int64_t stream_idx) 
 
     VLOG_ROW << id() << " Remove idx=" << remove_idx << " stream_idx=" << stream_idx;
     DCHECK(!_window_tuples.empty()) << debug_state_string(true);
-    DCHECK_EQ(remove_idx + std::max(_rows_start_offset, 0L), _window_tuples.front().first)
+    DCHECK_EQ(remove_idx + std::max<int64_t>(_rows_start_offset, 0L), _window_tuples.front().first)
             << debug_state_string(true);
     TupleRow* remove_row = reinterpret_cast<TupleRow*>(&_window_tuples.front().second);
     AggFnEvaluator::remove(_evaluators, _fn_ctxs, remove_row, _curr_tuple);
@@ -813,7 +814,7 @@ inline int64_t AnalyticEvalNode::num_output_rows_ready() const {
 
 Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(state->check_query_state("Analytic eval, while get_next."));

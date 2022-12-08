@@ -20,8 +20,6 @@
 
 #pragma once
 
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
@@ -58,7 +56,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
         const auto* sources =
-                check_and_get_column<ColumnVector<typename Transform::ARG_TYPE>>(source_col.get());
+                check_and_get_column<ColumnVector<typename Transform::OpArgType>>(source_col.get());
         auto col_res = ColumnString::create();
         auto null_map = ColumnVector<UInt8>::create();
         // Support all input of datetime is valind to make sure not null return

@@ -19,12 +19,25 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignature;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+
+import java.util.List;
 
 /**
  * The function which consume zero or more arguments in a row and product one value.
  */
-public abstract class ScalarFunction extends BoundFunction {
+public abstract class ScalarFunction extends BoundFunction implements ComputeSignature {
     public ScalarFunction(String name, Expression... arguments) {
         super(name, arguments);
+    }
+
+    public ScalarFunction(String name, List<Expression> arguments) {
+        super(name, arguments);
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitScalarFunction(this, context);
     }
 }

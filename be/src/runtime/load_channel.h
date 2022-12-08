@@ -39,9 +39,8 @@ class Cache;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
-                bool is_vec);
+    LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker, int64_t timeout_s,
+                bool is_high_priority, const std::string& sender_ip, bool is_vec);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -62,12 +61,21 @@ public:
 
     // check if this load channel mem consumption exceeds limit.
     // If yes, it will pick a tablets channel to try to reduce memory consumption.
-    // The mehtod will not return until the chosen tablet channels finished memtable
+    // The method will not return until the chosen tablet channels finished memtable
     // flush.
-    template <typename TabletWriterAddResult>
-    Status handle_mem_exceed_limit(TabletWriterAddResult* response);
+    void handle_mem_exceed_limit();
 
-    int64_t mem_consumption() const { return _mem_tracker->consumption(); }
+    int64_t mem_consumption() {
+        int64_t mem_usage = 0;
+        {
+            std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            for (auto& it : _tablets_channels) {
+                mem_usage += it.second->mem_consumption();
+            }
+        }
+        _mem_tracker->set_consumption(mem_usage);
+        return mem_usage;
+    }
 
     int64_t timeout() const { return _timeout_s; }
 
@@ -89,7 +97,10 @@ protected:
                 request.write_single_replica()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
-            _tablets_channels.erase(index_id);
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.erase(index_id);
+            }
             _finished_channel_ids.emplace(index_id);
         }
         return Status::OK();
@@ -102,12 +113,13 @@ private:
 
     UniqueId _load_id;
     // Tracks the total memory consumed by current load job on this BE
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;
     // index id -> tablets channel
     std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
+    SpinLock _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
@@ -163,35 +175,11 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
     return st;
 }
 
-inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
+inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {
     os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
        << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;
-}
-
-template <typename TabletWriterAddResult>
-Status LoadChannel::handle_mem_exceed_limit(TabletWriterAddResult* response) {
-    bool found = false;
-    std::shared_ptr<TabletsChannel> channel;
-    {
-        // lock so that only one thread can check mem limit
-        std::lock_guard<std::mutex> l(_lock);
-
-        LOG(INFO) << "reducing memory of " << *this
-                  << " ,mem consumption: " << _mem_tracker->consumption();
-        found = _find_largest_consumption_channel(&channel);
-    }
-    // Release lock so that other threads can still call add_batch concurrently.
-    if (found) {
-        DCHECK(channel != nullptr);
-        return channel->reduce_mem_usage(response);
-    } else {
-        // should not happen, add log to observe
-        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
-                     << "load_id=" << _load_id;
-    }
-    return Status::OK();
 }
 
 } // namespace doris

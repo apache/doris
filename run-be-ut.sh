@@ -39,6 +39,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
 
+. "${DORIS_HOME}/env.sh"
+
 # Check args
 usage() {
     echo "
@@ -71,8 +73,6 @@ if ! OPTS="$(getopt -n "$0" -o vhj:f: -l benchmark,run,clean,filter: -- "$@")"; 
 fi
 
 eval set -- "${OPTS}"
-
-PARALLEL="$(($(nproc) / 5 + 1))"
 
 CLEAN=0
 RUN=0
@@ -113,16 +113,18 @@ if [[ "$#" != 1 ]]; then
     done
 fi
 
+if [[ -z "${PARALLEL}" ]]; then
+    PARALLEL="$(($(nproc) / 5 + 1))"
+fi
+
 CMAKE_BUILD_TYPE="${BUILD_TYPE:-ASAN}"
-CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
+CMAKE_BUILD_TYPE="$(echo "${CMAKE_BUILD_TYPE}" | awk '{ print(toupper($0)) }')"
 
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
 "
 echo "Build Backend UT"
-
-. "${DORIS_HOME}/env.sh"
 
 CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
 if [[ "${CLEAN}" -eq 1 ]]; then
@@ -135,7 +137,27 @@ if [[ ! -d "${CMAKE_BUILD_DIR}" ]]; then
 fi
 
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
-    GLIBC_COMPATIBILITY='ON'
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        GLIBC_COMPATIBILITY='ON'
+    else
+        GLIBC_COMPATIBILITY='OFF'
+    fi
+fi
+
+if [[ -z "${USE_LIBCPP}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_LIBCPP='OFF'
+    else
+        USE_LIBCPP='ON'
+    fi
+fi
+
+if [[ -z "${USE_MEM_TRACKER}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_MEM_TRACKER='ON'
+    else
+        USE_MEM_TRACKER='OFF'
+    fi
 fi
 
 if [[ -z "${USE_DWARF}" ]]; then
@@ -153,11 +175,12 @@ cd "${CMAKE_BUILD_DIR}"
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
     -DMAKE_TEST=ON \
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
+    -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
     -DBUILD_BENCHMARK_TOOL="${BUILD_BENCHMARK_TOOL}" \
     -DWITH_MYSQL=OFF \
     -DUSE_DWARF="${USE_DWARF}" \
-    -DUSE_MEM_TRACKER=ON \
+    -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
     -DUSE_JEMALLOC=OFF \
     -DSTRICT_MEMORY_USE=OFF \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
@@ -216,35 +239,6 @@ jdk_version() {
     echo "${result}"
     return 0
 }
-
-setup_java_env() {
-    local java_version
-
-    if [[ -z "${JAVA_HOME}" ]]; then
-        return 1
-    fi
-
-    local jvm_arch='amd64'
-    if [[ "$(uname -m)" == 'aarch64' ]]; then
-        jvm_arch='aarch64'
-    fi
-    java_version="$(
-        set -e
-        jdk_version "${JAVA_HOME}/bin/java"
-    )"
-    if [[ "${java_version}" -gt 8 ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jdk
-    elif [[ -d "${JAVA_HOME}/jre" ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jre
-    else
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-    fi
-}
-
-# prepare jvm if needed
-setup_java_env || true
 
 # prepare gtest output dir
 GTEST_OUTPUT_DIR="${CMAKE_BUILD_DIR}/gtest_output"

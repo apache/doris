@@ -58,7 +58,11 @@ TEST(TestPathUtil, DirNameTest) {
     EXPECT_EQ(".", path_util::dir_name("."));
     EXPECT_EQ(".", path_util::dir_name(".."));
     EXPECT_EQ("/", path_util::dir_name("/"));
+#ifndef __APPLE__
     EXPECT_EQ("//", path_util::dir_name("//"));
+#else
+    EXPECT_EQ("/", path_util::dir_name("//"));
+#endif
     EXPECT_EQ(".", path_util::dir_name("a"));
     EXPECT_EQ(".", path_util::dir_name("ab"));
     EXPECT_EQ(".", path_util::dir_name("ab/"));

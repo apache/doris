@@ -24,7 +24,7 @@ suite("redundant_conjuncts") {
     DROP TABLE IF EXISTS redundant_conjuncts;
     """
     sql """
-    CREATE TABLE `redundant_conjuncts` (
+    CREATE TABLE IF NOT EXISTS `redundant_conjuncts` (
       `k1` int(11) NULL COMMENT "",
       `v1` int(11) NULL COMMENT ""
     ) ENGINE=OLAP

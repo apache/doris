@@ -20,7 +20,7 @@
 
      sql """ DROP TABLE IF EXISTS ${tableName} """
      sql """
-        create table ${tableName} (tag varchar(20),user_ids bitmap bitmap_union) aggregate key (tag) 
+        create table if not exists ${tableName} (tag varchar(20),user_ids bitmap bitmap_union) aggregate key (tag) 
         distributed by hash (tag) PROPERTIES("replication_num" = "1"); 
      """
 

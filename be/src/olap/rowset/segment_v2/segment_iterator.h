@@ -65,7 +65,35 @@ public:
     bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
     uint64_t data_id() const override { return _segment->id(); }
 
+    bool update_profile(RuntimeProfile* profile) override {
+        bool updated = false;
+        updated |= _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
+        updated |= _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
+
+        if (_opts.delete_condition_predicates != nullptr) {
+            std::set<const ColumnPredicate*> delete_predicate_set;
+            _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
+            updated |= _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
+        }
+
+        return updated;
+    }
+
 private:
+    template <typename Container>
+    bool _update_profile(RuntimeProfile* profile, const Container& predicates,
+                         const std::string& title) {
+        if (predicates.empty()) {
+            return false;
+        }
+        std::string info;
+        for (auto pred : predicates) {
+            info += "\n" + pred->debug_string();
+        }
+        profile->add_info_string(title, info);
+        return true;
+    }
+
     Status _init(bool is_vec = false);
 
     Status _init_return_column_iterators();
@@ -91,7 +119,7 @@ private:
     void _init_lazy_materialization();
     void _vec_init_lazy_materialization();
     // TODO: Fix Me
-    // CHAR type in storge layer padding the 0 in length. But query engine need ignore the padding 0.
+    // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
     // so segment iterator need to shrink char column before output it. only use in vec query engine.
     void _vec_init_char_column_id();
 
@@ -139,7 +167,6 @@ private:
 
     void _update_max_row(const vectorized::Block* block);
 
-private:
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -181,7 +208,7 @@ private:
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
     std::vector<uint32_t> _delete_range_column_ids;
     std::vector<uint32_t> _delete_bloom_filter_column_ids;
-    // when lazy materialization is enable, segmentIter need to read data at least twice
+    // when lazy materialization is enabled, segmentIter need to read data at least twice
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read

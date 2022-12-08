@@ -20,12 +20,9 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "common/status.h"
-#include "olap/bloom_filter_predicate.h"
-#include "olap/collect_iterator.h"
-#include "olap/comparison_predicate.h"
-#include "olap/in_list_predicate.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
 #include "olap/like_column_predicate.h"
-#include "olap/null_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
 #include "olap/row.h"
@@ -33,9 +30,6 @@
 #include "olap/schema.h"
 #include "olap/tablet.h"
 #include "runtime/mem_pool.h"
-#include "util/mem_util.hpp"
-#include "util/string_util.h"
-#include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
 
@@ -212,7 +206,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.is_upper_keys_included = &_is_upper_keys_included;
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
-    _reader_context.runtime_state = read_params.runtime_state;
     _reader_context.use_page_cache = read_params.use_page_cache;
     _reader_context.sequence_id_idx = _sequence_col_idx;
     _reader_context.batch_size = _batch_size;
@@ -221,6 +214,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
+    _reader_context.is_key_column_group = read_params.is_key_column_group;
 
     *valid_rs_readers = *rs_readers;
 
@@ -236,6 +230,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
+    _reader_context.runtime_state = read_params.runtime_state;
 
     _init_conditions_param(read_params);
 
@@ -438,6 +433,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         // These conditions is passed from OlapScannode, but not set column unique id here, so that set it here because it
         // is too complicated to modify related interface
         TCondition tmp_cond = condition;
+
         auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
         tmp_cond.__set_column_unique_id(condition_col_uid);
         ColumnPredicate* predicate =
@@ -457,6 +453,14 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
     }
 
+    for (const auto& filter : read_params.bitmap_filters) {
+        _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
+
+    for (const auto& filter : read_params.in_filters) {
+        _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
+
     // Function filter push down to storage engine
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
@@ -470,8 +474,30 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
         return nullptr;
     }
     const TabletColumn& column = _tablet_schema->column(index);
-    return BloomFilterColumnPredicateFactory::create_column_predicate(index, bloom_filter.second,
-                                                                      column.type());
+    return create_column_predicate(index, bloom_filter.second, column.type(),
+                                   _reader_context.runtime_state->be_exec_version(), &column);
+}
+
+ColumnPredicate* TabletReader::_parse_to_predicate(
+        const std::pair<std::string, std::shared_ptr<HybridSetBase>>& in_filter) {
+    int32_t index = _tablet_schema->field_index(in_filter.first);
+    if (index < 0) {
+        return nullptr;
+    }
+    const TabletColumn& column = _tablet_schema->column(index);
+    return create_column_predicate(index, in_filter.second, column.type(),
+                                   _reader_context.runtime_state->be_exec_version(), &column);
+}
+
+ColumnPredicate* TabletReader::_parse_to_predicate(
+        const std::pair<std::string, std::shared_ptr<BitmapFilterFuncBase>>& bitmap_filter) {
+    int32_t index = _tablet_schema->field_index(bitmap_filter.first);
+    if (index < 0) {
+        return nullptr;
+    }
+    const TabletColumn& column = _tablet_schema->column(index);
+    return create_column_predicate(index, bitmap_filter.second, column.type(),
+                                   _reader_context.runtime_state->be_exec_version(), &column);
 }
 
 ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& function_filter) {

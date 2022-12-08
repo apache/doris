@@ -35,50 +35,62 @@ import java.util.regex.Pattern;
  *   - ${column} and ${table} will be replaced with the actual executed table and column.
  */
 public class InternalSqlTemplate {
+    /** Sample query or full query of statistics. */
+    public enum QueryType {
+        FULL,
+        SAMPLE
+    }
+
     /** common parameters: tableName, columnName, partitionName */
     public static final String TABLE = "table";
     public static final String PARTITION = "partition";
     public static final String COLUMN = "column";
+    public static final String PERCENT = "percent";
 
     /** -------------------------- for statistics begin -------------------------- */
-    public static final String MIN_VALUE_SQL = "SELECT MIN(${column}) AS min_value FROM ${table};";
-    public static final String PARTITION_MIN_VALUE_SQL = "SELECT MIN(${column}) AS min_value"
-            + " FROM ${table} PARTITION (${partition});";
-
-    public static final String MAX_VALUE_SQL = "SELECT MAX(${column}) AS max_value FROM ${table};";
-    public static final String PARTITION_MAX_VALUE_SQL = "SELECT MAX(${column}) AS max_value FROM"
-            + " ${table} PARTITION (${partition});";
-
-    public static final String NDV_VALUE_SQL = "SELECT NDV(${column}) AS ndv FROM ${table};";
-    public static final String PARTITION_NDV_VALUE_SQL = "SELECT NDV(${column}) AS ndv FROM"
-            + " ${table} PARTITION (${partition});";
-
     public static final String MIN_MAX_NDV_VALUE_SQL = "SELECT MIN(${column}) AS min_value, MAX(${column})"
             + " AS max_value, NDV(${column}) AS ndv FROM ${table};";
     public static final String PARTITION_MIN_MAX_NDV_VALUE_SQL = "SELECT MIN(${column}) AS min_value,"
-            + " MAX(${column}) AS max_value, NDV(${column}) AS ndv FROM ${table} PARTITION (${partition});";
+            + " MAX(${column}) AS max_value, NDV(${column}) AS ndv FROM ${table} PARTITIONS (${partition});";
 
     public static final String ROW_COUNT_SQL = "SELECT COUNT(1) AS row_count FROM ${table};";
     public static final String PARTITION_ROW_COUNT_SQL = "SELECT COUNT(1) AS row_count FROM ${table} PARTITION"
             + " (${partition});";
 
-    public static final String MAX_SIZE_SQL = "SELECT MAX(LENGTH(${column})) AS max_size FROM ${table};";
-    public static final String PARTITION_MAX_SIZE_SQL = "SELECT MAX(LENGTH(${column})) AS max_size FROM"
-            + " ${table} PARTITION (${partition});";
-
-    public static final String AVG_SIZE_SQL = "SELECT AVG(LENGTH(${column})) AS avg_size FROM ${table};";
-    public static final String PARTITION_AVG_SIZE_SQL = "SELECT AVG(LENGTH(${column})) AS avg_size"
-            + " FROM ${table} PARTITION (${partition});";
-
     public static final String MAX_AVG_SIZE_SQL = "SELECT MAX(LENGTH(${column})) AS max_size,"
             + " AVG(LENGTH(${column})) AS avg_size FROM ${table};";
     public static final String PARTITION_MAX_AVG_SIZE_SQL = "SELECT MAX(LENGTH(${column}))"
-            + " AS max_size, AVG(LENGTH(${column})) AS avg_size FROM ${table} PARTITION (${partition});";
+            + " AS max_size, AVG(LENGTH(${column})) AS avg_size FROM ${table} PARTITIONS (${partition});";
 
     public static final String NUM_NULLS_SQL = "SELECT COUNT(1) AS num_nulls FROM ${table}"
             + " WHERE ${column} IS NULL;";
     public static final String PARTITION_NUM_NULLS_SQL = "SELECT COUNT(1) AS num_nulls FROM"
-            + " ${table} PARTITION (${partition}) WHERE ${column} IS NULL;";
+            + " ${table} PARTITIONS (${partition}) WHERE ${column} IS NULL;";
+
+    // Sample SQL
+    public static final String SAMPLE_MIN_MAX_NDV_VALUE_SQL = "SELECT MIN(${column}) AS min_value, MAX(${column})"
+            + " AS max_value, NDV(${column}) AS ndv FROM ${table} TABLESAMPLE(${percent} PERCENT);";
+    public static final String SAMPLE_PARTITION_MIN_MAX_NDV_VALUE_SQL = "SELECT MIN(${column}) AS min_value,"
+            + " MAX(${column}) AS max_value, NDV(${column}) AS ndv FROM ${table} PARTITIONS (${partition})"
+            + " TABLESAMPLE(${percent} PERCENT);";
+
+    public static final String SAMPLE_ROW_COUNT_SQL = "SELECT COUNT(1) AS row_count FROM ${table}"
+            + " TABLESAMPLE(${percent} PERCENT);";
+    public static final String SAMPLE_PARTITION_ROW_COUNT_SQL = "SELECT COUNT(1) AS row_count FROM ${table}"
+            + " PARTITIONS (${partition}) TABLESAMPLE(${percent} PERCENT);";
+
+    public static final String SAMPLE_MAX_AVG_SIZE_SQL = "SELECT MAX(LENGTH(${column})) AS max_size,"
+            + " AVG(LENGTH(${column})) AS avg_size FROM ${table} TABLESAMPLE(${percent} PERCENT);";
+    public static final String SAMPLE_PARTITION_MAX_AVG_SIZE_SQL = "SELECT MAX(LENGTH(${column}))"
+            + " AS max_size, AVG(LENGTH(${column})) AS avg_size FROM ${table} PARTITIONS (${partition})"
+            + " TABLESAMPLE(${percent} PERCENT);";
+
+
+    public static final String SAMPLE_NUM_NULLS_SQL = "SELECT COUNT(1) AS num_nulls FROM ${table}"
+            + " TABLESAMPLE(${percent} PERCENT) WHERE ${column} IS NULL;";
+    public static final String SAMPLE_PARTITION_NUM_NULLS_SQL = "SELECT COUNT(1) AS num_nulls FROM"
+            + " ${table} PARTITIONS (${partition}) TABLESAMPLE(${percent} PERCENT) WHERE ${column} IS NULL;";
+
     /** ---------------------------- for statistics end ---------------------------- */
 
     private static final Logger LOG = LogManager.getLogger(InternalSqlTemplate.class);
@@ -97,7 +109,12 @@ public class InternalSqlTemplate {
      * @param params   k,v parameter, if without parameter, params should be null
      * @return SQL statement with parameters concatenated
      */
-    public static String processTemplate(String template, Map<String, String> params) {
+    public static String processTemplate(String template, Map<String, String> params) throws InvalidFormatException {
+        Set<String> requiredParams = getTemplateParams(template);
+        if (!checkParams(requiredParams, params)) {
+            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
+        }
+
         Matcher matcher = PATTERN.matcher(template);
         StringBuffer sb = new StringBuffer();
 
@@ -113,167 +130,69 @@ public class InternalSqlTemplate {
         return sb.toString();
     }
 
-    public static String buildStatsMinValueSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(MIN_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(MIN_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsPartitionMinValueSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_MIN_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(PARTITION_MIN_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsMaxValueSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(MAX_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(MAX_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsPartitionMaxValueSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_MAX_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(PARTITION_MAX_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsNdvValueSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(NDV_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(NDV_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsPartitionNdvValueSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_NDV_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(PARTITION_NDV_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsMinMaxNdvValueSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(MIN_MAX_NDV_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(MIN_MAX_NDV_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsPartitionMinMaxNdvValueSql(Map<String, String> params)
+    public static String buildStatsMinMaxNdvValueSql(Map<String, String> params, QueryType queryType)
             throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_MIN_MAX_NDV_VALUE_SQL);
-        if (checkParams(requiredParams, params)) {
+        if (queryType == QueryType.FULL) {
+            return processTemplate(MIN_MAX_NDV_VALUE_SQL, params);
+        }
+        return processTemplate(SAMPLE_MIN_MAX_NDV_VALUE_SQL, params);
+    }
+
+    public static String buildStatsPartitionMinMaxNdvValueSql(Map<String, String> params, QueryType queryType)
+            throws InvalidFormatException {
+        if (queryType == QueryType.FULL) {
             return processTemplate(PARTITION_MIN_MAX_NDV_VALUE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
         }
+        return processTemplate(SAMPLE_PARTITION_MIN_MAX_NDV_VALUE_SQL, params);
     }
 
-    public static String buildStatsRowCountSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(ROW_COUNT_SQL);
-        if (checkParams(requiredParams, params)) {
+    public static String buildStatsRowCountSql(Map<String, String> params, QueryType queryType)
+            throws InvalidFormatException {
+        if (queryType == QueryType.FULL) {
             return processTemplate(ROW_COUNT_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
         }
+        return processTemplate(SAMPLE_ROW_COUNT_SQL, params);
     }
 
-    public static String buildStatsPartitionRowCountSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_ROW_COUNT_SQL);
-        if (checkParams(requiredParams, params)) {
+    public static String buildStatsPartitionRowCountSql(Map<String, String> params, QueryType queryType)
+            throws InvalidFormatException {
+        if (queryType == QueryType.FULL) {
             return processTemplate(PARTITION_ROW_COUNT_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
         }
+        return processTemplate(SAMPLE_PARTITION_ROW_COUNT_SQL, params);
     }
 
-    public static String buildStatsMaxSizeSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(MAX_SIZE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(MAX_SIZE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsPartitionMaxSizeSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_MAX_SIZE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(PARTITION_MAX_SIZE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsAvgSizeSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(AVG_SIZE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(AVG_SIZE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsPartitionAvgSizeSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_AVG_SIZE_SQL);
-        if (checkParams(requiredParams, params)) {
-            return processTemplate(PARTITION_AVG_SIZE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
-        }
-    }
-
-    public static String buildStatsMaxAvgSizeSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(MAX_AVG_SIZE_SQL);
-        if (checkParams(requiredParams, params)) {
+    public static String buildStatsMaxAvgSizeSql(Map<String, String> params, QueryType queryType)
+            throws InvalidFormatException {
+        if (queryType == QueryType.FULL) {
             return processTemplate(MAX_AVG_SIZE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
         }
+        return processTemplate(SAMPLE_MAX_AVG_SIZE_SQL, params);
     }
 
-    public static String buildStatsPartitionMaxAvgSizeSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_MAX_AVG_SIZE_SQL);
-        if (checkParams(requiredParams, params)) {
+    // SAMPLE_PARTITION_MAX_AVG_SIZE_SQL
+    public static String buildStatsPartitionMaxAvgSizeSql(Map<String, String> params, QueryType queryType)
+            throws InvalidFormatException {
+        if (queryType == QueryType.FULL) {
             return processTemplate(PARTITION_MAX_AVG_SIZE_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
         }
+        return processTemplate(SAMPLE_PARTITION_MAX_AVG_SIZE_SQL, params);
     }
 
-    public static String buildStatsNumNullsSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(NUM_NULLS_SQL);
-        if (checkParams(requiredParams, params)) {
+    public static String buildStatsNumNullsSql(Map<String, String> params, QueryType queryType)
+            throws InvalidFormatException {
+        if (queryType == QueryType.FULL) {
             return processTemplate(NUM_NULLS_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
         }
+        return processTemplate(SAMPLE_NUM_NULLS_SQL, params);
     }
 
-    public static String buildStatsPartitionNumNullsSql(Map<String, String> params) throws InvalidFormatException {
-        Set<String> requiredParams = getTemplateParams(PARTITION_NUM_NULLS_SQL);
-        if (checkParams(requiredParams, params)) {
+    public static String buildStatsPartitionNumNullsSql(Map<String, String> params, QueryType queryType)
+            throws InvalidFormatException {
+        if (queryType == QueryType.FULL) {
             return processTemplate(PARTITION_NUM_NULLS_SQL, params);
-        } else {
-            throw new InvalidFormatException("Wrong parameter format. need params: " + requiredParams);
         }
+        return processTemplate(SAMPLE_PARTITION_NUM_NULLS_SQL, params);
     }
 
     private static Set<String> getTemplateParams(String template) {

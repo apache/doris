@@ -158,7 +158,7 @@ BROKER does not currently have, nor does it need, priority\_networks. Broker's s
 
 By default, doris is case-sensitive. If there is a need for case-insensitive table names, you need to set it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
 
-See the section on `lower_case_table_names` variables in [Variables](../advanced/variables) for details.
+See the section on `lower_case_table_names` variables in [Variables](../../advanced/variables) for details.
 
 ## Cluster deployment
 
@@ -221,6 +221,9 @@ See the section on `lower_case_table_names` variables in [Variables](../advanced
 * BE webserver_port configuration
 
 	If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
+* 	Install Java UDF functions 
+   <version since="1.2.0">Install Java UDF functions</version>
+   Because Java UDF functions are supported from version 1.2, you need to download the JAR package of Java UDF functions from the official website and put them in the lib directory of BE, otherwise it may fail to start.
 	
 * Add all BE nodes to FE
 

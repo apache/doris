@@ -83,7 +83,9 @@ public class FunctionParams implements Writable {
                 paramTypes.add(desc);
             }
         }
-        return new TAggregateExpr(isMergeAggFn, paramTypes);
+        TAggregateExpr aggExpr = new TAggregateExpr(isMergeAggFn);
+        aggExpr.setParamTypes(paramTypes);
+        return aggExpr;
     }
 
     public boolean isStar() {
@@ -117,7 +119,7 @@ public class FunctionParams implements Writable {
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         isStar = in.readBoolean();
         isDistinct = in.readBoolean();
         if (in.readBoolean()) {

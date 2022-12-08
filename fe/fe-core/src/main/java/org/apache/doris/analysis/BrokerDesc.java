@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.BlobStorage;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -53,6 +54,13 @@ public class BrokerDesc extends StorageDesc implements Writable {
         this.storageType = StorageBackend.StorageType.BROKER;
     }
 
+    // for empty broker desc
+    public BrokerDesc(String name) {
+        this.name = name;
+        this.properties = Maps.newHashMap();
+        this.storageType = StorageType.LOCAL;
+    }
+
     public BrokerDesc(String name, Map<String, String> properties) {
         this.name = name;
         this.properties = properties;
@@ -77,6 +85,11 @@ public class BrokerDesc extends StorageDesc implements Writable {
         tryConvertToS3();
     }
 
+    public static BrokerDesc createForStreamLoad() {
+        BrokerDesc brokerDesc = new BrokerDesc("", StorageType.STREAM, null);
+        return brokerDesc;
+    }
+
     public String getName() {
         return name;
     }
@@ -94,19 +107,19 @@ public class BrokerDesc extends StorageDesc implements Writable {
     }
 
     public TFileType getFileType() {
-        if (storageType == StorageBackend.StorageType.LOCAL) {
-            return TFileType.FILE_LOCAL;
+        switch (storageType) {
+            case LOCAL:
+                return TFileType.FILE_LOCAL;
+            case S3:
+                return TFileType.FILE_S3;
+            case HDFS:
+                return TFileType.FILE_HDFS;
+            case STREAM:
+                return TFileType.FILE_STREAM;
+            case BROKER:
+            default:
+                return TFileType.FILE_BROKER;
         }
-        if (storageType == StorageBackend.StorageType.BROKER) {
-            return TFileType.FILE_BROKER;
-        }
-        if (storageType == StorageBackend.StorageType.S3) {
-            return TFileType.FILE_S3;
-        }
-        if (storageType == StorageBackend.StorageType.HDFS) {
-            return TFileType.FILE_HDFS;
-        }
-        return TFileType.FILE_BROKER;
     }
 
     public StorageBackend.StorageType storageType() {

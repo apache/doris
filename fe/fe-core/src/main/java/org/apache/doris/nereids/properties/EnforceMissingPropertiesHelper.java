@@ -20,7 +20,12 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.EnforcerEvent;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 import com.google.common.collect.Lists;
 
@@ -29,7 +34,8 @@ import com.google.common.collect.Lists;
  * Enforce add missing properties for child.
  */
 public class EnforceMissingPropertiesHelper {
-
+    private static final EventProducer ENFORCER_TRACER = new EventProducer(EnforcerEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(EnforcerEvent.class, EventChannel.LOG)));
     private final JobContext context;
     private final GroupExpression groupExpression;
     private double curTotalCost;
@@ -51,21 +57,21 @@ public class EnforceMissingPropertiesHelper {
     public PhysicalProperties enforceProperty(PhysicalProperties output, PhysicalProperties required) {
         boolean isSatisfyOrder = output.getOrderSpec().satisfy(required.getOrderSpec());
         boolean isSatisfyDistribution = output.getDistributionSpec().satisfy(required.getDistributionSpec());
+        if (isSatisfyDistribution && isSatisfyOrder) {
+            return output;
+        }
 
         if (!isSatisfyDistribution && !isSatisfyOrder) {
             return enforceSortAndDistribution(output, required);
-        } else if (!isSatisfyDistribution) {
-            if (!required.getOrderSpec().getOrderKeys().isEmpty()) {
-                // After redistribute data , original order required may be wrong.
-                return enforceDistributionButMeetSort(output, required);
-            }
-            return enforceDistribution(output, required);
-        } else if (!isSatisfyOrder) {
-            // Order don't satisfy.
-            return enforceLocalSort(output, required);
-        } else {
-            return output;
         }
+        if (!isSatisfyOrder) {
+            return enforceLocalSort(output, required);
+        }
+        if (!required.getOrderSpec().getOrderKeys().isEmpty()) {
+            // After redistribute data , original order required may be wrong.
+            return enforceDistributionButMeetSort(output, required);
+        }
+        return enforceDistribution(output, required);
     }
 
     /**
@@ -77,7 +83,7 @@ public class EnforceMissingPropertiesHelper {
      */
     private PhysicalProperties enforceDistributionButMeetSort(PhysicalProperties output, PhysicalProperties request) {
         groupExpression.getOwnerGroup()
-                .replaceBestPlan(output, PhysicalProperties.ANY, groupExpression.getCost(output));
+                .replaceBestPlan(output, PhysicalProperties.ANY, groupExpression.getCostByProperties(output));
         return enforceSortAndDistribution(output, request);
     }
 
@@ -138,6 +144,8 @@ public class EnforceMissingPropertiesHelper {
             PhysicalProperties oldOutputProperty,
             PhysicalProperties newOutputProperty) {
         context.getCascadesContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
+        ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
+                oldOutputProperty, newOutputProperty));
         curTotalCost += CostCalculator.calculateCost(enforcer);
 
         if (enforcer.updateLowestCostTable(newOutputProperty,

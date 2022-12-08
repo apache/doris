@@ -96,6 +96,8 @@ private:
 
     executor _executor;
 
+    void _release_mem();
+
 private:
     enum AnalyticFnScope { PARTITION, RANGE, ROWS };
     std::vector<Block> _input_blocks;
@@ -123,7 +125,6 @@ private:
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
-    std::unique_ptr<MemPool> _mem_pool;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;
@@ -131,7 +132,7 @@ private:
     size_t _total_size_of_aggregate_states = 0;
     /// The max align size for functions
     size_t _align_aggregate_states = 1;
-    Arena _agg_arena_pool;
+    std::unique_ptr<Arena> _agg_arena_pool;
     AggregateDataPtr _fn_place_ptr;
 
     TTupleId _buffered_tuple_id = 0;
@@ -144,6 +145,7 @@ private:
     std::vector<int64_t> _origin_cols;
 
     RuntimeProfile::Counter* _evaluation_timer;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
 
     std::vector<bool> _change_to_nullable_flags;
 };

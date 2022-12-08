@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -46,7 +47,8 @@ public class CatalogProperty implements Writable {
     public Map<String, String> getDfsProperties() {
         Map<String, String> dfsProperties = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(HiveTable.HIVE_HDFS_PREFIX)) {
+            if (entry.getKey().startsWith(HiveTable.HIVE_HDFS_PREFIX)
+                    || entry.getKey().equals(BrokerUtil.HADOOP_USER_NAME)) {
                 dfsProperties.put(entry.getKey(), entry.getValue());
             }
         }

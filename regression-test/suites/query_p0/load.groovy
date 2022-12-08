@@ -22,7 +22,7 @@ suite("load_test_query_db") {
     sql "CREATE DATABASE ${dbName}"
     sql "USE $dbName"
     sql """
-        CREATE TABLE `baseall` (
+        CREATE TABLE IF NOT EXISTS `baseall` (
             `k0` boolean null comment "",
             `k1` tinyint(4) null comment "",
             `k2` smallint(6) null comment "",
@@ -41,7 +41,7 @@ suite("load_test_query_db") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
         """
     sql """
-        CREATE TABLE `test` (
+        CREATE TABLE IF NOT EXISTS `test` (
             `k0` boolean null comment "",
             `k1` tinyint(4) null comment "",
             `k2` smallint(6) null comment "",
@@ -60,7 +60,7 @@ suite("load_test_query_db") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
         """
     sql """
-        CREATE TABLE `bigtable` (
+        CREATE TABLE IF NOT EXISTS `bigtable` (
             `k0` boolean null comment "",
             `k1` tinyint(4) null comment "",
             `k2` smallint(6) null comment "",
@@ -89,7 +89,7 @@ suite("load_test_query_db") {
 
     // table for compaction
     sql """
-    CREATE TABLE compaction_tbl
+    CREATE TABLE IF NOT EXISTS compaction_tbl
     (
       user_id LARGEINT NOT NULL,
       date DATE NOT NULL,

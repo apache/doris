@@ -31,7 +31,9 @@ rm -f $path
 #get create table sql for mysql
 for table in $(cat ../conf/mysql_tables |grep -v '#' | awk -F '\n' '{print $1}')
         do
-        echo "show create table ${table};" |mysql -h$mysql_host -uroot -p$mysql_password  >> $path
+        d_d=$(echo $table |awk -F '.' '{print $1}')
+        d_t=$(echo $table |awk -F '.' '{print $2}')
+        echo "show create table \`$d_d\`.\`$d_t\`;" |mysql -h$mysql_host -uroot -p$mysql_password  >> $path
 done
 
 #adjust sql

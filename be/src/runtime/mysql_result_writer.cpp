@@ -156,7 +156,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         // TODO: Support decimal output_scale after we support FE can sure
         // accuracy of output_scale
         // int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-        buf_ret = _row_buffer->push_decimal(decimal_val, -1);
+        buf_ret = _row_buffer->push_decimal(decimal_val, type.scale);
         break;
     }
 
@@ -187,7 +187,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
                     iter.get(&data);
                     auto datetime_value = DateTimeValue::from_datetime_val(data);
                     buf_ret = _add_row_value(index, child_type, &datetime_value);
-                } else if (child_type.is_decimal_type()) {
+                } else if (child_type.is_decimal_v2_type()) {
                     DecimalV2Val data;
                     iter.get(&data);
                     auto decimal_value = DecimalV2Value::from_decimal_val(data);

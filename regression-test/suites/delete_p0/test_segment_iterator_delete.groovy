@@ -21,12 +21,12 @@ suite("test_segment_iterator_delete") {
 
     // test duplicate key
     sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """ CREATE TABLE ${tableName} (c1 int NOT NULL, c2 int NOT NULL , c3 int not null ) ENGINE=OLAP DUPLICATE KEY(c1, c2) COMMENT "OLAP" DISTRIBUTED BY HASH(c3) BUCKETS 1 
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName} (c1 int NOT NULL, c2 int NOT NULL , c3 int not null ) ENGINE=OLAP DUPLICATE KEY(c1, c2) COMMENT "OLAP" DISTRIBUTED BY HASH(c3) BUCKETS 1 
     PROPERTIES ( "replication_num" = "1" );"""
 
     sql """ DROP TABLE IF EXISTS ${tableName_dict} """
     sql """
-    CREATE TABLE ${tableName_dict} (
+    CREATE TABLE IF NOT EXISTS ${tableName_dict} (
         `tinyint_key` tinyint(4) NOT NULL,
         `char_50_key` char(50) NOT NULL,
         `character_key` varchar(500) NOT NULL
@@ -75,7 +75,7 @@ suite("test_segment_iterator_delete") {
 
     // test unique key
     sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """ CREATE TABLE ${tableName} (c1 int NOT NULL, c2 int NOT NULL , c3 int not null ) ENGINE=OLAP UNIQUE KEY(c1, c2) COMMENT "OLAP" DISTRIBUTED BY HASH(c1) BUCKETS 1 
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName} (c1 int NOT NULL, c2 int NOT NULL , c3 int not null ) ENGINE=OLAP UNIQUE KEY(c1, c2) COMMENT "OLAP" DISTRIBUTED BY HASH(c1) BUCKETS 1 
     PROPERTIES ( "replication_num" = "1" );"""
 
     sql """INSERT INTO ${tableName} VALUES (1,1,1)"""

@@ -16,12 +16,16 @@
 // under the License.
 
 suite("test_outer_join_with_window_function_datev2") {
+    def tableName = "datev2_dwd_online_detail"
+    def tableName2 = "datev2_ods_logout"
+    def tableName3 = "datev2_dim_account_userid_mapping"
+    def tableName4 = "datev2_ods_login"
     sql """
-        drop table if exists dwd_online_detail;
+        drop table if exists ${tableName};
     """
 
     sql """
-        CREATE TABLE `dwd_online_detail` (
+        CREATE TABLE IF NOT EXISTS `${tableName}` (
         `logout_time` datetimev2 NOT NULL DEFAULT "9999-12-30 00:00:00",
         `login_time` datetimev2 NOT NULL DEFAULT "9999-12-30 00:00:00",
         `game_code` varchar(50) NOT NULL DEFAULT "-",
@@ -46,11 +50,11 @@ suite("test_outer_join_with_window_function_datev2") {
     """
     
     sql """
-        drop table if exists ods_logout;
+        drop table if exists ${tableName2};
     """
 
     sql """
-        CREATE TABLE `ods_logout` (
+        CREATE TABLE IF NOT EXISTS `${tableName2}` (
         `day` datev2 NULL COMMENT "",
         `game` varchar(500) NULL COMMENT "",
         `plat` varchar(500) NULL COMMENT "",
@@ -88,11 +92,11 @@ suite("test_outer_join_with_window_function_datev2") {
     """
 
     sql """
-        drop table if exists dim_account_userid_mapping;
+        drop table if exists ${tableName3};
     """
 
     sql """
-        CREATE TABLE `dim_account_userid_mapping` (
+        CREATE TABLE IF NOT EXISTS `${tableName3}` (
         `end_time` datetimev2 NOT NULL DEFAULT "9999-12-30 00:00:00",
         `start_time` datetimev2 NOT NULL DEFAULT "9999-12-30 00:00:00",
         `game_code` varchar(50) NOT NULL,
@@ -115,11 +119,11 @@ suite("test_outer_join_with_window_function_datev2") {
     """
 
     sql """
-        drop table if exists ods_login;
+        drop table if exists ${tableName4};
     """
 
     sql """
-        CREATE TABLE `ods_login` (
+        CREATE TABLE IF NOT EXISTS `${tableName4}` (
         `day` datev2 NULL COMMENT "",
         `game` varchar(500) NULL COMMENT "",
         `plat` varchar(500) NULL COMMENT "",
@@ -226,13 +230,15 @@ suite("test_outer_join_with_window_function_datev2") {
     """
 
     sql """
-        insert into ods_logout(day, game, plat, playerid, dt) values('2019-07-05', 'abc', 'xyz', '1136638398824557', '2019-07-05 00:00:00');
+        insert into ${tableName2}(day, game, plat, playerid, dt) values('2019-07-05', 'abc', 'xyz', '1136638398824557', '2019-07-05 00:00:00');
     """
 
     sql """
-        insert into dwd_online_detail(game_code, plat_code, playerid, account, org_sid, ct_sid, login_time, logout_time, pid_code,gid_code)
+        insert into ${tableName}(game_code, plat_code, playerid, account, org_sid, ct_sid, login_time, logout_time, pid_code,gid_code)
         values('abc', 'xyz', '1577946288488507', '1492704224', '421001', '421001', '2020-01-19 11:15:21', '9999-12-30 00:00:00', '-', '-');
     """
+
+    sql "sync"
 
     qt_select """
         SELECT online_detail.game_code,online_detail.plat_code,online_detail.playerid,online_detail.account,online_detail.org_sid , online_detail.ct_sid ,
@@ -244,7 +250,7 @@ suite("test_outer_join_with_window_function_datev2") {
                         LEAD(tmp.login_time,1, '9999-12-30 00:00:00') over (partition by tmp.game_code,tmp.plat_code,tmp.playerid order by tmp.login_time) next_login_time,
                         COALESCE (mp.userid,'-') userid,COALESCE (mp.pid_code,'-') pid_code,COALESCE (mp.gid_code,'-') gid_code
                 from
-                        (select * from dim_account_userid_mapping
+                        (select * from ${tableName3}
                         where   start_time < convert_tz(date_add('2019-07-05 00:00:00',INTERVAL 1 day),'Asia/Shanghai','Asia/Shanghai')
                         and end_time >= convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
                         and game_code ='abc'  and plat_code='xyz'
@@ -253,10 +259,10 @@ suite("test_outer_join_with_window_function_datev2") {
                     (
                     select *,concat_ws('_',pid_code,gid_code,account) userkey from
                     (select game_code,plat_code,playerid,account,org_sid,ct_sid,login_time,logout_time,pid_code,gid_code
-                    from dwd_online_detail where logout_time='9999-12-30 00:00:00' and game_code='abc' and plat_code ='xyz'
+                    from ${tableName} where logout_time='9999-12-30 00:00:00' and game_code='abc' and plat_code ='xyz'
                     union all
                     select game game_code,plat plat_code,playerid,account,sid org_sid,cast(p08 as int) ct_sid,dt login_time,'9999-12-30 00:00:00' logout_time,pid pid_code,gid gid_code
-                    from ods_login
+                    from ${tableName4}
                     where game='abc' and `plat` = 'xyz'
                     AND  dt BETWEEN convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
                         and convert_tz('2019-07-05 23:59:59','Asia/Shanghai','Asia/Shanghai')
@@ -269,7 +275,7 @@ suite("test_outer_join_with_window_function_datev2") {
                 ) online_detail
                 left JOIN
                         (select  day,game game_code,plat plat_code,playerid, dt
-                        from  ods_logout dlt
+                        from  ${tableName2} dlt
                         where game='abc' and `plat` = 'xyz'
                         and dt BETWEEN convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
                                 and convert_tz('2019-07-05 23:59:59','Asia/Shanghai','Asia/Shanghai')
@@ -281,7 +287,7 @@ suite("test_outer_join_with_window_function_datev2") {
                 and logout.dt>online_detail.login_time and logout.dt < online_detail.next_login_time
                 union all
                 select game_code,plat_code,playerid,account,org_sid,ct_sid,login_time,logout_time,next_login_time,userid,pid_code,gid_code
-                from dwd_online_detail
+                from ${tableName}
                 where logout_time BETWEEN convert_tz('2019-07-05 00:00:00','Asia/Shanghai','Asia/Shanghai')
                                 and convert_tz('2019-07-05 23:59:59','Asia/Shanghai','Asia/Shanghai')
                         and not (game_code='abc' and `plat_code` = 'xyz'  );

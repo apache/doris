@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+@SuppressWarnings({"unchecked", "unused"})
 public class ImplementationTest {
     private static final Map<String, Rule> rulesMap
             = ImmutableMap.<String, Rule>builder()
@@ -82,7 +83,7 @@ public class ImplementationTest {
 
         PhysicalPlan physicalPlan = executeImplementationRule(project);
         Assertions.assertEquals(PlanType.PHYSICAL_PROJECT, physicalPlan.getType());
-        PhysicalProject physicalProject = (PhysicalProject) physicalPlan;
+        PhysicalProject<GroupPlan> physicalProject = (PhysicalProject<GroupPlan>) physicalPlan;
         Assertions.assertEquals(2, physicalProject.getExpressions().size());
         Assertions.assertEquals(col1, physicalProject.getExpressions().get(0));
         Assertions.assertEquals(col2, physicalProject.getExpressions().get(1));
@@ -98,7 +99,7 @@ public class ImplementationTest {
 
         PhysicalPlan physicalPlan = executeImplementationRule(topN);
         Assertions.assertEquals(PlanType.PHYSICAL_TOP_N, physicalPlan.getType());
-        PhysicalTopN physicalTopN = (PhysicalTopN) physicalPlan;
+        PhysicalTopN<GroupPlan> physicalTopN = (PhysicalTopN<GroupPlan>) physicalPlan;
         Assertions.assertEquals(limit, physicalTopN.getLimit());
         Assertions.assertEquals(offset, physicalTopN.getOffset());
         Assertions.assertEquals(2, physicalTopN.getOrderKeys().size());
@@ -110,10 +111,10 @@ public class ImplementationTest {
     public void toPhysicalLimitTest() {
         int limit = 10;
         int offset = 100;
-        LogicalLimit logicalLimit = new LogicalLimit<>(limit, offset, groupPlan);
+        LogicalLimit<GroupPlan> logicalLimit = new LogicalLimit<>(limit, offset, groupPlan);
         PhysicalPlan physicalPlan = executeImplementationRule(logicalLimit);
         Assertions.assertEquals(PlanType.PHYSICAL_LIMIT, physicalPlan.getType());
-        PhysicalLimit physicalLimit = (PhysicalLimit) physicalPlan;
+        PhysicalLimit<GroupPlan> physicalLimit = (PhysicalLimit<GroupPlan>) physicalPlan;
         Assertions.assertEquals(limit, physicalLimit.getLimit());
         Assertions.assertEquals(offset, physicalLimit.getOffset());
     }

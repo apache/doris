@@ -149,6 +149,19 @@ public class UtFrameUtils {
 
     public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
+        IOException exception = null;
+        for (int i = 0; i <= 3; i++) {
+            try {
+                return startFEServerWithoutRetry(runningDir);
+            } catch (IOException ignore) {
+                exception = ignore;
+            }
+        }
+        throw exception;
+    }
+
+    private static int startFEServerWithoutRetry(String runningDir) throws EnvVarNotSetException, IOException,
+            FeStartException, NotInitException {
         // get DORIS_HOME
         String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
@@ -188,6 +201,7 @@ public class UtFrameUtils {
 
     public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
+        FeConstants.disableInternalSchemaDb = true;
         int feRpcPort = startFEServer(runningDir);
         List<Backend> bes = Lists.newArrayList();
         for (int i = 0; i < backendNum; i++) {
@@ -222,6 +236,7 @@ public class UtFrameUtils {
         // set runningUnitTest to true, so that for ut,
         // the agent task will be sent to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
+        FeConstants.disableInternalSchemaDb = true;
         int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
@@ -232,6 +247,18 @@ public class UtFrameUtils {
     }
 
     public static Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+        IOException exception = null;
+        for (int i = 0; i <= 3; i++) {
+            try {
+                return createBackendWithoutRetry(beHost, feRpcPort);
+            } catch (IOException ignore) {
+                exception = ignore;
+            }
+        }
+        throw exception;
+    }
+
+    private static Backend createBackendWithoutRetry(String beHost, int feRpcPort) throws IOException {
         int beHeartbeatPort = findValidPort();
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
@@ -240,7 +267,7 @@ public class UtFrameUtils {
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
                 beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+            new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 

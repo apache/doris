@@ -18,6 +18,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <string>
 
 #include "common/config.h"
@@ -26,7 +27,10 @@
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "util/pretty_printer.h"
 #include "util/threadpool.h"
+#include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
 
@@ -39,9 +43,27 @@ public:
     QueryFragmentsCtx(int total_fragment_num, ExecEnv* exec_env)
             : fragment_num(total_fragment_num), timeout_second(-1), _exec_env(exec_env) {
         _start_time = DateTimeValue::local_time();
+        _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     }
 
-    bool countdown() { return fragment_num.fetch_sub(1) == 1; }
+    ~QueryFragmentsCtx() {
+        // query mem tracker consumption is equal to 0, it means that after QueryFragmentsCtx is created,
+        // it is found that query already exists in _fragments_ctx_map, and query mem tracker is not used.
+        // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
+        // on query mem tracker, released on other trackers.
+        if (query_mem_tracker->consumption() != 0) {
+            LOG(INFO) << fmt::format(
+                    "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                    "PeakUsed={}",
+                    print_id(query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
+                    MemTracker::print_bytes(query_mem_tracker->consumption()),
+                    MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
+        }
+    }
+
+    // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
+    // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
+    bool countdown() { return fragment_num.fetch_sub(1) <= 1; }
 
     bool is_timeout(const DateTimeValue& now) const {
         if (timeout_second <= 0) {
@@ -70,6 +92,18 @@ public:
         }
         _start_cond.notify_all();
     }
+    void set_ready_to_execute_only() {
+        {
+            std::lock_guard<std::mutex> l(_start_lock);
+            _ready_to_execute = true;
+        }
+        _start_cond.notify_all();
+    }
+
+    bool is_ready_to_execute() {
+        std::lock_guard<std::mutex> l(_start_lock);
+        return _ready_to_execute;
+    }
 
     bool wait_for_start() {
         int wait_time = config::max_fragment_start_wait_time_seconds;
@@ -78,6 +112,10 @@ public:
             _start_cond.wait_for(l, std::chrono::seconds(1));
         }
         return _ready_to_execute.load() && !_is_cancelled.load();
+    }
+
+    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
+        return _shared_hash_table_controller;
     }
 
 public:
@@ -99,6 +137,10 @@ public:
     std::atomic<int> fragment_num;
     int timeout_second;
     ObjectPool obj_pool;
+    // MemTracker that is shared by all fragment instances running on this host.
+    std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
+
+    std::vector<TUniqueId> fragment_ids;
 
 private:
     ExecEnv* _exec_env;
@@ -117,6 +159,8 @@ private:
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
+
+    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
 };
 
 } // namespace doris

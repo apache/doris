@@ -90,6 +90,10 @@ public class ClusterLoadStatistic {
                 // So balance will be blocked.
                 continue;
             }
+            // only mix node have tablet statistic
+            if (!backend.isMixNode()) {
+                continue;
+            }
             BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(), backend.getOwnerClusterName(),
                     backend.getLocationTag(), infoService, invertedIndex);
             try {

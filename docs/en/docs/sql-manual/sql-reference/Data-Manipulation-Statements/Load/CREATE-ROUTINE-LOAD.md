@@ -218,6 +218,12 @@ FROM data_source [data_source_properties]
      When the import data format is json, you can specify the root node of the Json data through json_root. Doris will extract the elements of the root node through json_root for parsing. Default is empty.
 
      `-H "json_root: $.RECORDS"`
+  10. `send_batch_parallelism`
+     
+     Integer, Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
+  
+  11. `load_to_single_tablet`
+      Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
 
 - `FROM data_source [data_source_properties]`
 

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
@@ -53,6 +54,8 @@ public interface LoadTaskInfo {
     TFileType getFileType();
 
     TFileFormatType getFormatType();
+
+    TFileCompressType getCompressType();
 
     String getJsonPaths();
 
@@ -93,5 +96,25 @@ public interface LoadTaskInfo {
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;
+
+        public List<String> getFileColNames() {
+            List<String> colNames = Lists.newArrayList();
+            for (ImportColumnDesc desc : descs) {
+                if (desc.isColumn()) {
+                    colNames.add(desc.getColumnName());
+                }
+            }
+            return colNames;
+        }
+
+        public List<Expr> getColumnMappingList() {
+            List<Expr> exprs = Lists.newArrayList();
+            for (ImportColumnDesc desc : descs) {
+                if (!desc.isColumn()) {
+                    exprs.add(desc.toBinaryPredicate());
+                }
+            }
+            return exprs;
+        }
     }
 }

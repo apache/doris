@@ -58,6 +58,11 @@ static IAggregateFunction* create_function_single_value(const String& name,
                 NameData<Data<Decimal128, BaseDatadecimal<Decimal128, is_stddev>>>, is_nullable>(
                 argument_types);
     }
+    if (which.is_decimal128i()) {
+        return new AggregateFunctionTemplate<
+                NameData<Data<Decimal128I, BaseDatadecimal<Decimal128I, is_stddev>>>, is_nullable>(
+                argument_types);
+    }
     DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_stddev_variance";
     return nullptr;
 }

@@ -112,14 +112,15 @@ public class DynamicPluginLoader extends PluginLoader {
 
         movePlugin();
 
-        plugin = dynamicLoadPlugin(true);
-
-        pluginInstallValid();
-
-        pluginContext.setPluginPath(installPath.toString());
         try {
+            plugin = dynamicLoadPlugin(true);
+
+            pluginInstallValid();
+
+            pluginContext.setPluginPath(installPath.toString());
+
             plugin.init(pluginInfo, pluginContext);
-        } catch (Error e) {
+        } catch (Throwable e) {
             throw new UserException(e.getMessage());
         }
     }

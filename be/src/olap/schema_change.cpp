@@ -437,9 +437,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
         switch (ref_column.type()) {
         case OLAP_FIELD_TYPE_TINYINT:
             if (*(int8_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int8_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int8_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int8_t*)src;
@@ -449,9 +451,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_SMALLINT:
             if (*(int16_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int16_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int16_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int16_t*)src;
@@ -461,9 +465,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_INT:
             if (*(int32_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int32_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int32_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int32_t*)src;
@@ -473,9 +479,11 @@ bool to_bitmap(RowCursor* read_helper, RowCursor* write_helper, const TabletColu
             break;
         case OLAP_FIELD_TYPE_BIGINT:
             if (*(int64_t*)src < 0) {
-                LOG(WARNING) << "The input: " << *(int64_t*)src
-                             << " is not valid, to_bitmap only support bigint value from 0 to "
-                                "18446744073709551615 currently";
+                LOG(WARNING)
+                        << "The input: " << *(int64_t*)src
+                        << " is not valid, to_bitmap only support bigint value from 0 to "
+                           "18446744073709551615 currently, cannot create MV with to_bitmap on "
+                           "column with negative values.";
                 return false;
             }
             origin_value = *(int64_t*)src;
@@ -619,7 +627,8 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
             if (!_schema_mapping[i].materialized_function.empty()) {
                 bool (*_do_materialized_transform)(RowCursor*, RowCursor*, const TabletColumn&, int,
                                                    int, MemPool*) = nullptr;
-                if (_schema_mapping[i].materialized_function == "to_bitmap") {
+                if (_schema_mapping[i].materialized_function == "to_bitmap" ||
+                    _schema_mapping[i].materialized_function == "to_bitmap_with_check") {
                     _do_materialized_transform = to_bitmap;
                 } else if (_schema_mapping[i].materialized_function == "hll_hash") {
                     _do_materialized_transform = hll_hash;
@@ -834,8 +843,42 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
     }
 
     for (auto it : swap_idx_map) {
-        new_block->get_by_position(it.second).column.swap(
-                ref_block->get_by_position(it.first).column);
+        auto& ref_col = ref_block->get_by_position(it.first);
+        auto& new_col = new_block->get_by_position(it.second);
+
+        bool ref_col_nullable = ref_col.column->is_nullable();
+        bool new_col_nullable = new_col.column->is_nullable();
+
+        if (ref_col_nullable != new_col_nullable) {
+            // not nullable to nullable
+            if (new_col_nullable) {
+                auto* new_nullable_col = assert_cast<vectorized::ColumnNullable*>(
+                        std::move(*new_col.column).mutate().get());
+
+                new_nullable_col->swap_nested_column(ref_col.column);
+                new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
+            } else {
+                // nullable to not nullable:
+                // suppose column `c_phone` is originally varchar(16) NOT NULL,
+                // then do schema change `alter table test modify column c_phone int not null`,
+                // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
+                // so need to handle nullable to not nullable here
+                auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
+                        std::move(*ref_col.column).mutate().get());
+
+                const auto* null_map = ref_nullable_col->get_null_map_column().get_data().data();
+
+                for (size_t i = 0; i < row_size; i++) {
+                    if (null_map[i]) {
+                        return Status::DataQualityError("is_null of data is changed!");
+                    }
+                }
+                ref_nullable_col->swap_nested_column(new_col.column);
+            }
+        } else {
+            new_block->get_by_position(it.second).column.swap(
+                    ref_block->get_by_position(it.first).column);
+        }
     }
 
     return Status::OK();
@@ -1286,21 +1329,19 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              RowsetWriter* rowset_writer,
                                              TabletSharedPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema) {
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-    auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+    do {
+        auto new_block =
+                std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
-    int origin_columns_size = ref_block->columns();
+        rowset_reader->next_block(ref_block.get());
+        if (ref_block->rows() < 1) {
+            break;
+        }
 
-    rowset_reader->next_block(ref_block.get());
-    while (ref_block->rows()) {
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
-
-        new_block->clear_column_data();
-        ref_block->clear_column_data(origin_columns_size);
-        rowset_reader->next_block(ref_block.get());
-    }
+    } while (true);
 
     if (!rowset_writer->flush()) {
         return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
@@ -1399,11 +1440,10 @@ Status SchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_read
 
         if (new_row_block == nullptr) {
             if (row_block_arr.empty()) {
-                LOG(WARNING) << "Memory limitation is too small for Schema Change."
+                LOG(WARNING) << "Memory limitation is too small for Schema Change: "
                              << "memory_limitation=" << _memory_limitation
-                             << "You can increase the memory "
-                             << "by changing the "
-                                "Config.memory_limitation_per_thread_for_schema_change_bytes";
+                             << ". You can increase the memory by changing the config: "
+                             << "memory_limitation_per_thread_for_schema_change_bytes";
                 return Status::OLAPInternalError(OLAP_ERR_FETCH_MEMORY_EXCEEDED);
             }
 
@@ -1522,12 +1562,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     int64_t newest_write_timestamp = rowset->newest_write_timestamp();
     _temp_delta_versions.first = _temp_delta_versions.second;
 
-    auto new_block =
-            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
-    auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
-
-    int origin_columns_size = ref_block->columns();
-
     auto create_rowset = [&]() -> Status {
         if (blocks.empty()) {
             return Status::OK();
@@ -1550,13 +1584,21 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         return Status::OK();
     };
 
-    rowset_reader->next_block(ref_block.get());
-    while (ref_block->rows()) {
+    auto new_block =
+            std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block());
+
+    do {
+        auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
+        rowset_reader->next_block(ref_block.get());
+        if (ref_block->rows() < 1) {
+            break;
+        }
+
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
-        if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+        if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
             RETURN_IF_ERROR(create_rowset());
 
-            if (!_mem_tracker->check_limit(_memory_limitation, new_block->allocated_bytes())) {
+            if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
                 LOG(WARNING) << "Memory limitation is too small for Schema Change."
                              << " _memory_limitation=" << _memory_limitation
                              << ", new_block->allocated_bytes()=" << new_block->allocated_bytes()
@@ -1570,10 +1612,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         blocks.push_back(
                 std::make_unique<vectorized::Block>(new_tablet->tablet_schema()->create_block()));
         swap(blocks.back(), new_block);
-
-        ref_block->clear_column_data(origin_columns_size);
-        rowset_reader->next_block(ref_block.get());
-    }
+    } while (true);
 
     RETURN_IF_ERROR(create_rowset());
 
@@ -1689,6 +1728,12 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
 }
 
 Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
+    if (!request.__isset.desc_tbl) {
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+                .append("desc_tbl is not set. Maybe the FE version is not equal to the BE "
+                        "version.");
+    }
+
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
@@ -1715,7 +1760,8 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 
 std::shared_mutex SchemaChangeHandler::_mutex;
 std::unordered_set<int64_t> SchemaChangeHandler::_tablet_ids_in_converting;
-std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap"};
+std::set<std::string> SchemaChangeHandler::_supported_functions = {"hll_hash", "to_bitmap",
+                                                                   "to_bitmap_with_check"};
 
 // In the past schema change and rollup will create new tablet  and will wait for txns starting before the task to finished
 // It will cost a lot of time to wait and the task is very difficult to understand.
@@ -2145,7 +2191,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                 rs_reader->version(), VISIBLE,
                 rs_reader->rowset()->rowset_meta()->segments_overlap(), new_tablet->tablet_schema(),
                 rs_reader->oldest_write_timestamp(), rs_reader->newest_write_timestamp(),
-                &rowset_writer);
+                rs_reader->rowset()->rowset_meta()->fs(), &rowset_writer);
         if (!status.ok()) {
             res = Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
             return process_alter_exit();
@@ -2331,6 +2377,18 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         new_tablet->tablet_meta()->preferred_rowset_type()) {
         // If the base_tablet and new_tablet rowset types are different, just use directly type
         *sc_directly = true;
+    }
+
+    // if rs_reader has remote files, link schema change is not supported,
+    // use directly schema change instead.
+    if (!(*sc_directly) && !(*sc_sorting)) {
+        // check has remote rowset
+        for (auto& rs_reader : sc_params.ref_rowset_readers) {
+            if (!rs_reader->rowset()->is_local()) {
+                *sc_directly = true;
+                break;
+            }
+        }
     }
 
     return Status::OK();

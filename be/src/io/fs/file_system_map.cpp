@@ -27,12 +27,12 @@ FileSystemMap* FileSystemMap::instance() {
     return &map;
 }
 
-void FileSystemMap::insert(ResourceId id, FileSystemPtr fs) {
+void FileSystemMap::insert(ResourceId id, FileSystemSPtr fs) {
     std::unique_lock wlock(_mu);
     _map.try_emplace(std::move(id), std::move(fs));
 }
 
-FileSystemPtr FileSystemMap::get(const ResourceId& id) {
+FileSystemSPtr FileSystemMap::get(const ResourceId& id) {
     std::shared_lock rlock(_mu);
     auto it = _map.find(id);
     if (it != _map.end()) {

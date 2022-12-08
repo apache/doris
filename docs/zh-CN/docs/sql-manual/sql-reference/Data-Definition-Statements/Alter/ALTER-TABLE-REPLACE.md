@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-TABLE-REPLACE-COLUMN",
+    "title": "ALTER-TABLE-REPLACE",
     "language": "zh-CN"
 }
 ---

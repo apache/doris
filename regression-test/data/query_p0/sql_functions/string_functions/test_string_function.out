@@ -186,6 +186,15 @@ true
 false
 
 -- !sql --
+false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
 aaa
 
 -- !sql --
@@ -262,4 +271,10 @@ a
 
 -- !sql --
 
+
+-- !sql --
+tNEW-STRorigin str
+
+-- !sql --
+d***is
 

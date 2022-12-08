@@ -1024,7 +1024,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "    SELECT MAX(k9)\n" + "    FROM test.pushdown_test);";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
-        Assert.assertTrue(explainString.contains("CROSS JOIN"));
+        Assert.assertTrue(explainString.contains("NESTED LOOP JOIN"));
         Assert.assertTrue(!explainString.contains("PREDICATES"));
     }
 

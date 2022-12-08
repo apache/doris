@@ -431,7 +431,7 @@ public:
             reinterpret_cast<doris_udf::Decimal64Val*>(dst)->val =
                     *reinterpret_cast<const int64_t*>(slot);
             return;
-        case TYPE_DECIMAL128:
+        case TYPE_DECIMAL128I:
             memcpy(&reinterpret_cast<doris_udf::Decimal128Val*>(dst)->val, slot, sizeof(__int128));
             return;
 

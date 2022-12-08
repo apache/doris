@@ -20,6 +20,11 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
+    PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
+    export PATH
+fi
+
 OPTS="$(getopt \
     -n "$0" \
     -o '' \
@@ -57,10 +62,12 @@ DORIS_HOME="$(
 )"
 export DORIS_HOME
 
-MAX_MAP_COUNT="$(sysctl -n vm.max_map_count)"
-if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-    echo "Please set vm.max_map_count to be 2000000. sysctl -w vm.max_map_count=2000000"
-    exit 1
+if [[ "$(uname -s)" != 'Darwin' ]]; then
+    MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
+    if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+        echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
+        exit 1
+    fi
 fi
 
 # add libs to CLASSPATH
@@ -96,35 +103,6 @@ jdk_version() {
     echo "${result}"
     return 0
 }
-
-setup_java_env() {
-    local java_version
-
-    if [[ -z "${JAVA_HOME}" ]]; then
-        return 1
-    fi
-
-    local jvm_arch='amd64'
-    if [[ "$(uname -m)" == 'aarch64' ]]; then
-        jvm_arch='aarch64'
-    fi
-    java_version="$(
-        set -e
-        jdk_version "${JAVA_HOME}/bin/java"
-    )"
-    if [[ "${java_version}" -gt 8 ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jdk
-    elif [[ -d "${JAVA_HOME}/jre" ]]; then
-        export LD_LIBRARY_PATH="${JAVA_HOME}/jre/lib/${jvm_arch}/server:${JAVA_HOME}/jre/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-        # JAVA_HOME is jre
-    else
-        export LD_LIBRARY_PATH="${JAVA_HOME}/lib/${jvm_arch}/server:${JAVA_HOME}/lib/${jvm_arch}:${LD_LIBRARY_PATH}"
-    fi
-}
-
-# prepare jvm if needed
-setup_java_env || true
 
 # export env variables from be.conf
 #
@@ -206,13 +184,20 @@ export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {
-    total_mem_mb=$(free -m | grep Mem | awk '{print $2}')
+    local total_mem_mb
+    local mem_limit_str
+
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        total_mem_mb="$(free -m | grep Mem | awk '{print $2}')"
+    else
+        total_mem_mb="$(($(sysctl -a hw.memsize | awk '{print $NF}') / 1024))"
+    fi
     mem_limit_str=$(grep ^mem_limit "${DORIS_HOME}"/conf/be.conf)
-    digits_unit=${mem_limit_str##*=}
+    local digits_unit=${mem_limit_str##*=}
     digits_unit="${digits_unit#"${digits_unit%%[![:space:]]*}"}"
     digits_unit="${digits_unit%"${digits_unit##*[![:space:]]}"}"
-    digits=${digits_unit%%[^[:digit:]]*}
-    unit=${digits_unit##*[[:digit:] ]}
+    local digits=${digits_unit%%[^[:digit:]]*}
+    local unit=${digits_unit##*[[:digit:] ]}
 
     mem_limit_mb=0
     case ${unit} in
@@ -235,7 +220,7 @@ set_tcmalloc_heap_limit() {
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
 }
 
-set_tcmalloc_heap_limit || exit 1
+# set_tcmalloc_heap_limit || exit 1
 
 ## set hdfs conf
 export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"

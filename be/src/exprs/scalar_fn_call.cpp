@@ -516,7 +516,7 @@ Decimal64Val ScalarFnCall::get_decimal64_val(ExprContext* context, TupleRow* row
 }
 
 Decimal128Val ScalarFnCall::get_decimal128_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DECIMAL128);
+    DCHECK_EQ(_type.type, TYPE_DECIMAL128I);
     DCHECK(context != nullptr);
     if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<Decimal128Val>(context, row);

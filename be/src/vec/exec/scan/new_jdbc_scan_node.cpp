@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/exec/scan/new_jdbc_scan_node.h"
-#ifdef LIBJVM
 
 #include "vec/exec/scan/new_jdbc_scanner.h"
 #include "vec/exec/scan/vscanner.h"
@@ -37,7 +36,7 @@ std::string NewJdbcScanNode::get_name() {
 Status NewJdbcScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "VNewJdbcScanNode::Prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     return Status::OK();
 }
 
@@ -58,4 +57,3 @@ Status NewJdbcScanNode::_init_scanners(std::list<VScanner*>* scanners) {
     return Status::OK();
 }
 } // namespace doris::vectorized
-#endif

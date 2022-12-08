@@ -1,6 +1,6 @@
 DROP TABLE IF EXISTS delete_sign_test_mow;
 
-CREATE TABLE delete_sign_test_mow (
+CREATE TABLE IF NOT EXISTS delete_sign_test_mow (
                 `uid` BIGINT NULL,
                 `v1` BIGINT NULL 
                 )

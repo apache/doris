@@ -59,8 +59,6 @@ private:
     /// check param and fetch tablet_id from req
     Status _check_param(HttpRequest* req, uint64_t* tablet_id);
 
-    std::shared_ptr<CumulativeCompactionPolicy> _create_cumulative_compaction_policy();
-
 private:
     CompactionActionType _type;
 };

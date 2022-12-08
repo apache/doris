@@ -18,6 +18,7 @@
 package org.apache.doris.system;
 
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.resource.Tag;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,6 +35,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long beStartTime;
     private String host;
     private String version = "";
+    private String nodeRole = Tag.VALUE_MIX;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
@@ -50,6 +52,20 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.hbTime = hbTime;
         this.beStartTime = beStartTime;
         this.version = version;
+    }
+
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort,
+            long hbTime, long beStartTime, String version, String nodeRole) {
+        super(HeartbeatResponse.Type.BACKEND);
+        this.beId = beId;
+        this.status = HbStatus.OK;
+        this.bePort = bePort;
+        this.httpPort = httpPort;
+        this.brpcPort = brpcPort;
+        this.hbTime = hbTime;
+        this.beStartTime = beStartTime;
+        this.version = version;
+        this.nodeRole = nodeRole;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -89,6 +105,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public String getNodeRole() {
+        return nodeRole;
     }
 
     public static BackendHbResponse read(DataInput in) throws IOException {

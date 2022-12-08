@@ -23,6 +23,7 @@
 #include <string>
 
 #include "exprs/table_function/table_function.h"
+#include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
@@ -38,18 +39,31 @@
 
 namespace doris::vectorized {
 
-using InputDataSet = std::vector<std::vector<std::any>>; // without result
-using CellSet = std::vector<std::any>;
-using Expect = std::any;
+using InputDataSet = std::vector<std::vector<AnyType>>; // without result
+using CellSet = std::vector<AnyType>;
+using Expect = AnyType;
 using Row = std::pair<CellSet, Expect>;
 using DataSet = std::vector<Row>;
-using InputTypeSet = std::vector<std::any>;
+using InputTypeSet = std::vector<AnyType>;
 
 int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format);
 uint64_t str_to_datetime_v2(std::string datetime_str, std::string datetime_format);
 
+struct Nullable {
+    TypeIndex tp;
+};
+
+struct Notnull {
+    TypeIndex tp;
+};
+
+struct ConstedNotnull {
+    TypeIndex tp;
+};
+
 namespace ut_type {
+using BOOLEAN = uint8_t;
 using TINYINT = int8_t;
 using SMALLINT = int16_t;
 using INT = int32_t;
@@ -144,11 +158,11 @@ using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
 
 } // namespace ut_type
 
-size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t index,
+size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t index,
                                ut_type::UTDataTypeDesc& ut_desc, DataTypePtr& type);
-bool parse_ut_data_type(const std::vector<std::any>& input_types, ut_type::UTDataTypeDescs& descs);
+bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTDataTypeDescs& descs);
 
-bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any& cell);
+bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell);
 
 Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDataSet& input_set);
 
@@ -163,7 +177,7 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
 // A DataSet with a constant column can only have one row of data
 template <typename ReturnType, bool nullable = false>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
-                      const DataSet& data_set) {
+                      const DataSet& data_set, bool expect_fail = false) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
     EXPECT_TRUE(parse_ut_data_type(input_types, descs));
@@ -189,7 +203,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         block.insert({std::move(column), desc.data_type, desc.col_name});
     }
 
-    // 1.2 parepare args for function call
+    // 1.2 prepare args for function call
     ColumnNumbers arguments;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
@@ -234,16 +248,22 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->impl()->set_constant_cols(constant_cols);
-    RETURN_IF_ERROR(func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL));
+    func->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+    func->prepare(fn_ctx, FunctionContext::THREAD_LOCAL);
 
     block.insert({nullptr, return_type, "result"});
 
     auto result = block.columns() - 1;
-    RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result, row_size));
+    auto st = func->execute(fn_ctx, block, arguments, result, row_size);
+    if (expect_fail) {
+        EXPECT_NE(Status::OK(), st);
+        return st;
+    } else {
+        EXPECT_EQ(Status::OK(), st);
+    }
 
-    RETURN_IF_ERROR(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    RETURN_IF_ERROR(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    func->close(fn_ctx, FunctionContext::THREAD_LOCAL);
+    func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
@@ -252,41 +272,40 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
-                const auto& expect_data = std::any_cast<String>(data_set[i].second);
+                const auto& expect_data = any_cast<String>(data_set[i].second);
                 auto s = column->get_data_at(i);
                 if (expect_data.size() == 0) {
                     // zero size result means invalid
-                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 for row " << i;
+                    EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
                 } else {
                     // convert jsonb binary value to json string to compare with expected json text
-                    JsonbToJson to_json;
-                    doris::JsonbValue* val =
-                            doris::JsonbDocument::createDocument(s.data, s.size)->getValue();
-                    EXPECT_EQ(to_json.jsonb_to_string(val), expect_data) << " for row " << i;
+                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
+                            << " at row " << i;
                 }
             } else {
                 Field field;
                 column->get(i, field);
 
                 const auto& expect_data =
-                        std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
+                        any_cast<typename ReturnType::FieldType>(data_set[i].second);
 
                 if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
                     const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
-                    EXPECT_EQ(expect_data.value, column_data.value);
-                } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32>) {
+                    EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
+                                     std::is_same_v<ReturnType, DataTypeFloat64>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
-                    EXPECT_EQ(expect_data, column_data);
+                    EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
                 } else {
                     const auto& column_data = field.get<typename ReturnType::FieldType>();
-                    EXPECT_EQ(expect_data, column_data);
+                    EXPECT_EQ(expect_data, column_data) << " at row " << i;
                 }
             }
         };
 
         if constexpr (nullable) {
-            bool is_null = data_set[i].second.type() == typeid(Null);
-            EXPECT_EQ(is_null, column->is_null_at(i));
+            bool is_null = data_set[i].second.type() == &typeid(Null);
+            EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
             if (!is_null) check_column_data();
         } else {
             check_column_data();

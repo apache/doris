@@ -17,12 +17,15 @@
 
 #include "olap/data_dir.h"
 
+#ifndef __APPLE__
+#include <mntent.h>
+#include <sys/statfs.h>
+#endif
+
 #include <ctype.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <mntent.h>
 #include <stdio.h>
 #include <sys/file.h>
-#include <sys/statfs.h>
 #include <utime.h>
 
 #include <atomic>

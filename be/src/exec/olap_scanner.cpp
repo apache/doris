@@ -43,7 +43,7 @@ namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
                          bool need_agg_finalize, const TPaloScanRange& scan_range,
-                         MemTracker* tracker)
+                         const std::shared_ptr<MemTracker>& tracker)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -51,8 +51,8 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1) {
-    _mem_tracker = tracker;
+          _version(-1),
+          _mem_tracker(tracker) {
     _tablet_schema = std::make_shared<TabletSchema>();
 }
 
@@ -317,7 +317,7 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    // 2. Allocate Row's Tuple buf
+    // 2. Allocate Row's Tuple buf, it will improve performance if there are many var length columns
     uint8_t* tuple_buf = batch->tuple_data_pool()->allocate(_batch_size * _tuple_desc->byte_size());
     if (tuple_buf == nullptr) {
         LOG(WARNING) << "Allocate mem for row batch failed.";
@@ -326,7 +326,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     bzero(tuple_buf, _batch_size * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker));
+    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {
@@ -336,16 +336,23 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
         ObjectPool tmp_object_pool;
         // release the memory of the object which can't pass the conjuncts.
         ObjectPool unused_object_pool;
-        if (batch->tuple_data_pool()->total_reserved_bytes() >= raw_bytes_threshold) {
-            return Status::RuntimeError(
-                    "Scanner row bytes buffer is too small, please try to increase be config "
-                    "'doris_scanner_row_bytes'.");
-        }
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
-            if (batch->is_full() ||
-                (batch->tuple_data_pool()->total_allocated_bytes() >= raw_bytes_threshold &&
-                 batch->num_rows() > 0) ||
+            // Use total_byte_size here, not tuple_pool's allocated bytes, because we preallocated tuple pool at beginning
+            // its size maybe larger than threshold, so that scanner will break here and may dead loop.
+            // Not need check num_rows > 0, because total_byte_size() == 0  if num_rows == 0.
+            if (_avg_row_size == 0 && batch->num_rows() > 0) {
+                // total_byte_size() cost a lot of CPU time, so that compute avg row size here.
+                _first_batch_row_num += batch->num_rows();
+                _first_batch_size += batch->total_byte_size();
+                // Accumulate many batches and then calculate avg row size to avoid there are only small number of rows
+                if (_first_batch_size > raw_bytes_threshold) {
+                    _avg_row_size = _first_batch_size / _first_batch_row_num;
+                }
+            }
+            int64_t batch_total_bytes = _avg_row_size > 0 ? _avg_row_size * batch->num_rows()
+                                                          : batch->total_byte_size();
+            if (batch->is_full() || batch_total_bytes >= raw_bytes_threshold ||
                 raw_rows_read() >= raw_rows_threshold) {
                 _update_realtime_counter();
                 break;

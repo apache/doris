@@ -42,7 +42,7 @@ static std::string REMOTE_CACHE_UC = "REMOTE_CACHE";
 // TODO: should be a general util method
 static std::string to_upper(const std::string& str) {
     std::string out = str;
-    std::transform(out.begin(), out.end(), out.begin(), ::toupper);
+    std::transform(out.begin(), out.end(), out.begin(), [](auto c) { return std::toupper(c); });
     return out;
 }
 

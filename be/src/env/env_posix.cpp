@@ -82,9 +82,15 @@ static Status io_error(const std::string& context, int err_number) {
 }
 
 static Status do_sync(int fd, const string& filename) {
+#ifdef __APPLE__
+    if (fcntl(fd, F_FULLFSYNC) < 0) {
+        return io_error(filename, errno);
+    }
+#else
     if (fdatasync(fd) < 0) {
         return io_error(filename, errno);
     }
+#endif
     return Status::OK();
 }
 
@@ -306,6 +312,9 @@ public:
     }
 
     Status pre_allocate(uint64_t size) override {
+#ifdef __APPLE__
+        return io_error(_filename, ENOSYS);
+#else
         uint64_t offset = std::max(_filesize, _pre_allocated_size);
         int ret;
         RETRY_ON_EINTR(ret, fallocate(_fd, 0, offset, size));
@@ -320,6 +329,7 @@ public:
         }
         _pre_allocated_size = offset + size;
         return Status::OK();
+#endif
     }
 
     Status close() override {
@@ -679,7 +689,7 @@ Status PosixEnv::is_directory(const std::string& path, bool* is_dir) {
 }
 
 Status PosixEnv::canonicalize(const std::string& path, std::string* result) {
-    // NOTE: we must use free() to release the buffer retruned by realpath(),
+    // NOTE: we must use free() to release the buffer returned by realpath(),
     // because the buffer is allocated by malloc(), see `man 3 realpath`.
     std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
     if (r == nullptr) {

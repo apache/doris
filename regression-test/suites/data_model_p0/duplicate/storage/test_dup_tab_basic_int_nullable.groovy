@@ -22,7 +22,7 @@ suite("test_dup_tab_basic_int_nullable") {
     sql "drop table if exists ${table1}"
 
     sql """
-CREATE TABLE `${table1}` (
+CREATE TABLE IF NOT EXISTS `${table1}` (
   `siteid` int(11) NULL COMMENT "",
   `citycode` int(11) NULL COMMENT "",
   `userid` int(11) NULL COMMENT "",

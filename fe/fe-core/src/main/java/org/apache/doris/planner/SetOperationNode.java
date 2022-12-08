@@ -388,7 +388,7 @@ public abstract class SetOperationNode extends PlanNode {
                 msg.node_type = TPlanNodeType.EXCEPT_NODE;
                 break;
             default:
-                LOG.error("Node type: " + nodeType.toString() + " is invalid.");
+                LOG.error("Node type: " + nodeType + " is invalid.");
                 break;
         }
     }
@@ -427,7 +427,7 @@ public abstract class SetOperationNode extends PlanNode {
             if (!passThroughNodeIds.isEmpty()) {
                 String result = prefix + "pass-through-operands: ";
                 if (passThroughNodeIds.size() == children.size()) {
-                    output.append(result + "all\n");
+                    output.append(result).append("all\n");
                 } else {
                     output.append(result).append(Joiner.on(",").join(passThroughNodeIds)).append("\n");
                 }

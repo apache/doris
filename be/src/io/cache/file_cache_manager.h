@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <list>
 #include <memory>
+#include <queue>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -25,6 +27,20 @@
 
 namespace doris {
 namespace io {
+
+class GCContextPerDisk {
+public:
+    GCContextPerDisk() : _conf_max_size(0), _used_size(0) {}
+    void init(const std::string& path, int64_t max_size);
+    bool try_add_file_cache(FileCachePtr cache, int64_t file_size);
+    void get_gc_file_caches(std::list<FileCachePtr>&);
+
+private:
+    std::string _disk_path;
+    int64_t _conf_max_size;
+    int64_t _used_size;
+    std::priority_queue<FileCachePtr, std::vector<FileCachePtr>, FileCacheLRUComparator> _lru_queue;
+};
 
 class FileCacheManager {
 public:
@@ -37,15 +53,18 @@ public:
 
     void remove_file_cache(const std::string& cache_path);
 
-    void clean_timeout_caches();
-
-    void clean_timeout_file_not_in_mem(const std::string& cache_path);
+    void gc_file_caches();
 
     FileCachePtr new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                 io::FileReaderSPtr remote_file_reader,
                                 const std::string& file_cache_type);
 
     bool exist(const std::string& cache_path);
+
+private:
+    void _gc_unused_file_caches(std::list<FileCachePtr>& result);
+    void _add_file_cache_for_gc_by_disk(std::vector<GCContextPerDisk>& contexts,
+                                        FileCachePtr file_cache);
 
 private:
     std::shared_mutex _cache_map_lock;

@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "exprs/bloomfilter_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
 
@@ -36,10 +36,12 @@ public:
     using SpecificFilter = BloomFilterFunc<T>;
 
     BloomFilterColumnPredicate(uint32_t column_id,
-                               const std::shared_ptr<BloomFilterFuncBase>& filter)
+                               const std::shared_ptr<BloomFilterFuncBase>& filter,
+                               int be_exec_version)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())) {}
+              _specific_filter(static_cast<SpecificFilter*>(_filter.get())),
+              _be_exec_version(be_exec_version) {}
     ~BloomFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BF; }
@@ -80,9 +82,11 @@ private:
                     new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
                 }
             }
-        } else if (IRuntimeFilter::enable_use_batch(T)) {
+        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version, T)) {
             new_size = _specific_filter->find_fixed_len_olap_engine(
-                    (char*)reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                    (char*)reinterpret_cast<
+                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                            &column)
                             ->get_data()
                             .data(),
                     null_map, sel, size);
@@ -99,7 +103,9 @@ private:
             };
 
             auto pred_col_data =
-                    reinterpret_cast<const vectorized::PredicateColumnType<T>*>(&column)
+                    reinterpret_cast<
+                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                            &column)
                             ->get_data()
                             .data();
             for (uint16_t i = 0; i < size; i++) {
@@ -118,11 +124,18 @@ private:
         return new_size;
     }
 
+    std::string _debug_string() const override {
+        std::string info = "BloomFilterColumnPredicate(" + type_to_string(T) + ")";
+        return info;
+    }
+
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
     mutable uint64_t _evaluated_rows = 1;
     mutable uint64_t _passed_rows = 0;
-    mutable bool _enable_pred = true;
+    mutable bool _always_true = false;
+    mutable bool _has_calculate_filter = false;
+    int _be_exec_version;
 };
 
 template <PrimitiveType T>
@@ -152,7 +165,7 @@ template <PrimitiveType T>
 uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
-    if (!_enable_pred) {
+    if (_always_true) {
         return size;
     }
     if (column.is_nullable()) {
@@ -168,18 +181,9 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& colu
     // useless.
     _evaluated_rows += size;
     _passed_rows += new_size;
-    if (_evaluated_rows > config::bloom_filter_predicate_check_row_num) {
-        if (_passed_rows / (_evaluated_rows * 1.0) > 0.5) {
-            _enable_pred = false;
-        }
-    }
+    vectorized::VRuntimeFilterWrapper::calculate_filter(
+            _evaluated_rows - _passed_rows, _evaluated_rows, _has_calculate_filter, _always_true);
     return new_size;
 }
-
-class BloomFilterColumnPredicateFactory {
-public:
-    static ColumnPredicate* create_column_predicate(
-            uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter, FieldType type);
-};
 
 } //namespace doris

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
@@ -31,6 +32,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
@@ -146,6 +148,14 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    private long userQueryTimeout;
+
+    public void setUserQueryTimeout(long queryTimeout) {
+        this.userQueryTimeout = queryTimeout;
+    }
+
+    private StatementContext statementContext;
+
     public SessionContext getSessionContext() {
         return sessionContext;
     }
@@ -188,13 +198,7 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        state = new QueryState();
-        returnRows = 0;
-        serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
-        isKilled = false;
-        serializer = MysqlSerializer.newInstance();
-        sessionVariable = VariableMgr.newSessionVariable();
-        command = MysqlCommand.COM_SLEEP;
+        this(null);
     }
 
     public ConnectContext(SocketChannel channel) {
@@ -210,6 +214,9 @@ public class ConnectContext {
             remoteIP = mysqlChannel.getRemoteIp();
         }
         queryDetail = null;
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
+        }
     }
 
     public boolean isTxnModel() {
@@ -512,6 +519,14 @@ public class ConnectContext {
         this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
     }
 
+    public StatementContext getStatementContext() {
+        return statementContext;
+    }
+
+    public void setStatementContext(StatementContext statementContext) {
+        this.statementContext = statementContext;
+    }
+
     // kill operation with no protect.
     public void kill(boolean killConnection) {
         LOG.warn("kill query from {}, kill connection: {}", getMysqlChannel().getRemoteHostPortString(),
@@ -551,12 +566,23 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
-            if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
-                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+            if (userQueryTimeout > 0) {
+                // user set query_timeout property
+                if (delta > userQueryTimeout * 1000) {
+                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                            getMysqlChannel().getRemoteHostPortString(), userQueryTimeout);
 
-                // Only kill
-                killFlag = true;
+                    killFlag = true;
+                }
+            } else {
+                // default use session query_timeout
+                if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
+                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                            getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+
+                    // Only kill
+                    killFlag = true;
+                }
             }
         }
         if (killFlag) {

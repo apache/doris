@@ -60,6 +60,9 @@ private:
     RuntimeProfile* _profile;
     FileReader* _file_reader;
     Decompressor* _decompressor;
+    // the min length that should be read.
+    // -1 means endless(for stream load)
+    // and only valid if the content is uncompressed
     size_t _min_length;
     size_t _total_read_bytes;
     std::string _line_delimiter;

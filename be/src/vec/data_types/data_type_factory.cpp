@@ -20,9 +20,6 @@
 
 #include "vec/data_types/data_type_factory.hpp"
 
-#include "vec/data_types/data_type_hll.h"
-#include "vec/data_types/data_type_jsonb.h"
-
 namespace doris::vectorized {
 
 DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
@@ -117,8 +114,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         break;
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128:
-        nested = vectorized::create_decimal(col_desc.precision, col_desc.scale);
+    case TYPE_DECIMAL128I:
+        nested = vectorized::create_decimal(col_desc.precision, col_desc.scale, false);
         break;
     // Just Mock A NULL Type in Vec Exec Engine
     case TYPE_NULL:
@@ -200,8 +197,8 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case OLAP_FIELD_TYPE_DECIMAL32:
     case OLAP_FIELD_TYPE_DECIMAL64:
-    case OLAP_FIELD_TYPE_DECIMAL128:
-        result = vectorized::create_decimal(precision, scale);
+    case OLAP_FIELD_TYPE_DECIMAL128I:
+        result = vectorized::create_decimal(precision, scale, false);
         break;
     default:
         DCHECK(false) << "Invalid FieldType:" << (int)type;
@@ -279,6 +276,10 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::DECIMAL128:
         nested = std::make_shared<DataTypeDecimal<Decimal128>>(pcolumn.decimal_param().precision(),
                                                                pcolumn.decimal_param().scale());
+        break;
+    case PGenericType::DECIMAL128I:
+        nested = std::make_shared<DataTypeDecimal<Decimal128I>>(pcolumn.decimal_param().precision(),
+                                                                pcolumn.decimal_param().scale());
         break;
     case PGenericType::BITMAP:
         nested = std::make_shared<DataTypeBitMap>();

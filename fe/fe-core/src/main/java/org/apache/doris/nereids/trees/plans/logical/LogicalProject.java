@@ -40,7 +40,7 @@ import java.util.Optional;
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Project {
 
-    private final List<NamedExpression> projects;
+    private final ImmutableList<NamedExpression> projects;
 
     public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
         this(projects, Optional.empty(), Optional.empty(), child);

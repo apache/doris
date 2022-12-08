@@ -104,7 +104,7 @@ public:
         if (lhs.size() != rhs.size()) {
             return false;
         }
-        return strncasecmp(lhs.c_str(), rhs.c_str(), 0) == 0;
+        return strncasecmp(lhs.c_str(), rhs.c_str(), lhs.size()) == 0;
     }
 };
 
@@ -130,14 +130,15 @@ template <class T>
 using StringCaseUnorderedMap =
         std::unordered_map<std::string, T, StringCaseHasher, StringCaseEqual>;
 
-inline auto get_json_token(const std::string_view& path_string) {
-#ifdef USE_LIBCPP
-    return boost::tokenizer<boost::escaped_list_separator<char>>(
-            std::string(path_string), boost::escaped_list_separator<char>("\\", ".", "\""));
-#else
+template <typename T>
+inline auto get_json_token(T& path_string) {
     return boost::tokenizer<boost::escaped_list_separator<char>>(
             path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
-#endif
 }
+
+#ifdef USE_LIBCPP
+template <>
+inline auto get_json_token(std::string_view& path_string) = delete;
+#endif
 
 } // namespace doris

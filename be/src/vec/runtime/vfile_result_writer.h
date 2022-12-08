@@ -70,7 +70,7 @@ private:
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
     // if only_close is true, this method will just close the file writer and return.
-    Status _close_file_writer(bool done);
+    Status _close_file_writer(bool done, bool only_close = false);
     // create a new file if current file size exceed limit
     Status _create_new_file_if_exceed_size();
     // send the final statistic result
@@ -91,7 +91,7 @@ private:
     // TODO(cmy): I simply use a stringstrteam to buffer the data, to avoid calling
     // file writer's write() for every single row.
     // But this cannot solve the problem of a row of data that is too large.
-    // For example: bitmap_to_string() may return large volumn of data.
+    // For example: bitmap_to_string() may return large volume of data.
     // And the speed is relative low, in my test, is about 6.5MB/s.
     std::stringstream _plain_text_outstream;
     static const size_t OUTSTREAM_BUFFER_SIZE_BYTES;

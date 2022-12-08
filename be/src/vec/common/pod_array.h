@@ -177,7 +177,7 @@ protected:
     }
 
     bool is_allocated_from_stack() const {
-        constexpr size_t stack_threshold = TAllocator::getStackThreshold();
+        constexpr size_t stack_threshold = TAllocator::get_stack_threshold();
         return (stack_threshold > 0) && (allocated_bytes() <= stack_threshold);
     }
 
@@ -519,11 +519,14 @@ public:
         auto swap_stack_heap = [this](PODArray& arr1, PODArray& arr2) {
             size_t stack_size = arr1.size();
             size_t stack_allocated = arr1.allocated_bytes();
-            size_t stack_peak_used = arr1.c_end_peak - arr1.c_start;
 
             size_t heap_size = arr2.size();
             size_t heap_allocated = arr2.allocated_bytes();
+
+#ifdef USE_MEM_TRACKER
+            size_t stack_peak_used = arr1.c_end_peak - arr1.c_start;
             size_t heap_peak_used = arr2.c_end_peak - arr2.c_start;
+#endif
 
             /// Keep track of the stack content we have to copy.
             char* stack_c_start = arr1.c_start;

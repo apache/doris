@@ -105,7 +105,7 @@ Default: 3
 
 The number of threads making schema changes
 
-### `generate_compaction_tasks_min_interval_ms`
+### `generate_compaction_tasks_interval_ms`
 
 Default: 10 (ms)
 
@@ -117,13 +117,7 @@ Default: true
 
 Whether to enable vectorized compaction
 
-### `base_compaction_interval_seconds_since_last_operation`
-
-Default: 86400
-
-One of the triggering conditions of BaseCompaction: the interval since the last BaseCompaction
-
-### `base_compaction_num_cumulative_deltas`
+### `base_compaction_min_rowset_num`
 
 Default: 5
 
@@ -160,7 +154,7 @@ Default: 5（MB）
 
 Maximum disk write speed per second of BaseCompaction task
 
-### `base_cumulative_delta_ratio`
+### `base_compaction_min_data_ratio`
 
 Default: 0.3  （30%）
 
@@ -223,12 +217,6 @@ Clean up pages that may be saved by the buffer pool
 * Default value: 20%
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
-
-### `check_auto_compaction_interval_seconds`
-
-* Type: int32
-* Description: Check the configuration of auto compaction in seconds when auto compaction disabled.
-* Default value: 5
 
 ### `check_consistency_worker_count`
 
@@ -351,42 +339,34 @@ Similar to `base_compaction_trace_threshold`.
 
 If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 
-### `cumulative_compaction_policy`
-
-* Type: string
-* Description: Configure the merge policy of the cumulative compaction stage. Currently, two merge policy have been implemented, num_based and size_based.
-* Default value: size_based
-
-In detail, ordinary is the initial version of the cumulative compaction merge policy. After a cumulative compaction, the base compaction process is directly performed. The size_based policy is an optimized version of the ordinary strategy. Versions are merged only when the disk volume of the rowset is of the same order of magnitude. After the compaction, the output rowset which satisfies the conditions is promoted to the base compaction stage. In the case of a large number of small batch imports: reduce the write magnification of base compact, trade-off between read magnification and space magnification, and reducing file version data.
-
-### `cumulative_size_based_promotion_size_mbytes`
+### `compaction_promotion_size_mbytes`
 
 * Type: int64
-* Description: Under the size_based policy, the total disk size of the output rowset of cumulative compaction exceeds this configuration size, and the rowset will be used for base compaction. The unit is m bytes.
+* Description: The total disk size of the output rowset of cumulative compaction exceeds this configuration size, and the rowset will be used for base compaction. The unit is m bytes.
 * Default value: 1024
 
 In general, if the configuration is less than 2G, in order to prevent the cumulative compression time from being too long, resulting in the version backlog.
 
-### `cumulative_size_based_promotion_ratio`
+### `compaction_promotion_ratio`
 
 * Type: double
-* Description: Under the size_based policy, when the total disk size of the cumulative compaction output rowset exceeds the configuration ratio of the base version rowset, the rowset will be used for base compaction.
+* Description: When the total disk size of the cumulative compaction output rowset exceeds the configuration ratio of the base version rowset, the rowset will be used for base compaction.
 * Default value: 0.05
 
 Generally, it is recommended that the configuration should not be higher than 0.1 and lower than 0.02.
 
-### `cumulative_size_based_promotion_min_size_mbytes`
+### `compaction_promotion_min_size_mbytes`
 
 * Type: int64
-* Description: Under the size_based strategy, if the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
+* Description: If the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
 * Default value: 64
 
 Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
 
-### `cumulative_size_based_compaction_lower_size_mbytes`
+### `compaction_min_size_mbytes`
 
 * Type: int64
-* Description: Under the size_based strategy, when the cumulative compaction is merged, the selected rowsets to be merged have a larger disk size than this configuration, then they are divided and merged according to the level policy. When it is smaller than this configuration, merge directly. The unit is m bytes.
+* Description: When the cumulative compaction is merged, the selected rowsets to be merged have a larger disk size than this configuration, then they are divided and merged according to the level policy. When it is smaller than this configuration, merge directly. The unit is m bytes.
 * Default value: 64
 
 Generally, the configuration is within 128m. Over configuration will cause more cumulative compaction write amplification.
@@ -760,13 +740,13 @@ Default: 3
 
 The maximum number of consumers in a data consumer group, used for routine load
 
-### `min_cumulative_compaction_num_singleton_deltas`
+### `cumulative_compaction_min_deltas`
 
 Default: 5
 
 Cumulative compaction strategy: the minimum number of incremental files
 
-### `max_cumulative_compaction_num_singleton_deltas`
+### `cumulative_compaction_max_deltas`
 
 Default: 1000
 
@@ -846,9 +826,21 @@ The number of sliced tablets, plan the layout of the tablet, and avoid too many 
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
 * Default value: 80%
 
-### `memory_limitation_per_thread_for_schema_change`
+### `memory_mode`
 
-Default: 2 （G）
+* Type: string
+* Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
+* Default value: performance
+
+### `max_sys_mem_available_low_water_mark_bytes`
+
+* Type: int64
+* Description: The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G, actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines with large memory larger than 16G. Turn up max. On machines with more than 16G memory, more memory buffers will be reserved for Full GC. Turn down max. will use as much memory as possible.
+* Default value: 1717986918
+
+### `memory_limitation_per_thread_for_schema_change_bytes`
+
+Default: 2147483648
 
 Maximum memory allowed for a single schema change task
 
@@ -875,13 +867,6 @@ The read size is the read size sent to the os. There is a trade-off between late
 Default: 1024
 
 Minimum read buffer size (in bytes)
-
-### `min_compaction_failure_interval_sec`
-
-* Type: int32
-* Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
-* Default value: 600
-* Unit: seconds
 
 ### `min_compaction_threads`
 
@@ -1080,13 +1065,6 @@ The thread pool size of the routine load task. This should be greater than the F
 Default: true
 
 Check row nums for BE/CE and schema change. true is open, false is closed
-
-### `row_step_for_compaction_merge_log`
-
-* Type: int64
-* Description: Merge log will be printed for each "row_step_for_compaction_merge_log" rows merged during compaction. If the value is set to 0, merge log will not be printed.
-* Default value: 0
-* Dynamically modify: true
 
 ### `scan_context_gc_interval_min`
 
@@ -1358,26 +1336,6 @@ The RPC timeout for sending a Batch (1024 lines) during import. The default is 6
 
 When meet '[E1011]The server is overcrowded' error, you can tune the configuration `brpc_socket_max_unwritten_bytes`, but it can't be modified at runtime. Set it to `true` to avoid writing failed temporarily. Notice that, it only effects `write`, other rpc requests will still check if overcrowded.
 
-### `tc_free_memory_rate`
-
-Default: 20   (%)
-
-Available memory, value range: [0-100]
-
-### `tc_max_total_thread_cache_bytes`
-
-* Type: int64
-* Description: Used to limit the total thread cache size in tcmalloc. This limit is not a hard limit, so the actual thread cache usage may exceed this limit. For details, please refer to [TCMALLOC\_MAX\_TOTAL\_THREAD\_CACHE\_BYTES](https://gperftools.github.io/gperftools/tcmalloc.html)
-* Default: 1073741824
-
-If the system is found to be in a high-stress scenario and a large number of threads are found in the tcmalloc lock competition phase through the BE thread stack, such as a large number of `SpinLock` related stacks, you can try increasing this parameter to improve system performance. [Reference](https://github.com/gperftools/gperftools/issues/1111)
-
-### `tc_use_memory_min`
-
-Default: 10737418240
-
-The minimum memory of TCmalloc, when the memory used is less than this, it is not returned to the operating system
-
 ### `thrift_client_retry_interval_ms`
 
 * Type: int64
@@ -1612,3 +1570,33 @@ Translated with www.DeepL.com/Translator (free version)
 * Type：int64
 * Description：Save time of cache file, in seconds
 * Default：604800（1 week）
+
+### `enable_segcompaction`
+
+* Type: bool
+* Description: Enable to use segment compaction during loading
+* Default value: false
+
+### `segcompaction_threshold_segment_num`
+
+* Type: int32
+* Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
+* Default value: 10
+
+### `segcompaction_small_threshold`
+
+* Type: int32
+* Description: The segment whose row number above the threshold will be compacted during segcompaction
+* Default value: 1048576
+
+### `big_column_size_buffer`
+* Type: int64
+* Description: When using the odbc external table, if a column type of the odbc source table is HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
+* Default value: 65535
+
+### `small_column_size_buffer`
+
+* Type: int64
+* Description: When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
+* Default value: 100
+

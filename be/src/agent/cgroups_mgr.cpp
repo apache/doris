@@ -176,7 +176,7 @@ Status CgroupsMgr::_config_disk_throttle(std::string user_name, std::string leve
 
     // add olap engine data path here
     auto stores = StorageEngine::instance()->get_stores();
-    // buld load data path, it is alreay in data path
+    // buld load data path, it is already in data path
     // _exec_env->load_path_mgr()->get_load_data_path(&data_paths);
 
     std::stringstream ctrl_cmd;

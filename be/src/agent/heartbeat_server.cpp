@@ -19,10 +19,6 @@
 
 #include <thrift/TProcessor.h>
 
-#include <ctime>
-#include <filesystem>
-#include <fstream>
-
 #include "common/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
@@ -33,22 +29,7 @@
 #include "util/thrift_server.h"
 #include "util/time.h"
 
-using std::fstream;
-using std::nothrow;
-using std::string;
-using std::vector;
-using apache::thrift::TProcessor;
-
 namespace doris {
-
-// When we have some breaking change for execute engine, we should update be_exec_version.
-// 0: not contain be_exec_version.
-// 1: remove ColumnString's terminating zero.
-const int HeartbeatServer::max_be_exec_version = 1;
-const int HeartbeatServer::min_be_exec_version = 0;
-
-// For support rolling upgrade, we send data as second newest version.
-int HeartbeatServer::be_exec_version = max_be_exec_version - 1;
 
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info)
         : _master_info(master_info), _fe_epoch(0) {
@@ -80,6 +61,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_brpc_port(config::brpc_port);
         heartbeat_result.backend_info.__set_version(get_short_version());
         heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
+        heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
     }
 }
 
@@ -170,13 +152,6 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         _master_info->__set_backend_id(master_info.backend_id);
     }
 
-    if (master_info.__isset.be_exec_version && check_be_exec_version(master_info.be_exec_version) &&
-        be_exec_version != master_info.be_exec_version) {
-        LOG(INFO) << fmt::format("be_exec_version changed from {} to {}", be_exec_version,
-                                 master_info.be_exec_version);
-        be_exec_version = master_info.be_exec_version;
-    }
-
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _olap_engine->notify_listeners();
@@ -188,7 +163,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
                                ThriftServer** thrift_server, uint32_t worker_thread_num,
                                TMasterInfo* local_master_info) {
-    HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
+    HeartbeatServer* heartbeat_server = new HeartbeatServer(local_master_info);
     if (heartbeat_server == nullptr) {
         return Status::InternalError("Get heartbeat server failed");
     }
@@ -196,10 +171,10 @@ Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
     heartbeat_server->init_cluster_id();
 
     std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
-    std::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
-    string server_name("heartbeat");
+    std::shared_ptr<HeartbeatServiceProcessor::TProcessor> server_processor(
+            new HeartbeatServiceProcessor(handler));
     *thrift_server =
-            new ThriftServer(server_name, server_processor, server_port, worker_thread_num);
+            new ThriftServer("heartbeat", server_processor, server_port, worker_thread_num);
     return Status::OK();
 }
 } // namespace doris

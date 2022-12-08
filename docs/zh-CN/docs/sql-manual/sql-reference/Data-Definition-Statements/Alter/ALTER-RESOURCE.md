@@ -50,6 +50,22 @@ ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/
 ```sql
 ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
 ```
+3. 修改冷热分离S3资源相关信息
+- 支持修改项
+  - `s3_max_connections` s3最大连接数，默认50
+  - `s3_connection_timeout_ms` s3连接超时时间，默认1000ms
+  - `s3_secret_key` s3的sk信息
+  - `s3_access_key` s3的ak信息
+  - `s3_request_timeout_ms` s3请求超时时间，默认3000ms
+- 禁止修改项
+  - `s3_region`
+  - `s3_bucket`
+  - `s3_root_path`
+  - `s3_endpoint`
+
+```sql
+  ALTER RESOURCE "showPolicy_1_resource" PROPERTIES("s3_max_connections" = "1111");
+```
 ### Keywords
 
 ```sql

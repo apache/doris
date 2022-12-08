@@ -38,6 +38,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -108,6 +109,8 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -182,6 +185,9 @@ public class Coordinator {
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
     private final List<PlanFragment> fragments;
+
+    private Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
+
     // backend execute state
     private final List<BackendExecState> backendExecStates = Lists.newArrayList();
     // backend which state need to be checked when joining this coordinator.
@@ -281,6 +287,7 @@ public class Coordinator {
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
         this.nextInstanceId = new TUniqueId();
@@ -312,6 +319,8 @@ public class Coordinator {
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
         this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
+        this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
+        this.queryOptions.setBeExecVersion(Config.be_exec_version);
     }
 
     public long getJobId() {
@@ -332,6 +341,10 @@ public class Coordinator {
 
     public void setExecVecEngine(boolean vec) {
         this.queryOptions.setEnableVectorizedEngine(vec);
+    }
+
+    public void setExecPipEngine(boolean vec) {
+        this.queryOptions.setEnablePipelineEngine(vec);
     }
 
     public Status getExecStatus() {
@@ -399,6 +412,14 @@ public class Coordinator {
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return errorTabletInfos;
+    }
+
+    public Map<String, Integer> getBeToInstancesNum() {
+        Map<String, Integer> result = Maps.newTreeMap();
+        for (BackendExecStates states : beToExecStates.values()) {
+            result.put(states.brpcAddr.hostname.concat(":").concat("" + states.brpcAddr.port), states.states.size());
+        }
+        return result;
     }
 
     // Initialize
@@ -574,7 +595,7 @@ public class Coordinator {
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
-            Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
+            beToExecStates.clear();
             // If #fragments >=2, use twoPhaseExecution with exec_plan_fragments_prepare and exec_plan_fragments_start,
             // else use exec_plan_fragments directly.
             // we choose #fragments >=2 because in some cases
@@ -617,6 +638,7 @@ public class Coordinator {
                                     profileFragmentId, tParam, this.addressToBackendID);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
+                    // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
                     tParam.setBackendId(execState.backend.getId());
                     tParam.setNeedWaitExecutionTrigger(twoPhaseExecution);
@@ -643,8 +665,8 @@ public class Coordinator {
             } // end for fragments
 
             // 4. send and wait fragments rpc
-            List<Pair<BackendExecStates, Future<InternalService.PExecPlanFragmentResult>>> futures =
-                    Lists.newArrayList();
+            List<Triple<BackendExecStates, BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>
+                    futures = Lists.newArrayList();
             Context parentSpanContext = Context.current();
             for (BackendExecStates states : beToExecStates.values()) {
                 Span span = Telemetry.getNoopSpan();
@@ -654,7 +676,8 @@ public class Coordinator {
                 }
                 states.scopedSpan = new ScopedSpan(span);
                 states.unsetFields();
-                futures.add(Pair.of(states, states.execRemoteFragmentsAsync()));
+                BackendServiceProxy proxy = BackendServiceProxy.getInstance();
+                futures.add(ImmutableTriple.of(states, proxy, states.execRemoteFragmentsAsync(proxy)));
             }
             waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
 
@@ -668,7 +691,8 @@ public class Coordinator {
                                 .setParent(parentSpanContext).setSpanKind(SpanKind.CLIENT).startSpan();
                     }
                     states.scopedSpan = new ScopedSpan(span);
-                    futures.add(Pair.of(states, states.execPlanFragmentStartAsync()));
+                    BackendServiceProxy proxy = BackendServiceProxy.getInstance();
+                    futures.add(ImmutableTriple.of(states, proxy, states.execPlanFragmentStartAsync(proxy)));
                 }
                 waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
@@ -679,7 +703,8 @@ public class Coordinator {
         }
     }
 
-    private void waitRpc(List<Pair<BackendExecStates, Future<PExecPlanFragmentResult>>> futures, long leftTimeMs,
+    private void waitRpc(List<Triple<BackendExecStates, BackendServiceProxy, Future<PExecPlanFragmentResult>>> futures,
+                         long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
             throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
@@ -687,25 +712,25 @@ public class Coordinator {
         }
 
         long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
-        for (Pair<BackendExecStates, Future<PExecPlanFragmentResult>> pair : futures) {
+        for (Triple<BackendExecStates, BackendServiceProxy, Future<PExecPlanFragmentResult>> triple : futures) {
             TStatusCode code;
             String errMsg = null;
             Exception exception = null;
-            Span span = pair.first.scopedSpan.getSpan();
+            Span span = triple.getLeft().scopedSpan.getSpan();
             try {
-                PExecPlanFragmentResult result = pair.second.get(timeoutMs, TimeUnit.MILLISECONDS);
+                PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
                     if (!result.getStatus().getErrorMsgsList().isEmpty()) {
                         errMsg = result.getStatus().getErrorMsgsList().get(0);
                     } else {
-                        errMsg = operation + " failed. backend id: " + pair.first.beId;
+                        errMsg = operation + " failed. backend id: " + triple.getLeft().beId;
                     }
                 }
             } catch (ExecutionException e) {
                 exception = e;
                 code = TStatusCode.THRIFT_RPC_ERROR;
-                BackendServiceProxy.getInstance().removeProxy(pair.first.brpcAddr);
+                triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (InterruptedException e) {
                 exception = e;
                 code = TStatusCode.INTERNAL_ERROR;
@@ -724,10 +749,14 @@ public class Coordinator {
                     cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
                     switch (code) {
                         case TIMEOUT:
-                            throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
+                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                    .increase(1L);
+                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
                         case THRIFT_RPC_ERROR:
-                            SimpleScheduler.addToBlacklist(pair.first.beId, errMsg);
-                            throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
+                            MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
+                                    .increase(1L);
+                            SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
+                            throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
                         default:
                             throw new UserException(errMsg, exception);
                     }
@@ -736,7 +765,7 @@ public class Coordinator {
                 span.recordException(e);
                 throw e;
             } finally {
-                pair.first.scopedSpan.endSpan();
+                triple.getLeft().scopedSpan.endSpan();
             }
         }
     }
@@ -845,8 +874,9 @@ public class Coordinator {
 
             queryStatus.setStatus(status);
             LOG.warn("one instance report fail throw updateStatus(), need cancel. job id: {},"
-                            + " query id: {}, instance id: {}",
-                    jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN");
+                            + " query id: {}, instance id: {}, error message: {}",
+                    jobId, DebugUtil.printId(queryId), instanceId != null ? DebugUtil.printId(instanceId) : "NaN",
+                    status.getErrorMsg());
             cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
         } finally {
             lock.unlock();
@@ -1671,8 +1701,9 @@ public class Coordinator {
         // and returned_all_results_ is true.
         // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
         if (!(returnedAllResults && status.isCancelled()) && !status.ok()) {
-            LOG.warn("one instance report fail, query_id={} instance_id={}",
-                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
+            LOG.warn("one instance report fail, query_id={} instance_id={}, error message: {}",
+                    DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()),
+                    status.getErrorMsg());
             updateStatus(status, params.getFragmentInstanceId());
         }
         if (execState.done) {
@@ -2150,7 +2181,7 @@ public class Coordinator {
         }
 
         public boolean isBackendStateHealthy() {
-            if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime) {
+            if (backend.getLastMissingHeartbeatTime() > lastMissingHeartbeatTime && !backend.isAlive()) {
                 LOG.warn("backend {} is down while joining the coordinator. job id: {}",
                         backend.getId(), jobId);
                 return false;
@@ -2204,15 +2235,15 @@ public class Coordinator {
             }
         }
 
-        public Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync() throws TException {
+        public Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync(BackendServiceProxy proxy)
+                throws TException {
             try {
                 TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
                 for (BackendExecState state : states) {
                     state.initiated = true;
                     paramsList.addToParamsList(state.rpcParams);
                 }
-                return BackendServiceProxy.getInstance()
-                        .execPlanFragmentsAsync(brpcAddr, paramsList, twoPhaseExecution);
+                return proxy.execPlanFragmentsAsync(brpcAddr, paramsList, twoPhaseExecution);
             } catch (RpcException e) {
                 // DO NOT throw exception here, return a complete future with error code,
                 // so that the following logic will cancel the fragment.
@@ -2220,12 +2251,13 @@ public class Coordinator {
             }
         }
 
-        public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync() throws TException {
+        public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(BackendServiceProxy proxy)
+                throws TException {
             try {
                 PExecPlanFragmentStartRequest.Builder builder = PExecPlanFragmentStartRequest.newBuilder();
                 PUniqueId qid = PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
                 builder.setQueryId(qid);
-                return BackendServiceProxy.getInstance().execPlanFragmentStartAsync(brpcAddr, builder.build());
+                return proxy.execPlanFragmentStartAsync(brpcAddr, builder.build());
             } catch (RpcException e) {
                 // DO NOT throw exception here, return a complete future with error code,
                 // so that the following logic will cancel the fragment.

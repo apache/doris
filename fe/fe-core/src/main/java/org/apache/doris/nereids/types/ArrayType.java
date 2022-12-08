@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import java.util.Objects;
 
@@ -26,21 +27,35 @@ import java.util.Objects;
  */
 public class ArrayType extends DataType {
 
-    public static final ArrayType SYSTEM_DEFAULT = new ArrayType(NullType.INSTANCE);
+    public static final ArrayType SYSTEM_DEFAULT = new ArrayType(NullType.INSTANCE, true);
 
     public static final int WIDTH = 32;
 
     private final DataType itemType;
+    private final boolean containsNull;
 
-    public ArrayType(DataType itemType) {
+    public ArrayType(DataType itemType, boolean containsNull) {
         this.itemType = Objects.requireNonNull(itemType, "itemType can not be null");
+        this.containsNull = containsNull;
     }
 
     public static ArrayType of(DataType itemType) {
+        return of(itemType, true);
+    }
+
+    public static ArrayType of(DataType itemType, boolean containsNull) {
         if (itemType.equals(NullType.INSTANCE)) {
             return SYSTEM_DEFAULT;
         }
-        return new ArrayType(itemType);
+        return new ArrayType(itemType, containsNull);
+    }
+
+    public DataType getItemType() {
+        return itemType;
+    }
+
+    public boolean containsNull() {
+        return containsNull;
     }
 
     @Override
@@ -49,7 +64,7 @@ public class ArrayType extends DataType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof ArrayType;
     }
 
@@ -75,7 +90,8 @@ public class ArrayType extends DataType {
             return false;
         }
         ArrayType arrayType = (ArrayType) o;
-        return Objects.equals(itemType, arrayType.itemType);
+        return Objects.equals(itemType, arrayType.itemType)
+                && Objects.equals(containsNull, arrayType.containsNull);
     }
 
     @Override

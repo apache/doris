@@ -17,15 +17,14 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Id;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -37,15 +36,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStat;
-import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsManager;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
-import org.apache.doris.statistics.TableStats;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import mockit.Expectations;
+import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -58,13 +54,6 @@ import java.util.Map;
 import java.util.Optional;
 
 public class StatsCalculatorTest {
-
-    @Mocked
-    ConnectContext context;
-    @Mocked
-    Env env;
-    @Mocked
-    StatisticsManager statisticsManager;
 
     // TODO: temporary disable this test, until we could get column stats
     // @Test
@@ -107,21 +96,26 @@ public class StatsCalculatorTest {
 
     @Test
     public void testFilter() {
-        List<String> qualifier = new ArrayList<>();
+        List<String> qualifier = Lists.newArrayList();
         qualifier.add("test");
         qualifier.add("t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
 
-        ColumnStat columnStat1 = new ColumnStat();
+        ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
-        columnStat1.setNumNulls(5);
-        ColumnStat columnStat2 = new ColumnStat();
-        columnStat2.setNdv(20);
+        columnStat1.setMinValue(0);
+        columnStat1.setMaxValue(1000);
         columnStat1.setNumNulls(10);
-        Map<Slot, ColumnStat> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1, columnStat1);
-        slotColumnStatsMap.put(slot2, columnStat2);
+        ColumnStatisticBuilder columnStat2 = new ColumnStatisticBuilder();
+        columnStat2.setNdv(20);
+        columnStat2.setMinValue(0);
+        columnStat2.setMaxValue(1000);
+        columnStat2.setNumNulls(10);
+
+        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
+        slotColumnStatsMap.put(slot2.getExprId(), columnStat2.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
 
         EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(1));
@@ -131,26 +125,19 @@ public class StatsCalculatorTest {
         Or or = new Or(eq1, eq2);
 
         Group childGroup = new Group();
-        childGroup.setLogicalProperties(new LogicalProperties(new Supplier<List<Slot>>() {
-            @Override
-            public List<Slot> get() {
-                return Collections.emptyList();
-            }
-        }));
+        childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
         GroupPlan groupPlan = new GroupPlan(childGroup);
         childGroup.setStatistics(childStats);
 
-        LogicalFilter logicalFilter = new LogicalFilter(and, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(logicalFilter);
-        groupExpression.addChild(childGroup);
+        LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
         Assertions.assertEquals((long) (10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
-        LogicalFilter logicalFilterOr = new LogicalFilter(or, groupPlan);
-        GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr);
-        groupExpressionOr.addChild(childGroup);
+        LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
+        GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = new Group();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
         StatsCalculator.estimate(groupExpressionOr);
@@ -158,6 +145,57 @@ public class StatsCalculatorTest {
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
 
+    // a, b are in (0,100)
+    // a=200 and b=300 => output: 0 rows
+    @org.junit.Test
+    public void testFilterOutofRange() {
+        List<String> qualifier = Lists.newArrayList();
+        qualifier.add("test");
+        qualifier.add("t");
+        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        SlotReference slot2 = new SlotReference("c2", IntegerType.INSTANCE, true, qualifier);
+
+        ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
+        columnStat1.setNdv(10);
+        columnStat1.setMinValue(0);
+        columnStat1.setMaxValue(100);
+        columnStat1.setNumNulls(10);
+        ColumnStatisticBuilder columnStat2 = new ColumnStatisticBuilder();
+        columnStat2.setNdv(20);
+        columnStat2.setMinValue(0);
+        columnStat2.setMaxValue(100);
+        columnStat2.setNumNulls(10);
+
+        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
+        slotColumnStatsMap.put(slot2.getExprId(), columnStat2.build());
+        StatsDeriveResult childStats = new StatsDeriveResult(10000, slotColumnStatsMap);
+
+        EqualTo eq1 = new EqualTo(slot1, new IntegerLiteral(200));
+        EqualTo eq2 = new EqualTo(slot2, new IntegerLiteral(300));
+
+        And and = new And(eq1, eq2);
+        Or or = new Or(eq1, eq2);
+
+        Group childGroup = new Group();
+        childGroup.setLogicalProperties(new LogicalProperties(Collections::emptyList));
+        GroupPlan groupPlan = new GroupPlan(childGroup);
+        childGroup.setStatistics(childStats);
+
+        LogicalFilter<GroupPlan> logicalFilter = new LogicalFilter<>(and, groupPlan);
+        GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
+        Group ownerGroup = new Group();
+        groupExpression.setOwnerGroup(ownerGroup);
+        StatsCalculator.estimate(groupExpression);
+        Assertions.assertEquals(0, ownerGroup.getStatistics().getRowCount(), 0.001);
+
+        LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
+        GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
+        Group ownerGroupOr = new Group();
+        groupExpressionOr.setOwnerGroup(ownerGroupOr);
+        StatsCalculator.estimate(groupExpressionOr);
+        Assertions.assertEquals(0, ownerGroupOr.getStatistics().getRowCount(), 0.001);
+    }
     // TODO: temporary disable this test, until we could get column stats
     // @Test
     // public void testHashJoin() {
@@ -197,27 +235,10 @@ public class StatsCalculatorTest {
     // }
 
     @Test
-    public void testOlapScan() {
-        ColumnStat columnStat1 = new ColumnStat();
-        columnStat1.setNdv(10);
-        columnStat1.setNumNulls(5);
+    public void testOlapScan(@Mocked ConnectContext context) {
         long tableId1 = 0;
-        TableStats tableStats1 = new TableStats();
-        tableStats1.putColumnStats("c1", columnStat1);
-        Statistics statistics = new Statistics();
-
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
-        new Expectations() {{
-                ConnectContext.get();
-                result = context;
-                context.getEnv();
-                result = env;
-                env.getStatisticsManager();
-                result = statisticsManager;
-                statisticsManager.getStatistics();
-                result = statistics;
-            }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
         LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(RelationId.createGenerator().getNextId(), table1, Collections.emptyList())
@@ -228,8 +249,8 @@ public class StatsCalculatorTest {
         groupExpression.setOwnerGroup(ownerGroup);
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult stats = ownerGroup.getStatistics();
-        Assertions.assertEquals(1, stats.getSlotToColumnStats().size());
-        Assertions.assertNotNull(stats.getSlotToColumnStats().get(slot1));
+        Assertions.assertEquals(1, stats.getSlotIdToColumnStats().size());
+        Assertions.assertNotNull(stats.getSlotIdToColumnStats().get(slot1.getExprId()));
     }
 
     @Test
@@ -238,11 +259,11 @@ public class StatsCalculatorTest {
         qualifier.add("test");
         qualifier.add("t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
-        ColumnStat columnStat1 = new ColumnStat();
+        ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
-        Map<Slot, ColumnStat> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1, columnStat1);
+        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();
@@ -251,16 +272,15 @@ public class StatsCalculatorTest {
         childGroup.setStatistics(childStats);
 
         LogicalLimit<GroupPlan> logicalLimit = new LogicalLimit<>(1, 2, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(logicalLimit);
-        groupExpression.addChild(childGroup);
+        GroupExpression groupExpression = new GroupExpression(logicalLimit, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult limitStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, limitStats.getRowCount());
-        ColumnStat slot1Stats = limitStats.getSlotToColumnStats().get(slot1);
-        Assertions.assertEquals(1, slot1Stats.getNdv());
-        Assertions.assertEquals(1, slot1Stats.getNumNulls());
+        ColumnStatistic slot1Stats = limitStats.getSlotIdToColumnStats().get(slot1.getExprId());
+        Assertions.assertEquals(1, slot1Stats.ndv);
+        Assertions.assertEquals(1, slot1Stats.numNulls);
     }
 
     @Test
@@ -269,11 +289,11 @@ public class StatsCalculatorTest {
         qualifier.add("test");
         qualifier.add("t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
-        ColumnStat columnStat1 = new ColumnStat();
+        ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);
-        Map<Slot, ColumnStat> slotColumnStatsMap = new HashMap<>();
-        slotColumnStatsMap.put(slot1, columnStat1);
+        Map<Id, ColumnStatistic> slotColumnStatsMap = new HashMap<>();
+        slotColumnStatsMap.put(slot1.getExprId(), columnStat1.build());
         StatsDeriveResult childStats = new StatsDeriveResult(10, slotColumnStatsMap);
 
         Group childGroup = new Group();
@@ -282,15 +302,14 @@ public class StatsCalculatorTest {
         childGroup.setStatistics(childStats);
 
         LogicalTopN<GroupPlan> logicalTopN = new LogicalTopN<>(Collections.emptyList(), 1, 2, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(logicalTopN);
-        groupExpression.addChild(childGroup);
+        GroupExpression groupExpression = new GroupExpression(logicalTopN, ImmutableList.of(childGroup));
         Group ownerGroup = new Group();
         ownerGroup.addGroupExpression(groupExpression);
         StatsCalculator.estimate(groupExpression);
         StatsDeriveResult topNStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, topNStats.getRowCount());
-        ColumnStat slot1Stats = topNStats.getSlotToColumnStats().get(slot1);
-        Assertions.assertEquals(1, slot1Stats.getNdv());
-        Assertions.assertEquals(1, slot1Stats.getNumNulls());
+        ColumnStatistic slot1Stats = topNStats.getSlotIdToColumnStats().get(slot1.getExprId());
+        Assertions.assertEquals(1, slot1Stats.ndv);
+        Assertions.assertEquals(1, slot1Stats.numNulls);
     }
 }

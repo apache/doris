@@ -37,7 +37,7 @@ public class CreateIndexClauseTest {
     public void testNormal() throws AnalysisException {
         CreateIndexClause clause = new CreateIndexClause(
                 new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"),
-                new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala"),
+                new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, null, "balabala"),
                 false);
         clause.analyze(analyzer);
         Assert.assertEquals("CREATE INDEX index1 ON `db`.`table` (`col1`) USING BITMAP COMMENT 'balabala'",

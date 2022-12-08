@@ -60,6 +60,8 @@ key:
 
 ​        resource_tags：指定用户的资源标签权限。
 
+​        query_timeout：指定用户的查询超时权限。
+
     注：`cpu_resource_limit`, `exec_mem_limit` 两个属性如果未设置，则默认使用会话变量中值。
 
 普通用户权限：
@@ -154,6 +156,12 @@ key:
     
     ```sql
     SET PROPERTY FOR 'jack' 'exec_mem_limit' = '2147483648';
+    ```
+
+13. 修改用户的查询超时限制，单位秒
+
+    ```sql
+    SET PROPERTY FOR 'jack' 'query_timeout' = '500';
     ```
     
 ### Keywords

@@ -1,4 +1,4 @@
-CREATE TABLE `mutable_datatype` (
+CREATE TABLE IF NOT EXISTS `mutable_datatype` (
     c_bigint bigint,
     c_double double,
     c_string string,

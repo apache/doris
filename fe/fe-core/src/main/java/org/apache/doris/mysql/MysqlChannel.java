@@ -52,7 +52,6 @@ public class MysqlChannel {
     protected String remoteIp;
     protected boolean isSend;
 
-
     protected MysqlChannel() {
         this.sequenceId = 0;
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);

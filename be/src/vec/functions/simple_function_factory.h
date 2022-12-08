@@ -54,12 +54,14 @@ void register_function_is_not_null(SimpleFunctionFactory& factory);
 void register_function_to_time_function(SimpleFunctionFactory& factory);
 void register_function_time_of_function(SimpleFunctionFactory& factory);
 void register_function_string(SimpleFunctionFactory& factory);
+void register_function_running_difference(SimpleFunctionFactory& factory);
 void register_function_date_time_to_string(SimpleFunctionFactory& factory);
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory);
 void register_function_in(SimpleFunctionFactory& factory);
 void register_function_if(SimpleFunctionFactory& factory);
 void register_function_nullif(SimpleFunctionFactory& factory);
 void register_function_date_time_computation(SimpleFunctionFactory& factory);
+void register_function_date_time_computation_v2(SimpleFunctionFactory& factory);
 void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
@@ -69,6 +71,7 @@ void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
+void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_coalesce(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
@@ -77,10 +80,14 @@ void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
+void register_function_multi_string_position(SimpleFunctionFactory& factory);
+void register_function_multi_string_search(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
+
+void register_function_url(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -146,7 +153,7 @@ public:
             return iter->second()->build(arguments, return_type);
         }
 
-        LOG(WARNING) << fmt::format("Function signature {} is not founded", key_str);
+        LOG(WARNING) << fmt::format("Function signature {} is not found", key_str);
         return nullptr;
     }
 
@@ -188,10 +195,12 @@ public:
             register_function_to_time_function(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
+            register_function_running_difference(instance);
             register_function_in(instance);
             register_function_if(instance);
             register_function_nullif(instance);
             register_function_date_time_computation(instance);
+            register_function_date_time_computation_v2(instance);
             register_function_timestamp(instance);
             register_function_utility(instance);
             register_function_date_time_to_string(instance);
@@ -204,6 +213,7 @@ public:
             register_function_like(instance);
             register_function_regexp(instance);
             register_function_random(instance);
+            register_function_uuid(instance);
             register_function_coalesce(instance);
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
@@ -215,6 +225,9 @@ public:
             register_function_hex_variadic(instance);
             register_function_array(instance);
             register_function_geo(instance);
+            register_function_url(instance);
+            register_function_multi_string_position(instance);
+            register_function_multi_string_search(instance);
         });
         return instance;
     }

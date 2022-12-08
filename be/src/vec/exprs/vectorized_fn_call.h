@@ -23,20 +23,16 @@
 namespace doris::vectorized {
 class VectorizedFnCall : public VExpr {
 public:
-    VectorizedFnCall(const doris::TExprNode& node);
-    virtual doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
-    virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
-    virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
-                               FunctionContext::FunctionStateScope scope) override;
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VectorizedFnCall(*this));
-    }
-    virtual const std::string& expr_name() const override;
-    virtual std::string debug_string() const override;
+    VectorizedFnCall(const TExprNode& node);
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
+                FunctionContext::FunctionStateScope scope) override;
+    void close(RuntimeState* state, VExprContext* context,
+               FunctionContext::FunctionStateScope scope) override;
+    VExpr* clone(ObjectPool* pool) const override { return pool->add(new VectorizedFnCall(*this)); }
+    const std::string& expr_name() const override;
+    std::string debug_string() const override;
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
 private:

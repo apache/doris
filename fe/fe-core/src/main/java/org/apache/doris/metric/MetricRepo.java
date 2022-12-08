@@ -51,13 +51,13 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BinaryOperator;
+import java.util.function.Supplier;
 
 public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
 
     // METRIC_REGISTER is only used for histogram metrics
-    private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
+    public static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
     public static final DorisMetricRegistry DORIS_METRIC_REGISTER = new DorisMetricRegistry();
 
     public static volatile boolean isInit = false;
@@ -71,6 +71,13 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
+    public static Histogram HISTO_QUERY_LATENCY;
+    public static AutoMappedMetric<Histogram> DB_HISTO_QUERY_LATENCY;
+    public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
+    public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
+    public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
+    public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_FAILED;
+    public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_SIZE;
 
     public static LongCounterMetric COUNTER_CACHE_ADDED_SQL;
     public static LongCounterMetric COUNTER_CACHE_ADDED_PARTITION;
@@ -80,27 +87,33 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
     public static LongCounterMetric COUNTER_EDIT_LOG_SIZE_BYTES;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
+    public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
     public static LongCounterMetric COUNTER_IMAGE_PUSH_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_PUSH_FAILED;
     public static LongCounterMetric COUNTER_IMAGE_CLEAN_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_CLEAN_FAILED;
-    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
-    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
 
     public static LongCounterMetric COUNTER_TXN_REJECT;
     public static LongCounterMetric COUNTER_TXN_BEGIN;
     public static LongCounterMetric COUNTER_TXN_FAILED;
     public static LongCounterMetric COUNTER_TXN_SUCCESS;
+    public static Histogram HISTO_TXN_EXEC_LATENCY;
+    public static Histogram HISTO_TXN_PUBLISH_LATENCY;
+    public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_NUM;
+    public static AutoMappedMetric<GaugeMetricImpl<Long>> DB_GAUGE_TXN_REPLICA_NUM;
 
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
     public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
-    public static Histogram HISTO_QUERY_LATENCY;
-    public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+    public static AutoMappedMetric<LongCounterMetric> THRIFT_COUNTER_RPC_ALL;
+    public static AutoMappedMetric<LongCounterMetric> THRIFT_COUNTER_RPC_LATENCY;
 
     // following metrics will be updated by metric calculator
     public static GaugeMetricImpl<Double> GAUGE_QUERY_PER_SECOND;
@@ -118,7 +131,6 @@ public final class MetricRepo {
             return;
         }
 
-        // 1. gauge
         // load jobs
         LoadManager loadManger = Env.getCurrentEnv().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
@@ -228,21 +240,6 @@ public final class MetricRepo {
         };
         DORIS_METRIC_REGISTER.addMetrics(scheduledTabletNum);
 
-        GaugeMetric<Long> maxInstanceNum = new GaugeMetric<Long>("max_instances_num_per_user",
-                MetricUnit.NOUNIT, "max instances num of all current users") {
-                @Override
-                public Long getValue() {
-                    try {
-                        return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
-                                .reduce(-1, BinaryOperator.maxBy(Integer::compareTo)).longValue();
-                    } catch (Throwable ex) {
-                        LOG.warn("Get max_instances_num_per_user error", ex);
-                        return -2L;
-                    }
-                }
-        };
-        DORIS_METRIC_REGISTER.addMetrics(maxInstanceNum);
-
         // txn status
         for (TransactionStatus status : TransactionStatus.values()) {
             GaugeMetric<Long> gauge = new GaugeMetric<Long>("txn_status", MetricUnit.NOUNIT, "txn statistics") {
@@ -274,19 +271,53 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
         GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(0L);
 
-        // 2. counter
+        // query
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", MetricUnit.REQUESTS, "total request");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_REQUEST_ALL);
         COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.REQUESTS, "total query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ALL);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_ERR);
-
         COUNTER_QUERY_TABLE = new LongCounterMetric("query_table", MetricUnit.REQUESTS, "total query from table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_TABLE);
         COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
                 "total query from olap table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_OLAP_TABLE);
+        HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("query", "latency", "ms"));
+        DB_HISTO_QUERY_LATENCY = new AutoMappedMetric<>(name -> {
+            String metricName = MetricRegistry.name("query", "latency", "ms", "db=" + name);
+            return METRIC_REGISTER.histogram(metricName);
+        });
+        USER_COUNTER_QUERY_INSTANCE_BEGIN = addLabeledMetrics("user", () ->
+                new LongCounterMetric("query_instance_begin", MetricUnit.NOUNIT,
+                "number of query instance begin"));
+        USER_GAUGE_QUERY_INSTANCE_NUM = addLabeledMetrics("user", () ->
+                new GaugeMetricImpl<>("query_instance_num", MetricUnit.NOUNIT,
+                "number of running query instances of current user"));
+        GaugeMetric<Long> queryInstanceNum = new GaugeMetric<Long>("query_instance_num",
+                MetricUnit.NOUNIT, "number of query instances of all current users") {
+            @Override
+            public Long getValue() {
+                QeProcessorImpl qe = ((QeProcessorImpl) QeProcessorImpl.INSTANCE);
+                long totalInstanceNum = 0;
+                for (Map.Entry<String, Integer> e : qe.getInstancesNumPerUser().entrySet()) {
+                    long value = e.getValue() == null ? 0L : e.getValue().longValue();
+                    totalInstanceNum += value;
+                    USER_GAUGE_QUERY_INSTANCE_NUM.getOrAdd(e.getKey()).setValue(value);
+                }
+                return totalInstanceNum;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(queryInstanceNum);
+        BE_COUNTER_QUERY_RPC_ALL = addLabeledMetrics("be", () ->
+            new LongCounterMetric("query_rpc_total", MetricUnit.NOUNIT, ""));
+        BE_COUNTER_QUERY_RPC_FAILED = addLabeledMetrics("be", () ->
+            new LongCounterMetric("query_rpc_failed", MetricUnit.NOUNIT, ""));
+        BE_COUNTER_QUERY_RPC_SIZE = addLabeledMetrics("be", () ->
+            new LongCounterMetric("query_rpc_size", MetricUnit.BYTES, ""));
+
+        // cache
         COUNTER_CACHE_ADDED_SQL = new LongCounterMetric("cache_added", MetricUnit.REQUESTS,
                 "Number of SQL mode cache added");
         COUNTER_CACHE_ADDED_SQL.addLabel(new MetricLabel("type", "sql"));
@@ -304,6 +335,7 @@ public final class MetricRepo {
         COUNTER_CACHE_HIT_PARTITION.addLabel(new MetricLabel("type", "partition"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_CACHE_HIT_PARTITION);
 
+        // edit log
         COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log", MetricUnit.OPERATIONS,
                 "counter of edit log write into bdbje");
         COUNTER_EDIT_LOG_WRITE.addLabel(new MetricLabel("type", "write"));
@@ -315,6 +347,18 @@ public final class MetricRepo {
         COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log", MetricUnit.BYTES, "size of edit log");
         COUNTER_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "bytes"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_SIZE_BYTES);
+        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
+            MetricRegistry.name("editlog", "write", "latency", "ms"));
+
+        // edit log clean
+        COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
+            "counter of edit log succeed in cleaning");
+        COUNTER_EDIT_LOG_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CLEAN_SUCCESS);
+        COUNTER_EDIT_LOG_CLEAN_FAILED = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
+            "counter of edit log failed to clean");
+        COUNTER_EDIT_LOG_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CLEAN_FAILED);
 
         // image generate
         COUNTER_IMAGE_WRITE_SUCCESS = new LongCounterMetric("image_write", MetricUnit.OPERATIONS,
@@ -345,16 +389,7 @@ public final class MetricRepo {
         COUNTER_IMAGE_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_IMAGE_CLEAN_FAILED);
 
-        // edit log clean
-        COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
-                "counter of edit log succeed in cleaning");
-        COUNTER_EDIT_LOG_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CLEAN_SUCCESS);
-        COUNTER_EDIT_LOG_CLEAN_FAILED = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,
-                "counter of edit log failed to clean");
-        COUNTER_EDIT_LOG_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_EDIT_LOG_CLEAN_FAILED);
-
+        // txn
         COUNTER_TXN_REJECT = new LongCounterMetric("txn_counter", MetricUnit.REQUESTS,
                 "counter of rejected transactions");
         COUNTER_TXN_REJECT.addLabel(new MetricLabel("type", "reject"));
@@ -371,6 +406,30 @@ public final class MetricRepo {
                 "counter of failed transactions");
         COUNTER_TXN_FAILED.addLabel(new MetricLabel("type", "failed"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TXN_FAILED);
+        HISTO_TXN_EXEC_LATENCY = METRIC_REGISTER.histogram(
+            MetricRegistry.name("txn", "exec", "latency", "ms"));
+        HISTO_TXN_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
+            MetricRegistry.name("txn", "publish", "latency", "ms"));
+        GaugeMetric<Long> txnNum = new GaugeMetric<Long>("txn_num", MetricUnit.NOUNIT,
+                "number of running transactions") {
+            @Override
+            public Long getValue() {
+                return Env.getCurrentGlobalTransactionMgr().getAllRunningTxnNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(txnNum);
+        DB_GAUGE_TXN_NUM = addLabeledMetrics("db", () ->
+            new GaugeMetricImpl<>("txn_num", MetricUnit.NOUNIT, "number of running transactions"));
+        GaugeMetric<Long> txnReplicaNum = new GaugeMetric<Long>("txn_replica_num", MetricUnit.NOUNIT,
+                "number of writing tablets in all running transactions") {
+            @Override
+            public Long getValue() {
+                return Env.getCurrentGlobalTransactionMgr().getAllRunningTxnReplicaNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(txnReplicaNum);
+        DB_GAUGE_TXN_REPLICA_NUM = addLabeledMetrics("db", () -> new GaugeMetricImpl<>("txn_replica_num",
+                MetricUnit.NOUNIT, "number of writing tablets in all running transactions"));
 
         COUNTER_ROUTINE_LOAD_ROWS = new LongCounterMetric("routine_load_rows", MetricUnit.ROWS,
                 "total rows of routine load");
@@ -385,11 +444,11 @@ public final class MetricRepo {
         COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
                 "total hit sql block rule query");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_HIT_SQL_BLOCK_RULE);
-        // 3. histogram
-        HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
-                MetricRegistry.name("query", "latency", "ms"));
-        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
-                MetricRegistry.name("editlog", "write", "latency", "ms"));
+
+        THRIFT_COUNTER_RPC_ALL = addLabeledMetrics("method", () ->
+                new LongCounterMetric("thrift_rpc_total", MetricUnit.NOUNIT, ""));
+        THRIFT_COUNTER_RPC_LATENCY = addLabeledMetrics("method", () ->
+                new LongCounterMetric("thrift_rpc_latency_ms", MetricUnit.MILLISECONDS, ""));
 
         // init system metrics
         initSystemMetrics();
@@ -585,6 +644,15 @@ public final class MetricRepo {
         visitor.getNodeInfo(sb);
 
         return sb.toString();
+    }
+
+    public static <M extends Metric<?>> AutoMappedMetric<M> addLabeledMetrics(String label, Supplier<M> metric) {
+        return new AutoMappedMetric<>(value -> {
+            M m = metric.get();
+            m.addLabel(new MetricLabel(label, value));
+            MetricRepo.DORIS_METRIC_REGISTER.addMetrics(m);
+            return m;
+        });
     }
 
     // update some metrics to make a ready to be visited

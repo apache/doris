@@ -35,6 +35,10 @@ public:
 
     Status init(RowsetReaderContext* read_context) override;
 
+    Status get_segment_iterators(RowsetReaderContext* read_context,
+                                 std::vector<RowwiseIterator*>* out_iters) override;
+    void reset_read_options() override;
+
     // It's ok, because we only get ref here, the block's owner is this reader.
     Status next_block(RowBlock** block) override;
     Status next_block(vectorized::Block* block) override;
@@ -65,6 +69,13 @@ public:
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) override;
 
+    bool update_profile(RuntimeProfile* profile) override {
+        if (_iterator != nullptr) {
+            return _iterator->update_profile(profile);
+        }
+        return false;
+    }
+
 private:
     bool _should_push_down_value_predicates() const;
 
@@ -84,6 +95,9 @@ private:
     // make sure this handle is initialized and valid before
     // reading data.
     SegmentCacheHandle _segment_cache_handle;
+
+    StorageReadOptions _read_options;
+    bool _can_reuse_schema = true;
 };
 
 } // namespace doris

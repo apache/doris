@@ -16,7 +16,7 @@
 // under the License.
 
 #include <errno.h>
-#include <gperftools/malloc_extension.h>
+#include <libgen.h>
 #include <setjmp.h>
 #include <sys/file.h>
 #include <unistd.h>
@@ -51,7 +51,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
-#include "runtime/memory/mem_tracker_task_pool.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -181,7 +180,9 @@ void check_required_instructions_impl(volatile InstructionFail& fail) {
 
 #if defined(__ARM_NEON__)
     fail = InstructionFail::ARM_NEON;
+#ifndef __APPLE__
     __asm__ volatile("vadd.i32  q8, q8, q8" : : : "q8");
+#endif
 #endif
 
     fail = InstructionFail::NONE;
@@ -318,21 +319,25 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    if (doris::config::enable_fuzzy_mode) {
+        LOG(INFO) << "enable_fuzzy_mode is true, set fuzzy configs";
+        doris::config::set_fuzzy_configs();
+    }
+
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-    // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
-    // not backed by physical pages and do not contribute towards memory consumption.
-    if (doris::config::tc_enable_aggressive_memory_decommit) {
-        MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
-    }
     // Change the total TCMalloc thread cache size if necessary.
-    if (!MallocExtension::instance()->SetNumericProperty(
-                "tcmalloc.max_total_thread_cache_bytes",
-                doris::config::tc_max_total_thread_cache_bytes)) {
+    const size_t kDefaultTotalThreadCacheBytes = 1024 * 1024 * 1024;
+    if (!MallocExtension::instance()->SetNumericProperty("tcmalloc.max_total_thread_cache_bytes",
+                                                         kDefaultTotalThreadCacheBytes)) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
 #endif
+
+    if (doris::config::memory_mode == std::string("performance")) {
+        doris::MemTrackerLimiter::disable_oom_avoidance();
+    }
 
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
@@ -370,15 +375,14 @@ int main(int argc, char** argv) {
     apache::thrift::GlobalOutput.setOutputFunction(doris::thrift_output);
 
     Status status = Status::OK();
-#ifdef LIBJVM
-    // Init jni
-    status = doris::JniUtil::Init();
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
-        doris::shutdown_logging();
-        exit(1);
+    if (doris::config::enable_java_support) {
+        // Init jni
+        status = doris::JniUtil::Init();
+        if (!status.ok()) {
+            LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+            exit(1);
+        }
     }
-#endif
 
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
@@ -494,30 +498,7 @@ int main(int argc, char** argv) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
-        doris::PerfCounters::refresh_proc_status();
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
-        !defined(USE_JEMALLOC)
-        doris::MemInfo::refresh_allocator_mem();
-#endif
-        int64_t allocator_cache_mem_diff =
-                doris::MemInfo::allocator_cache_mem() -
-                doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consumption();
-        doris::ExecEnv::GetInstance()->allocator_cache_mem_tracker()->consume(
-                allocator_cache_mem_diff);
-        CONSUME_THREAD_MEM_TRACKER(allocator_cache_mem_diff);
-
-        // 1s clear the expired task mem tracker, a query mem tracker is about 57 bytes.
-        // this will cause coredump for ASAN build when running regression test,
-        // disable temporarily.
-        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
-        // The process tracker print log usage interval is 1s to avoid a large number of tasks being
-        // canceled when the process exceeds the mem limit, resulting in too many duplicate logs.
-        doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
-        if (doris::config::memory_verbose_track) {
-            doris::ExecEnv::GetInstance()->process_mem_tracker()->print_log_usage("main routine");
-            doris::ExecEnv::GetInstance()->process_mem_tracker()->enable_print_log_usage();
-        }
-        sleep(1);
+        sleep(10);
     }
 
     http_service.stop();

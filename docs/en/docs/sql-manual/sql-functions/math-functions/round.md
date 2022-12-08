@@ -27,8 +27,8 @@ under the License.
 ### description
 #### Syntax
 
-`BIGINT round(DOUBLE x)`
-Preserve the integer part after rounding `x`
+`round(x), round(x, d)`
+Rounds the argument `x` to `d` decimal places. `d` defaults to 0 if not specified. If d is negative, the left d digits of the decimal point are 0. If x or d is null, null is returned.
 
 ### example
 
@@ -57,6 +57,18 @@ mysql> select round(-3.5);
 +-------------+
 |          -4 |
 +-------------+
+mysql> select round(1667.2725, 2);
++---------------------+
+| round(1667.2725, 2) |
++---------------------+
+|             1667.27 |
++---------------------+
+mysql> select round(1667.2725, -2);
++----------------------+
+| round(1667.2725, -2) |
++----------------------+
+|                 1700 |
++----------------------+
 ```
 
 ### keywords

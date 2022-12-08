@@ -131,6 +131,20 @@ FE 的配置项有两种方式进行配置：
 
 用于限制创建动态分区表时可以创建的最大分区数，避免一次创建过多分区。 数量由动态分区参数中的“开始”和“结束”决定。
 
+<version since="1.2.0">
+
+### `max_multi_partition_num`
+
+默认值：4096
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true
+
+用于限制批量创建分区表时可以创建的最大分区数，避免一次创建过多分区。
+
+</version>
+
 ### `grpc_max_message_size_bytes`
 
 默认值：1G
@@ -398,6 +412,18 @@ show data （其他用法：HELP SHOW DATA）
 2. 对某一个 BE 节点，执行 decommission 操作，该操作会将该 BE 上的数据全部迁移到其他节点中。
 3. decommission 操作完成后，该 BE 不会被删除。此时，取消掉该 BE 的 decommission 状态。则数据会开始从其他 BE 节点均衡回这个节点。此时，数据将会均匀的分布到该 BE 的所有磁盘上。
 4. 对所有 BE 节点依次执行 2，3 两个步骤，最终达到所有节点磁盘均衡的目的。
+
+### `decommission_tablet_check_threshold`
+
+默认值: 5000
+
+是否可以动态配置: true
+
+是否为 Master FE 节点独有的配置项：true
+
+该配置用于控制FE是否执行检测（Decommission）BE上Tablets状态的阈值。如果（Decommission）BE上的Tablets个数大于0但小于该阈值，FE会定时对该BE开启一项检测，
+
+如果该BE上的Tablets数量大于0但是所有Tablets均处于被回收的状态，那么FE会立即下线该（Decommission）BE。注意，不要把该值配置的太大，不然在Decommission阶段可能会对FE造成性能压力。
 
 ### `period_of_auto_resume_min`
 
@@ -1195,64 +1221,6 @@ BE副本数的平衡阈值。
 
 副本之间的最小延迟秒数失败，并且尝试使用克隆来恢复它。
 
-### `clone_high_priority_delay_second`
-
-默认值：0
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-高优先级克隆作业的延迟触发时间
-
-### `clone_normal_priority_delay_second`
-
-默认值：300 （5分钟）
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-正常优先级克隆作业的延迟触发时间
-
-### `clone_low_priority_delay_second`
-
-默认值：600 （10分钟）
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-低优先级克隆作业的延迟触发时间。 克隆作业包含需要克隆（恢复或迁移）的tablet。 如果优先级为 LOW，则会延迟  `clone_low_priority_delay_second `，在作业创建之后然后被执行。 这是为了避免仅因为主机短时间停机而同时运行大量克隆作业。
-
-注意这个配置（还有 `clone_normal_priority_delay_second`） 如果它小于 `clone_checker_interval_second` 将不起作用
-
-### `clone_max_job_num`
-
-默认值：100
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-低优先级克隆作业的并发数。 高优先级克隆作业的并发性目前是无限的。
-
-### `clone_job_timeout_second`
-
-默认值：7200  (2小时)
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-单个克隆作业的默认超时。 设置足够长以适合您的副本大小。 副本数据越大，完成克隆所需的时间就越多
-
-### `clone_checker_interval_second`
-
-默认值：300 （5分钟）
-
-克隆检查器的运行间隔
-
 ### `tablet_delete_timeout_second`
 
 默认值：2
@@ -1680,12 +1648,6 @@ mysql 中处理任务的最大线程数。
 
 mysql 中处理 io 事件的线程数。
 
-### `mysql_service_nio_enabled`
-
-默认值：true
-
-mysql 服务 nio 选项是否启用，默认启用
-
 ### `query_port`
 
 默认值：9030
@@ -2067,7 +2029,7 @@ HOUR: log前缀是：yyyyMMddHH
 
 ### `label_clean_interval_second`
 
-默认值：4 * 3600  （4小时）
+默认值：1 * 3600  （1小时）
 
 load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清理过时的作业。
 
@@ -2239,7 +2201,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 ### backend_rpc_timeout_ms
 
- FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
+FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 默认值：60000
 
@@ -2258,10 +2220,11 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否为 Master FE 节点独有的配置项：false
 
 
+### enable_fqdn_mode
 
- FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
+此配置用于 k8s 部署环境。当 enable_k8s_detect_container_drift_mode 为 true 时，将允许更改 be 或 broker 的重建 pod的 ip。
 
-默认值：60000
+默认值： false
 
 是否可以动态配置：false
 
@@ -2278,12 +2241,127 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 
 默认值为`max_be_exec_version`，如果有特殊需要，我们可以手动设置将格式版本降低，但不应低于`min_be_exec_version`。
 
-需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`HeartbeatServer::min_data_version`和`HeartbeatServer::max_data_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
+需要注意的是，我们应该始终保持该变量的值处于**所有**BE的`BeExecVersionManager::min_be_exec_version`和`BeExecVersionManager::max_be_exec_version`之间。（也就是说如果一个已经完成更新的集群如果需要降级，应该保证先降级FE再降级BE的顺序，或者手动在设置中将该变量调低再降级BE）
 
 ### `max_be_exec_version`
 
-目前支持的最新数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::max_data_version`一致。
+目前支持的最新数据版本，不可修改，应与配套版本的BE中的`BeExecVersionManager::max_be_exec_version`一致。
 
 ### `min_be_exec_version`
 
-目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`HeartbeatServer::min_data_version`一致。
+目前支持的最旧数据版本，不可修改，应与配套版本的BE中的`BeExecVersionManager::min_be_exec_version`一致。
+
+### `max_query_profile_num`
+
+用于设置保存查询的 profile 的最大个数。
+
+默认值：100
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+### `disable_backend_black_list`
+
+用于禁止BE黑名单功能。禁止该功能后，如果向BE发送查询请求失败，也不会将这个BE添加到黑名单。
+该参数适用于回归测试环境，以减少偶发的错误导致大量回归测试失败。
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_backend_heartbeat_failure_tolerance_count`
+
+最大可容忍的BE节点心跳失败次数。如果连续心跳失败次数超过这个值，则会将BE状态置为 dead。
+该参数适用于回归测试环境，以减少偶发的心跳失败导致大量回归测试失败。
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `max_replica_count_when_schema_change`
+
+OlapTable在做schema change时，允许的最大副本数，副本数过大会导致FE OOM。
+
+默认值：100000
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `max_hive_partition_cache_num`
+
+hive partition 的最大缓存数量。
+
+默认值：100000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_external_file_cache_num`
+
+用于 external 外部表的最大文件缓存数量。
+
+默认值：100000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_external_schema_cache_num`
+
+用于 external 外部表的最大 schema 缓存数量。
+
+默认值：10000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `external_cache_expire_time_minutes_after_access`
+
+设置缓存中的数据，在最后一次访问后多久失效。单位为分钟。
+适用于 External Schema Cache 以及 Hive Partition Cache.
+
+默认值：1440
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+### `max_same_name_catalog_trash_num`
+
+用于设置回收站中同名元数据的最大个数，超过最大值时，最早删除的元数据将被彻底删除，不能再恢复。0 表示不保留同名对象。< 0 表示不做限制。
+
+注意：同名元数据的判断会局限在一定的范围内。比如同名database的判断会限定在相同cluster下，同名table的判断会限定在相同database（指相同database id）下，同名partition的判断会限定在相同database（指相同database id）并且相同table（指相同table id）下。
+
+默认值：3
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `enable_storage_policy`
+
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+
+默认值：false。即不开启
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+### `enable_fqdn_mode`
+
+此配置用于 k8s 部署环境。当 enable_fqdn_mode 为 true 时，将允许更改 be 的重建 pod的 ip。
+
+默认值： false
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true

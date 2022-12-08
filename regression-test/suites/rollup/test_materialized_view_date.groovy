@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view_date", "rollup") {
-    def tbName1 = "test_materialized_view1"
+    def tbName1 = "test_materialized_view_date"
 
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -23,7 +23,7 @@ suite("test_materialized_view_date", "rollup") {
     }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
-            CREATE TABLE ${tbName1}(
+            CREATE TABLE IF NOT EXISTS ${tbName1}(
                 record_id int, 
                 seller_id int, 
                 store_id int, 
@@ -37,7 +37,7 @@ suite("test_materialized_view_date", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    int max_try_secs = 60
+    int max_try_secs = 120
     sql "CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -51,8 +51,8 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
-    Thread.sleep(2)
-    max_try_secs = 60
+    Thread.sleep(2000)
+    max_try_secs = 120
     sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -66,8 +66,8 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
-    Thread.sleep(2)
-    max_try_secs = 60
+    Thread.sleep(2000)
+    max_try_secs = 120
     sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -81,8 +81,8 @@ suite("test_materialized_view_date", "rollup") {
             }
         }
     }
-    Thread.sleep(2)
-    max_try_secs = 60
+    Thread.sleep(2000)
+    max_try_secs = 120
     sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -101,7 +101,7 @@ suite("test_materialized_view_date", "rollup") {
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
     sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30', '2020-05-30', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111',100);"
     sql "insert into ${tbName1} values(2, 1, 1, '2020-05-30', '2020-05-30', '2020-04-30 11:11:11.111111', '2020-04-30 11:11:11.111111', '2020-04-30 11:11:11.111111',100);"
-    Thread.sleep(1000)
+    Thread.sleep(2000)
     explain{
         sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
         contains("(amt_max1)")

@@ -597,10 +597,9 @@ public class Column implements Writable {
                 && getStrLen() == other.getStrLen()
                 && getPrecision() == other.getPrecision()
                 && getScale() == other.getScale()
-                && comment.equals(other.comment)
+                && Objects.equals(comment, other.comment)
                 && visible == other.visible
-                && children.size() == other.children.size()
-                && children.equals(other.children);
+                && Objects.equals(children, other.children);
     }
 
     @Override

@@ -31,6 +31,5 @@ package org.apache.doris.nereids.trees.expressions.functions;
  *                          functions, you can find the override nullable functions which is not the above three
  *                          interfaces.
  */
-public interface ComputeNullable {
-    boolean nullable();
+public interface ComputeNullable extends ExpressionTrait {
 }

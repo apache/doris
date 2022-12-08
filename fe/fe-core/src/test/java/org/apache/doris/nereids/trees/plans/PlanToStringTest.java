@@ -56,7 +56,7 @@ public class PlanToStringTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
         Assertions.assertTrue(plan.toString()
-                .matches("LogicalAggregate \\( phase=LOCAL, outputExpr=\\[a#\\d+], groupByExpr=\\[] \\)"));
+                .matches("LogicalAggregate \\( phase=LOCAL, outputExpr=\\[a#\\d+], groupByExpr=\\[], hasRepeat=false \\)"));
     }
 
     @Test
@@ -73,7 +73,7 @@ public class PlanToStringTest {
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 left, right);
         Assertions.assertTrue(plan.toString().matches(
-                "LogicalJoin \\( type=INNER_JOIN, hashJoinCondition=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinCondition=\\[] \\)"));
+                "LogicalJoin \\( type=INNER_JOIN, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
     }
 
     @Test
@@ -81,7 +81,7 @@ public class PlanToStringTest {
         LogicalOlapScan plan = PlanConstructor.newLogicalOlapScan(0, "table", 0);
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
-                        + "output=\\[id#\\d+, name#\\d+], candidateIndexIds=\\[], selectedIndexId=-1, preAgg=ON \\)"));
+                        + "output=\\[id#\\d+, name#\\d+], candidateIndexIds=\\[], selectedIndexId=-1, preAgg=ON, pushAgg=NONE \\)"));
     }
 
     @Test

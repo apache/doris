@@ -75,7 +75,7 @@ protected:
         TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
         TabletSchemaPB tablet_schema_pb;
         tablet_schema_pb.set_keys_type(keys_type);
-        tablet_schema_pb.set_num_short_key_columns(2);
+        tablet_schema_pb.set_num_short_key_columns(1);
         tablet_schema_pb.set_num_rows_per_row_block(1024);
         tablet_schema_pb.set_compress_kind(COMPRESS_NONE);
         tablet_schema_pb.set_next_column_unique_id(4);
@@ -131,7 +131,7 @@ protected:
         rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
-        rowset_writer_context->tablet_path = "tablet_path";
+        rowset_writer_context->rowset_dir = "tablet_path";
         rowset_writer_context->version = Version(inc_id, inc_id);
         rowset_writer_context->segments_overlap = overlap;
         rowset_writer_context->max_rows_per_segment = max_rows_per_segment;
@@ -164,7 +164,7 @@ protected:
         create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_TRUE(s.ok());
 
         RowCursor input_row;
@@ -367,7 +367,7 @@ protected:
         RowsetWriterContext writer_context;
         create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
         std::unique_ptr<RowsetWriter> output_rs_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, &output_rs_writer);
+        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &output_rs_writer);
         EXPECT_TRUE(s.ok());
 
         // merge input rowset

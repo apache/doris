@@ -32,14 +32,17 @@ public class DropDbInfo implements Writable {
     private String dbName;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
+    @SerializedName(value = "recycleTime")
+    private long recycleTime = 0;
 
     public DropDbInfo() {
-        this("", false);
+        this("", false, 0);
     }
 
-    public DropDbInfo(String dbName, boolean forceDrop) {
+    public DropDbInfo(String dbName, boolean forceDrop, long recycleTime) {
         this.dbName = dbName;
         this.forceDrop = forceDrop;
+        this.recycleTime = recycleTime;
     }
 
     public String getDbName() {
@@ -48,6 +51,10 @@ public class DropDbInfo implements Writable {
 
     public boolean isForceDrop() {
         return  forceDrop;
+    }
+
+    public Long getRecycleTime() {
+        return  recycleTime;
     }
 
     @Deprecated
@@ -78,7 +85,8 @@ public class DropDbInfo implements Writable {
         DropDbInfo info = (DropDbInfo) obj;
 
         return (dbName.equals(info.getDbName()))
-                && (forceDrop == info.isForceDrop());
+            && (forceDrop == info.isForceDrop())
+            && (recycleTime == info.getRecycleTime());
     }
 
 }

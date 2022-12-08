@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include "common/config.h"
 #include "util/thrift_util.h"
 
 namespace doris::vectorized {

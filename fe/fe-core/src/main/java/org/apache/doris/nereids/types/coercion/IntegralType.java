@@ -33,7 +33,7 @@ public class IntegralType extends NumericType {
     }
 
     @Override
-    public boolean acceptsType(DataType other) {
+    public boolean acceptsType(AbstractDataType other) {
         return other instanceof IntegralType;
     }
 

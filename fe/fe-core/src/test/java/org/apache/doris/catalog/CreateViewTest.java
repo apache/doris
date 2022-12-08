@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -44,7 +43,6 @@ public class CreateViewTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
-        Config.enable_array_type = true;
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
@@ -191,9 +189,9 @@ public class CreateViewTest {
 
         alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "WITH test1_cte(w1, w2) "
-                        + "AS (SELECT `k1` AS `k1`, `k2` AS `k2` FROM `default_cluster:test`.`tbl1`) "
-                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1` ASC",
+                "WITH test1_cte(w1, w2) AS (SELECT `k1`, `k2` FROM `default_cluster:test`.`tbl1`) "
+                        + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` "
+                        + "ORDER BY `w1` ASC",
                 alter1.getInlineViewDef());
     }
 }

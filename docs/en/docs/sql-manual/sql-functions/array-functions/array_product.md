@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_PRODUCT Function",
+    "title": "array_product",
     "language": "en"
 }
 ---
@@ -23,12 +23,13 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+## array_product
 
-## ARRAY_PRODUCT
+<version since="1.2.0">
 
-### Name
+array_product
 
-ARRAY_PRODUCT
+</version>
 
 ### description
 

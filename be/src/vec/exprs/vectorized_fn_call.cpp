@@ -37,6 +37,15 @@ VectorizedFnCall::VectorizedFnCall(const doris::TExprNode& node) : VExpr(node) {
 
 doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                                         const doris::RowDescriptor& desc, VExprContext* context) {
+    // In 1.2-lts, repeat function return type is changed to always nullable,
+    // which is not compatible with 1.1-lts
+    if ("repeat" == _fn.name.function_name and !_data_type->is_nullable()) {
+        const auto error_msg =
+                "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized repeat "
+                "function cannot be executed, you can switch to non-vectorized engine by "
+                "'set global enable_vectorized_engine = false'";
+        return Status::InternalError(error_msg);
+    }
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
@@ -49,11 +58,13 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
-#ifdef LIBJVM
-        _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
-#else
-        return Status::InternalError("Java UDF is disabled since no libjvm is found!");
-#endif
+        if (config::enable_java_support) {
+            _function = JavaFunctionCall::create(_fn, argument_template, _data_type);
+        } else {
+            return Status::InternalError(
+                    "Java UDF is not enabled, you can change be config enable_java_support to true "
+                    "and restart be.");
+        }
     } else {
         _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
                                                                    argument_template, _data_type);
@@ -115,7 +126,7 @@ std::string VectorizedFnCall::debug_string() const {
         } else {
             out << ",";
         }
-        out << input_expr->debug_string();
+        out << "\n" << input_expr->debug_string();
     }
     out << "}";
     return out.str();

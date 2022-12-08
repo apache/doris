@@ -410,11 +410,6 @@ public class Config extends ConfigBase {
     @ConfField public static int query_port = 9030;
 
     /**
-     * mysql service nio option.
-     */
-    @ConfField public static boolean mysql_service_nio_enabled = true;
-
-    /**
      * num of thread to handle io events in mysql.
      */
     @ConfField public static int mysql_service_io_threads_num = 4;
@@ -455,7 +450,7 @@ public class Config extends ConfigBase {
      * In order not to wait too long for create table(index), set a max timeout.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_create_table_timeout_second = 60;
+    public static int max_create_table_timeout_second = 3600;
 
     /**
      * Maximal waiting time for all publish version tasks of one transaction to be finished
@@ -577,7 +572,7 @@ public class Config extends ConfigBase {
      * Default stream load and streaming mini load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int stream_load_default_timeout_second = 600; // 600s
+    public static int stream_load_default_timeout_second = 86400 * 3; // 3days
 
     /**
      * Default stream load pre-commit status timeout
@@ -807,7 +802,7 @@ public class Config extends ConfigBase {
      * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int alter_table_timeout_second = 86400; // 1day
+    public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
@@ -1320,16 +1315,13 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
-     * enable spark load for temporary use
+     * When tablet size of decommissioned backend is lower than this threshold,
+     * SystemHandler will start to check if all tablets of this backend are in recycled status,
+     * this backend will be dropped immediately if the check result is true.
+     * For performance based considerations, better not set a very high value for this.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_spark_load = true;
-
-    /**
-     * enable use odbc table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_odbc_table = true;
+    public static int decommission_tablet_check_threshold = 5000;
 
     /**
      * Define thrift server's server model, default is TThreadPoolServer model
@@ -1492,6 +1484,14 @@ public class Config extends ConfigBase {
     public static int max_dynamic_partition_num = 500;
 
     /**
+     * Used to limit the maximum number of partitions that can be created when creating multi partition,
+     * to avoid creating too many partitions at one time.
+     * The number is determined by "start" and "end" in the multi partition parameters.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_multi_partition_num = 4096;
+
+    /**
      * Control the max num of backup/restore job per db
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1583,7 +1583,7 @@ public class Config extends ConfigBase {
 
     /*
      * If set to true, when creating table, Doris will allow to locate replicas of a tablet
-     * on same host. And also the tablet repair and balance will be disabled.
+     * on same host.
      * This is only for local test, so that we can deploy multi BE on same host and create table
      * with multi replicas.
      * DO NOT use it for production env.
@@ -1683,6 +1683,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_vectorized_load = true;
 
+    @ConfField
+    public static boolean enable_pipeline_load = false;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
@@ -1690,7 +1693,7 @@ public class Config extends ConfigBase {
      * Temp config for multi catalog feature.
      * Should be removed when this feature is ready.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_multi_catalog = false;
 
     @ConfField(mutable = true, masterOnly = false)
@@ -1698,13 +1701,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false)
     public static long file_scan_node_split_num = 128;
-
-    /*
-     * If set to TRUE, the precision of decimal will be broaden to [1, 38].
-     * Decimalv3 of storage layer needs to be enabled first.
-     */
-    @ConfField
-    public static boolean enable_decimalv3 = false;
 
     /**
      * If set to TRUE, FE will:
@@ -1783,9 +1779,162 @@ public class Config extends ConfigBase {
     public static int be_exec_version = max_be_exec_version;
 
     @ConfField(mutable = false)
-    public static int statistic_job_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_job_scheduler_execution_interval_ms = 1000;
 
     @ConfField(mutable = false)
-    public static int statistic_task_scheduler_execution_interval_ms = 60 * 1000;
+    public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
+    /*
+     * mtmv scheduler framework is still under dev, remove this config when it is graduate.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_mtmv_scheduler_framework = false;
+
+    /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_mtmv_scheduler_task_num = 100;
+
+    /* Max pending task num keep in pending poll, otherwise it reject the task submit*/
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_pending_mtmv_scheduler_task_num = 100;
+
+    /* Remove the completed mtmv job after this expired time. */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_job_expired = 24 * 60 * 60L; // 1day
+
+    /* Remove the finished mtmv task after this expired time. */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
+
+    /**
+     * The candidate of the backend node for federation query such as hive table and es table query.
+     * If the backend of computation role is less than this value, it will acquire some mix backend.
+     * If the computation backend is enough, federation query will only assign to computation backend.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int backend_num_for_federation = 3;
+
+    /**
+     * Max query profile num.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int max_query_profile_num = 100;
+
+    /**
+     * Set to true to disable backend black list, so that even if we failed to send task to a backend,
+     * that backend won't be added to black list.
+     * This should only be set when running tests, such as regression test.
+     * Highly recommended NOT disable it in product environment.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_backend_black_list = false;
+
+    /**
+     * Maximum backend heartbeat failure tolerance count.
+     * Default is 1, which means if 1 heart failed, the backend will be marked as dead.
+     * A larger value can improve the tolerance of the cluster to occasional heartbeat failures.
+     * For example, when running regression tests, this value can be increased.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_backend_heartbeat_failure_tolerance_count = 1;
+
+    /**
+     * The iceberg and hudi table will be removed in v1.3
+     * Use multi catalog instead.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean disable_iceberg_hudi_table = true;
+
+    /**
+     * The default connection timeout for hive metastore.
+     * hive.metastore.client.socket.timeout
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static long hive_metastore_client_timeout_second = 10;
+
+    /**
+     * Used to determined how many statistics collection SQL could run simultaneously.
+     */
+    @ConfField
+    public static int statistics_simultaneously_running_job_num = 10;
+
+    /**
+     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
+     * otherwise the statistics related internal table creation would be failed.
+     */
+    @ConfField
+    public static int statistic_internal_table_replica_num = 1;
+
+    /**
+     * if table has too many replicas, Fe occur oom when schema change.
+     * 10W replicas is a reasonable value for testing.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_replica_count_when_schema_change = 100000;
+
+    /**
+     * Max cache num of hive partition.
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long max_hive_partition_cache_num = 100000;
+
+    /**
+     * Max cache num of external catalog's file
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long max_external_file_cache_num = 100000;
+
+    /**
+     * Max cache num of external table's schema
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long max_external_schema_cache_num = 10000;
+
+    /**
+     * The expiration time of a cache object after last access of it.
+     * For external schema cache and hive meta cache.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+
+    /**
+     * Set session variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean use_fuzzy_session_variable = false;
+
+    /**
+     * Collect external table statistic info by running sql when set to true.
+     * Otherwise, use external catalog metadata.
+     */
+    @ConfField(mutable = true)
+    public static boolean collect_external_table_stats_by_sql = false;
+
+    /**
+     * Max num of same name meta informatntion in catalog recycle bin.
+     * Default is 3.
+     * 0 means do not keep any meta obj with same name.
+     * < 0 means no limit
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_same_name_catalog_trash_num = 3;
+
+    /**
+     * The storage policy is still under developement.
+     * Disable it by default.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_storage_policy = false;
+
+    /**
+     * This config is mainly used in the k8s cluster environment.
+     * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
+     * after reconstruction, while the ip can be changed.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_fqdn_mode = false;
 }
+

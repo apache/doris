@@ -1,6 +1,6 @@
 DROP TABLE IF EXISTS schema_change_delete_regression_test;
 
-CREATE TABLE schema_change_delete_regression_test (
+CREATE TABLE IF NOT EXISTS schema_change_delete_regression_test (
                 `user_id` LARGEINT NOT NULL COMMENT "用户id",
                 `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                 `city` VARCHAR(20) COMMENT "用户所在城市",

@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
+#include "olap/iterators.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -69,6 +70,8 @@ struct PageReadOptions {
 
     // index_page should not be pre-decoded
     bool pre_decode = true;
+
+    IOContext io_ctx;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);

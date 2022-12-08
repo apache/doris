@@ -24,7 +24,6 @@
 #include "util/proto_util.h"
 #include "util/time.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -68,6 +67,12 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request.set_eos(false);
 
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
+    // The node channel will send _batch_size rows of data each rpc. When the
+    // number of tablets is large, the number of data rows received by each
+    // tablet is small, TabletsChannel need to traverse each tablet for import.
+    // so the import performance is poor. Therefore, we set _batch_size to
+    // a relatively large value to improve the import performance.
+    _batch_size = std::max(_batch_size, 8192);
 
     return Status::OK();
 }
@@ -90,7 +95,10 @@ Status VNodeChannel::open_wait() {
         }
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                       _add_block_closure->cntl.ErrorText(), -1);
+                                       fmt::format("rpc failed, error coed:{}, error text:{}",
+                                                   _add_block_closure->cntl.ErrorCode(),
+                                                   _add_block_closure->cntl.ErrorText()),
+                                       -1);
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
             _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
@@ -114,8 +122,8 @@ Status VNodeChannel::open_wait() {
         if (status.ok()) {
             // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {
-                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
-                                               error.tablet_id());
+                _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                               "tablet error: " + error.msg(), error.tablet_id());
             }
 
             Status st = _index_channel->check_intolerable_failure();
@@ -247,7 +255,7 @@ int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
 
 void VNodeChannel::try_send_block(RuntimeState* state) {
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {
@@ -269,7 +277,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes,
+        Status st = block.serialize(state->be_exec_version(), request.mutable_block(),
+                                    &uncompressed_bytes, &compressed_bytes,
                                     state->fragement_transmission_compression_type(),
                                     _parent->_transfer_large_data_by_brpc);
         if (!st.ok()) {
@@ -354,7 +363,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
         _add_block_closure->cntl.http_request().set_content_type("application/json");
 
         {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _brpc_http_stub->tablet_writer_add_block_by_http(&_add_block_closure->cntl, NULL,
                                                              &_add_block_closure->result,
                                                              _add_block_closure);
@@ -362,7 +371,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     } else {
         _add_block_closure->cntl.http_request().Clear();
         {
-            SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             _stub->tablet_writer_add_block(&_add_block_closure->cntl, &request,
                                            &_add_block_closure->result, _add_block_closure);
         }
@@ -445,7 +454,47 @@ size_t VOlapTableSink::get_pending_bytes() const {
     return mem_consumption;
 }
 
-Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
+Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
+                                   const VOlapTablePartition** partition, uint32_t& tablet_index,
+                                   bool& stop_processing, bool& is_continue) {
+    Status status = Status::OK();
+    *partition = nullptr;
+    tablet_index = 0;
+    BlockRow block_row;
+    block_row = {block, row_index};
+    if (!_vpartition->find_partition(&block_row, partition)) {
+        RETURN_IF_ERROR(state->append_error_msg_to_file(
+                []() -> std::string { return ""; },
+                [&]() -> std::string {
+                    fmt::memory_buffer buf;
+                    fmt::format_to(buf, "no partition for this tuple. tuple={}",
+                                   block->dump_data(row_index, 1));
+                    return fmt::to_string(buf);
+                },
+                &stop_processing));
+        _number_filtered_rows++;
+        if (stop_processing) {
+            return Status::EndOfFile("Encountered unqualified data, stop processing");
+        }
+        is_continue = true;
+        return status;
+    }
+    _partition_ids.emplace((*partition)->id);
+    if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
+        if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {
+            tablet_index = _vpartition->find_tablet(&block_row, **partition);
+            _partition_to_tablet_map.emplace((*partition)->id, tablet_index);
+        } else {
+            tablet_index = _partition_to_tablet_map[(*partition)->id];
+        }
+    } else {
+        tablet_index = _vpartition->find_tablet(&block_row, **partition);
+    }
+
+    return status;
+}
+
+Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOlapTableSink::send");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
@@ -492,7 +541,6 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _convert_to_dest_desc_block(&block);
     }
 
-    BlockRow block_row;
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     bool stop_processing = false;
@@ -500,76 +548,85 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
         _partition_to_tablet_map.clear();
     }
 
-    std::vector<std::unordered_map<
-            NodeChannel*,
-            std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
-            channel_to_payload;
-    channel_to_payload.resize(_channels.size());
-    for (int i = 0; i < num_rows; ++i) {
-        if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
-            continue;
-        }
-        const VOlapTablePartition* partition = nullptr;
-        uint32_t tablet_index = 0;
-        block_row = {&block, i};
-        if (!_vpartition->find_partition(&block_row, &partition)) {
-            RETURN_IF_ERROR(state->append_error_msg_to_file(
-                    []() -> std::string { return ""; },
-                    [&]() -> std::string {
-                        fmt::memory_buffer buf;
-                        fmt::format_to(buf, "no partition for this tuple. tuple={}",
-                                       block.dump_data(i, 1));
-                        return fmt::to_string(buf);
-                    },
-                    &stop_processing));
-            _number_filtered_rows++;
-            if (stop_processing) {
-                return Status::EndOfFile("Encountered unqualified data, stop processing");
+    bool use_vec = _is_vectorized && state->be_exec_version() > 0;
+    if (use_vec) {
+        std::vector<std::unordered_map<
+                NodeChannel*,
+                std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>>>
+                channel_to_payload;
+        channel_to_payload.resize(_channels.size());
+        for (int i = 0; i < num_rows; ++i) {
+            if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
+                continue;
             }
-            continue;
-        }
-        _partition_ids.emplace(partition->id);
-        if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
-            if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
-                tablet_index = _vpartition->find_tablet(&block_row, *partition);
-                _partition_to_tablet_map.emplace(partition->id, tablet_index);
-            } else {
-                tablet_index = _partition_to_tablet_map[partition->id];
+            const VOlapTablePartition* partition = nullptr;
+            uint32_t tablet_index = 0;
+            bool is_continue = false;
+            RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
+                                        is_continue));
+            if (is_continue) {
+                continue;
             }
-        } else {
-            tablet_index = _vpartition->find_tablet(&block_row, *partition);
-        }
-        for (int j = 0; j < partition->indexes.size(); ++j) {
-            auto tid = partition->indexes[j].tablets[tablet_index];
-            auto it = _channels[j]->_channels_by_tablet.find(tid);
-            DCHECK(it != _channels[j]->_channels_by_tablet.end())
-                    << "unknown tablet, tablet_id=" << tablet_index;
-            for (const auto& channel : it->second) {
-                if (channel_to_payload[j].count(channel.get()) < 1) {
-                    channel_to_payload[j].insert(
-                            {channel.get(),
-                             std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
-                                       std::vector<int64_t>> {
-                                     std::unique_ptr<vectorized::IColumn::Selector>(
-                                             new vectorized::IColumn::Selector()),
-                                     std::vector<int64_t>()}});
+            for (int j = 0; j < partition->indexes.size(); ++j) {
+                auto tid = partition->indexes[j].tablets[tablet_index];
+                auto it = _channels[j]->_channels_by_tablet.find(tid);
+                DCHECK(it != _channels[j]->_channels_by_tablet.end())
+                        << "unknown tablet, tablet_id=" << tablet_index;
+                for (const auto& channel : it->second) {
+                    if (channel_to_payload[j].count(channel.get()) < 1) {
+                        channel_to_payload[j].insert(
+                                {channel.get(),
+                                 std::pair<std::unique_ptr<vectorized::IColumn::Selector>,
+                                           std::vector<int64_t>> {
+                                         std::unique_ptr<vectorized::IColumn::Selector>(
+                                                 new vectorized::IColumn::Selector()),
+                                         std::vector<int64_t>()}});
+                    }
+                    channel_to_payload[j][channel.get()].first->push_back(i);
+                    channel_to_payload[j][channel.get()].second.push_back(tid);
                 }
-                channel_to_payload[j][channel.get()].first->push_back(i);
-                channel_to_payload[j][channel.get()].second.push_back(tid);
-            }
-            _number_output_rows++;
-        }
-    }
-    for (size_t i = 0; i < _channels.size(); i++) {
-        for (const auto& entry : channel_to_payload[i]) {
-            // if this node channel is already failed, this add_row will be skipped
-            auto st = entry.first->add_block(&block, entry.second);
-            if (!st.ok()) {
-                _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
-                                             st.get_error_msg());
+                _number_output_rows++;
             }
         }
+        for (size_t i = 0; i < _channels.size(); i++) {
+            for (const auto& entry : channel_to_payload[i]) {
+                // if this node channel is already failed, this add_row will be skipped
+                auto st = entry.first->add_block(&block, entry.second);
+                if (!st.ok()) {
+                    _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
+                                                 st.get_error_msg());
+                }
+            }
+        }
+    } else {
+        size_t MAX_PENDING_BYTES = _load_mem_limit / 3;
+        while (get_pending_bytes() > MAX_PENDING_BYTES && !state->is_cancelled()) {
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+
+        for (int i = 0; i < num_rows; ++i) {
+            if (filtered_rows > 0 && _filter_bitmap.Get(i)) {
+                continue;
+            }
+            const VOlapTablePartition* partition = nullptr;
+            uint32_t tablet_index = 0;
+            BlockRow block_row;
+            block_row = {&block, i};
+            bool is_continue = false;
+            RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
+                                        is_continue));
+            if (is_continue) {
+                continue;
+            }
+
+            for (int j = 0; j < partition->indexes.size(); ++j) {
+                int64_t tablet_id = partition->indexes[j].tablets[tablet_index];
+                _channels[j]->add_row(block_row, tablet_id);
+                _number_output_rows++;
+            }
+        }
     }
+
     // check intolerable failure
     for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
@@ -605,6 +662,10 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
 
     auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
     auto& real_column_ptr = column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
+    auto null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    auto need_to_validate = [&null_map, &filter_bitmap](size_t j, size_t row) {
+        return !filter_bitmap->Get(row) && (null_map == nullptr || null_map[j] == 0);
+    };
 
     ssize_t last_invalid_row = -1;
     switch (type.type) {
@@ -614,13 +675,17 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         const auto column_string =
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
 
-        size_t limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        size_t limit = config::string_type_length_soft_limit_bytes;
+        // when type.len is negative, std::min will return overflow value, so we need to check it
+        if (type.len > 0) {
+            limit = std::min(config::string_type_length_soft_limit_bytes, type.len);
+        }
         for (size_t j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
                 continue;
             }
-            if (!filter_bitmap->Get(row)) {
+            if (need_to_validate(j, row)) {
                 auto str_val = column_string->get_data_at(j);
                 bool invalid = str_val.size > limit;
                 if (invalid) {
@@ -628,13 +693,15 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                     if (str_val.size > type.len) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input is too long than schema. ");
-                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
+                                       str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
                         fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                     } else if (str_val.size > limit) {
                         fmt::format_to(error_msg, "{}",
                                        "the length of input string is too long than vec schema. ");
-                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                        fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
+                                       str_val.to_prefix(32));
                         fmt::format_to(error_msg, "schema length: {}; ", type.len);
                         fmt::format_to(error_msg, "limit length: {}; ", limit);
                         fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
@@ -646,11 +713,14 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         break;
     }
     case TYPE_JSONB: {
-        const auto column_jsonb =
-                assert_cast<const vectorized::ColumnJsonb*>(real_column_ptr.get());
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
         for (size_t j = 0; j < column->size(); ++j) {
             if (!filter_bitmap->Get(j)) {
-                auto str_val = column_jsonb->get_data_at(j);
+                if (is_nullable && column_ptr && column_ptr->is_null_at(j)) {
+                    continue;
+                }
+                auto str_val = column_string->get_data_at(j);
                 bool invalid = str_val.size == 0;
                 if (invalid) {
                     error_msg.clear();
@@ -671,7 +741,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             if (row == last_invalid_row) {
                 continue;
             }
-            if (!filter_bitmap->Get(row)) {
+            if (need_to_validate(j, row)) {
                 auto dec_val = binary_cast<vectorized::Int128, DecimalV2Value>(
                         column_decimal->get_data()[j]);
                 bool invalid = false;
@@ -733,8 +803,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
     // 1. column is nullable but the desc is not nullable
     // 2. desc->type is BITMAP
     if ((!is_nullable || type == TYPE_OBJECT) && column_ptr) {
-        const auto& null_map = column_ptr->get_null_map_data();
-        for (int j = 0; j < null_map.size(); ++j) {
+        for (int j = 0; j < column->size(); ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (row == last_invalid_row) {
                 continue;

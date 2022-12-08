@@ -707,6 +707,37 @@ DateTimeVal TimestampFunctions::from_days(FunctionContext* ctx, const IntVal& da
     return ts_val;
 }
 
+DateTimeVal TimestampFunctions::last_day(FunctionContext* ctx, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeValue ts_value = DateTimeValue::from_datetime_val(ts_val);
+
+    bool is_leap_year = doris::is_leap(ts_value.year());
+    if (ts_value.month() == 2) {
+        int day = is_leap_year ? 29 : 28;
+        ts_value.set_time(ts_value.year(), ts_value.month(), day, 0, 0, 0, 0);
+    } else {
+        if (ts_value.month() == 1 || ts_value.month() == 3 || ts_value.month() == 5 ||
+            ts_value.month() == 7 || ts_value.month() == 8 || ts_value.month() == 10 ||
+            ts_value.month() == 12) {
+            ts_value.set_time(ts_value.year(), ts_value.month(), 31, 0, 0, 0, 0);
+        } else {
+            ts_value.set_time(ts_value.year(), ts_value.month(), 30, 0, 0, 0, 0);
+        }
+    }
+
+    ts_value.set_type(TIME_DATE);
+    if (!ts_value.is_valid_date()) {
+        return DateTimeVal::null();
+    }
+
+    DateTimeVal result_ts_val;
+    ts_value.to_datetime_val(&result_ts_val);
+    return result_ts_val;
+}
+
 IntVal TimestampFunctions::to_days(FunctionContext* ctx, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
@@ -884,39 +915,43 @@ void TimestampFunctions::convert_tz_prepare(doris_udf::FunctionContext* context,
                                             doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL || context->get_num_args() != 3 ||
         context->get_arg_type(1)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR ||
-        context->get_arg_type(2)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR ||
-        !context->is_arg_constant(1) || !context->is_arg_constant(2)) {
+        context->get_arg_type(2)->type != doris_udf::FunctionContext::Type::TYPE_VARCHAR) {
         return;
     }
 
     ConvertTzCtx* ctc = new ConvertTzCtx();
     context->set_function_state(scope, ctc);
 
-    // find from timezone
-    StringVal* from = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
-    if (UNLIKELY(from->is_null)) {
-        ctc->is_valid = false;
-        return;
-    }
-    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*)from->ptr, from->len),
-                                            ctc->from_tz)) {
-        ctc->is_valid = false;
-        return;
+    if (context->is_arg_constant(1)) {
+        // find from timezone
+        StringVal* from = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
+        if (UNLIKELY(from->is_null)) {
+            ctc->is_valid = false;
+            return;
+        }
+        if (!TimezoneUtils::find_cctz_time_zone(std::string((char*)from->ptr, from->len),
+                                                ctc->from_tz)) {
+            ctc->is_valid = false;
+            return;
+        }
+        ctc->constant_from = true;
     }
 
-    // find to timezone
-    StringVal* to = reinterpret_cast<StringVal*>(context->get_constant_arg(2));
-    if (UNLIKELY(to->is_null)) {
-        ctc->is_valid = false;
-        return;
-    }
-    if (!TimezoneUtils::find_cctz_time_zone(std::string((char*)to->ptr, to->len), ctc->to_tz)) {
-        ctc->is_valid = false;
-        return;
+    if (context->is_arg_constant(2)) {
+        // find to timezone
+        StringVal* to = reinterpret_cast<StringVal*>(context->get_constant_arg(2));
+        if (UNLIKELY(to->is_null)) {
+            ctc->is_valid = false;
+            return;
+        }
+        if (!TimezoneUtils::find_cctz_time_zone(std::string((char*)to->ptr, to->len), ctc->to_tz)) {
+            ctc->is_valid = false;
+            return;
+        }
+        ctc->constant_to = true;
     }
 
     ctc->is_valid = true;
-    return;
 }
 
 DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeVal& ts_val,
@@ -944,12 +979,40 @@ DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeV
     }
 
     int64_t timestamp;
-    if (!ts_value.unix_timestamp(&timestamp, ctc->from_tz)) {
-        return DateTimeVal::null();
+
+    if (ctc->constant_from) {
+        if (!ts_value.unix_timestamp(&timestamp, ctc->from_tz)) {
+            return DateTimeVal::null();
+        }
+    } else {
+        auto from_tz_string = from_tz.to_string();
+        if (UNLIKELY(ctc->time_zone_cache.find(from_tz_string) == ctc->time_zone_cache.cend())) {
+            if (UNLIKELY(!TimezoneUtils::find_cctz_time_zone(
+                        from_tz_string, ctc->time_zone_cache[from_tz_string]))) {
+                return DateTimeVal::null();
+            }
+        }
+        if (!ts_value.unix_timestamp(&timestamp, ctc->time_zone_cache[from_tz_string])) {
+            return DateTimeVal::null();
+        }
     }
+
     DateTimeValue ts_value2;
-    if (!ts_value2.from_unixtime(timestamp, ctc->to_tz)) {
-        return DateTimeVal::null();
+    if (ctc->constant_to) {
+        if (!ts_value2.from_unixtime(timestamp, ctc->to_tz)) {
+            return DateTimeVal::null();
+        }
+    } else {
+        auto to_tz_string = to_tz.to_string();
+        if (UNLIKELY(ctc->time_zone_cache.find(to_tz_string) == ctc->time_zone_cache.cend())) {
+            if (UNLIKELY(!TimezoneUtils::find_cctz_time_zone(to_tz_string,
+                                                             ctc->time_zone_cache[to_tz_string]))) {
+                return DateTimeVal::null();
+            }
+        }
+        if (!ts_value2.from_unixtime(timestamp, ctc->time_zone_cache[to_tz_string])) {
+            return DateTimeVal::null();
+        }
     }
 
     DateTimeVal return_val;

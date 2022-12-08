@@ -49,7 +49,7 @@ Doris 自身能够保证不丢不重的订阅 Kafka 中的消息，即 `Exactly-
 
 例行导入功能支持无认证的 Kafka 集群，以及通过 SSL 认证的 Kafka 集群。
 
-访问 SSL 认证的 Kafka 集群需要用户提供用于认证 Kafka Broker 公钥的证书文件（ca.pem）。如果 Kafka 集群同时开启了客户端认证，则还需提供客户端的公钥（client.pem）、密钥文件（client.key），以及密钥密码。这里所需的文件需要先通过 `CREAE FILE` 命令上传到 Plao 中，并且 catalog 名称为 `kafka`。`CREATE FILE` 命令的具体帮助可以参见 [CREATE FILE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE.md) 命令手册。这里给出示例：
+访问 SSL 认证的 Kafka 集群需要用户提供用于认证 Kafka Broker 公钥的证书文件（ca.pem）。如果 Kafka 集群同时开启了客户端认证，则还需提供客户端的公钥（client.pem）、密钥文件（client.key），以及密钥密码。这里所需的文件需要先通过 `CREAE FILE` 命令上传到 Doris 中，并且 catalog 名称为 `kafka`。`CREATE FILE` 命令的具体帮助可以参见 [CREATE FILE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE.md) 命令手册。这里给出示例：
 
 - 上传文件
 

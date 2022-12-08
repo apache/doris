@@ -26,7 +26,7 @@
  * JsonbParserT parses JSON string, and directly serializes into JSONB
  * packed bytes. There are three ways to parse a JSON string: (1) using
  * c-string, (2) using string with len, (3) using std::istream object. You can
- * use custome streambuf to redirect output. JsonbOutBuffer is a streambuf used
+ * use custom streambuf to redirect output. JsonbOutBuffer is a streambuf used
  * internally if the input is raw character buffer.
  *
  * You can reuse an JsonbParserT object to parse/serialize multiple JSON
@@ -40,7 +40,7 @@
  * string to an id, and store the dictionary id in JSONB to save space. The
  * purpose of using an external dictionary is more towards a collection of
  * documents (which has common keys) rather than a single document, so that
- * space saving will be siginificant.
+ * space saving will be significant.
  *
  * ** Endianness **
  * Note: JSONB serialization doesn't assume endianness of the server. However

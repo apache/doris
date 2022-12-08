@@ -17,16 +17,14 @@
 
 #include <gtest/gtest.h>
 
-#include "common/logging.h"
 #include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/aggregate_function_topn.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-
 namespace doris::vectorized {
 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
@@ -43,8 +41,7 @@ public:
                 std::make_shared<DataTypeInt64>(),    std::make_shared<DataTypeString>(),
                 std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeUInt8>(),
                 std::make_shared<DataTypeUInt8>(),    std::make_shared<DataTypeUInt8>(),
-                std::make_shared<DataTypeUInt8>(),
-        };
+                std::make_shared<DataTypeUInt8>()};
         Array array;
         agg_function = factory.get("window_funnel", data_types, array, false);
         EXPECT_NE(agg_function, nullptr);

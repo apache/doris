@@ -36,16 +36,10 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStat;
-import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.statistics.StatsDeriveResult;
-import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -61,8 +55,6 @@ public class DeriveStatsJobTest {
     ConnectContext context;
     @Mocked
     Env env;
-    @Mocked
-    StatisticsManager statisticsManager;
 
     SlotReference slot1;
 
@@ -82,30 +74,14 @@ public class DeriveStatsJobTest {
     }
 
     private LogicalOlapScan constructOlapSCan() throws AnalysisException {
-        ColumnStat columnStats1 = new ColumnStat(10, 0, 0, 5,
-                Double.NaN, Double.NaN);
-        new MockUp<TableStats>(TableStats.class) {
-            @Mock
-            public ColumnStat getColumnStats(String columnName) {
-                return columnStats1;
-            }
-        };
 
         long tableId1 = 0;
-
-        Statistics statistics = new Statistics();
 
         List<String> qualifier = ImmutableList.of("test", "t");
         slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
         new Expectations() {{
                 ConnectContext.get();
                 result = context;
-                context.getEnv();
-                result = env;
-                env.getStatisticsManager();
-                result = statisticsManager;
-                statisticsManager.getStatistics();
-                result = statistics;
             }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);

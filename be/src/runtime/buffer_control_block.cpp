@@ -28,7 +28,11 @@ namespace doris {
 void GetResultBatchCtx::on_failure(const Status& status) {
     DCHECK(!status.ok()) << "status is ok, errmsg=" << status.get_error_msg();
     status.to_protobuf(result->mutable_status());
-    done->Run();
+    {
+        // call by result sink
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        done->Run();
+    }
     delete this;
 }
 
@@ -40,7 +44,10 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
-    done->Run();
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        done->Run();
+    }
     delete this;
 }
 
@@ -65,7 +72,10 @@ void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_resul
         result->set_eos(eos);
     }
     st.to_protobuf(result->mutable_status());
-    done->Run();
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        done->Run();
+    }
     delete this;
 }
 
@@ -85,6 +95,11 @@ Status BufferControlBlock::init() {
     return Status::OK();
 }
 
+bool BufferControlBlock::can_sink() {
+    std::unique_lock<std::mutex> l(_lock);
+    return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
+}
+
 Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
     std::unique_lock<std::mutex> l(_lock);
 
@@ -94,7 +109,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
 
     int num_rows = result->result_batch.rows.size();
 
-    while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit) && !_is_cancelled) {
+    while ((!_batch_queue.empty() && _buffer_rows > _buffer_limit) && !_is_cancelled) {
         _data_removal.wait(l);
     }
 
@@ -148,7 +163,7 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
     _batch_queue.pop_front();
     _buffer_rows -= item->result_batch.rows.size();
     _data_removal.notify_one();
-    *result = *(item.get());
+    *result = *item;
     result->__set_packet_num(_packet_num);
     _packet_num++;
     return Status::OK();

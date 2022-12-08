@@ -73,7 +73,6 @@ public abstract class Resource implements Writable {
     public static Resource fromStmt(CreateResourceStmt stmt) throws DdlException {
         Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
         resource.setProperties(stmt.getProperties());
-
         return resource;
     }
 

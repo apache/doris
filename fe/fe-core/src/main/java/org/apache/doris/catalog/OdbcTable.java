@@ -37,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -73,7 +74,17 @@ public class OdbcTable extends Table {
 
     // For different databases, special characters need to be escaped
     private static String mysqlProperName(String name) {
-        return "`" + name + "`";
+        // In JdbcExternalTable, the name contains databaseName, like: db.table
+        // So, we should split db and table, then switch to `db`.`table`.
+        String[] fields = name.split("\\.");
+        String result = "";
+        for (int i = 0; i < fields.length; ++i) {
+            if (i != 0) {
+                result += ".";
+            }
+            result += ("`" + fields[i] + "`");
+        }
+        return result;
     }
 
     private static String mssqlProperName(String name) {
@@ -81,7 +92,8 @@ public class OdbcTable extends Table {
     }
 
     private static String psqlProperName(String name) {
-        return "\"" + name + "\"";
+        List<String> list = Arrays.asList(name.split("\\."));
+        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
     }
 
     public static String databaseProperName(TOdbcTableType tableType, String name) {

@@ -114,7 +114,7 @@ void HistogramStat::add(const uint64_t& value) {
 }
 
 void HistogramStat::merge(const HistogramStat& other) {
-    // This function needs to be performned with the outer lock acquired
+    // This function needs to be performed with the outer lock acquired
     // However, atomic operation on every member is still need, since Add()
     // requires no lock and value update can still happen concurrently
     uint64_t old_min = min();

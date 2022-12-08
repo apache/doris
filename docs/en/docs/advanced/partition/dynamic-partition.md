@@ -459,9 +459,90 @@ When dynamic partitioning feature is disabled, Doris will no longer manage parti
 
 1. After creating the dynamic partition table, it prompts ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
 
-         Because the main switch of dynamic partition, that is, the configuration of FE ```dynamic_partition_enable``` is false, the dynamic partition table cannot be created.
+	Because the main switch of dynamic partition, that is, the configuration of FE ```dynamic_partition_enable``` is false, the dynamic partition table cannot be created.
          
-         At this time, please modify the FE configuration file, add a line ```dynamic_partition_enable=true```, and restart FE. Or execute the command ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") to turn on the dynamic partition switch.
+	At this time, please modify the FE configuration file, add a line ```dynamic_partition_enable=true```, and restart FE. Or execute the command ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") to turn on the dynamic partition switch.
+
+2. Replica settings for dynamic partitions
+
+    Dynamic partitions are automatically created by scheduling logic inside the system. When creating a partition automatically, the partition properties (including the number of replicas of the partition, etc.) are all prefixed with `dynamic_partition`, rather than the default properties of the table. for example:
+
+    ```
+    CREATE TABLE tbl1 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition.replication_num" = "1",
+    "dynamic_partition.start" = "-3",
+    "replication_num" = "3"
+    );
+    ```
+
+    In this example, no initial partition is created (partition definition in PARTITION BY clause is empty), and `DISTRIBUTED BY HASH(k1) BUCKETS 3`, `"replication_num" = "3"`, `"dynamic_partition is set. replication_num" = "1` and `"dynamic_partition.buckets" = "32"`.
+
+    We make the first two parameters the default parameters for the table, and the last two parameters the dynamic partition-specific parameters.
+
+    When the system automatically creates a partition, it will use the two configurations of bucket number 32 and replica number 1 (that is, parameters dedicated to dynamic partitions). Instead of the two configurations of bucket number 3 and replica number 3.
+
+    When a user manually adds a partition through the `ALTER TABLE tbl1 ADD PARTITION` statement, the two configurations of bucket number 3 and replica number 3 (that is, the default parameters of the table) will be used.
+
+    That is, dynamic partitioning uses a separate set of parameter settings. The table's default parameters are used only if no dynamic partition-specific parameters are set. as follows:
+
+    ```
+    CREATE TABLE tbl2 (
+    `k1` int,
+    `k2` date
+    )
+    PARTITION BY RANGE(k2)()
+    DISTRIBUTED BY HASH(k1) BUCKETS 3
+    PROPERTIES
+    (
+    "dynamic_partition.enable" = "true",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.buckets" = "32",
+    "replication_num" = "3"
+    );
+    ```
+
+    In this example, if `dynamic_partition.replication_num` is not specified separately, the default parameter of the table is used, which is `"replication_num" = "3"`.
+
+	And the following example:
+
+     ```
+     CREATE TABLE tbl3 (
+     `k1` int,
+     `k2` date
+     )
+     PARTITION BY RANGE(k2)(
+         PARTITION p1 VALUES LESS THAN ("2019-10-10")
+     )
+     DISTRIBUTED BY HASH(k1) BUCKETS 3
+     PROPERTIES
+     (
+     "dynamic_partition.enable" = "true",
+     "dynamic_partition.time_unit" = "DAY",
+     "dynamic_partition.end" = "3",
+     "dynamic_partition.prefix" = "p",
+     "dynamic_partition.start" = "-3",
+     "dynamic_partition.buckets" = "32",
+     "dynamic_partition.replication_num" = "1",
+     "replication_num" = "3"
+     );
+     ```
+
+     In this example, there is a manually created partition p1. This partition will use the default settings for the table, which are 3 buckets and 3 replicas. The dynamic partitions automatically created by the subsequent system will still use the special parameters for dynamic partitions, that is, the number of buckets is 32 and the number of replicas is 1.
 
 ## More Help
 

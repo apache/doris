@@ -29,7 +29,7 @@ suite("test_join_should_not_reorder") {
     """
     
     sql """
-        CREATE TABLE `reorder_a` (
+        CREATE TABLE IF NOT EXISTS `reorder_a` (
         `id` varchar(10),
         `name` varchar(10),
         `dt` date
@@ -43,7 +43,7 @@ suite("test_join_should_not_reorder") {
     """
 
     sql """
-        CREATE TABLE `reorder_b` (
+        CREATE TABLE IF NOT EXISTS `reorder_b` (
         `id` varchar(10),
         `name` varchar(10),
         `dt1` date,
@@ -58,7 +58,7 @@ suite("test_join_should_not_reorder") {
     """
 
     sql """
-        CREATE TABLE `reorder_c` (
+        CREATE TABLE IF NOT EXISTS `reorder_c` (
         `id` varchar(10),
         `name` varchar(10),
         `dt` date

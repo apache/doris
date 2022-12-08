@@ -31,7 +31,7 @@ namespace doris {
 ///
 /// Bit-packing always has a "bit width" parameter that determines the range of
 /// representable unsigned values: [0, 2^bit_width - 1]. The packed representation
-/// is logically the concatenatation of the lower bits of the input values (in
+/// is logically the concatenation of the lower bits of the input values (in
 /// little-endian order). E.g. the values 1, 2, 3, 4 packed with bit width 4 results
 /// in the two output bytes: [ 0 0 1 0 | 0 0 0 1 ] [ 0 1 0 0 | 0 0 1 1 ]
 ///                               2         1           4         3

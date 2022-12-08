@@ -72,7 +72,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx
 
 ```
 {
-    "cumulative policy type": "NUM_BASED",
+    "cumulative policy type": "SIZE_BASED",
     "cumulative point": 50,
     "last cumulative failure time": "2019-12-16 18:13:43.224",
     "last base failure time": "2019-12-16 18:13:23.320",

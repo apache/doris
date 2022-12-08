@@ -72,6 +72,7 @@ WITH BROKER broker_name
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
+  [PROPERTIES ("key1"="value1", ...)]
   ```
 
   - `[MERGE|APPEND|DELETE]`
@@ -100,7 +101,7 @@ WITH BROKER broker_name
 
   - `column list`
 
-    用于指定原始文件中的列顺序。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+    用于指定原始文件中的列顺序。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
 
     `(k1, k2, tmpk1)`
 
@@ -110,7 +111,7 @@ WITH BROKER broker_name
 
   - `PRECEDING FILTER predicate`
 
-    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+    前置过滤条件。数据首先根据 `column list` 和 `COLUMNS FROM PATH AS` 按顺序拼接成原始数据行。然后按照前置过滤条件进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
 
   - `SET (column_mapping)`
 
@@ -118,7 +119,7 @@ WITH BROKER broker_name
 
   - `WHERE predicate`
 
-    根据条件对导入的数据进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+    根据条件对导入的数据进行过滤。关于这部分详细介绍，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
 
   - `DELETE ON expr`
 
@@ -128,13 +129,17 @@ WITH BROKER broker_name
 
     仅针对 Unique Key 模型的表。用于指定导入数据中表示 Sequence Col 的列。主要用于导入时保证数据顺序。
 
+  - `PROPERTIES ("key1"="value1", ...)`
+
+    指定导入的format的一些参数。如导入的文件是`json`格式，则可以在这里指定`json_root`、`jsonpaths`、`fuzzy_parse`等参数。
+
 - `WITH BROKER broker_name`
 
   指定需要使用的 Broker 服务名称。在公有云 Doris 中。Broker 服务名称为 `bos`
 
 - `broker_properties`
 
-  指定 broker 所需的信息。这些信息通常被用于 Broker 能够访问远端存储系统。如 BOS 或 HDFS。关于具体信息，可参阅 [Broker](../../../../advanced/broker) 文档。
+  指定 broker 所需的信息。这些信息通常被用于 Broker 能够访问远端存储系统。如 BOS 或 HDFS。关于具体信息，可参阅 [Broker](../../../../../advanced/broker) 文档。
 
   ```text
   (
@@ -144,33 +149,41 @@ WITH BROKER broker_name
   )
   ```
 
-- `load_properties`
+  - `load_properties`
 
-  指定导入的相关参数。目前支持以下参数：
+    指定导入的相关参数。目前支持以下参数：
 
-  - `timeout`
+    - `timeout`
 
-    导入超时时间。默认为 4 小时。单位秒。
+      导入超时时间。默认为 4 小时。单位秒。
 
-  - `max_filter_ratio`
+    - `max_filter_ratio`
 
-    最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。取值范围为 0 到 1。
+      最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。取值范围为 0 到 1。
 
-  - `exec_mem_limit`
+    - `exec_mem_limit`
 
-    导入内存限制。默认为 2GB。单位为字节。
+      导入内存限制。默认为 2GB。单位为字节。
 
-  - `strict_mode`
+    - `strict_mode`
 
-    是否对数据进行严格限制。默认为 false。
+      是否对数据进行严格限制。默认为 false。
 
-  - `timezone`
+    - `timezone`
 
-    指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../advanced/time-zone) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
+      指定某些受时区影响的函数的时区，如 `strftime/alignment_timestamp/from_unixtime` 等等，具体请查阅 [时区](../../../../../advanced/time-zone) 文档。如果不指定，则使用 "Asia/Shanghai" 时区
 
-  - `load_parallelism`
+    - `load_parallelism`
 
-    导入并发度，默认为1。调大导入并发度会启动多个执行计划同时执行导入任务，加快导入速度。
+      导入并发度，默认为1。调大导入并发度会启动多个执行计划同时执行导入任务，加快导入速度。 
+
+    - `send_batch_parallelism`
+    
+      用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
+    
+    - `load_to_single_tablet`
+      
+      布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
 ### Example
 
@@ -396,6 +409,72 @@ WITH BROKER broker_name
 
    `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
 
+10. 从 HDFS 导入一批数据，指定文件格式为 `json` 并指定 `json_root`、`jsonpaths`
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.city, $.code]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+    ```
+
+    `jsonpaths` 可与 `column list` 及 `SET (column_mapping)`配合：
+
+    ```sql
+    LOAD LABEL example_db.label10
+    (
+        DATA INFILE("HDFS://test:port/input/file.json")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (id, code, city)
+        SET (id = id * 10)
+        PROPERTIES(
+          "json_root" = "$.item",
+          "jsonpaths" = "[$.id, $.code, $.city]"
+        )       
+    )
+    with HDFS (
+    "hadoop.username" = "user"
+    "password" = ""
+    )
+    PROPERTIES
+    (
+    "timeout"="1200",
+    "max_filter_ratio"="0.1"
+    );
+
+11. 从腾讯云cos中以csv格式导入数据。
+
+    ```SQL
+    LOAD LABEL example_db.label10
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
 ### Keywords
 
     BROKER, LOAD
@@ -408,25 +487,25 @@ WITH BROKER broker_name
 
 2. 取消导入任务
 
-   已提交切尚未结束的导入任务可以通过 [CANCEL LOAD](./CANCEL-LOAD) 命令取消。取消后，已写入的数据也会回滚，不会生效。
+   已提交切尚未结束的导入任务可以通过 [CANCEL LOAD](../CANCEL-LOAD) 命令取消。取消后，已写入的数据也会回滚，不会生效。
 
 3. Label、导入事务、多表原子性
 
-   Doris 中所有导入任务都是原子生效的。并且在同一个导入任务中对多张表的导入也能够保证原子性。同时，Doris 还可以通过 Label 的机制来保证数据导入的不丢不重。具体说明可以参阅 [导入事务和原子性](../../../../data-operate/import/import-scenes/load-atomicity) 文档。
+   Doris 中所有导入任务都是原子生效的。并且在同一个导入任务中对多张表的导入也能够保证原子性。同时，Doris 还可以通过 Label 的机制来保证数据导入的不丢不重。具体说明可以参阅 [导入事务和原子性](../../../../../data-operate/import/import-scenes/load-atomicity) 文档。
 
 4. 列映射、衍生列和过滤
 
-   Doris 可以在导入语句中支持非常丰富的列转换和过滤操作。支持绝大多数内置函数和 UDF。关于如何正确的使用这个功能，可参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+   Doris 可以在导入语句中支持非常丰富的列转换和过滤操作。支持绝大多数内置函数和 UDF。关于如何正确的使用这个功能，可参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
 
 5. 错误数据过滤
 
    Doris 的导入任务可以容忍一部分格式错误的数据。容忍了通过 `max_filter_ratio` 设置。默认为0，即表示当有一条错误数据时，整个导入任务将会失败。如果用户希望忽略部分有问题的数据行，可以将次参数设置为 0~1 之间的数值，Doris 会自动跳过哪些数据格式不正确的行。
 
-   关于容忍率的一些计算方式，可以参阅 [列的映射，转换与过滤](../../../../data-operate/import/import-scenes/load-data-convert) 文档。
+   关于容忍率的一些计算方式，可以参阅 [列的映射，转换与过滤](../../../../../data-operate/import/import-scenes/load-data-convert) 文档。
 
 6. 严格模式
 
-   `strict_mode` 属性用于设置导入任务是否运行在严格模式下。该格式会对列映射、转换和过滤的结果产生影响。关于严格模式的具体说明，可参阅 [严格模式](../../../../data-operate/import/import-scenes/load-strict-mode) 文档。
+   `strict_mode` 属性用于设置导入任务是否运行在严格模式下。该格式会对列映射、转换和过滤的结果产生影响。关于严格模式的具体说明，可参阅 [严格模式](../../../../../data-operate/import/import-scenes/load-strict-mode) 文档。
 
 7. 超时时间
 

@@ -17,7 +17,6 @@
 
 suite("test_cast_string_to_array") {
     sql "set enable_vectorized_engine = true"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
 
     // cast string to array<int>
     qt_sql """ select cast ("[1,2,3]" as array<int>) """

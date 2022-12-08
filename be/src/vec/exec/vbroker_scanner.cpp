@@ -91,9 +91,10 @@ Status VBrokerScanner::_fill_dest_columns(const Slice& line,
         return Status::OK();
     }
 
-    if (!check_array_format(_split_values)) {
-        return Status::OK();
-    }
+    // This check is meaningless, should be removed
+    // if (!check_array_format(_split_values)) {
+    //     return Status::OK();
+    // }
 
     int idx = 0;
     for (int i = 0; i < _split_values.size(); ++i) {

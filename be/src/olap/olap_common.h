@@ -151,7 +151,7 @@ enum FieldType {
     OLAP_FIELD_TYPE_TIMEV2 = 30,
     OLAP_FIELD_TYPE_DECIMAL32 = 31,
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
-    OLAP_FIELD_TYPE_DECIMAL128 = 33,
+    OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
 };
 
@@ -233,6 +233,13 @@ inline std::ostream& operator<<(std::ostream& os, const Version& version) {
     return os << version.to_string();
 }
 
+inline std::ostream& operator<<(std::ostream& os, const Versions& versions) {
+    for (auto& version : versions) {
+        os << version;
+    }
+    return os;
+}
+
 // used for hash-struct of hash_map<Version, Rowset*>.
 struct HashOfVersion {
     size_t operator()(const Version& version) const {
@@ -279,6 +286,7 @@ struct OlapReaderStatistics {
     // block_load_ns
     //      block_init_ns
     //          block_init_seek_ns
+    //          block_conditions_filtered_ns
     //      first_read_ns
     //          block_first_read_seek_ns
     //      lazy_read_ns
@@ -315,6 +323,7 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
+    int64_t block_conditions_filtered_ns = 0;
 
     int64_t index_load_ns = 0;
 
@@ -330,7 +339,7 @@ struct OlapReaderStatistics {
     // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
     // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
     // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
-    // so general_debug_ns' values will update to _general_debug_timer automaticly,
+    // so general_debug_ns' values will update to _general_debug_timer automatically,
     // the timer result can be checked through QueryProfile web page easily.
     // when search general_debug_ns, you can find that general_debug_ns has not been used,
     // this is because such codes added for debug purpose should not commit, it's just for debuging.

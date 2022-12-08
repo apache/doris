@@ -132,6 +132,20 @@ MasterOnly：true
 
 Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.. 
 
+<version since="1.2.0">
+
+### max_multi_partition_num
+
+Default：4096
+
+IsMutable：false
+
+MasterOnly：true
+
+Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
+
+</version>
+
 ### grpc_max_message_size_bytes
 
 Default：1G
@@ -412,6 +426,18 @@ MasterOnly：true
    2. Perform a decommission operation on a certain BE node. This operation will migrate all data on the BE to other nodes.
    3. After the decommission operation is completed, the BE will not be dropped. At this time, cancel the decommission status of the BE. Then the data will start to balance from other BE nodes back to this node. At this time, the data will be evenly distributed to all disks of the BE.
    4. Perform steps 2 and 3 for all BE nodes in sequence, and finally achieve the purpose of disk balancing for all nodes
+
+### decommission_tablet_check_threshold
+
+Default：5000
+
+IsMutable：true
+
+MasterOnly：true
+
+This configuration is used to control whether the Master FE need to check the status of tablets on decommissioned BE. If the size of tablets on decommissioned BE is lower than this threshold, FE will start a periodic check, if all tablets on decommissioned BE have been recycled, FE will drop this BE immediately.
+
+For performance consideration, please don't set a very high value for this configuration.
 
 ### period_of_auto_resume_min
 
@@ -1188,63 +1214,6 @@ MasterOnly：true
 
 the minimal delay seconds between a replica is failed and fe try to recovery it using clone.
 
-### clone_high_priority_delay_second
-
-Default：0
-
-IsMutable：true
-
-MasterOnly：true
-
-HIGH priority clone job's delay trigger time.
-
-### clone_normal_priority_delay_second 
-
-Default：300 （5min）
-
-IsMutable：true
-
-MasterOnly：true
-
-NORMAL priority clone job's delay trigger time
-
-### clone_low_priority_delay_second
-
-Default：600 （10min）
-
-IsMutable：true
-
-MasterOnly：true
-
-LOW priority clone job's delay trigger time. A clone job contains a tablet which need to be cloned(recovery or migration).  If the priority is LOW, it will be delayed *clone_low_priority_delay_second*  after the job creation and then be executed.  This is to avoid a large number of clone jobs running at same time only because a host is down for a short time. 
- **NOTICE** that this config(and *clone_normal_priority_delay_second* as well)  will not work if it's smaller then *clone_checker_interval_second*
-
-### clone_max_job_num
-
-Default：100
-
-IsMutable：true
-
-MasterOnly：true
-
-Concurrency of LOW priority clone jobs.  Concurrency of High priority clone jobs is currently unlimited.
-
-### clone_job_timeout_second
-
-Default：7200  (2小时)
-
-IsMutable：true
-
-MasterOnly：true
-
-Default timeout of a single clone job. Set long enough to fit your replica size.  The larger the replica data size is, the more time is will cost to finish clone
-
-### clone_checker_interval_second
-
-Default：300 （5min）
-
-Clone checker's running interval
-
 ### tablet_delete_timeout_second
 
 Default：2
@@ -1667,13 +1636,7 @@ Cluster name will be shown as the title of web page
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events. Only `mysql_service_nio_enabled` is true takes effect.
-
-### mysql_service_nio_enabled
-
-Default：true
-
-Whether FE starts the MySQL server based on NiO model. It is recommended to turn off this option when the query connection is less than 1000 or the concurrency scenario is not high
+When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 ### query_port
 
@@ -1709,7 +1672,7 @@ Default：0
 
 The connection timeout and socket timeout config for thrift server.
 
-The value for thrift_client_timeout_ms is set to be larger than zero to prevent some hang up problems in java.net.SocketInputStream.socketRead0
+The value for thrift_client_timeout_ms is set to be zero to prevent read timeout.
 
 ### mysql_nio_backlog_num
 
@@ -2036,7 +1999,7 @@ The max keep time of some kind of jobs. like schema change job and rollup job.
 
 ### label_clean_interval_second
 
-Default：4 * 3600  （4 hour）
+Default：1 * 3600  （1 hour）
 
 Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
 
@@ -2223,12 +2186,126 @@ Specifically, for example, there are 2 BEs in the cluster, one of which can supp
 
 The default value is `max_be_exec_version`. If there are special needs, we can manually set the format version to lower, but it should not be lower than `min_be_exec_version`.
 
-Note that we should always keep the value of this variable between `HeartbeatServer::min_be_exec_version` and `HeartbeatServer::max_be_exec_version` for all BEs. (That is to say, if a cluster that has completed the update needs to be downgraded, it should ensure the order of downgrading FE and then downgrading BE, or manually lower the variable in the settings and downgrade BE)
+Note that we should always keep the value of this variable between `BeExecVersionManager::min_be_exec_version` and `BeExecVersionManager::max_be_exec_version` for all BEs. (That is to say, if a cluster that has completed the update needs to be downgraded, it should ensure the order of downgrading FE and then downgrading BE, or manually lower the variable in the settings and downgrade BE)
 
 ### `max_be_exec_version`
 
-The latest data version currently supported, cannot be modified, and should be consistent with the `HeartbeatServer::max_be_exec_version` in the BE of the matching version.
+The latest data version currently supported, cannot be modified, and should be consistent with the `BeExecVersionManager::max_be_exec_version` in the BE of the matching version.
 
 ### `min_be_exec_version`
 
-The oldest data version currently supported, which cannot be modified, should be consistent with the `HeartbeatServer::min_be_exec_version` in the BE of the matching version.
+The oldest data version currently supported, which cannot be modified, should be consistent with the `BeExecVersionManager::min_be_exec_version` in the BE of the matching version.
+
+### `max_query_profile_num`
+
+The max number of query profile.
+
+Default: 100
+
+Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: false
+
+### `disable_backend_black_list`
+
+Used to disable the BE blacklist function. After this function is disabled, if the query request to the BE fails, the BE will not be added to the blacklist.
+This parameter is suitable for regression testing environments to reduce occasional bugs that cause a large number of regression tests to fail.
+
+Default: false
+
+Is it possible to configure dynamically: true
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_backend_heartbeat_failure_tolerance_count`
+
+The maximum tolerable number of BE node heartbeat failures. If the number of consecutive heartbeat failures exceeds this value, the BE state will be set to dead.
+This parameter is suitable for regression test environments to reduce occasional heartbeat failures that cause a large number of regression test failures.
+
+Default: 1
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### `max_replica_count_when_schema_change`
+
+The maximum number of replicas allowed when OlapTable is doing schema changes. Too many replicas will lead to FE OOM.
+
+Default: 100000
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
+### `max_hive_partition_cache_num`
+
+The maximum number of caches for the hive partition.
+
+Default: 100000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_external_file_cache_num`
+
+Maximum number of file cache to use for external external tables.
+
+Default: 100000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_external_schema_cache_num`
+
+Maximum number of schema cache to use for external external tables.
+
+Default: 10000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `external_cache_expire_time_minutes_after_access`
+
+Set how long the data in the cache expires after the last access. The unit is minutes.
+Applies to External Schema Cache as well as Hive Partition Cache.
+
+Default: 1440
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: false
+
+### `max_same_name_catalog_trash_num`
+
+It is used to set the maximum number of meta information with the same name in the catalog recycle bin. When the maximum value is exceeded, the earliest deleted meta trash will be completely deleted and cannot be recovered. 0 means not to keep objects of the same name. < 0 means no limit.
+
+Note: The judgment of metadata with the same name will be limited to a certain range. For example, the judgment of the database with the same name will be limited to the same cluster, the judgment of the table with the same name will be limited to the same database (with the same database id), the judgment of the partition with the same name will be limited to the same database (with the same database id) and the same table (with the same table) same table id).
+
+Default: 3
+
+Is it possible to dynamically configure: true
+
+### `enable_storage_policy`
+
+Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
+
+Default: false
+
+Is it possible to dynamically configure: true
+
+Is it a configuration item unique to the Master FE node: true
+
+### `enable_fqdn_mode`
+
+This configuration is mainly used in the k8s cluster environment. When enable_fqdn_mode is true, the name of the pod where the be is located will remain unchanged after reconstruction, while the ip can be changed.
+
+Default: false
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+

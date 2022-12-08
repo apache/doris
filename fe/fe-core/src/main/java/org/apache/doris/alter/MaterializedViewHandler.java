@@ -233,6 +233,7 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processBatchAddRollup(List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+        checkReplicaCount(olapTable);
         Map<String, RollupJobV2> rollupNameJobMap = new LinkedHashMap<>();
         // save job id for log
         Set<Long> logJobIdSet = new HashSet<>();
@@ -519,7 +520,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 nextColUniqueId++;
             }
         } else {
-            newMVColumns.stream().forEach(column -> {
+            newMVColumns.forEach(column -> {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }
@@ -721,7 +722,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 nextColUniqueId++;
             }
         } else {
-            rollupSchema.stream().forEach(column -> {
+            rollupSchema.forEach(column -> {
                 column.setUniqueId(Column.COLUMN_UNIQUE_ID_INIT_VALUE);
             });
         }
@@ -808,7 +809,7 @@ public class MaterializedViewHandler extends AlterHandler {
             long mvIndexId = dropMaterializedView(mvName, olapTable);
             // Step3: log drop mv operation
             EditLog editLog = Env.getCurrentEnv().getEditLog();
-            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), mvIndexId, false));
+            editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), mvIndexId, false, 0));
             LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
             if (dropMaterializedViewStmt.isIfExists()) {
@@ -1034,7 +1035,7 @@ public class MaterializedViewHandler extends AlterHandler {
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
         } else {
-            LOG.info("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
+            LOG.debug("not set table's state, table id: {}, is job done: {}, job id: {}", alterJob.getTableId(),
                     alterJob.isDone(), alterJob.getJobId());
         }
     }

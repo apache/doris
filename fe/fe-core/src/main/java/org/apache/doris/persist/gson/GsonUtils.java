@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.JdbcResource;
@@ -32,10 +33,20 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.EsExternalTable;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.JdbcExternalCatalog;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.sync.SyncJob;
@@ -140,7 +151,6 @@ public class GsonUtils {
             = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")
             .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
 
-
     // runtime adapter for class "Policy"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     Policy.class, "clazz").registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
@@ -150,7 +160,22 @@ public class GsonUtils {
                     CatalogIf.class, "clazz")
             .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
             .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
-            .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName());
+            .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
+            .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    DatabaseIf.class, "clazz")
+            .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
+            .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
+            .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
+            .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    TableIf.class, "clazz")
+            .registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
+            .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
+            .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
+            .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
@@ -165,7 +190,10 @@ public class GsonUtils {
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
             .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
-            .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
+            .registerTypeAdapterFactory(policyTypeAdapterFactory)
+            .registerTypeAdapterFactory(dsTypeAdapterFactory)
+            .registerTypeAdapterFactory(dbTypeAdapterFactory)
+            .registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
@@ -430,3 +458,4 @@ public class GsonUtils {
     }
 
 }
+

@@ -34,6 +34,7 @@ namespace doris {
 class MemPool;
 class RowBatch;
 class TupleRow;
+class IRuntimeFilter;
 
 // Node for in-memory hash joins:
 // - builds up a hash table with the rows produced by our right input
@@ -139,9 +140,7 @@ private:
     RuntimeProfile::Counter* _hash_table_list_min_size;
     RuntimeProfile::Counter* _hash_table_list_max_size;
 
-    // Supervises ConstructHashTable in a separate thread, and
-    // returns its status in the promise parameter.
-    void build_side_thread(RuntimeState* state, std::promise<Status>* status);
+    void probe_side_open_thread(RuntimeState* state, std::promise<Status>* status);
 
     // We parallelise building the build-side with Open'ing the
     // probe-side. If, for example, the probe-side child is another
@@ -177,6 +176,7 @@ private:
     std::string get_probe_row_output_string(TupleRow* probe_row);
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<IRuntimeFilter*> _runtime_filters;
 };
 
 } // namespace doris

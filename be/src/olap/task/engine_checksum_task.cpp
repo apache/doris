@@ -27,12 +27,12 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
                                        TVersion version, uint32_t* checksum)
         : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            -1, "EngineChecksumTask#tabletId=" + std::to_string(tablet_id),
-            StorageEngine::instance()->consistency_mem_tracker());
+            MemTrackerLimiter::Type::CONSISTENCY,
+            "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
 }
 
 Status EngineChecksumTask::execute() {
-    SCOPED_ATTACH_TASK(_mem_tracker, ThreadContext::TaskType::STORAGE);
+    SCOPED_ATTACH_TASK(_mem_tracker);
     return _compute_checksum();
 } // execute
 
@@ -53,9 +53,13 @@ Status EngineChecksumTask::_compute_checksum() {
     TupleReader reader;
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
+    reader_params.tablet_schema = tablet->tablet_schema();
     reader_params.reader_type = READER_CHECKSUM;
     reader_params.version = Version(0, _version);
-
+    auto& delete_preds = tablet->delete_predicates();
+    std::copy(delete_preds.cbegin(), delete_preds.cend(),
+              std::inserter(reader_params.delete_predicates,
+                            reader_params.delete_predicates.begin()));
     {
         std::shared_lock rdlock(tablet->get_header_lock());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();

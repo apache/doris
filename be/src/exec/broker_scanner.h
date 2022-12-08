@@ -106,7 +106,12 @@ protected:
     int _line_delimiter_length;
 
     // Reader
-    std::shared_ptr<FileReader> _cur_file_reader;
+    // _cur_file_reader_s is for stream load pipe reader,
+    // and _cur_file_reader is for other file reader.
+    // TODO: refactor this to use only shared_ptr or unique_ptr
+    std::unique_ptr<FileReader> _cur_file_reader;
+    std::shared_ptr<FileReader> _cur_file_reader_s;
+    FileReader* _real_reader;
     LineReader* _cur_line_reader;
     Decompressor* _cur_decompressor;
     bool _cur_line_reader_eof;

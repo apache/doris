@@ -31,6 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
@@ -287,8 +288,7 @@ public class OutFileClause {
                     break;
                 case DECIMALV2:
                     if (!expr.getType().isWildcardDecimal()) {
-                        type = String.format("decimal(%d, %d)", ScalarType.MAX_DECIMAL128_PRECISION,
-                                ((ScalarType) expr.getType()).decimalScale());
+                        type = String.format("decimal(%d, 9)", ScalarType.MAX_DECIMAL128_PRECISION);
                     } else {
                         throw new AnalysisException("currently ORC writer do not support WildcardDecimal!");
                     }
@@ -563,7 +563,7 @@ public class OutFileClause {
         analyzeBrokerDesc(processedPropKeys);
 
         if (properties.containsKey(PROP_COLUMN_SEPARATOR)) {
-            if (!isCsvFormat()) {
+            if (!Util.isCsvFormat(fileFormatType)) {
                 throw new AnalysisException(PROP_COLUMN_SEPARATOR + " is only for CSV format");
             }
             columnSeparator = Separator.convertSeparator(properties.get(PROP_COLUMN_SEPARATOR));
@@ -571,7 +571,7 @@ public class OutFileClause {
         }
 
         if (properties.containsKey(PROP_LINE_DELIMITER)) {
-            if (!isCsvFormat()) {
+            if (!Util.isCsvFormat(fileFormatType)) {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
             }
             lineDelimiter = Separator.convertSeparator(properties.get(PROP_LINE_DELIMITER));
@@ -772,16 +772,6 @@ public class OutFileClause {
         processedPropKeys.add(SCHEMA);
     }
 
-    private boolean isCsvFormat() {
-        return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
-                || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
-                || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
-                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
-    }
-
     private boolean isParquetFormat() {
         return fileFormatType == TFileFormatType.FORMAT_PARQUET;
     }
@@ -817,7 +807,7 @@ public class OutFileClause {
 
     public TResultFileSinkOptions toSinkOptions() {
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath, fileFormatType);
-        if (isCsvFormat()) {
+        if (Util.isCsvFormat(fileFormatType)) {
             sinkOptions.setColumnSeparator(columnSeparator);
             sinkOptions.setLineDelimiter(lineDelimiter);
         }

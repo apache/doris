@@ -147,7 +147,7 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->tablet_path = kTestDir;
+        rowset_writer_context->rowset_dir = kTestDir;
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -182,7 +182,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         create_rowset_writer_context(tablet_schema, &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
         EXPECT_EQ(Status::OK(), s);
 
         RowCursor input_row;

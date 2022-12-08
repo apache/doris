@@ -29,7 +29,20 @@ suite("ssb_sf1_q4_3_nereids") {
     sql 'set exec_mem_limit=2147483648*16'
 
     test {
-        sql(new File(context.file.parentFile, "../sql/q4.3.sql").text)
+        // sql(new File(context.file.parentFile, "../sql/q4.3.sql").text)
+        sql """SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/
+        d_year, s_city, p_brand,
+        SUM(lo_revenue - lo_supplycost) AS PROFIT
+        FROM date, customer, supplier, part, lineorder
+        WHERE lo_custkey = c_custkey
+        AND lo_suppkey = s_suppkey
+        AND lo_partkey = p_partkey
+        AND lo_orderdate = d_datekey
+        AND s_nation = 'UNITED STATES'
+        AND (d_year = 1997 OR d_year = 1998)
+        AND p_category = 'MFGR#14'
+        GROUP BY d_year, s_city, p_brand
+        ORDER BY d_year, s_city, p_brand;"""
 
         resultFile(file = "../sql/q4.3.out", tag = "q4.3")
     }

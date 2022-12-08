@@ -18,11 +18,9 @@
 #include <boost/token_functions.hpp>
 #include <vector>
 
-#include "exprs/json_functions.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_jsonb.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -189,7 +187,7 @@ public:
                                         col_from.get_name());
         }
 
-        auto col_to = ColumnJsonb::create();
+        auto col_to = ColumnString::create();
 
         //IColumn & col_to = *res;
         size_t size = col_from.size();
@@ -290,6 +288,381 @@ using FunctionJsonbParseNotnullErrorValue =
 using FunctionJsonbParseNotnullErrorInvalid =
         FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_INVALID>;
 
+// func(json,string) -> nullable(type)
+template <typename Impl>
+class FunctionJsonbExtract : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionJsonbExtract>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<typename Impl::ReturnType>());
+    }
+
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        DCHECK_EQ(arguments.size(), 2);
+        ColumnPtr argument_columns[2];
+        for (int i = 0; i < 2; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Danger: Here must dispose the null map data first! Because
+                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
+                // of column nullable mem of null map
+                VectorizedUtils::update_null_map(null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
+        }
+
+        auto res = Impl::ColumnType::create();
+
+        auto jsonb_data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
+        auto jsonb_path_column = assert_cast<const ColumnString*>(argument_columns[1].get());
+
+        auto& ldata = jsonb_data_column->get_chars();
+        auto& loffsets = jsonb_data_column->get_offsets();
+
+        auto& rdata = jsonb_path_column->get_chars();
+        auto& roffsets = jsonb_path_column->get_offsets();
+
+        // execute Impl
+        if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString> ||
+                      std::is_same_v<typename Impl::ReturnType, DataTypeJsonb>) {
+            auto& res_data = res->get_chars();
+            auto& res_offsets = res->get_offsets();
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data, res_offsets,
+                                null_map->get_data());
+        } else {
+            Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
+                                null_map->get_data());
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res), std::move(null_map));
+        return Status::OK();
+    }
+};
+
+template <typename ValueType>
+struct JsonbExtractStringImpl {
+    using ReturnType = typename ValueType::ReturnType;
+    using ColumnType = typename ValueType::ColumnType;
+    static const bool only_check_exists = ValueType::only_check_exists;
+
+    // for jsonb_extract_string
+    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
+                              const ColumnString::Offsets& loffsets,
+                              const ColumnString::Chars& rdata,
+                              const ColumnString::Offsets& roffsets, ColumnString::Chars& res_data,
+                              ColumnString::Offsets& res_offsets, NullMap& null_map) {
+        size_t input_rows_count = loffsets.size();
+        res_offsets.resize(input_rows_count);
+
+        std::unique_ptr<JsonbWriter> writer;
+        if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
+            writer.reset(new JsonbWriter());
+        }
+
+        std::unique_ptr<JsonbToJson> formater;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            int l_size = loffsets[i] - loffsets[i - 1];
+            const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+
+            int r_size = roffsets[i] - roffsets[i - 1];
+            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            String path(r_raw, r_size);
+
+            if (null_map[i]) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                continue;
+            }
+
+            // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
+            JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
+            if (UNLIKELY(!doc || !doc->getValue())) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                continue;
+            }
+
+            // value is NOT necessary to be deleted since JsonbValue will not allocate memory
+            JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, ".", nullptr);
+            if (UNLIKELY(!value)) {
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                continue;
+            }
+
+            if constexpr (ValueType::only_get_type) {
+                StringOP::push_value_string(std::string_view(value->typeName()), i, res_data,
+                                            res_offsets);
+                continue;
+            }
+
+            if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
+                writer->reset();
+                writer->writeValue(value);
+                StringOP::push_value_string(std::string_view(writer->getOutput()->getBuffer(),
+                                                             writer->getOutput()->getSize()),
+                                            i, res_data, res_offsets);
+            } else {
+                if (LIKELY(value->isString())) {
+                    auto str_value = (JsonbStringVal*)value;
+                    StringOP::push_value_string(
+                            std::string_view(str_value->getBlob(), str_value->length()), i,
+                            res_data, res_offsets);
+                } else if (value->isNull()) {
+                    StringOP::push_value_string("null", i, res_data, res_offsets);
+                } else if (value->isTrue()) {
+                    StringOP::push_value_string("true", i, res_data, res_offsets);
+                } else if (value->isFalse()) {
+                    StringOP::push_value_string("false", i, res_data, res_offsets);
+                } else if (value->isInt8()) {
+                    StringOP::push_value_string(std::to_string(((const JsonbInt8Val*)value)->val()),
+                                                i, res_data, res_offsets);
+                } else if (value->isInt16()) {
+                    StringOP::push_value_string(
+                            std::to_string(((const JsonbInt16Val*)value)->val()), i, res_data,
+                            res_offsets);
+                } else if (value->isInt32()) {
+                    StringOP::push_value_string(
+                            std::to_string(((const JsonbInt32Val*)value)->val()), i, res_data,
+                            res_offsets);
+                } else if (value->isInt64()) {
+                    StringOP::push_value_string(
+                            std::to_string(((const JsonbInt64Val*)value)->val()), i, res_data,
+                            res_offsets);
+                } else {
+                    if (!formater) {
+                        formater.reset(new JsonbToJson());
+                    }
+                    StringOP::push_value_string(formater->to_json_string(value), i, res_data,
+                                                res_offsets);
+                }
+            }
+        }
+    }
+};
+
+template <typename ValueType>
+struct JsonbExtractImpl {
+    using ReturnType = typename ValueType::ReturnType;
+    using ColumnType = typename ValueType::ColumnType;
+    using Container = typename ColumnType::Container;
+    static const bool only_check_exists = ValueType::only_check_exists;
+
+    // for jsonb_extract_int/int64/double
+    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
+                              const ColumnString::Offsets& loffsets,
+                              const ColumnString::Chars& rdata,
+                              const ColumnString::Offsets& roffsets, Container& res,
+                              NullMap& null_map) {
+        size_t size = loffsets.size();
+        res.resize(size);
+
+        for (size_t i = 0; i < loffsets.size(); i++) {
+            if constexpr (only_check_exists) {
+                res[i] = 0;
+            }
+
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+
+            if (null_map[i]) {
+                res[i] = 0;
+                continue;
+            }
+
+            // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
+            JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
+            if (UNLIKELY(!doc || !doc->getValue())) {
+                null_map[i] = 1;
+                res[i] = 0;
+                continue;
+            }
+
+            // value is NOT necessary to be deleted since JsonbValue will not allocate memory
+            JsonbValue* value = doc->getValue()->findPath(r_raw_str, r_str_size, ".", nullptr);
+            if (UNLIKELY(!value)) {
+                if constexpr (!only_check_exists) {
+                    null_map[i] = 1;
+                }
+                res[i] = 0;
+                continue;
+            }
+
+            // if only check path exists, it's true here and skip check value
+            if constexpr (only_check_exists) {
+                res[i] = 1;
+                continue;
+            }
+
+            if constexpr (std::is_same_v<void, typename ValueType::T>) {
+                if (value->isNull()) {
+                    res[i] = 1;
+                } else {
+                    res[i] = 0;
+                }
+            } else if constexpr (std::is_same_v<bool, typename ValueType::T>) {
+                if (value->isTrue()) {
+                    res[i] = 1;
+                } else if (value->isFalse()) {
+                    res[i] = 0;
+                } else {
+                    null_map[i] = 1;
+                    res[i] = 0;
+                }
+            } else if constexpr (std::is_same_v<int32_t, typename ValueType::T>) {
+                if (value->isInt8() || value->isInt16() || value->isInt32()) {
+                    res[i] = (int32_t)((const JsonbIntVal*)value)->val();
+                } else {
+                    null_map[i] = 1;
+                    res[i] = 0;
+                }
+            } else if constexpr (std::is_same_v<int64_t, typename ValueType::T>) {
+                if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
+                    res[i] = ((const JsonbIntVal*)value)->val();
+                } else {
+                    null_map[i] = 1;
+                    res[i] = 0;
+                }
+            } else if constexpr (std::is_same_v<double, typename ValueType::T>) {
+                if (value->isDouble()) {
+                    res[i] = ((const JsonbDoubleVal*)value)->val();
+                } else if (value->isInt8() || value->isInt16() || value->isInt32() ||
+                           value->isInt64()) {
+                    res[i] = ((const JsonbIntVal*)value)->val();
+                } else {
+                    null_map[i] = 1;
+                    res[i] = 0;
+                }
+            } else {
+                LOG(FATAL) << "unexpected type ";
+            }
+        }
+    }
+};
+
+struct JsonbTypeExists {
+    using T = uint8_t;
+    using ReturnType = DataTypeUInt8;
+    using ColumnType = ColumnVector<T>;
+    static const bool only_check_exists = true;
+};
+
+struct JsonbTypeNull {
+    using T = void;
+    using ReturnType = DataTypeUInt8;
+    using ColumnType = ColumnVector<uint8_t>;
+    static const bool only_check_exists = false;
+};
+
+struct JsonbTypeBool {
+    using T = bool;
+    using ReturnType = DataTypeUInt8;
+    using ColumnType = ColumnVector<uint8_t>;
+    static const bool only_check_exists = false;
+};
+
+struct JsonbTypeInt {
+    using T = int32_t;
+    using ReturnType = DataTypeInt32;
+    using ColumnType = ColumnVector<T>;
+    static const bool only_check_exists = false;
+};
+
+struct JsonbTypeInt64 {
+    using T = int64_t;
+    using ReturnType = DataTypeInt64;
+    using ColumnType = ColumnVector<T>;
+    static const bool only_check_exists = false;
+};
+
+struct JsonbTypeDouble {
+    using T = double;
+    using ReturnType = DataTypeFloat64;
+    using ColumnType = ColumnVector<T>;
+    static const bool only_check_exists = false;
+};
+
+struct JsonbTypeString {
+    using T = std::string;
+    using ReturnType = DataTypeString;
+    using ColumnType = ColumnString;
+    static const bool only_check_exists = false;
+    static const bool only_get_type = false;
+};
+
+struct JsonbTypeJson {
+    using T = std::string;
+    using ReturnType = DataTypeJsonb;
+    using ColumnType = ColumnString;
+    static const bool only_check_exists = false;
+    static const bool only_get_type = false;
+};
+
+struct JsonbTypeType {
+    using T = std::string;
+    using ReturnType = DataTypeString;
+    using ColumnType = ColumnString;
+    static const bool only_check_exists = false;
+    static const bool only_get_type = true;
+};
+
+struct JsonbExists : public JsonbExtractImpl<JsonbTypeExists> {
+    static constexpr auto name = "jsonb_exists_path";
+};
+
+struct JsonbExtractIsnull : public JsonbExtractImpl<JsonbTypeNull> {
+    static constexpr auto name = "jsonb_extract_isnull";
+};
+
+struct JsonbExtractBool : public JsonbExtractImpl<JsonbTypeBool> {
+    static constexpr auto name = "jsonb_extract_bool";
+};
+
+struct JsonbExtractInt : public JsonbExtractImpl<JsonbTypeInt> {
+    static constexpr auto name = "jsonb_extract_int";
+};
+
+struct JsonbExtractBigInt : public JsonbExtractImpl<JsonbTypeInt64> {
+    static constexpr auto name = "jsonb_extract_bigint";
+};
+
+struct JsonbExtractDouble : public JsonbExtractImpl<JsonbTypeDouble> {
+    static constexpr auto name = "jsonb_extract_double";
+};
+
+struct JsonbExtractString : public JsonbExtractStringImpl<JsonbTypeString> {
+    static constexpr auto name = "jsonb_extract_string";
+};
+
+struct JsonbExtractJsonb : public JsonbExtractStringImpl<JsonbTypeJson> {
+    static constexpr auto name = "jsonb_extract";
+};
+
+struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
+    static constexpr auto name = "jsonb_type";
+};
+
+using FunctionJsonbExists = FunctionJsonbExtract<JsonbExists>;
+using FunctionJsonbType = FunctionJsonbExtract<JsonbType>;
+
+using FunctionJsonbExtractIsnull = FunctionJsonbExtract<JsonbExtractIsnull>;
+using FunctionJsonbExtractBool = FunctionJsonbExtract<JsonbExtractBool>;
+using FunctionJsonbExtractInt = FunctionJsonbExtract<JsonbExtractInt>;
+using FunctionJsonbExtractBigInt = FunctionJsonbExtract<JsonbExtractBigInt>;
+using FunctionJsonbExtractDouble = FunctionJsonbExtract<JsonbExtractDouble>;
+using FunctionJsonbExtractString = FunctionJsonbExtract<JsonbExtractString>;
+using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
+
 void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParse>("jsonb_parse");
     factory.register_function<FunctionJsonbParseErrorNull>("jsonb_parse_error_to_null");
@@ -309,6 +682,17 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
             "jsonb_parse_notnull_error_to_value");
     factory.register_function<FunctionJsonbParseNotnullErrorInvalid>(
             "jsonb_parse_notnull_error_to_invalid");
+
+    factory.register_function<FunctionJsonbExists>();
+    factory.register_function<FunctionJsonbType>();
+
+    factory.register_function<FunctionJsonbExtractIsnull>();
+    factory.register_function<FunctionJsonbExtractBool>();
+    factory.register_function<FunctionJsonbExtractInt>();
+    factory.register_function<FunctionJsonbExtractBigInt>();
+    factory.register_function<FunctionJsonbExtractDouble>();
+    factory.register_function<FunctionJsonbExtractString>();
+    factory.register_function<FunctionJsonbExtractJsonb>();
 }
 
 } // namespace doris::vectorized

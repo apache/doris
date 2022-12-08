@@ -29,8 +29,12 @@
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "util/time.h"
+#include "runtime/runtime_state.h"
 #include "util/uid_util.h"
+
+namespace butil {
+class IOBufAsZeroCopyInputStream;
+}
 
 namespace doris {
 class TUniqueId;
@@ -65,11 +69,12 @@ public:
 
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
     // regist filter
-    Status regist_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                         const TQueryOptions& options, int node_id = -1);
+    Status register_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
+                           const TQueryOptions& options, int node_id = -1);
 
     // update filter by remote
-    Status update_filter(const PPublishFilterRequest* request, const char* data);
+    Status update_filter(const PPublishFilterRequest* request,
+                         butil::IOBufAsZeroCopyInputStream* data);
 
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
 
@@ -105,7 +110,8 @@ private:
 // the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
-    RuntimeFilterMergeControllerEntity() : _query_id(0, 0), _fragment_instance_id(0, 0) {}
+    RuntimeFilterMergeControllerEntity(RuntimeState* state)
+            : _query_id(0, 0), _fragment_instance_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
     Status init(UniqueId query_id, UniqueId fragment_instance_id,
@@ -113,9 +119,12 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request, const char* data);
+    Status merge(const PMergeFilterRequest* request,
+                 butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    UniqueId query_id() { return _query_id; }
+    UniqueId query_id() const { return _query_id; }
+
+    UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t create_time;
@@ -140,10 +149,11 @@ private:
     UniqueId _fragment_instance_id;
     // protect _filter_map
     std::mutex _filter_map_mutex;
-    std::unique_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // TODO: convert filter id to i32
     // filter-id -> val
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;
+    RuntimeState* _state;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity
@@ -157,9 +167,10 @@ public:
     // If a query-id -> entity already exists
     // add_entity will return a exists entity
     Status add_entity(const TExecPlanFragmentParams& params,
-                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle);
+                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+                      RuntimeState* state);
     // thread safe
-    // increate a reference count
+    // increase a reference count
     // if a query-id is not exist
     // Status.not_ok will be returned and a empty ptr will returned by *handle
     Status acquire(UniqueId query_id, std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle);

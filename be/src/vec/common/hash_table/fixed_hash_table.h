@@ -114,9 +114,6 @@ class FixedHashTable : private boost::noncopyable,
     static constexpr size_t NUM_CELLS = 1ULL << (sizeof(Key) * 8);
 
 protected:
-    friend class const_iterator;
-    friend class iterator;
-
     using Self = FixedHashTable;
 
     Cell* buf; /// A piece of memory for all elements.
@@ -340,14 +337,14 @@ public:
     void read(doris::vectorized::BufferReadable& rb) {
         Cell::State::read(rb);
         destroy_elements();
-        size_t m_size;
+        doris::vectorized::UInt64 m_size;
         doris::vectorized::read_var_uint(m_size, rb);
         this->set_size(m_size);
         free();
         alloc();
 
         for (size_t i = 0; i < m_size; ++i) {
-            size_t place_value = 0;
+            doris::vectorized::UInt64 place_value = 0;
             doris::vectorized::read_var_uint(place_value, rb);
             Cell x;
             x.read(rb);

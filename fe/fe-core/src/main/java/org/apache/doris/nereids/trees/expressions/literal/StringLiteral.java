@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.StringType;
 /**
  * Represents String literal
  */
-public class StringLiteral extends Literal {
+public class StringLiteral extends StringLikeLiteral {
 
     private final String value;
 
@@ -34,7 +34,7 @@ public class StringLiteral extends Literal {
      * @param value real value stored in java object
      */
     public StringLiteral(String value) {
-        super(StringType.INSTANCE);
+        super(value, StringType.INSTANCE);
         this.value = value;
     }
 

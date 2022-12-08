@@ -44,6 +44,6 @@ public class PushdownFilterThroughProject extends OneRewriteRuleFactory {
                             project.child()
                     )
             );
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PROJET);
+        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_PROJECT);
     }
 }

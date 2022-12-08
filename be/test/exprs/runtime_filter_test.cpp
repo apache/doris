@@ -20,6 +20,7 @@
 #include <array>
 #include <memory>
 
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
 #include "gen_cpp/Planner_types.h"
@@ -41,7 +42,7 @@ public:
         exec_env = nullptr;
         _runtime_stat.reset(
                 new RuntimeState(_fragment_id, _query_options, _query_globals, exec_env));
-        _runtime_stat->init_instance_mem_tracker();
+        _runtime_stat->init_mem_trackers();
     }
     virtual void TearDown() { _obj_pool.clear(); }
 
@@ -108,6 +109,11 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
                                            RuntimeFilterRole::PRODUCER, -1, &runtime_filter);
 
     EXPECT_TRUE(status.ok()) << status.to_string();
+
+    if (auto bf = runtime_filter->get_bloomfilter()) {
+        status = bf->init_with_fixed_length();
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
 
     return status.ok() ? runtime_filter : nullptr;
 }

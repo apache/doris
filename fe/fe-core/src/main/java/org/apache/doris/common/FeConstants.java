@@ -35,6 +35,7 @@ public class FeConstants {
 
     public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
+    public static int ip_check_interval_second = 5;
 
     // dpp version
     public static String dpp_version = "3_2_0";
@@ -44,6 +45,9 @@ public class FeConstants {
 
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
+
+    // set to true to disable internal schema db
+    public static boolean disableInternalSchemaDb = false;
 
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;
@@ -64,4 +68,15 @@ public class FeConstants {
     public static String csv_with_names_and_types = "csv_with_names_and_types";
 
     public static String text = "text";
+
+    public static String FS_PREFIX_S3 = "s3";
+    public static String FS_PREFIX_S3A = "s3a";
+    public static String FS_PREFIX_S3N = "s3n";
+    public static String FS_PREFIX_OSS = "oss";
+    public static String FS_PREFIX_BOS = "bos";
+    public static String FS_PREFIX_COS = "cos";
+    public static String FS_PREFIX_OBS = "obs";
+    public static String FS_PREFIX_HDFS = "hdfs";
+    public static String FS_PREFIX_FILE = "file";
+    public static final String INTERNAL_DB_NAME = "__internal_schema";
 }

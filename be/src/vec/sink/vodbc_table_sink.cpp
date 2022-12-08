@@ -48,7 +48,7 @@ Status VOdbcTableSink::open(RuntimeState* state) {
 
     // create writer
     _writer.reset(new ODBCConnector(_odbc_param));
-    RETURN_IF_ERROR(_writer->open());
+    RETURN_IF_ERROR(_writer->open(state));
     if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }
@@ -56,7 +56,7 @@ Status VOdbcTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VOdbcTableSink::send(RuntimeState* state, Block* block) {
+Status VOdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VOdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {

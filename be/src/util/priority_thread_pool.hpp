@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "util/blocking_priority_queue.hpp"
+#include "util/thread.h"
 #include "util/thread_group.h"
 
 namespace doris {
@@ -52,8 +53,8 @@ public:
     //  -- queue_size: the maximum size of the queue on which work items are offered. If the
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
-    PriorityThreadPool(uint32_t num_threads, uint32_t queue_size)
-            : _work_queue(queue_size), _shutdown(false) {
+    PriorityThreadPool(uint32_t num_threads, uint32_t queue_size, const std::string& name)
+            : _work_queue(queue_size), _shutdown(false), _name(name) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
                     std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
@@ -130,6 +131,7 @@ private:
     // Driver method for each thread in the pool. Continues to read work from the queue
     // until the pool is shutdown.
     void work_thread(int thread_id) {
+        Thread::set_self_name(_name.c_str());
         while (!is_shutdown()) {
             Task task;
             if (_work_queue.blocking_get(&task)) {
@@ -147,6 +149,7 @@ private:
 
     // Set to true when threads should stop doing work and terminate.
     std::atomic<bool> _shutdown;
+    std::string _name;
 };
 
 } // namespace doris

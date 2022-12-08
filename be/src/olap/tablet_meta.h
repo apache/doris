@@ -111,7 +111,7 @@ public:
     Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
     // Init `RowsetMeta._fs` if rowset is local.
-    void init_rs_metas_fs(const io::FileSystemPtr& fs);
+    void init_rs_metas_fs(const io::FileSystemSPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);

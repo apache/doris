@@ -24,7 +24,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/memory/mem_tracker_task_pool.h"
 #include "runtime/result_queue_mgr.h"
 #include "util/disk_info.h"
 #include "util/priority_thread_pool.hpp"
@@ -35,10 +34,9 @@ TestEnv::TestEnv() {
     // Some code will use ExecEnv::GetInstance(), so init the global ExecEnv singleton
     _exec_env = ExecEnv::GetInstance();
     _exec_env->_thread_mgr = new ThreadResourceMgr(2);
-    _exec_env->_task_pool_mem_tracker_registry = new MemTrackerTaskPool();
     _exec_env->_disk_io_mgr = new DiskIoMgr(1, 1, 1, 10);
     _exec_env->disk_io_mgr()->init(-1);
-    _exec_env->_scan_thread_pool = new PriorityThreadPool(1, 16);
+    _exec_env->_scan_thread_pool = new PriorityThreadPool(1, 16, "ut_scan");
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     // TODO may need rpc support, etc.
 }
@@ -62,7 +60,6 @@ TestEnv::~TestEnv() {
     SAFE_DELETE(_exec_env->_buffer_pool);
     SAFE_DELETE(_exec_env->_scan_thread_pool);
     SAFE_DELETE(_exec_env->_disk_io_mgr);
-    SAFE_DELETE(_exec_env->_task_pool_mem_tracker_registry);
     SAFE_DELETE(_exec_env->_thread_mgr);
 
     if (_engine == StorageEngine::_s_instance) {

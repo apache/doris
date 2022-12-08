@@ -82,6 +82,11 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.schema_scan_node.__isset.thread_id) {
         _scanner_param.thread_id = tnode.schema_scan_node.thread_id;
     }
+
+    if (tnode.schema_scan_node.__isset.table_structure) {
+        _scanner_param.table_structure = _pool->add(
+                new std::vector<TSchemaTableStructure>(tnode.schema_scan_node.table_structure));
+    }
     return Status::OK();
 }
 
@@ -95,7 +100,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());
@@ -195,7 +200,7 @@ Status SchemaScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_scanner_param.user) {
         TSetSessionParams param;
@@ -239,7 +244,7 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
 
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (reached_limit()) {
         *eos = true;

@@ -450,14 +450,14 @@ bool ParseLeadingBoolValue(const char* str, bool deflt) {
 }
 
 // ----------------------------------------------------------------------
-// FpToString()
+// Uint64ToString()
 // FloatToString()
 // IntToString()
 //    Convert various types to their string representation, possibly padded
 //    with spaces, using snprintf format specifiers.
 // ----------------------------------------------------------------------
 
-string FpToString(Fprint fp) {
+string Uint64ToString(uint64 fp) {
     char buf[17];
     snprintf(buf, sizeof(buf), "%016" PRIx64, fp);
     return string(buf);

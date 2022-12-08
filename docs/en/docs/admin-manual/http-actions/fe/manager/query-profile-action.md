@@ -30,6 +30,8 @@ under the License.
 
 `GET /rest/v2/manager/query/query_info`
 
+`GET /rest/v2/manager/query/trace/{trace_id}`
+
 `GET /rest/v2/manager/query/sql/{query_id}`
 
 `GET /rest/v2/manager/query/profile/text/{query_id}`
@@ -96,6 +98,12 @@ Gets information about select queries for all fe nodes in the cluster.
 }
 ```
 
+<version since="1.2">
+
+Admin 和 Root 用户可以查看所有 Query。普通用户仅能查看自己发送的 Query。
+
+</version>
+
 ### Examples
 ```
 GET /rest/v2/manager/query/query_info
@@ -134,6 +142,54 @@ GET /rest/v2/manager/query/query_info
     "count": 0
 }
 ```
+
+## Get Query Id By Trace Id
+
+`GET /rest/v2/manager/query/trace_id/{trace_id}`
+
+### Description
+
+Get query id by trance id.
+
+Before executing a Query, set a unique trace id:
+
+`set set session_context="trace_id:your_trace_id";`
+
+After executing the Query within the same Session, the query id can be obtained through the trace id.
+    
+### Path parameters
+
+* `{trace_id}`
+
+    User specific trace id.
+
+### Query parameters
+
+### Response
+
+```
+{
+    "msg": "success", 
+    "code": 0, 
+    "data": "fb1d9737de914af1-a498d5c5dec638d3", 
+    "count": 0
+}
+```
+
+<version since="1.2">
+
+Admin and Root user can view all queries. Ordinary users can only view the Query sent by themselves. If the specified trace id does not exist or has no permission, it will return Bad Request:
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
 
 ## Get the sql and text profile for the specified query
 
@@ -180,6 +236,21 @@ Get the sql and profile text for the specified query id.
     "count": 0
 }
 ```
+
+<version since="1.2">
+
+Admin and Root user can view all queries. Ordinary users can only view the Query sent by themselves. If the specified trace id does not exist or has no permission, it will return Bad Request:
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
     
 ### Examples
 
@@ -237,6 +308,21 @@ Get the fragment name, instance id and execution time for the specified query id
     "count": 0
 }
 ```
+
+<version since="1.2">
+
+Admin and Root user can view all queries. Ordinary users can only view the Query sent by themselves. If the specified trace id does not exist or has no permission, it will return Bad Request:
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
     
 ### Examples
 
@@ -312,6 +398,21 @@ Get the tree profile information of the specified query id, same as `show query 
     "count": 0
 }
 ```
+
+<version since="1.2">
+
+Admin and Root user can view all queries. Ordinary users can only view the Query sent by themselves. If the specified trace id does not exist or has no permission, it will return Bad Request:
+
+```
+{
+    "msg": "Bad Request", 
+    "code": 403, 
+    "data": "error messages",
+    "count": 0
+}
+```
+
+</version>
 
 ## Current running queries
 

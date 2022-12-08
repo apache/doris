@@ -76,7 +76,7 @@ Status NewEsScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status NewEsScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << NEW_SCAN_NODE_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
@@ -205,7 +205,7 @@ Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                                  properties, _docvalue_context, doc_value_mode);
 
         _scanner_pool.add(scanner);
-        RETURN_IF_ERROR(scanner->prepare(_state));
+        RETURN_IF_ERROR(scanner->prepare(_state, _vconjunct_ctx_ptr.get()));
         scanners->push_back(static_cast<VScanner*>(scanner));
     }
     return Status::OK();

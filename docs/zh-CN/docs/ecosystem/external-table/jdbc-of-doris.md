@@ -26,6 +26,8 @@ under the License.
 
 # JDBC External Table Of Doris
 
+<version since="1.2.0">
+
 JDBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(JDBC)来访问外部表，外部表省去了繁琐的数据导入工作，让Doris可以具有了访问各式数据库的能力，并借助Doris本身的OLAP的能力来解决外部表的数据分析问题：
 
 1. 支持各种数据源接入Doris
@@ -33,12 +35,14 @@ JDBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 
 本文档主要介绍该功能的使用方式等。
 
+</version>
+
 ### Doris中创建JDBC的外表
 
 具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 
-
 #### 1. 通过JDBC_Resource来创建JDBC外表 
+
 ```sql
 CREATE EXTERNAL RESOURCE jdbc_resource
 properties (
@@ -72,10 +76,14 @@ PROPERTIES (
 | **password**     | 该用户对应的密码信息 |
 | **jdbc_url**     | JDBC的URL协议，包括数据库类型，IP地址，端口号和数据库名，不同数据库协议格式不一样。例如mysql: "jdbc:mysql://127.0.0.1:3306/test"。|
 | **driver_class** | 访问外表数据库的驱动包类名，例如mysql是:com.mysql.jdbc.Driver. |
-| **driver_url**   | 用于下载访问外部数据库的jar包驱动URL。http://IP:port/mysql-connector-java-5.1.47.jar |
+| **driver_url**   | 用于下载访问外部数据库的jar包驱动URL。http://IP:port/mysql-connector-java-5.1.47.jar。本地单机测试时，可将jar包放在本地路径下，"driver_url"="file:///home/disk1/pathTo/mysql-connector-java-5.1.47.jar",多机时需保证具有完全相同的路径信息。 |
 | **resource**     | 在Doris中建立外表时依赖的资源名，对应上步创建资源时的名字。|
 | **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。|
 | **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle|
+
+>**注意：**
+>
+>如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
 
 ### 查询用法
 
@@ -113,6 +121,27 @@ set enable_odbc_transcation = true;
 | -------------- | ----------------------- |
 | 14.5           | postgresql-42.5.0.jar   |
 
+```sql
+CREATE EXTERNAL RESOURCE jdbc_pg
+properties (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url"="jdbc:postgresql://127.0.0.1:5442/postgres?currentSchema=doris_test",
+    "driver_url"="http://127.0.0.1:8881/postgresql-42.5.0.jar",
+    "driver_class"="org.postgresql.Driver"
+);
+
+CREATE EXTERNAL TABLE `ext_pg` (
+  `k1` int
+) ENGINE=JDBC
+PROPERTIES (
+"resource" = "jdbc_pg",
+"table" = "pg_tbl",
+"table_type"="postgresql"
+);
+```
+
 #### 3.SQLServer测试
 | SQLserver版本 | SQLserver JDBC驱动版本     |
 | ------------- | -------------------------- |
@@ -125,6 +154,11 @@ set enable_odbc_transcation = true;
 
 目前只测试了这一个版本其他版本测试后补充
 
+#### 4.ClickHouse测试
+| ClickHouse版本 | ClickHouse JDBC驱动版本 |
+|----------| ------------------- |
+| 22       | clickhouse-jdbc-0.3.2-patch11-all.jar |
+
 
 ## 类型匹配
 
@@ -135,16 +169,16 @@ set enable_odbc_transcation = true;
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
-|   CHAR   |   CHAR   |
-| VARCHAR  | VARCHAR  |
-|   DATE   |   DATE   |
-|  FLOAT   |  FLOAT   |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
 |  BIGINT  |  BIGINT  |
-|  DOUBLE  |  DOUBLE  |
+|BIGINT UNSIGNED|LARGEINT|
+| VARCHAR  | VARCHAR  |
+|   DATE   |   DATE   |
+|  FLOAT   |  FLOAT   |
 | DATETIME | DATETIME |
+|  DOUBLE  |  DOUBLE  |
 | DECIMAL  | DECIMAL  |
 
 
@@ -153,26 +187,26 @@ set enable_odbc_transcation = true;
 |    PostgreSQL    |  Doris   |
 | :--------------: | :------: |
 |     BOOLEAN      | BOOLEAN  |
-|       CHAR       |   CHAR   |
-|     VARCHAR      | VARCHAR  |
-|       DATE       |   DATE   |
-|       REAL       |  FLOAT   |
 |     SMALLINT     | SMALLINT |
 |       INT        |   INT    |
 |      BIGINT      |  BIGINT  |
-| DOUBLE PRECISION |  DOUBLE  |
+|     VARCHAR      | VARCHAR  |
+|       DATE       |   DATE   |
 |    TIMESTAMP     | DATETIME |
+|       REAL       |  FLOAT   |
+|      FLOAT       |  DOUBLE  |
 |     DECIMAL      | DECIMAL  |
 
 ### Oracle
 
 |  Oracle  |  Doris   |
 | :------: | :------: |
-|   CHAR   |   CHAR   |
 | VARCHAR  | VARCHAR  |
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
+|   REAL   |   FLOAT  |
+|   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 
 
@@ -181,26 +215,55 @@ set enable_odbc_transcation = true;
 | SQLServer |  Doris   |
 | :-------: | :------: |
 |    BIT    | BOOLEAN  |
-|   CHAR    |   CHAR   |
-|  VARCHAR  | VARCHAR  |
-|   DATE    |   DATE   |
-|   REAL    |  FLOAT   |
 |  TINYINT  | TINYINT  |
 | SMALLINT  | SMALLINT |
 |    INT    |   INT    |
 |  BIGINT   |  BIGINT  |
+|  VARCHAR  | VARCHAR  |
+|   DATE    |   DATE   |
 | DATETIME  | DATETIME |
+|   REAL    |  FLOAT   |
+|   FLOAT   |  DOUBLE  |
 |  DECIMAL  | DECIMAL  |
+
+### ClickHouse
+
+| ClickHouse |  Doris   |
+|:----------:|:--------:|
+|  BOOLEAN   | BOOLEAN  |
+|    CHAR    |   CHAR   |
+|  VARCHAR   | VARCHAR  |
+|   STRING   |  STRING  |
+|    DATE    |   DATE   |
+|  Float32   |  FLOAT   |
+|  Float64   |  DOUBLE  |
+|    Int8    | TINYINT  |
+|   Int16    | SMALLINT |
+|   Int32    |   INT    |
+|   Int64    |  BIGINT  |
+|   Int128   | LARGEINT |
+|  DATETIME  | DATETIME |
+|  DECIMAL   | DECIMAL  |
+
+**注意：**
+- 对于ClickHouse里的一些特殊类型，如UUID,IPv4,IPv6,Enum8可以用Doris的Varchar/String类型来匹配,但是在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理
+- 对于ClickHouse的Geo类型Point,无法进行匹配
 
 ## Q&A
 
-1. 除了MySQL,Oracle,PostgreSQL,SQLServer是否能够支持更多的数据库
+1. 除了MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse是否能够支持更多的数据库
 
-   目前Doris只适配了MySQL，PostgreSQL,SQLServer,Oracle.关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+   目前Doris只适配了MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse.关于其他的数据库的适配工作正在规划之中，原则上来说任何支持JDBC访问的数据库都能通过JDBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 2. 读写mysql外表的emoji表情出现乱码
 
     Doris进行jdbc外表连接时，由于mysql之中默认的utf8编码为utf8mb3，无法表示需要4字节编码的emoji表情。这里需要在建立mysql外表时设置对应列的编码为utf8mb4,设置服务器编码为utf8mb4,JDBC Url中的characterEncoding不配置.（该属性不支持utf8mb4,配置了非utf8mb4将导致无法写入表情，因此要留空，不配置）
+
+3. 读mysql外表时，DateTime="0000:00:00 00:00:00"异常报错: "CAUSED BY: DataReadException: Zero date value prohibited"
+
+   这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数zeroDateTimeBehavior控制该行为.
+   可选参数为:EXCEPTION,CONVERT_TO_NULL,ROUND, 分别为异常报错，转为NULL值，转为"0001-01-01 00:00:00";
+   可在url中添加:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull" 
 
 
 ```

@@ -221,6 +221,9 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 * BE webserver_port端口配置
 
   如果 be 部署在 hadoop 集群中，注意调整 be.conf 中的 `webserver_port = 8040` ,以免造成端口冲突
+* 安装 Java UDF 函数
+<version since="1.2.0">安装Java UDF 函数</version>
+  因为从1.2 版本开始支持Java UDF 函数，需要从官网下载 Java UDF 函数的 JAR 包放到 BE 的 lib 目录下，否则可能会启动失败。
 
 * 在 FE 中添加所有 BE 节点
 

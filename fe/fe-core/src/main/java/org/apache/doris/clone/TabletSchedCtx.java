@@ -480,10 +480,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     /*
-     * check if existing replicas are on same BE.
+     * check if existing replicas are on same BE or Host.
      * database lock should be held.
      */
-    public boolean containsBE(long beId) {
+    public boolean filterDestBE(long beId) {
         Backend backend = infoService.getBackend(beId);
         if (backend == null) {
             // containsBE() is currently only used for choosing dest backend to do clone task.
@@ -497,11 +497,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 // BE has been dropped, skip it
                 continue;
             }
-            if (host.equals(be.getHost())) {
+            if (!Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && host.equals(be.getHost())) {
                 return true;
             }
-            // actually there is no need to check BE id anymore, because if hosts are not same, BE ids are
-            // not same either. But for psychological comfort, leave this check here.
+
             if (replica.getBackendId() == beId) {
                 return true;
             }

@@ -30,16 +30,6 @@ namespace doris::vectorized {
 
 class NewFileScanNode;
 
-// The counter will be passed to each scanner.
-// Note that this struct is not thread safe.
-// So if we support concurrent scan in the future, we need to modify this struct.
-struct ScannerCounter {
-    ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
-
-    int64_t num_rows_filtered;   // unqualified rows (unmatched the dest schema, or no partition)
-    int64_t num_rows_unselected; // rows filtered by predicates
-};
-
 class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
@@ -84,7 +74,7 @@ protected:
     std::unordered_map<SlotId, int> _partition_slot_index_map;
     // created from param.expr_of_dest_slot
     // For query, it saves default value expr of all dest columns, or nullptr for NULL.
-    // For load, it saves convertion expr/default value of all dest columns.
+    // For load, it saves conversion expr/default value of all dest columns.
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
@@ -100,7 +90,7 @@ protected:
 
     // Get from GenericReader, save the existing columns in file to their type.
     std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
-    // Get from GenericReader, save columns that requried by scan but not exist in file.
+    // Get from GenericReader, save columns that required by scan but not exist in file.
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
@@ -115,7 +105,6 @@ protected:
 
     // Profile
     RuntimeProfile* _profile;
-    ScannerCounter _counter;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -127,6 +116,8 @@ protected:
     bool _src_block_init = false;
     Block* _src_block_ptr;
     Block _src_block;
+
+    VExprContext* _push_down_expr = nullptr;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
@@ -144,6 +135,7 @@ private:
     Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
+    Status _generate_fill_columns();
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;

@@ -28,43 +28,34 @@ class RuntimeProfile;
 
 class FileFactory {
 public:
+    // Create FileWriter
     static Status create_file_writer(TFileType::type type, ExecEnv* env,
                                      const std::vector<TNetworkAddress>& broker_addresses,
                                      const std::map<std::string, std::string>& properties,
                                      const std::string& path, int64_t start_offset,
                                      std::unique_ptr<FileWriter>& file_writer);
 
-    // Because StreamLoadPipe use std::shared_ptr, here we have to support both unique_ptr
-    // and shared_ptr create_file_reader
-    static Status create_file_reader(TFileType::type type, ExecEnv* env, RuntimeProfile* profile,
-                                     const std::vector<TNetworkAddress>& broker_addresses,
-                                     const std::map<std::string, std::string>& properties,
-                                     const TBrokerRangeDesc& range, int64_t start_offset,
-                                     std::unique_ptr<FileReader>& file_reader);
-
-    static Status create_file_reader(TFileType::type type, ExecEnv* env, RuntimeProfile* profile,
-                                     const std::vector<TNetworkAddress>& broker_addresses,
-                                     const std::map<std::string, std::string>& properties,
-                                     const TBrokerRangeDesc& range, int64_t start_offset,
-                                     std::shared_ptr<FileReader>& file_reader);
-
-    static Status create_file_reader(ExecEnv* env, RuntimeProfile* profile,
-                                     const TFileScanRangeParams& params,
-                                     const TFileRangeDesc& range,
-                                     std::unique_ptr<FileReader>& file_reader);
-
-    static Status create_file_reader(ExecEnv* env, RuntimeProfile* profile,
-                                     const TFileScanRangeParams& params,
-                                     const TFileRangeDesc& range,
-                                     std::shared_ptr<FileReader>& file_reader);
-
     /**
-     * Create FileReader. If buffer_size > 0, use BufferedReader to wrap the underlying FileReader;
+     * Create FileReader for broker scan node related scanners and readers
+     */
+    static Status create_file_reader(TFileType::type type, ExecEnv* env, RuntimeProfile* profile,
+                                     const std::vector<TNetworkAddress>& broker_addresses,
+                                     const std::map<std::string, std::string>& properties,
+                                     const TBrokerRangeDesc& range, int64_t start_offset,
+                                     std::unique_ptr<FileReader>& file_reader);
+    /**
+     * Create FileReader for file scan node rlated scanners and readers
+     * If buffer_size > 0, use BufferedReader to wrap the underlying FileReader;
      * Otherwise, return the underlying FileReader directly.
      */
     static Status create_file_reader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                                     const TFileRangeDesc& range,
-                                     std::unique_ptr<FileReader>& file_reader, int64_t buffer_size);
+                                     const std::string& path, int64_t start_offset,
+                                     int64_t file_size, int64_t buffer_size,
+                                     std::unique_ptr<FileReader>& file_reader);
+
+    // Create FileReader for stream load pipe
+    static Status create_pipe_reader(const TUniqueId& load_id,
+                                     std::shared_ptr<FileReader>& file_reader);
 
     static TFileType::type convert_storage_type(TStorageBackendType::type type) {
         switch (type) {
@@ -81,19 +72,6 @@ public:
         }
         __builtin_unreachable();
     }
-
-private:
-    // Note: if the function return Status::OK() means new the file_reader. the caller
-    // should delete the memory of file_reader or use the smart_ptr to hold the own of file_reader
-    static Status _new_file_reader(TFileType::type type, ExecEnv* env, RuntimeProfile* profile,
-                                   const std::vector<TNetworkAddress>& broker_addresses,
-                                   const std::map<std::string, std::string>& properties,
-                                   const TBrokerRangeDesc& range, int64_t start_offset,
-                                   FileReader*& file_reader);
-
-    static Status _new_file_reader(ExecEnv* env, RuntimeProfile* profile,
-                                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                                   FileReader*& file_reader);
 };
 
 } // namespace doris

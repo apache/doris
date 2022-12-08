@@ -172,12 +172,23 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
     } else {
         chunk_reader.get_def_levels(definitions, rows);
     }
-    // fill nullable values
-    fill_nullable_column(doris_column, definitions, rows);
+    MutableColumnPtr data_column;
+    if (doris_column->is_nullable()) {
+        // fill nullable values
+        fill_nullable_column(doris_column, definitions, rows);
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        data_column = nullable_column->get_nested_column_ptr();
+    } else {
+        data_column = doris_column->assume_mutable();
+    }
+    ColumnSelectVector run_length_map;
     // decode page data
     if (field_schema->definition_level == 0) {
         // required column
-        return chunk_reader.decode_values(doris_column, data_type, rows);
+        std::vector<u_short> null_map = {(u_short)rows};
+        run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+        return chunk_reader.decode_values(data_column, data_type, run_length_map);
     } else {
         // column with null values
         level_t level_type = definitions[0];
@@ -186,10 +197,12 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
             if (definitions[i] != level_type) {
                 if (level_type == 0) {
                     // null values
-                    chunk_reader.insert_null_values(doris_column, num_values);
+                    chunk_reader.insert_null_values(data_column, num_values);
                 } else {
+                    std::vector<u_short> null_map = {(u_short)num_values};
+                    run_length_map.set_run_length_null_map(null_map, rows, nullptr);
                     RETURN_IF_ERROR(
-                            chunk_reader.decode_values(doris_column, data_type, num_values));
+                            chunk_reader.decode_values(data_column, data_type, run_length_map));
                 }
                 level_type = definitions[i];
                 num_values = 1;
@@ -199,9 +212,11 @@ static Status get_column_values(FileReader* file_reader, tparquet::ColumnChunk* 
         }
         if (level_type == 0) {
             // null values
-            chunk_reader.insert_null_values(doris_column, num_values);
+            chunk_reader.insert_null_values(data_column, num_values);
         } else {
-            RETURN_IF_ERROR(chunk_reader.decode_values(doris_column, data_type, num_values));
+            std::vector<u_short> null_map = {(u_short)num_values};
+            run_length_map.set_run_length_null_map(null_map, rows, nullptr);
+            RETURN_IF_ERROR(chunk_reader.decode_values(data_column, data_type, run_length_map));
         }
         return Status::OK();
     }
@@ -380,7 +395,9 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     tuple_slots.emplace_back(&string_slot);
 
     std::vector<ParquetReadColumn> read_columns;
+    RowGroupReader::LazyReadContext lazy_read_ctx;
     for (const auto& slot : tuple_slots) {
+        lazy_read_ctx.all_read_columns.emplace_back(slot->col_name());
         read_columns.emplace_back(ParquetReadColumn(7, slot->col_name()));
     }
     LocalFileReader file_reader("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", 0);
@@ -396,10 +413,13 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto row_group = t_metadata.row_groups[0];
     std::shared_ptr<RowGroupReader> row_group_reader;
-    row_group_reader.reset(new RowGroupReader(&file_reader, read_columns, 0, row_group, &ctz));
-    std::vector<RowRange> row_ranges = std::vector<RowRange>();
+    row_group_reader.reset(new RowGroupReader(&file_reader, read_columns,
+                                              RowGroupIndex(0, 0, 10000), row_group, &ctz,
+                                              lazy_read_ctx));
     auto col_offsets = std::unordered_map<int, tparquet::OffsetIndex>();
-    auto stg = row_group_reader->init(meta_data->schema(), row_ranges, col_offsets);
+    auto stg = row_group_reader->init(meta_data->schema(), col_offsets);
+    std::vector<RowRange> row_ranges = std::vector<RowRange>();
+    row_group_reader->set_row_ranges(row_ranges);
     EXPECT_TRUE(stg.ok());
 
     vectorized::Block block;

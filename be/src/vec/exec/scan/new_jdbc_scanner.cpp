@@ -17,11 +17,9 @@
 
 #include "new_jdbc_scanner.h"
 
-#ifdef LIBJVM
-
 namespace doris::vectorized {
 NewJdbcScanner::NewJdbcScanner(RuntimeState* state, NewJdbcScanNode* parent, int64_t limit,
-                               TupleId tuple_id, std::string query_string)
+                               const TupleId& tuple_id, const std::string& query_string)
         : VScanner(state, static_cast<VScanNode*>(parent), limit),
           _is_init(false),
           _jdbc_eos(false),
@@ -81,7 +79,7 @@ Status NewJdbcScanner::open(RuntimeState* state) {
     }
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
-    RETURN_IF_ERROR(_jdbc_connector->open());
+    RETURN_IF_ERROR(_jdbc_connector->open(state, true));
     RETURN_IF_ERROR(_jdbc_connector->query());
     return Status::OK();
 }
@@ -147,7 +145,7 @@ Status NewJdbcScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
 
 Status NewJdbcScanner::close(RuntimeState* state) {
     RETURN_IF_ERROR(VScanner::close(state));
+    RETURN_IF_ERROR(_jdbc_connector->close());
     return Status::OK();
 }
 } // namespace doris::vectorized
-#endif

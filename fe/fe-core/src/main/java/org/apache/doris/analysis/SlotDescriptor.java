@@ -328,19 +328,9 @@ public class SlotDescriptor {
         StringBuilder builder = new StringBuilder();
         String colStr = (column == null ? "null" : column.getName());
         String typeStr = (type == null ? "null" : type.toString());
-        String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
-        builder.append(prefix).append("SlotDescriptor{").append("id=").append(id).append(", col=").append(colStr)
-                .append(", type=").append(typeStr).append("}\n");
-
-        prefix += "  ";
-        builder.append(prefix).append("parent=").append(parentTupleId).append("\n");
-        builder.append(prefix).append("materialized=").append(isMaterialized).append("\n");
-        builder.append(prefix).append("byteSize=").append(byteSize).append("\n");
-        builder.append(prefix).append("byteOffset=").append(byteOffset).append("\n");
-        builder.append(prefix).append("nullIndicatorByte=").append(nullIndicatorByte).append("\n");
-        builder.append(prefix).append("nullIndicatorBit=").append(nullIndicatorBit).append("\n");
-        builder.append(prefix).append("nullable=").append(isNullable).append("\n");
-        builder.append(prefix).append("slotIdx=").append(slotIdx).append("\n");
+        builder.append(prefix).append("SlotDescriptor{")
+                .append("id=").append(id).append(", col=").append(colStr).append(", type=").append(typeStr)
+                .append(", nullable=").append(isNullable).append("}");
         return builder.toString();
     }
 

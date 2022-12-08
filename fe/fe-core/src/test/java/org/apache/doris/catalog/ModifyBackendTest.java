@@ -96,7 +96,7 @@ public class ModifyBackendTest {
                 + "buckets 3 properties(\n" + "    \"dynamic_partition.enable\" = \"true\",\n"
                 + "    \"dynamic_partition.time_unit\" = \"DAY\",\n" + "    \"dynamic_partition.start\" = \"-3\",\n"
                 + "    \"dynamic_partition.end\" = \"3\",\n" + "    \"dynamic_partition.prefix\" = \"p\",\n"
-                + "    \"dynamic_partition.buckets\" = \"1\",\n" + "    \"dynamic_partition.replication_num\" = \"1\"\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n" + "    \"dynamic_partition.replication_num\" = \"3\"\n"
                 + ");";
         CreateTableStmt createStmt3 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         //partition create failed, because there is no BE with "default" tag

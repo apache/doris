@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -126,6 +127,9 @@ public class SimpleScheduler {
     public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
                                           Reference<Long> backendIdRef)
             throws UserException {
+        if (backends.isEmpty()) {
+            throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
+        }
         long id = nextId.getAndIncrement() % backends.size();
         Map.Entry<Long, Backend> backendEntry = backends.entrySet().stream().skip(id).filter(
                 e -> isAvailable(e.getValue())).findFirst().orElse(null);
@@ -166,7 +170,9 @@ public class SimpleScheduler {
     }
 
     public static void addToBlacklist(Long backendID, String reason) {
-        if (backendID == null) {
+        if (backendID == null || Config.disable_backend_black_list) {
+            LOG.warn("ignore backend black list for backend: {}, disabled: {}", backendID,
+                    Config.disable_backend_black_list);
             return;
         }
 

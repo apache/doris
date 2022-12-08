@@ -212,7 +212,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* 
                     case orc::SHORT:
                     case orc::LONG: {
                         int64_t value = ((orc::LongVectorBatch*)cvb)->data[_current_line_of_group];
-                        wbytes = sprintf((char*)tmp_buf, "%ld", value);
+                        wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRId64, value);
                         str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
@@ -221,7 +221,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* 
                     case orc::FLOAT:
                     case orc::DOUBLE: {
                         double value = ((orc::DoubleVectorBatch*)cvb)->data[_current_line_of_group];
-                        wbytes = sprintf((char*)tmp_buf, "%.9f", value);
+                        wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%.9f", value);
                         str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
                         memcpy(str_slot->ptr, tmp_buf, wbytes);
                         str_slot->len = wbytes;
@@ -259,7 +259,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* 
 
                         std::string v;
                         if (decimal_scale_length <= scale) {
-                            // decimal(5,2) : the integer of 0.01 is 1, so we should fill 0 befor integer
+                            // decimal(5,2) : the integer of 0.01 is 1, so we should fill 0 before integer
                             v = std::string(negative ? "-0." : "0.");
                             int fill_zero = scale - decimal_scale_length;
                             while (fill_zero--) {

@@ -18,7 +18,7 @@
 suite("event_action") {
     def createTable = { tableName ->
         sql """
-            create table ${tableName}
+            create table if not exists ${tableName}
             (id int)
             distributed by hash(id)
             properties

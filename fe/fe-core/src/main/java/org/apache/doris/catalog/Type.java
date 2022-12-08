@@ -46,12 +46,8 @@ import java.util.List;
  * as abstract methods that subclasses must implement.
  */
 public abstract class Type {
-    // Maximum nesting depth of a type. This limit was determined experimentally by
-    // org.apache.doris.rewrite.FoldConstantsRule.apply generating and scanning
-    // deeply nested Parquet and Avro files. In those experiments, we exceeded
-    // the stack space in the scanner (which uses recursion for dealing with
-    // nested types) at a nesting depth between 200 and 300 (200 worked, 300 crashed).
-    public static int MAX_NESTING_DEPTH = 2;
+    // Currently only support Array type with max 9 depths.
+    public static int MAX_NESTING_DEPTH = 9;
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
@@ -72,6 +68,9 @@ public abstract class Type {
     public static final ScalarType STRING = new ScalarType(PrimitiveType.STRING);
     public static final ScalarType DEFAULT_DECIMALV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
                     ScalarType.DEFAULT_PRECISION, ScalarType.DEFAULT_SCALE);
+
+    public static final ScalarType MAX_DECIMALV2_TYPE = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
+            ScalarType.MAX_DECIMALV2_PRECISION, ScalarType.MAX_DECIMALV2_SCALE);
 
     public static final ScalarType DEFAULT_DECIMAL32 =
             ScalarType.createDecimalType(PrimitiveType.DECIMAL32, ScalarType.MAX_DECIMAL32_PRECISION,
@@ -125,7 +124,7 @@ public abstract class Type {
         numericTypes.addAll(integerTypes);
         numericTypes.add(FLOAT);
         numericTypes.add(DOUBLE);
-        numericTypes.add(DECIMALV2);
+        numericTypes.add(MAX_DECIMALV2_TYPE);
         numericTypes.add(DECIMAL32);
         numericTypes.add(DECIMAL64);
         numericTypes.add(DECIMAL128);
@@ -143,6 +142,9 @@ public abstract class Type {
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
+        trivialTypes.add(DECIMAL32);
+        trivialTypes.add(DECIMAL64);
+        trivialTypes.add(DECIMAL128);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
@@ -159,6 +161,8 @@ public abstract class Type {
         arraySubTypes.add(DECIMALV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
+        arraySubTypes.add(DATEV2);
+        arraySubTypes.add(DATETIMEV2);
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
@@ -482,13 +486,17 @@ public abstract class Type {
         return false;
     }
 
-    public static boolean canCastTo(Type t1, Type t2) {
-        if (t1.isScalarType() && t2.isScalarType()) {
-            return ScalarType.canCastTo((ScalarType) t1, (ScalarType) t2);
-        } else if (t1.isArrayType() && t2.isArrayType()) {
-            return ArrayType.canCastTo((ArrayType) t1, (ArrayType) t2);
+    public static boolean canCastTo(Type sourceType, Type targetType) {
+        if (sourceType.isScalarType() && targetType.isScalarType()) {
+            return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
+        } else if (sourceType.isArrayType() && targetType.isArrayType()) {
+            return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
+        } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
+                && !sourceType.isNull()) {
+            // TODO: current not support cast any non-array type(except for null) to nested array type.
+            return false;
         }
-        return t1.isNull() || t1.getPrimitiveType() == PrimitiveType.VARCHAR;
+        return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
 
     /**
@@ -542,7 +550,7 @@ public abstract class Type {
             case DOUBLE:
                 return DOUBLE;
             case DECIMALV2:
-                return DECIMALV2;
+                return MAX_DECIMALV2_TYPE;
             case DECIMAL32:
                 return DECIMAL32;
             case DECIMAL64:
@@ -612,7 +620,7 @@ public abstract class Type {
      * MAP<STRING,STRUCT<f1:INT>> --> 3
      */
     private boolean exceedsMaxNestingDepth(int d) {
-        if (d >= MAX_NESTING_DEPTH) {
+        if (d > MAX_NESTING_DEPTH) {
             return true;
         }
         if (isStructType()) {
@@ -623,7 +631,9 @@ public abstract class Type {
                 }
             }
         } else if (isArrayType()) {
-            return false;
+            ArrayType arrayType = (ArrayType) this;
+            Type itemType = arrayType.getItemType();
+            return itemType.exceedsMaxNestingDepth(d + 1);
         } else if (isMultiRowType()) {
             MultiRowType multiRowType = (MultiRowType) this;
             return multiRowType.getItemType().exceedsMaxNestingDepth(d + 1);
@@ -755,7 +765,7 @@ public abstract class Type {
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
                         || scalarType.getType() == TPrimitiveType.DECIMAL32
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
-                        || scalarType.getType() == TPrimitiveType.DECIMAL128) {
+                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
@@ -1715,3 +1725,4 @@ public abstract class Type {
         return false;
     }
 }
+

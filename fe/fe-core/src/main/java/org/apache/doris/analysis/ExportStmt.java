@@ -236,13 +236,14 @@ public class ExportStmt extends StatementBase {
         URI uri = URI.create(path);
         String schema = uri.getScheme();
         if (type == StorageBackend.StorageType.BROKER) {
-            if (schema == null || (!schema.equalsIgnoreCase("bos")
-                    && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs")
+            if (schema == null || (!schema.equalsIgnoreCase("hdfs")
                     && !schema.equalsIgnoreCase("ofs")
-                    && !schema.equalsIgnoreCase("obs"))) {
-                throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' , 'BOS://', "
-                    + "or 'ofs://' or 'obs://' path.");
+                    && !schema.equalsIgnoreCase("obs")
+                    && !schema.equalsIgnoreCase("oss")
+                    && !schema.equalsIgnoreCase("s3a")
+                    && !schema.equalsIgnoreCase("cosn"))) {
+                throw new AnalysisException("Invalid broker path. please use valid 'hdfs://', 'ofs://', 'obs://',"
+                    + "'oss://', 's3a://' or 'cosn://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {

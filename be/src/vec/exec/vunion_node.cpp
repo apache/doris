@@ -197,7 +197,9 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
                                                                                 &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
-        mblock.merge(tmp_block);
+        if (tmp_block.rows() > 0) {
+            mblock.merge(tmp_block);
+        }
     }
 
     if (!mem_reuse) {

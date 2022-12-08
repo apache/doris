@@ -38,6 +38,7 @@ import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -123,6 +124,7 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
@@ -164,6 +166,7 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
@@ -190,6 +193,7 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
@@ -204,11 +208,11 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.StatisticsJobManager;
-import org.apache.doris.statistics.StatisticsJobScheduler;
-import org.apache.doris.statistics.StatisticsManager;
-import org.apache.doris.statistics.StatisticsTaskScheduler;
+import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.FQDNManager;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
@@ -388,11 +392,6 @@ public class Env {
     private DeployManager deployManager;
 
     private TabletStatMgr tabletStatMgr;
-    // statistics
-    private StatisticsManager statisticsManager;
-    private StatisticsJobManager statisticsJobManager;
-    private StatisticsJobScheduler statisticsJobScheduler;
-    private StatisticsTaskScheduler statisticsTaskScheduler;
 
     private PaloAuth auth;
 
@@ -430,6 +429,14 @@ public class Env {
     private RefreshManager refreshManager;
 
     private PolicyMgr policyMgr;
+
+    private MTMVJobManager mtmvJobManager;
+
+    private AnalysisManager analysisManager;
+
+    private ExternalMetaCacheMgr extMetaCacheMgr;
+
+    private FQDNManager fqdnManager;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -490,6 +497,14 @@ public class Env {
 
     public CatalogMgr getCatalogMgr() {
         return catalogMgr;
+    }
+
+    public MTMVJobManager getMTMVJobManager() {
+        return mtmvJobManager;
+    }
+
+    public ExternalMetaCacheMgr getExtMetaCacheMgr() {
+        return extMetaCacheMgr;
     }
 
     public CatalogIf getCurrentCatalog() {
@@ -570,11 +585,6 @@ public class Env {
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
 
         this.tabletStatMgr = new TabletStatMgr();
-        // statistics
-        this.statisticsManager = new StatisticsManager();
-        this.statisticsJobManager = new StatisticsJobManager();
-        this.statisticsJobScheduler = new StatisticsJobScheduler();
-        this.statisticsTaskScheduler = new StatisticsTaskScheduler();
 
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
@@ -620,6 +630,10 @@ public class Env {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.mtmvJobManager = new MTMVJobManager();
+        this.extMetaCacheMgr = new ExternalMetaCacheMgr();
+        this.fqdnManager = new FQDNManager(systemInfo);
+        this.analysisManager = new AnalysisManager();
     }
 
     public static void destroyCheckpoint() {
@@ -728,23 +742,6 @@ public class Env {
         return checkpointer;
     }
 
-    // statistics
-    public StatisticsManager getStatisticsManager() {
-        return statisticsManager;
-    }
-
-    public StatisticsJobManager getStatisticsJobManager() {
-        return statisticsJobManager;
-    }
-
-    public StatisticsJobScheduler getStatisticsJobScheduler() {
-        return statisticsJobScheduler;
-    }
-
-    public StatisticsTaskScheduler getStatisticsTaskScheduler() {
-        return statisticsTaskScheduler;
-    }
-
     // Use tryLock to avoid potential dead lock
     private boolean tryLock(boolean mustLock) {
         while (true) {
@@ -850,6 +847,8 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
+        // 7. start mtmv jobManager
+        mtmvJobManager.start();
     }
 
     // wait until FE is ready.
@@ -1399,8 +1398,10 @@ public class Env {
         partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
-        this.statisticsJobScheduler.start();
-        this.statisticsTaskScheduler.start();
+        new InternalSchemaInitializer().start();
+        if (Config.enable_fqdn_mode) {
+            fqdnManager.start();
+        }
     }
 
     // start threads that should running on all FE
@@ -1613,6 +1614,10 @@ public class Env {
                 connection.disconnect();
             }
         }
+    }
+
+    public StatisticsCache getStatisticsCache() {
+        return analysisManager.getStatisticsCache();
     }
 
     public boolean hasReplayer() {
@@ -1926,12 +1931,23 @@ public class Env {
      **/
     public long loadCatalog(DataInputStream in, long checksum) throws IOException {
         CatalogMgr mgr = CatalogMgr.read(in);
-        // When enable the multi catalog in the first time, the mgr will be a null value.
+        // When enable the multi catalog in the first time, the "mgr" will be a null value.
         // So ignore it to use default catalog manager.
         if (mgr != null) {
             this.catalogMgr = mgr;
         }
         LOG.info("finished replay catalog from image");
+        return checksum;
+    }
+
+    /**
+     * Load mtmv jobManager.
+     **/
+    public long loadMTMVJobManager(DataInputStream in, long checksum) throws IOException {
+        if (Config.enable_mtmv_scheduler_framework) {
+            this.mtmvJobManager = MTMVJobManager.read(in, checksum);
+            LOG.info("finished replay mtmv job and tasks from image");
+        }
         return checksum;
     }
 
@@ -2205,6 +2221,14 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
+        return checksum;
+    }
+
+    public long saveMTMVJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+        if (Config.enable_mtmv_scheduler_framework) {
+            Env.getCurrentEnv().getMTMVJobManager().write(out, checksum);
+            LOG.info("Save mtmv job and tasks to image");
+        }
         return checksum;
     }
 
@@ -2587,7 +2611,7 @@ public class Env {
     }
 
     public void replayCreateDb(Database db) {
-        getInternalCatalog().replayCreateDb(db);
+        getInternalCatalog().replayCreateDb(db, "");
     }
 
     public void dropDb(DropDbStmt stmt) throws DdlException {
@@ -2598,8 +2622,8 @@ public class Env {
         getInternalCatalog().replayDropLinkDb(info);
     }
 
-    public void replayDropDb(String dbName, boolean isForceDrop) throws DdlException {
-        getInternalCatalog().replayDropDb(dbName, isForceDrop);
+    public void replayDropDb(String dbName, boolean isForceDrop, Long recycleTime) throws DdlException {
+        getInternalCatalog().replayDropDb(dbName, isForceDrop, recycleTime);
     }
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
@@ -2619,13 +2643,7 @@ public class Env {
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
-        long dbId = info.getDbId();
-        Database db = Env.getCurrentRecycleBin().replayRecoverDatabase(dbId);
-
-        // add db to catalog
-        replayCreateDb(db);
-
-        LOG.info("replay recover db[{}]", dbId);
+        getInternalCatalog().replayRecoverDatabase(info);
     }
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
@@ -2695,7 +2713,7 @@ public class Env {
         getInternalCatalog().replayErasePartition(partitionId);
     }
 
-    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverPartition(info);
     }
 
@@ -2924,12 +2942,6 @@ public class Env {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
 
-            // remote storage
-            String remoteStoragePolicy = olapTable.getRemoteStoragePolicy();
-            if (!Strings.isNullOrEmpty(remoteStoragePolicy)) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY).append("\" = \"");
-                sb.append(remoteStoragePolicy).append("\"");
-            }
             // compression type
             if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
@@ -2956,9 +2968,15 @@ public class Env {
 
             // sequence type
             if (olapTable.hasSequenceCol()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
-                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
-                sb.append(olapTable.getSequenceType().toString()).append("\"");
+                if (olapTable.getSequenceMapCol() != null) {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                            + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL).append("\" = \"");
+                    sb.append(olapTable.getSequenceMapCol()).append("\"");
+                } else {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                            + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                    sb.append(olapTable.getSequenceType().toString()).append("\"");
+                }
             }
 
             // disable auto compaction
@@ -3180,19 +3198,21 @@ public class Env {
         getInternalCatalog().dropTable(stmt);
     }
 
-    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay) {
-        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay);
+    public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
+                                      Long recycleTime) {
+        return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
-    public void replayDropTable(Database db, long tableId, boolean isForceDrop) throws MetaNotFoundException {
-        getInternalCatalog().replayDropTable(db, tableId, isForceDrop);
+    public void replayDropTable(Database db, long tableId, boolean isForceDrop,
+                                Long recycleTime) throws MetaNotFoundException {
+        getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
     public void replayEraseTable(long tableId) {
         getInternalCatalog().replayEraseTable(tableId);
     }
 
-    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException {
+    public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverTable(info);
     }
 
@@ -4030,12 +4050,119 @@ public class Env {
         }
     }
 
-    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
-        throw new DdlException("not implemented");
+    private void renameColumn(Database db, OlapTable table, String colName,
+            String newColName, boolean isReplay) throws DdlException {
+        if (table.getState() != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
+        }
+
+        if (colName.equalsIgnoreCase(newColName)) {
+            throw new DdlException("Same column name");
+        }
+
+        Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            // rename column is not implemented for table without column unique id.
+            if (entry.getValue().getMaxColUniqueId() < 0) {
+                throw new DdlException("not implemented for table without column unique id,"
+                        + " which are created with property 'light_schema_change'.");
+            }
+            // check if new name is already used
+            if (entry.getValue().getColumnByName(newColName) != null) {
+                throw new DdlException("Column name[" + newColName + "] is already used");
+            }
+        }
+
+        // 1. modify MaterializedIndexMeta
+        boolean hasColumn = false;
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            Column column = entry.getValue().getColumnByName(colName);
+            if (column != null) {
+                column.setName(newColName);
+                hasColumn = true;
+            }
+        }
+        if (!hasColumn) {
+            throw new DdlException("Column[" + colName + "] does not exists");
+        }
+
+        // 2. modify partition key
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        for (Column column : partitionColumns) {
+            if (column.getName().equalsIgnoreCase(colName)) {
+                column.setName(newColName);
+                break;
+            }
+        }
+
+        // 3. modify index
+        List<Index> indexes = table.getIndexes();
+        for (Index index : indexes) {
+            List<String> columns = index.getColumns();
+            for (int i = 0; i < columns.size(); i++) {
+                if (columns.get(i).equalsIgnoreCase(colName)) {
+                    columns.set(i, newColName);
+                }
+            }
+        }
+
+        // 4. modify distribution info
+        DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
+        if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            for (Column column : distributionColumns) {
+                if (column.getName().equalsIgnoreCase(colName)) {
+                    column.setName(newColName);
+                    break;
+                }
+            }
+        }
+
+        // 5. modify sequence map col
+        if (table.hasSequenceCol() && table.getSequenceMapCol().equalsIgnoreCase(colName)) {
+            table.setSequenceMapCol(newColName);
+        }
+
+        table.rebuildFullSchema();
+
+        if (!isReplay) {
+            // log
+            TableRenameColumnInfo info = new TableRenameColumnInfo(db.getId(), table.getId(), colName, newColName);
+            editLog.logColumnRename(info);
+            LOG.info("rename coloumn[{}] to {}", colName, newColName);
+        }
     }
 
-    public void replayRenameColumn(TableInfo tableInfo) throws DdlException {
-        throw new DdlException("not implemented");
+    public void renameColumn(Database db, OlapTable table, ColumnRenameClause renameClause) throws DdlException {
+        table.writeLockOrDdlException();
+        try {
+            String colName = renameClause.getColName();
+            String newColName = renameClause.getNewColName();
+            renameColumn(db, table, colName, newColName, false);
+        } finally {
+            table.writeUnlock();
+        }
+    }
+
+    public void replayRenameColumn(TableRenameColumnInfo info) throws MetaNotFoundException {
+        LOG.debug("info:{}", info);
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        String colName = info.getColName();
+        String newColName = info.getNewColName();
+
+        Database db = getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+        table.writeLock();
+        try {
+            renameColumn(db, table, colName, newColName, true);
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("failed to replay rename column", e);
+        } finally {
+            table.writeUnlock();
+        }
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
@@ -4283,7 +4410,16 @@ public class Env {
             throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
                     ErrorCode.ERR_UNKNOWN_CATALOG);
         }
+
+        String currentDB = ctx.getDatabase();
+        if (StringUtils.isNotEmpty(currentDB)) {
+            catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+        }
         ctx.changeDefaultCatalog(catalogName);
+        String lastDb = catalogMgr.getLastDB(catalogName);
+        if (StringUtils.isNotEmpty(lastDb)) {
+            ctx.setDatabase(lastDb);
+        }
         if (catalogIf instanceof EsExternalCatalog) {
             ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
                     + EsExternalCatalog.DEFAULT_DB);
@@ -4612,7 +4748,7 @@ public class Env {
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
         Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.addFunction(stmt.getFunction());
+        db.addFunction(stmt.getFunction(), stmt.isIfNotExists());
     }
 
     public void replayCreateFunction(Function function) throws MetaNotFoundException {
@@ -4624,7 +4760,7 @@ public class Env {
     public void dropFunction(DropFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
         Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-        db.dropFunction(stmt.getFunction());
+        db.dropFunction(stmt.getFunction(), stmt.isIfExists());
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
@@ -5069,4 +5205,21 @@ public class Env {
         }
         return count;
     }
+
+    public AnalysisTaskScheduler getAnalysisJobScheduler() {
+        return analysisManager.taskScheduler;
+    }
+
+    // TODO:
+    //  1. handle partition level analysis statement properly
+    //  2. support sample job
+    //  3. support period job
+    public void createAnalysisJob(AnalyzeStmt analyzeStmt) {
+        analysisManager.createAnalysisJob(analyzeStmt);
+    }
+
+    public AnalysisManager getAnalysisManager() {
+        return analysisManager;
+    }
+
 }

@@ -19,7 +19,7 @@ suite("test_dynamic_partition") {
     // todo: test dynamic partition
     sql "drop table if exists dy_par"
     sql """
-        CREATE TABLE dy_par ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL ) 
+        CREATE TABLE IF NOT EXISTS dy_par ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL ) 
         AGGREGATE KEY(k1,k2) 
         PARTITION BY RANGE(k1) ( ) 
         DISTRIBUTED BY HASH(k1) BUCKETS 3 
@@ -41,7 +41,7 @@ suite("test_dynamic_partition") {
     sql "drop table if exists dy_par_bad"
     test {
         sql """
-        CREATE TABLE dy_par_bad ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL ) 
+        CREATE TABLE IF NOT EXISTS dy_par_bad ( k1 date NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL ) 
         AGGREGATE KEY(k1,k2) 
         PARTITION BY RANGE(k1) ( ) 
         DISTRIBUTED BY HASH(k1) BUCKETS 3 
@@ -61,7 +61,7 @@ suite("test_dynamic_partition") {
     sql "drop table if exists dy_par_bad"
 
     sql """
-        CREATE TABLE dy_par ( k1 datev2 NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
+        CREATE TABLE IF NOT EXISTS dy_par ( k1 datev2 NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
         AGGREGATE KEY(k1,k2)
         PARTITION BY RANGE(k1) ( )
         DISTRIBUTED BY HASH(k1) BUCKETS 3
@@ -83,7 +83,7 @@ suite("test_dynamic_partition") {
     sql "drop table if exists dy_par_bad"
     test {
         sql """
-        CREATE TABLE dy_par_bad ( k1 datev2 NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
+        CREATE TABLE IF NOT EXISTS dy_par_bad ( k1 datev2 NOT NULL, k2 varchar(20) NOT NULL, k3 int sum NOT NULL )
         AGGREGATE KEY(k1,k2)
         PARTITION BY RANGE(k1) ( )
         DISTRIBUTED BY HASH(k1) BUCKETS 3

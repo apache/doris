@@ -38,6 +38,12 @@ TEST(FunctionLikeTest, like) {
                         {{std::string("abc"), std::string("a%")}, uint8_t(1)},
                         {{std::string("bc"), std::string("a%")}, uint8_t(0)},
                         // equals
+                        {{std::string(""), std::string("")}, uint8_t(1)},
+                        {{std::string(""), std::string(" ")}, uint8_t(0)},
+                        {{std::string(" "), std::string(" ")}, uint8_t(1)},
+                        {{std::string(" "), std::string("")}, uint8_t(0)},
+                        {{std::string("abc"), std::string("")}, uint8_t(0)},
+                        {{std::string("abc"), std::string(" ")}, uint8_t(0)},
                         {{std::string("abc"), std::string("abc")}, uint8_t(1)},
                         {{std::string("abc"), std::string("ab")}, uint8_t(0)},
                         // full regexp match
@@ -60,10 +66,6 @@ TEST(FunctionLikeTest, like) {
         check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                             const_pattern_dataset);
     }
-
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-    check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionLikeTest, regexp) {
@@ -100,10 +102,6 @@ TEST(FunctionLikeTest, regexp) {
         check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                             const_pattern_dataset);
     }
-
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-    check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
 }
 
 TEST(FunctionLikeTest, regexp_extract) {
@@ -143,10 +141,37 @@ TEST(FunctionLikeTest, regexp_extract) {
         check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                              const_pattern_dataset);
     }
+}
 
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int64};
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+TEST(FunctionLikeTest, regexp_extract_all) {
+    std::string func_name = "regexp_extract_all";
+
+    DataSet data_set = {
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
+             std::string("['18','17']")},
+            {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)")},
+             std::string("['a']")},
+            {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)")},
+             std::string("['41915173660']")},
+            {{std::string("http://a.m.baidu.com/i41915i73660.htm"), std::string("i([0-9]+)")},
+             std::string("['41915','73660']")},
+
+            {{std::string("hitdecisiondlist"), std::string("(i)(.*?)(e)")}, std::string("['i']")},
+            {{std::string("hitdecisioendlist"), std::string("(i)(.*?)(e)")},
+             std::string("['i','i']")},
+            {{std::string("hitdecisioendliset"), std::string("(i)(.*?)(e)")},
+             std::string("['i','i','i']")},
+            // null
+            {{std::string("abc"), Null()}, Null()},
+            {{Null(), std::string("i([0-9]+)")}, Null()}};
+
+    // pattern is constant value
+    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+    for (const auto& line : data_set) {
+        DataSet const_pattern_dataset = {line};
+        check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                             const_pattern_dataset);
+    }
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
@@ -177,10 +202,36 @@ TEST(FunctionLikeTest, regexp_replace) {
         check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                              const_pattern_dataset);
     }
+}
 
-    // pattern is not constant value
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
+TEST(FunctionLikeTest, regexp_replace_one) {
+    std::string func_name = "regexp_replace_one";
+
+    DataSet data_set = {
+            {{std::string("2022-03-02"), std::string("-"), std::string("")},
+             std::string("202203-02")},
+            {{std::string("2022-03-02"), std::string(""), std::string("s")},
+             std::string("s2022-03-02")},
+            {{std::string("100-200"), std::string("(\\d+)"), std::string("doris")},
+             std::string("doris-200")},
+
+            {{std::string("a b c"), std::string(" "), std::string("-")}, std::string("a-b c")},
+            {{std::string("a b c"), std::string("(b)"), std::string("<\\1>")},
+             std::string("a <b> c")},
+            {{std::string("qwewe"), std::string(""), std::string("true")},
+             std::string("trueqwewe")},
+            // null
+            {{std::string("abc"), std::string("x=18abc"), Null()}, Null()},
+            {{Null(), std::string("i([0-9]+)"), std::string("x=18abc")}, Null()}};
+
+    // pattern is constant value
+    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String},
+                                              TypeIndex::String};
+    for (const auto& line : data_set) {
+        DataSet const_pattern_dataset = {line};
+        check_function<DataTypeString, true>(func_name, const_pattern_input_types,
+                                             const_pattern_dataset);
+    }
 }
 
 } // namespace doris::vectorized

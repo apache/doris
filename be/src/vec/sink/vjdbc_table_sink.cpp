@@ -17,7 +17,6 @@
 
 #include "vec/sink/vjdbc_table_sink.h"
 
-#ifdef LIBJVM
 #include <gen_cpp/DataSinks_types.h>
 
 #include <sstream>
@@ -58,7 +57,7 @@ Status VJdbcTableSink::open(RuntimeState* state) {
 
     // create writer
     _writer.reset(new JdbcConnector(_jdbc_param));
-    RETURN_IF_ERROR(_writer->open());
+    RETURN_IF_ERROR(_writer->open(state, false));
     if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }
@@ -67,7 +66,7 @@ Status VJdbcTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VJdbcTableSink::send(RuntimeState* state, Block* block) {
+Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VJdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {
@@ -96,8 +95,8 @@ Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }
+    RETURN_IF_ERROR(_writer->close());
     return DataSink::close(state, exec_status);
 }
 } // namespace vectorized
 } // namespace doris
-#endif

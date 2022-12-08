@@ -24,6 +24,7 @@
 
 #include "common/utils.h"
 #include "exec/hash_table.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
@@ -88,9 +89,13 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _build_unique = false;
     }
 
-    for (const auto& filter_desc : _runtime_filter_descs) {
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
-                RuntimeFilterRole::PRODUCER, filter_desc, state->query_options()));
+    _runtime_filters.resize(_runtime_filter_descs.size());
+
+    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
+                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
+                _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
 
     return Status::OK();
@@ -98,9 +103,9 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
-    _build_pool.reset(new MemPool(mem_tracker()));
+    _build_pool.reset(new MemPool(mem_tracker_held()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
@@ -177,10 +182,10 @@ Status HashJoinNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-void HashJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
+void HashJoinNode::probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
-    status->set_value(construct_hash_table(state));
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
+    status->set_value(child(0)->open(state));
 }
 
 Status HashJoinNode::construct_hash_table(RuntimeState* state) {
@@ -218,9 +223,14 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
+    for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
+        if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
+            RETURN_IF_ERROR(bf->init_with_fixed_length());
+        }
+    }
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Expr::open(_build_expr_ctxs, state));
     RETURN_IF_ERROR(Expr::open(_probe_expr_ctxs, state));
@@ -235,41 +245,47 @@ Status HashJoinNode::open(RuntimeState* state) {
     // main thread
     std::promise<Status> thread_status;
     add_runtime_exec_option("Hash Table Built Asynchronously");
-    std::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status)).detach();
+    std::thread(bind(&HashJoinNode::probe_side_open_thread, this, state, &thread_status)).detach();
 
     if (!_runtime_filter_descs.empty()) {
         RuntimeFilterSlots runtime_filter_slots(_probe_expr_ctxs, _build_expr_ctxs,
                                                 _runtime_filter_descs);
-
-        RETURN_IF_ERROR(thread_status.get_future().get());
-        RETURN_IF_ERROR(runtime_filter_slots.init(state, _hash_tbl->size()));
-        {
-            SCOPED_TIMER(_push_compute_timer);
-            auto func = [&](TupleRow* row) { runtime_filter_slots.insert(row); };
-            _hash_tbl->for_each_row(func);
-        }
-        COUNTER_UPDATE(_build_timer, _push_compute_timer->value());
-        {
-            SCOPED_TIMER(_push_down_timer);
-            runtime_filter_slots.publish();
-        }
-        Status open_status = child(0)->open(state);
-        RETURN_IF_ERROR(open_status);
-    } else {
-        // Open the probe-side child so that it may perform any initialisation in parallel.
-        // Don't exit even if we see an error, we still need to wait for the build thread
+        Status st;
+        do {
+            st = construct_hash_table(state);
+            if (UNLIKELY(!st.ok())) {
+                break;
+            }
+            st = runtime_filter_slots.init(state, _hash_tbl->size());
+            if (UNLIKELY(!st.ok())) {
+                break;
+            }
+            {
+                SCOPED_TIMER(_push_compute_timer);
+                auto func = [&](TupleRow* row) { runtime_filter_slots.insert(row); };
+                _hash_tbl->for_each_row(func);
+            }
+            COUNTER_UPDATE(_build_timer, _push_compute_timer->value());
+            {
+                SCOPED_TIMER(_push_down_timer);
+                runtime_filter_slots.publish();
+            }
+        } while (false);
+        VLOG_ROW << "runtime st: " << st;
+        // Don't exit even if we see an error, we still need to wait for the probe thread
         // to finish.
-        Status open_status = child(0)->open(state);
-
+        // If this return first, probe thread will use '_await_time_cost'
+        // which is already destructor and then coredump.
+        RETURN_IF_ERROR(thread_status.get_future().get());
+        if (UNLIKELY(!st.ok())) {
+            return st;
+        }
+    } else {
         // Blocks until ConstructHashTable has returned, after which
         // the hash table is fully constructed and we can start the probe
         // phase.
         RETURN_IF_ERROR(thread_status.get_future().get());
-
-        // ISSUE-1247, check open_status after buildThread execute.
-        // If this return first, build thread will use 'thread_status'
-        // which is already destructor and then coredump.
-        RETURN_IF_ERROR(open_status);
+        RETURN_IF_ERROR(construct_hash_table(state));
     }
 
     // seed probe batch and _current_probe_row, etc.
@@ -305,7 +321,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     // but if the expression calculation in this node needs to apply for additional memory,
     // it may cause the memory to exceed the limit.
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (reached_limit()) {
         *eos = true;

@@ -135,7 +135,7 @@ suite("test_alter_table_column") {
     sql "use test_query_db"
     sql "DROP TABLE IF EXISTS ${tbName3};"
     sql """
-            CREATE TABLE ${tbName3} (
+            CREATE TABLE IF NOT EXISTS ${tbName3} (
                 `k1` int(11) NULL COMMENT "",
                 `k2` int(11) NULL COMMENT "",
                 `v1` int(11) SUM NULL COMMENT ""

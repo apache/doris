@@ -164,6 +164,58 @@ public:
         offsets.push_back_without_reserve(new_size);
     }
 
+    /// Before insert strings, the caller should calculate the total size of strings,
+    /// and reserve the chars & the offsets.
+    void insert_many_strings_without_reserve(const StringRef* strings, size_t num) {
+        Char* data = chars.data();
+        size_t offset = chars.size();
+        size_t length = 0;
+
+        const char* ptr = strings[0].data;
+        for (size_t i = 0; i != num; i++) {
+            uint32_t len = strings[i].size;
+            length += len;
+            offset += len;
+            offsets.push_back(offset);
+
+            if (i != num - 1 && strings[i].data + len == strings[i + 1].data) {
+                continue;
+            }
+            memcpy(data, ptr, length);
+            data += length;
+            if (LIKELY(i != num - 1)) {
+                ptr = strings[i + 1].data;
+                length = 0;
+            }
+        }
+        chars.resize(offset);
+    }
+
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets_,
+                                            const size_t num) override {
+        static_assert(sizeof(offsets_[0]) == sizeof(*offsets.data()));
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        const auto old_size = chars.size();
+        const auto begin_offset = offsets_[0];
+        const auto total_mem_size = offsets_[num] - begin_offset;
+        if (LIKELY(total_mem_size > 0)) {
+            chars.resize(total_mem_size + old_size);
+            memcpy(chars.data() + old_size, data + begin_offset, total_mem_size);
+        }
+        const auto old_rows = offsets.size();
+        auto tail_offset = offsets.back();
+        DCHECK(tail_offset == old_size);
+        offsets.resize(old_rows + num);
+        auto* offsets_ptr = &offsets[old_rows];
+
+        for (size_t i = 0; i < num; ++i) {
+            offsets_ptr[i] = tail_offset + offsets_[i + 1] - begin_offset;
+        }
+        DCHECK(chars.size() == offsets.back());
+    }
+
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         size_t new_size = 0;
@@ -204,55 +256,6 @@ public:
                 offset += len;
             }
             offsets.push_back(offset);
-        }
-    }
-
-    void insert_many_continuous_strings(const StringRef* strings, size_t num) {
-        DCHECK_NE(num, 0);
-        offsets.reserve(offsets.size() + num);
-        std::vector<const char*> start_points(1);
-        auto& head = strings[0];
-        start_points[0] = head.data;
-        size_t new_size = head.size;
-        const char* cursor = head.data + new_size;
-        std::vector<const char*> end_points;
-
-        const size_t old_size = chars.size();
-        size_t offset = old_size;
-        offset += new_size;
-        offsets.push_back(offset);
-        if (num == 1) {
-            end_points.push_back(cursor);
-        } else {
-            for (size_t i = 1; i < num; i++) {
-                auto& str = strings[i];
-                if (cursor != str.data) {
-                    end_points.push_back(cursor);
-                    start_points.push_back(str.data);
-                    cursor = str.data;
-                }
-                size_t sz = str.size;
-                offset += sz;
-                new_size += sz;
-                cursor += sz;
-                offsets.push_back_without_reserve(offset);
-            }
-            end_points.push_back(cursor);
-        }
-        DCHECK_EQ(end_points.size(), start_points.size());
-
-        chars.resize(old_size + new_size);
-
-        size_t num_range = start_points.size();
-        Char* data = chars.data();
-
-        offset = old_size;
-        for (size_t i = 0; i < num_range; i++) {
-            uint32_t len = end_points[i] - start_points[i];
-            if (len) {
-                memcpy(data + offset, start_points[i], len);
-                offset += len;
-            }
         }
     }
 
@@ -377,7 +380,8 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
+                   int count_sz = -1) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);

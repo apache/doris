@@ -32,6 +32,7 @@ import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
+import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
@@ -59,6 +60,8 @@ import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
+import org.apache.doris.analysis.ShowMTMVJobStmt;
+import org.apache.doris.analysis.ShowMTMVTaskStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
@@ -82,7 +85,6 @@ import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
-import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
@@ -92,6 +94,7 @@ import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -136,6 +139,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
@@ -169,8 +173,12 @@ import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.statistics.StatisticsJobManager;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -207,6 +215,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -349,8 +358,6 @@ public class ShowExecutor {
             handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
             handleShowSqlBlockRule();
-        } else if (stmt instanceof ShowTableStatsStmt) {
-            handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof ShowTableCreationStmt) {
@@ -371,6 +378,12 @@ public class ShowExecutor {
             handleShowAnalyze();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
+        } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
+            handleShowCatalogRecycleBin();
+        } else if (stmt instanceof ShowMTMVJobStmt) {
+            handleMTMVJobs();
+        } else if (stmt instanceof ShowMTMVTaskStmt) {
+            handleMTMVTasks();
         } else {
             handleEmtpy();
         }
@@ -583,7 +596,7 @@ public class ShowExecutor {
         for (BaseParam param : infos) {
             final int percent = (int) (param.getFloatParam(0) * 100f);
             rows.add(Lists.newArrayList(param.getStringParam(0), param.getStringParam(1), param.getStringParam(2),
-                                        String.valueOf(percent + "%")));
+                    String.valueOf(percent + "%")));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -823,7 +836,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                                                        CaseSensibility.VARIABLES.getCaseSensibility());
+                    CaseSensibility.VARIABLES.getCaseSensibility());
         }
         List<List<String>> rows = VariableMgr.dump(showStmt.getType(), ctx.getSessionVariable(), matcher);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -875,7 +888,7 @@ public class ShowExecutor {
             } else {
                 if (showStmt.isView()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
-                                                        showStmt.getTable(), "VIEW");
+                            showStmt.getTable(), "VIEW");
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = table.getType() != TableType.MATERIALIZED_VIEW
@@ -959,7 +972,7 @@ public class ShowExecutor {
             for (Index index : indexes) {
                 rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
                         "", String.join(",", index.getColumns()), "", "", "", "",
-                        "", index.getIndexType().name(), index.getComment()));
+                        "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
             }
         } finally {
             table.readUnlock();
@@ -1028,7 +1041,7 @@ public class ShowExecutor {
             } else if (categories.size() > 1) {
                 // Send category list
                 resultSet = new ShowResultSet(helpStmt.getCategoryMetaData(),
-                                              Lists.<List<String>>newArrayList(categories));
+                        Lists.<List<String>>newArrayList(categories));
             } else {
                 // Send topic list and sub-category list
                 List<List<String>> rows = Lists.newArrayList();
@@ -1305,9 +1318,9 @@ public class ShowExecutor {
                     tableName = routineLoadJob.getTableName();
                 } catch (MetaNotFoundException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("error_msg", "The table metadata of job has been changed. "
-                                             + "The job will be cancelled automatically")
-                                     .build(), e);
+                            .add("error_msg", "The table metadata of job has been changed. "
+                                    + "The job will be cancelled automatically")
+                            .build(), e);
                 }
                 if (!Env.getCurrentEnv().getAuth()
                         .checkTblPriv(ConnectContext.get(), dbFullName, tableName, PrivPredicate.LOAD)) {
@@ -1326,7 +1339,7 @@ public class ShowExecutor {
         if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
             // if the jobName has been specified
             throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
-                                                + " in db " + showRoutineLoadStmt.getDbFullName()
+                    + " in db " + showRoutineLoadStmt.getDbFullName()
                     + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
@@ -1346,7 +1359,7 @@ public class ShowExecutor {
         }
         if (routineLoadJob == null) {
             throw new AnalysisException("The job named " + showRoutineLoadTaskStmt.getJobName() + "does not exists "
-                                                + "or job state is stopped or cancelled");
+                    + "or job state is stopped or cancelled");
         }
 
         // check auth
@@ -1527,7 +1540,7 @@ public class ShowExecutor {
             } while (false);
 
             String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d';",
-                                             dbId, tableId, partitionId, indexId, tabletId);
+                    dbId, tableId, partitionId, indexId, tabletId);
             rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
                     dbId.toString(), tableId.toString(),
                     partitionId.toString(), indexId.toString(),
@@ -1558,7 +1571,7 @@ public class ShowExecutor {
                 } else {
                     partitions = olapTable.getPartitions();
                 }
-                List<List<Comparable>> tabletInfos =  new ArrayList<>();
+                List<List<Comparable>> tabletInfos = new ArrayList<>();
                 String indexName = showStmt.getIndexName();
                 long indexId = -1;
                 if (indexName != null) {
@@ -2124,17 +2137,33 @@ public class ShowExecutor {
 
     }
 
-    private void handleShowTableStats() throws AnalysisException {
-        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
-        List<List<String>> results = Env.getCurrentEnv().getStatisticsManager().showTableStatsList(showTableStatsStmt);
-        resultSet = new ShowResultSet(showTableStatsStmt.getMetaData(), results);
-    }
-
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
-        List<List<String>> results = Env.getCurrentEnv().getStatisticsManager()
-                .showColumnStatsList(showColumnStatsStmt);
-        resultSet = new ShowResultSet(showColumnStatsStmt.getMetaData(), results);
+        TableName tableName = showColumnStatsStmt.getTableName();
+        TableIf tableIf = showColumnStatsStmt.getTable();
+        if (!Env.getCurrentEnv().getAuth()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "Permission denied",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.getDb() + ": " + tableName.getTbl());
+        }
+        List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
+        for (Column column : tableIf.getColumns()) {
+            String colName = column.getName();
+            if (partitionNames == null) {
+                ColumnStatistic columnStatistic =
+                        StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
+                columnStatistics.add(Pair.of(column.getName(), columnStatistic));
+            } else {
+                columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
+                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                        .stream().map(s -> Pair.of(colName, s))
+                        .collect(Collectors.toList()));
+            }
+
+        }
+        resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowSqlBlockRule() throws AnalysisException {
@@ -2270,14 +2299,11 @@ public class ShowExecutor {
 
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
-        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt);
+        resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog().getName());
     }
 
     private void handleShowAnalyze() throws AnalysisException {
-        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
-        List<List<String>> results = jobManager.getAnalyzeJobInfos(showStmt);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+        // TODO: Support later
     }
 
     private void handleCopyTablet() throws AnalysisException {
@@ -2377,5 +2403,56 @@ public class ShowExecutor {
         } finally {
             AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
         }
+    }
+
+    private void handleShowCatalogRecycleBin() throws AnalysisException {
+        ShowCatalogRecycleBinStmt showStmt = (ShowCatalogRecycleBinStmt) stmt;
+
+        Predicate<String> predicate = showStmt.getNamePredicate();
+        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo().stream()
+                .filter(x -> predicate.test(x.get(1)))
+                .collect(Collectors.toList());
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleMTMVJobs() throws AnalysisException {
+        ShowMTMVJobStmt showStmt = (ShowMTMVJobStmt) stmt;
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
+        List<MTMVJob> jobs = Lists.newArrayList();
+        if (showStmt.isShowAllJobs()) {
+            jobs.addAll(jobManager.showAllJobs());
+        } else if (showStmt.isShowAllJobsFromDb()) {
+            jobs.addAll(jobManager.showJobs(showStmt.getDbName()));
+        } else if (showStmt.isShowAllJobsOnMv()) {
+            jobs.addAll(jobManager.showJobs(showStmt.getDbName(), showStmt.getMVName()));
+        } else if (showStmt.isSpecificJob()) {
+            jobs.add(jobManager.getJob(showStmt.getJobName()));
+        }
+        List<List<String>> results = Lists.newArrayList();
+        for (MTMVJob job : jobs) {
+            results.add(job.toStringRow());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleMTMVTasks() throws AnalysisException {
+        ShowMTMVTaskStmt showStmt = (ShowMTMVTaskStmt) stmt;
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
+        List<MTMVTask> tasks = Lists.newArrayList();
+        if (showStmt.isShowAllTasks()) {
+            tasks.addAll(jobManager.getTaskManager().showAllTasks());
+        } else if (showStmt.isShowAllTasksFromDb()) {
+            tasks.addAll(jobManager.getTaskManager().showTasks(showStmt.getDbName()));
+        } else if (showStmt.isShowAllTasksOnMv()) {
+            tasks.addAll(jobManager.getTaskManager().showTasks(showStmt.getDbName(), showStmt.getMVName()));
+        } else if (showStmt.isSpecificTask()) {
+            tasks.add(jobManager.getTaskManager().getTask(showStmt.getTaskId()));
+        }
+        List<List<String>> results = Lists.newArrayList();
+        for (MTMVTask task : tasks) {
+            results.add(task.toStringRow());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 }

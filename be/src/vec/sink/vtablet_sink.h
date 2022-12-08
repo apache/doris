@@ -90,9 +90,11 @@ public:
 
     Status close(RuntimeState* state, Status close_status) override;
     using OlapTableSink::send;
-    Status send(RuntimeState* state, vectorized::Block* block) override;
+    Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
     size_t get_pending_bytes() const;
+
+    const RowDescriptor& row_desc() { return _input_row_desc; }
 
 private:
     // make input data valid for OLAP table
@@ -109,6 +111,10 @@ private:
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
     void _convert_to_dest_desc_block(vectorized::Block* block);
+
+    Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
+                       const VOlapTablePartition** partition, uint32_t& tablet_index,
+                       bool& stop_processing, bool& is_continue);
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;

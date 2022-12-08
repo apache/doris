@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -36,10 +37,16 @@ public class PlanPostProcessors {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
     }
 
+    /**
+     * post process
+     *
+     * @param physicalPlan input plan
+     * @return physcial plan
+     */
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
         for (PlanPostProcessor processor : getProcessors()) {
-            resultPlan = (PhysicalPlan) physicalPlan.accept(processor, cascadesContext);
+            resultPlan = (PhysicalPlan) resultPlan.accept(processor, cascadesContext);
         }
         return resultPlan;
     }
@@ -52,8 +59,11 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsRuntimeFilter()) {
             builder.add(new RuntimeFilterGenerator());
-            builder.add(new Validator());
+            if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
+                builder.add(new RuntimeFilterPruner());
+            }
         }
+        builder.add(new Validator());
         return builder.build();
     }
 }

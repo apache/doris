@@ -108,14 +108,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     RETURN_NOT_OK(TabletReader::init(read_params));
 
-    int32_t return_column_size = 0;
-    // read sequence column if not reader_query
-    if (read_params.reader_type != ReaderType::READER_QUERY) {
-        return_column_size = read_params.origin_return_columns->size();
-    } else {
-        return_column_size =
-                read_params.origin_return_columns->size() - (_sequence_col_idx != -1 ? 1 : 0);
-    }
+    int32_t return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size());
     for (int i = 0; i < return_column_size; ++i) {
         auto cid = read_params.origin_return_columns->at(i);
@@ -282,7 +275,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         }
     } while (target_block_row < _batch_size);
 
-    // do filter detete row in base compaction, only base compaction need to do the job
+    // do filter delete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);

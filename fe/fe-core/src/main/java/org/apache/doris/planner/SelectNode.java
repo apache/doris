@@ -99,7 +99,7 @@ public class SelectNode extends PlanNode {
         }
         StringBuilder output = new StringBuilder();
         if (!conjuncts.isEmpty()) {
-            output.append(prefix + "predicates: " + getExplainString(conjuncts) + "\n");
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         return output.toString();
     }

@@ -84,6 +84,28 @@ struct AggregateFunctionBitmapIntersectOp {
     }
 };
 
+struct AggregateFunctionGroupBitmapXorOp {
+    static constexpr auto name = "group_bitmap_xor";
+
+    static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) {
+        if (UNLIKELY(is_first)) {
+            res = data;
+            is_first = false;
+        } else {
+            res ^= data;
+        }
+    }
+
+    static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) {
+        if (UNLIKELY(is_first)) {
+            res = data;
+            is_first = false;
+        } else {
+            res ^= data;
+        }
+    }
+};
+
 template <typename Op>
 struct AggregateFunctionBitmapData {
     BitmapValue value;

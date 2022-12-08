@@ -58,7 +58,7 @@ Status TopNSorter::_do_sort(Block* block) {
 
     // dispose TOP-N logic
     if (_limit != -1) {
-        // Here is a little opt to reduce the mem uasge, we build a max heap
+        // Here is a little opt to reduce the mem usage, we build a max heap
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
@@ -79,6 +79,14 @@ Status TopNSorter::_do_sort(Block* block) {
         return Status::InternalError("Should not reach TopN sorter for full sort query");
     }
     return Status::OK();
+}
+
+size_t TopNSorter::data_size() const {
+    size_t size = _state->unsorted_block->allocated_bytes();
+    for (const auto& block : _state->sorted_blocks) {
+        size += block.allocated_bytes();
+    }
+    return size;
 }
 
 } // namespace doris::vectorized

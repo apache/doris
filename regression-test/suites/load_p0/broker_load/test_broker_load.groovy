@@ -33,11 +33,12 @@ suite("test_broker_load", "p0") {
                   "parquet_s3_case1", // col1 not in file but in table, will load default value for it.
                   "parquet_s3_case2", // x1 not in file, not in table, will throw "col not found" error.
                   "parquet_s3_case3", // p_comment not in table but in file, load normally.
-                  "parquet_s3_case4", // all tables are in table but not in file, will throw "no column found" error.
+                  "parquet_s3_case4", // all columns are in table but not in file, will fill default values.
                   "parquet_s3_case5", // x1 not in file, not in table, will throw "col not found" error.
                   "parquet_s3_case6", // normal
                   "parquet_s3_case7", // col5 will be ignored, load normally
-                  "parquet_s3_case8"  // first column in table is not specified, will load default value for it.
+                  "parquet_s3_case8", // first column in table is not specified, will load default value for it.
+                  "parquet_s3_case9", // first column in table is not specified, will load default value for it.
                  ]
     def paths = ["s3://doris-build-hk-1308700295/regression/load/data/part*",
                  "s3://doris-build-hk-1308700295/regression/load/data/part*",
@@ -60,6 +61,7 @@ suite("test_broker_load", "p0") {
                  "s3://doris-build-hk-1308700295/regression/load/data/part*",
                  "s3://doris-build-hk-1308700295/regression/load/data/part*",
                  "s3://doris-build-hk-1308700295/regression/load/data/part*",
+                 "s3://doris-build-hk-1308700295/regression/load/data/random_all_types/part*",
     ]
     def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
                    """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
@@ -81,10 +83,11 @@ suite("test_broker_load", "p0") {
                    """p_partkey, p_name, p_mfgr, x1""",
                    """p_partkey, p_name, p_mfgr, p_brand""",
                    """p_partkey, p_name, p_mfgr, p_brand""",
-                   """p_name, p_mfgr"""
+                   """p_name, p_mfgr""",
+                   """"""
                    ]
-    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", ""]
-    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", ""]
+    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", ""]
+    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", ""]
     def set_values = ["",
                       "",
                       "SET(comment=p_comment, retailprice=p_retailprice, container=p_container, size=p_size, type=p_type, brand=p_brand, mfgr=p_mfgr, name=p_name, partkey=p_partkey)",
@@ -105,9 +108,10 @@ suite("test_broker_load", "p0") {
                       "set(col4 = x1)",
                       "set(col4 = p_brand)",
                       "set(col5 = p_brand)",
+                      "",
                       ""
     ]
-    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", ""]
+    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", ""]
 
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
@@ -120,16 +124,17 @@ suite("test_broker_load", "p0") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=163703; dpp.abnorm.ALL=0; dpp.norm.ALL=36294",
+                    "unselected.rows=163706; dpp.abnorm.ALL=0; dpp.norm.ALL=36294",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "\\N",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "\\N",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "\\N",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000"
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=4096"
                     ]
 
     def error_msg = ["",
@@ -148,8 +153,9 @@ suite("test_broker_load", "p0") {
                     "",
                     "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to init reader for file s3://doris-build-hk-1308700295/regression/load/data/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet, err: No columns found in file",
+                    "",
                     "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
+                    "",
                     "",
                     "",
                     ""
@@ -161,12 +167,13 @@ suite("test_broker_load", "p0") {
 
     def do_load_job = {uuid, path, table, columns, column_in_path, preceding_filter,
                           set_value, where_expr ->
+        String columns_str = ("$columns" != "") ? "($columns)" : "";
         sql """
             LOAD LABEL $uuid (
                 DATA INFILE("$path")
                 INTO TABLE $table
                 FORMAT AS "PARQUET"
-                ($columns)
+                $columns_str
                 $column_in_path
                 $preceding_filter
                 $set_value
@@ -177,39 +184,38 @@ suite("test_broker_load", "p0") {
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "cos.ap-hongkong.myqcloud.com",
                 "AWS_REGION" = "ap-hongkong"
-            );
+            )
+            properties(
+                "use_new_load_scan_node" = "true"
+            )
             """
+        logger.info("Submit load with lable: $uuid, table: $table, path: $path")
     }
 
     def set_be_config = { flag->
         String[][] backends = sql """ show backends; """
         assertTrue(backends.size() > 0)
         for (String[] backend in backends) {
-            StringBuilder setConfigCommand = new StringBuilder();
-            setConfigCommand.append("curl -X POST http://")
-            setConfigCommand.append(backend[2])
-            setConfigCommand.append(":")
-            setConfigCommand.append(backend[5])
-            setConfigCommand.append("/api/update_config?")
-            String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=$flag"
-            logger.info(command1)
-            String command2 = setConfigCommand.toString() + "enable_new_file_scanner=$flag"
-            logger.info(command2)
-            def process1 = command1.execute()
-            int code = process1.waitFor()
-            assertEquals(code, 0)
-            def process2 = command2.execute()
-            code = process1.waitFor()
-            assertEquals(code, 0)
+            // No need to set this config anymore, but leave this code sample here
+            // StringBuilder setConfigCommand = new StringBuilder();
+            // setConfigCommand.append("curl -X POST http://")
+            // setConfigCommand.append(backend[2])
+            // setConfigCommand.append(":")
+            // setConfigCommand.append(backend[5])
+            // setConfigCommand.append("/api/update_config?")
+            // String command1 = setConfigCommand.toString() + "enable_new_load_scan_node=$flag"
+            // logger.info(command1)
+            // def process1 = command1.execute()
+            // int code = process1.waitFor()
+            // assertEquals(code, 0)
         }
     }
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         def uuids = []
-        sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "true");"""
         set_be_config.call('true')
         try {
-            i = 0
+            def i = 0
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text
                 sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
@@ -223,22 +229,22 @@ suite("test_broker_load", "p0") {
 
             i = 0
             for (String label in uuids) {
-                max_try_milli_secs = 600000
+                def max_try_milli_secs = 600000
                 while (max_try_milli_secs > 0) {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
-                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5])
+                        assertTrue(etl_info[i] == result[0][5], "expected: " + etl_info[i] + ", actual: " + result[0][5] + ", label: $label")
                         break;
                     }
                     if (result[0][2].equals("CANCELLED")) {
-                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7])
+                        assertTrue(error_msg[i] == result[0][7], "expected: " + error_msg[i] + ", actual: " + result[0][7] + ", label: $label")
                         break;
                     }
                     Thread.sleep(1000)
                     max_try_milli_secs -= 1000
                     if(max_try_milli_secs <= 0) {
-                        assertTrue(1 == 2, "Load Timeout.")
+                        assertTrue(1 == 2, "load Timeout: $label")
                     }
                 }
                 i++
@@ -249,9 +255,9 @@ suite("test_broker_load", "p0") {
             order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
             order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
             order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
+            order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
 
         } finally {
-            sql """ADMIN SET FRONTEND CONFIG ("enable_new_load_scan_node" = "false");"""
             set_be_config.call('false')
             for (String table in tables) {
                 sql new File("""${context.file.parent}/ddl/${table}_drop.sql""").text

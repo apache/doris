@@ -36,7 +36,7 @@ using std::vector;
 namespace doris {
 
 AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
-        : _exec_env(exec_env), _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
+        : _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
     for (auto& path : exec_env->store_paths()) {
         try {
             string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
@@ -54,12 +54,12 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 
 #ifndef BE_TEST
 #define CREATE_AND_START_POOL(type, pool_name)                                                    \
-    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env,           \
+    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, exec_env,            \
                                        master_info, TaskWorkerPool::ThreadModel::MULTI_THREADS)); \
     pool_name->start();
 
 #define CREATE_AND_START_THREAD(type, pool_name)                                                  \
-    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env,           \
+    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, exec_env,            \
                                        master_info, TaskWorkerPool::ThreadModel::SINGLE_THREAD)); \
     pool_name->start();
 #else
@@ -94,7 +94,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
-#ifndef BE_TEST
+#if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
     TopicListener* user_resource_listener = new UserResourceListener(exec_env, master_info);
     LOG(INFO) << "Register user resource listener";

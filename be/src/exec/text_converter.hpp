@@ -194,7 +194,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                                             size_t len, bool copy_string, bool need_escape) {
     vectorized::IColumn* col_ptr = nullable_col_ptr;
     // \N means it's NULL
-    if (true == slot_desc->is_nullable()) {
+    if (slot_desc->is_nullable()) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(nullable_col_ptr);
         if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
             nullable_column->insert_data(nullptr, 0);
@@ -206,7 +206,6 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
 
     StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-
     // Parse the raw-text data. Translate the text string to internal format.
     switch (slot_desc->type().type) {
     case TYPE_HLL: {
@@ -314,6 +313,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
             size_t size = nullable_column->get_null_map_data().size();
             doris::vectorized::NullMap& null_map_data = nullable_column->get_null_map_data();
             null_map_data[size - 1] = 1;
+            nullable_column->get_nested_column().insert_default();
         }
         return false;
     }

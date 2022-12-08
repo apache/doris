@@ -29,7 +29,13 @@ add_library(Geo STATIC
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${GENSRC_DIR}/geo/wkt_yacc.y.cpp
 )
-target_compile_options(Geo PRIVATE -Wno-unused-but-set-variable)
+
+include(CheckCXXCompilerFlag)
+set(WARNING_OPTION "-Wno-unused-but-set-variable")
+check_cxx_compiler_flag(${WARNING_OPTION} HAS_WARNING_OPTION)
+if (HAS_WARNING_OPTION)
+    target_compile_options(Geo PRIVATE ${WARNING_OPTION})
+endif()
 
 add_custom_command(
     OUTPUT ${GENSRC_DIR}/geo/wkt_lex.l.cpp ${GENSRC_DIR}/geo/wkt_lex.l.h

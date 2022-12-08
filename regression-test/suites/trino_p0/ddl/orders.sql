@@ -1,4 +1,4 @@
-CREATE TABLE `orders` (
+CREATE TABLE IF NOT EXISTS `orders` (
   `o_orderkey` bigint(20) NOT NULL,
   `o_custkey` int(11) NOT NULL,
   `o_orderstatus` varchar(1) NOT NULL,

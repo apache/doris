@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -33,6 +34,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Logical filter plan.
@@ -71,6 +74,22 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
+    public List<Plan> extraPlans() {
+        if (predicates != null) {
+            return predicates.children().stream()
+                .flatMap(m -> {
+                    if (m instanceof SubqueryExpr) {
+                        return Stream.of(
+                                new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
+                    } else {
+                        return new LogicalFilter<Plan>(m, child()).extraPlans().stream();
+                    }
+                }).collect(Collectors.toList());
+        }
+        return ImmutableList.of();
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
     }
@@ -102,7 +121,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalFilter((LogicalFilter<Plan>) this, context);
+        return visitor.visitLogicalFilter(this, context);
     }
 
     @Override

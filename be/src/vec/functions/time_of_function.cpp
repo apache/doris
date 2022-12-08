@@ -22,54 +22,35 @@
 
 namespace doris::vectorized {
 
-using FunctionWeekOfYear =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<VecDateTimeValue, Int64>>;
+using FunctionWeekOfYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<Int64>>;
 using FunctionWeekOfYearV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          WeekOfYearImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionDayOfYear =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<VecDateTimeValue, Int64>>;
-using FunctionDayOfYearV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          DayOfYearImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionDayOfWeek =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<VecDateTimeValue, Int64>>;
-using FunctionDayOfWeekV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          DayOfWeekImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionDayOfMonth =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<VecDateTimeValue, Int64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<UInt32>>;
+using FunctionDayOfYear = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<Int64>>;
+using FunctionDayOfYearV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<UInt32>>;
+using FunctionDayOfWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<Int64>>;
+using FunctionDayOfWeekV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<UInt32>>;
+using FunctionDayOfMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<Int64>>;
 using FunctionDayOfMonthV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          DayOfMonthImpl<DateV2Value<DateV2ValueType>, UInt32>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<UInt32>>;
 using FunctionYearWeek =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          ToYearWeekOneArgImpl<VecDateTimeValue, Int64>>;
-using FunctionYearWeekV2 = FunctionDateOrDateTimeToSomething<
-        DataTypeInt32, ToYearWeekOneArgImpl<DateV2Value<DateV2ValueType>, UInt32>>;
-using FunctionWeekDay =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<VecDateTimeValue, Int64>>;
-using FunctionWeekDayV2 =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          WeekDayImpl<DateV2Value<DateV2ValueType>, UInt32>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<Int64>>;
+using FunctionYearWeekV2 =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<UInt32>>;
+using FunctionWeekDay = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<Int64>>;
+using FunctionWeekDayV2 = FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<UInt32>>;
 
 using FunctionDateTimeV2WeekOfYear =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          WeekOfYearImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekOfYearImpl<UInt64>>;
 using FunctionDateTimeV2DayOfYear =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          DayOfYearImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfYearImpl<UInt64>>;
 using FunctionDateTimeV2DayOfWeek =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          DayOfWeekImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfWeekImpl<UInt64>>;
 using FunctionDateTimeV2DayOfMonth =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          DayOfMonthImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
-using FunctionDateTimeV2YearWeek = FunctionDateOrDateTimeToSomething<
-        DataTypeInt32, ToYearWeekOneArgImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl<UInt64>>;
+using FunctionDateTimeV2YearWeek =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl<UInt64>>;
 using FunctionDateTimeV2WeekDay =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32,
-                                          WeekDayImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, WeekDayImpl<UInt64>>;
 
 void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfWeek>();

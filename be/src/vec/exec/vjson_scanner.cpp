@@ -47,7 +47,7 @@ Status VJsonScanner<JsonReader>::get_next(vectorized::Block* output_block, bool*
     auto columns = _src_block.mutate_columns();
     // Get one line
     while (columns[0]->size() < batch_size && !_scanner_eof) {
-        if (_cur_file_reader == nullptr || _cur_reader_eof) {
+        if (_real_reader == nullptr || _cur_reader_eof) {
             RETURN_IF_ERROR(open_next_reader());
             // If there isn't any more reader, break this
             if (_scanner_eof) {
@@ -110,7 +110,7 @@ Status VJsonScanner<JsonReader>::open_vjson_reader() {
                                                   num_as_string, fuzzy_parse));
     _cur_vjson_reader.reset(new JsonReader(_state, _counter, _profile, strip_outer_array,
                                            num_as_string, fuzzy_parse, &_scanner_eof,
-                                           _read_json_by_line ? nullptr : _cur_file_reader.get(),
+                                           _read_json_by_line ? nullptr : _real_reader,
                                            _read_json_by_line ? _cur_line_reader : nullptr));
 
     RETURN_IF_ERROR(_cur_vjson_reader->init(jsonpath, json_root));
@@ -221,7 +221,7 @@ Status VJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
 // for simple format json
 // set valid to true and return OK if succeed.
 // set valid to false and return OK if we met an invalid row.
-// return other status if encounter other problmes.
+// return other status if encounter other problems.
 Status VJsonReader::_set_column_value(rapidjson::Value& objectValue,
                                       std::vector<MutableColumnPtr>& columns,
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid) {
@@ -327,15 +327,15 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
         break;
     case rapidjson::Type::kNumberType:
         if (value->IsUint()) {
-            wbytes = sprintf(tmp_buf, "%u", value->GetUint());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", value->GetUint());
         } else if (value->IsInt()) {
-            wbytes = sprintf(tmp_buf, "%d", value->GetInt());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", value->GetInt());
         } else if (value->IsUint64()) {
-            wbytes = sprintf(tmp_buf, "%lu", value->GetUint64());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, value->GetUint64());
         } else if (value->IsInt64()) {
-            wbytes = sprintf(tmp_buf, "%ld", value->GetInt64());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
         } else {
-            wbytes = sprintf(tmp_buf, "%f", value->GetDouble());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", value->GetDouble());
         }
         str_value = tmp_buf;
         break;
@@ -600,7 +600,7 @@ Status VSIMDJsonReader::read_json_column(Block& block,
 // for simple format json
 // set valid to true and return OK if succeed.
 // set valid to false and return OK if we met an invalid row.
-// return other status if encounter other problmes.
+// return other status if encounter other problems.
 Status VSIMDJsonReader::_set_column_value(simdjson::ondemand::value objectValue, Block& block,
                                           const std::vector<SlotDescriptor*>& slot_descs,
                                           bool* valid) {
@@ -724,7 +724,7 @@ Status VSIMDJsonReader::_parse_json(bool* is_empty_row, bool* eof) {
 
 // read one json string from line reader or file reader and parse it to json doc.
 // return Status::DataQualityError() if data has quality error.
-// return other error if encounter other problemes.
+// return other error if encounter other problems.
 // return Status::OK() if parse succeed or reach EOF.
 Status VSIMDJsonReader::_parse_json_doc(size_t* size, bool* eof) {
     // read a whole message

@@ -122,7 +122,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // add timer
     _split_check_timer = ADD_TIMER(_runtime_profile, "split check timer");
@@ -207,7 +207,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
 Status CsvScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     VLOG_CRITICAL << "CsvScanNode::Open";
 
     if (nullptr == state) {
@@ -238,7 +238,7 @@ Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
 
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (reached_limit()) {
         *eos = true;
@@ -484,7 +484,7 @@ bool CsvScanNode::check_and_write_text_slot(const std::string& column_name,
                                    char_len);
             value_to_convert_length = char_len;
         }
-    } else if (slot->type().is_decimal_type()) {
+    } else if (slot->type().is_decimal_v2_type()) {
         int precision = column_type.precision;
         int scale = column_type.scale;
         bool is_success = check_decimal_input(value, value_length, precision, scale, error_msg);

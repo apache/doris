@@ -59,7 +59,7 @@ suite ("test_agg_keys_schema_change") {
 
         sql """ DROP TABLE IF EXISTS schema_change_agg_keys_regression_test """
         sql """
-                CREATE TABLE schema_change_agg_keys_regression_test (
+                CREATE TABLE IF NOT EXISTS schema_change_agg_keys_regression_test (
                     `user_id` LARGEINT NOT NULL COMMENT "用户id",
                     `date` DATE NOT NULL COMMENT "数据灌入日期时间",
                     `city` VARCHAR(20) COMMENT "用户所在城市",
@@ -121,6 +121,28 @@ suite ("test_agg_keys_schema_change") {
 
 
         qt_sc """ select count(*) from ${tableName} """
+
+        // test add double or float key column
+        test {
+            sql "ALTER table ${tableName} ADD COLUMN new_key_column_double DOUBLE"
+            exception "Float or double can not used as a key, use decimal instead."
+        }
+
+        test {
+            sql "ALTER table ${tableName} ADD COLUMN new_key_column_float FLOAT"
+            exception "Float or double can not used as a key, use decimal instead."
+        }
+
+        // test modify key column type to double or float
+        test {
+            sql "ALTER table ${tableName} MODIFY COLUMN age FLOAT"
+            exception "Float or double can not used as a key, use decimal instead."
+        }
+
+        test {
+            sql "ALTER table ${tableName} MODIFY COLUMN age DOUBLE"
+            exception "Float or double can not used as a key, use decimal instead."
+        }
 
         // drop key column, not light schema change
         sql """

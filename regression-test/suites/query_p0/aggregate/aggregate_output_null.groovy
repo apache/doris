@@ -20,7 +20,7 @@
 suite("aggregate_output_null") {
     sql "DROP TABLE IF EXISTS t1;"
     sql """
-        CREATE TABLE `t1`
+        CREATE TABLE IF NOT EXISTS `t1`
         (
            
             `a`                varchar(255) NULL ,
@@ -35,7 +35,7 @@ suite("aggregate_output_null") {
     """
     sql """DROP TABLE IF EXISTS t2;"""
     sql """
-        CREATE TABLE `t2`
+        CREATE TABLE IF NOT EXISTS `t2`
         (
             `e` varchar(11) NOT NULL ,
             `a`      varchar(6)  NOT NULL 

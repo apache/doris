@@ -25,11 +25,11 @@
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimiter>& mem_tracker,
+LoadChannel::LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker,
                          int64_t timeout_s, bool is_high_priority, const std::string& sender_ip,
                          bool is_vec)
         : _load_id(load_id),
-          _mem_tracker(mem_tracker),
+          _mem_tracker(std::move(mem_tracker)),
           _timeout_s(timeout_s),
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
@@ -38,7 +38,6 @@ LoadChannel::LoadChannel(const UniqueId& load_id, std::shared_ptr<MemTrackerLimi
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
     _last_updated_time.store(time(nullptr));
-    _mem_tracker->enable_reset_zero();
 }
 
 LoadChannel::~LoadChannel() {
@@ -59,8 +58,11 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _mem_tracker, _is_high_priority, _is_vec));
-            _tablets_channels.insert({index_id, channel});
+            channel.reset(new TabletsChannel(key, _load_id, _is_high_priority, _is_vec));
+            {
+                std::lock_guard<SpinLock> l(_tablets_channels_lock);
+                _tablets_channels.insert({index_id, channel});
+            }
         }
     }
 
@@ -117,6 +119,25 @@ Status LoadChannel::cancel() {
         it.second->cancel();
     }
     return Status::OK();
+}
+
+void LoadChannel::handle_mem_exceed_limit() {
+    bool found = false;
+    std::shared_ptr<TabletsChannel> channel;
+    {
+        // lock so that only one thread can check mem limit
+        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        found = _find_largest_consumption_channel(&channel);
+    }
+    // Release lock so that other threads can still call add_batch concurrently.
+    if (found) {
+        DCHECK(channel != nullptr);
+        channel->reduce_mem_usage();
+    } else {
+        // should not happen, add log to observe
+        LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "
+                     << "load_id=" << _load_id;
+    }
 }
 
 } // namespace doris

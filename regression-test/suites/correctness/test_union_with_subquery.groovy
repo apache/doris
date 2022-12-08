@@ -18,7 +18,7 @@
 suite("test_union_with_subquery") {
     sql """ DROP TABLE IF EXISTS A_union; """
     sql """
-        create table A_union ( a int not null, b varchar(10)  null )ENGINE=OLAP
+        create table if not exists A_union ( a int not null, b varchar(10)  null )ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",

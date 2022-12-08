@@ -21,7 +21,7 @@ suite("test_no_grouping_window") {
     """
 
     sql """
-        create table test_no_grouping_window_outerjoin_A ( a int not null )
+        create table if not exists test_no_grouping_window_outerjoin_A ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (

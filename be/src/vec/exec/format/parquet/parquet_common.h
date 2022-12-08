@@ -26,6 +26,7 @@
 #include "util/bit_stream_utils.inline.h"
 #include "util/coding.h"
 #include "util/rle_encoding.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -33,6 +34,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/exec/format/format_common.h"
 
 namespace doris::vectorized {
 
@@ -65,30 +67,6 @@ struct ParquetInt96 {
     static const uint64_t NANOS_PER_MICROSECOND;
 };
 
-struct DecimalScaleParams {
-    enum ScaleType {
-        NOT_INIT,
-        NO_SCALE,
-        SCALE_UP,
-        SCALE_DOWN,
-    };
-    ScaleType scale_type = ScaleType::NOT_INIT;
-    int32_t scale_factor = 1;
-
-    template <typename DecimalPrimitiveType>
-    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
-        if constexpr (std::is_same_v<DecimalPrimitiveType, Int32>) {
-            return common::exp10_i32(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
-            return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
-            return common::exp10_i128(n);
-        } else {
-            return DecimalPrimitiveType(1);
-        }
-    }
-};
-
 struct DecodeParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
@@ -97,6 +75,66 @@ struct DecodeParams {
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
     DecimalScaleParams decimal_scale;
+};
+
+class ColumnSelectVector {
+public:
+    enum DataReadType : uint8_t { CONTENT = 0, NULL_DATA, FILTERED_CONTENT, FILTERED_NULL };
+
+    ColumnSelectVector(const uint8_t* filter_map, size_t filter_map_size, bool filter_all);
+
+    ColumnSelectVector() = default;
+
+    void build(const uint8_t* filter_map, size_t filter_map_size, bool filter_all);
+
+    const uint8_t* filter_map() { return _filter_map; }
+
+    size_t num_values() const { return _num_values; }
+
+    size_t num_nulls() const { return _num_nulls; }
+
+    size_t num_filtered() const { return _num_filtered; }
+
+    double filter_ratio() const { return _has_filter ? _filter_ratio : 0; }
+
+    void fallback_filter() { _has_filter = false; }
+
+    bool has_filter() const { return _has_filter; }
+
+    bool can_filter_all(size_t remaining_num_values);
+
+    bool filter_all() const { return _filter_all; }
+
+    void skip(size_t num_values);
+
+    void reset() {
+        if (_has_filter) {
+            _filter_map_index = 0;
+        }
+    }
+
+    size_t get_next_run(DataReadType* data_read_type);
+
+    void set_run_length_null_map(const std::vector<uint16_t>& run_length_null_map,
+                                 size_t num_values, NullMap* null_map = nullptr);
+
+private:
+    std::vector<DataReadType> _data_map;
+    // the length of non-null values and null values are arranged in turn.
+    const std::vector<uint16_t>* _run_length_null_map;
+    bool _has_filter = false;
+    // only used when the whole batch is skipped
+    bool _filter_all = false;
+    const uint8_t* _filter_map = nullptr;
+    size_t _filter_map_size = 0;
+    double _filter_ratio = 0;
+    size_t _filter_map_index = 0;
+
+    // generated in set_run_length_null_map
+    size_t _num_values;
+    size_t _num_nulls;
+    size_t _num_filtered;
+    size_t _read_index;
 };
 
 class Decoder {
@@ -122,10 +160,8 @@ public:
     void init_decimal_converter(DataTypePtr& data_type);
 
     // Write the decoded values batch to doris's column
-    Status decode_values(ColumnPtr& doris_column, DataTypePtr& data_type, size_t num_values);
-
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                 size_t num_values) = 0;
+                                 ColumnSelectVector& select_vector) = 0;
 
     virtual Status skip_values(size_t num_values) = 0;
 
@@ -171,7 +207,7 @@ public:
     ~FixLengthDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         size_t num_values) override;
+                         ColumnSelectVector& select_vector) override;
 
     Status skip_values(size_t num_values) override;
 
@@ -180,30 +216,27 @@ public:
     void set_data(Slice* data) override;
 
 protected:
-    template <typename ShortIntType>
-    Status _decode_short_int(MutableColumnPtr& doris_column, size_t num_values);
-
     template <typename Numeric>
-    Status _decode_numeric(MutableColumnPtr& doris_column, size_t num_values);
+    Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
     template <typename CppType, typename ColumnType>
-    Status _decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type, size_t num_values);
+    Status _decode_date(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
     template <typename CppType, typename ColumnType>
-    Status _decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                              size_t num_values);
+    Status _decode_datetime64(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
     template <typename CppType, typename ColumnType>
-    Status _decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                              size_t num_values);
+    Status _decode_datetime96(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
     template <typename DecimalPrimitiveType>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                  size_t num_values);
+                                  ColumnSelectVector& select_vector);
 
     template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
     Status _decode_primitive_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                     size_t num_values);
+                                     ColumnSelectVector& select_vector);
+
+    Status _decode_string(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
 
 #define _FIXED_GET_DATA_OFFSET(index) \
     _has_dict ? _dict_items[_indexes[index]] : _data->data + _offset
@@ -220,153 +253,288 @@ protected:
     std::vector<uint32_t> _indexes;
 };
 
-template <typename ShortIntType>
-Status FixLengthDecoder::_decode_short_int(MutableColumnPtr& doris_column, size_t num_values) {
-    if (UNLIKELY(_physical_type != tparquet::Type::INT32)) {
-        return Status::InternalError("Short int can only be decoded from INT32");
-    }
-    auto& column_data = static_cast<ColumnVector<ShortIntType>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        column_data[origin_size + i] = *(ShortIntType*)buf_start;
-        _FIXED_SHIFT_DATA_OFFSET();
-    }
-    return Status::OK();
-}
-
 template <typename Numeric>
-Status FixLengthDecoder::_decode_numeric(MutableColumnPtr& doris_column, size_t num_values) {
+Status FixLengthDecoder::_decode_numeric(MutableColumnPtr& doris_column,
+                                         ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
-    if (_has_dict) {
-        auto origin_size = column_data.size();
-        column_data.resize(origin_size + num_values);
-        for (int i = 0; i < num_values; ++i) {
-            char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-            column_data[origin_size + i] = *(Numeric*)buf_start;
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    size_t dict_index = 0;
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                column_data[data_index++] = *(Numeric*)buf_start;
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
+            break;
         }
-    } else {
-        const auto* raw_data = reinterpret_cast<const Numeric*>(_data->data + _offset);
-        column_data.insert(raw_data, raw_data + num_values);
-        _offset += _type_length * num_values;
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status FixLengthDecoder::_decode_date(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                      size_t num_values) {
+Status FixLengthDecoder::_decode_date(MutableColumnPtr& doris_column,
+                                      ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
-        auto& v = reinterpret_cast<CppType&>(column_data[origin_size + i]);
-        v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
-        if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
-            // we should cast to date if using date v1.
-            v.cast_to_date();
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    size_t dict_index = 0;
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
+                auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
+                v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
+                if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                    // we should cast to date if using date v1.
+                    v.cast_to_date();
+                }
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
+            break;
         }
-        _FIXED_SHIFT_DATA_OFFSET();
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                            size_t num_values) {
+Status FixLengthDecoder::_decode_datetime64(MutableColumnPtr& doris_column,
+                                            ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    size_t dict_index = 0;
     int64_t scale_to_micro = _decode_params->scale_to_nano_factor / 1000;
-    for (int i = 0; i < num_values; i++) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
-        auto& v = reinterpret_cast<CppType&>(column_data[origin_size + i]);
-        v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
-        if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
-            // nanoseconds will be ignored.
-            v.set_microsecond((date_value % _decode_params->second_mask) * scale_to_micro);
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                int64_t& date_value = *reinterpret_cast<int64_t*>(buf_start);
+                auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
+                v.from_unixtime(date_value / _decode_params->second_mask, *_decode_params->ctz);
+                if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
+                    // nanoseconds will be ignored.
+                    v.set_microsecond((date_value % _decode_params->second_mask) * scale_to_micro);
+                    // TODO: the precision of datetime v1
+                }
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
+            break;
         }
-        _FIXED_SHIFT_DATA_OFFSET();
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
 
 template <typename CppType, typename ColumnType>
-Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column, TypeIndex& logical_type,
-                                            size_t num_values) {
+Status FixLengthDecoder::_decode_datetime96(MutableColumnPtr& doris_column,
+                                            ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<ColumnType>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(buf_start);
-        auto& v = reinterpret_cast<CppType&>(column_data[origin_size + i]);
-        int64_t micros = datetime96.to_timestamp_micros();
-        v.from_unixtime(micros / 1000000, *_decode_params->ctz);
-        if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
-            // spark.sql.parquet.outputTimestampType = INT96(NANOS) will lost precision.
-            // only keep microseconds.
-            v.set_microsecond(micros % 1000000);
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    size_t dict_index = 0;
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                ParquetInt96& datetime96 = *reinterpret_cast<ParquetInt96*>(buf_start);
+                auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
+                int64_t micros = datetime96.to_timestamp_micros();
+                v.from_unixtime(micros / 1000000, *_decode_params->ctz);
+                if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
+                    // spark.sql.parquet.outputTimestampType = INT96(NANOS) will lost precision.
+                    // only keep microseconds.
+                    v.set_microsecond(micros % 1000000);
+                }
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
+            break;
         }
-        _FIXED_SHIFT_DATA_OFFSET();
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
 
 template <typename DecimalPrimitiveType>
 Status FixLengthDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
-                                                DataTypePtr& data_type, size_t num_values) {
+                                                DataTypePtr& data_type,
+                                                ColumnSelectVector& select_vector) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        // When Decimal in parquet is stored in byte arrays, binary and fixed,
-        // the unscaled number must be encoded as two's complement using big-endian byte order.
-        Int128 value = buf_start[0] & 0x80 ? -1 : 0;
-        memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - _type_length, buf_start,
-               _type_length);
-        value = BigEndian::ToHost128(value);
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-            value /= scale_params.scale_factor;
+
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                // When Decimal in parquet is stored in byte arrays, binary and fixed,
+                // the unscaled number must be encoded as two's complement using big-endian byte order.
+                Int128 value = buf_start[0] & 0x80 ? -1 : 0;
+                memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - _type_length, buf_start,
+                       _type_length);
+                value = BigEndian::ToHost128(value);
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                    value *= scale_params.scale_factor;
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                    value /= scale_params.scale_factor;
+                }
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
+                v = (DecimalPrimitiveType)value;
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
+            break;
         }
-        auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-        v = (DecimalPrimitiveType)value;
-        _FIXED_SHIFT_DATA_OFFSET();
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
 
 template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
 Status FixLengthDecoder::_decode_primitive_decimal(MutableColumnPtr& doris_column,
-                                                   DataTypePtr& data_type, size_t num_values) {
+                                                   DataTypePtr& data_type,
+                                                   ColumnSelectVector& select_vector) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start = _FIXED_GET_DATA_OFFSET(i);
-        // we should use decimal128 to scale up/down
-        Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-            value /= scale_params.scale_factor;
+
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                // we should use decimal128 to scale up/down
+                Int128 value = *reinterpret_cast<DecimalPhysicalType*>(buf_start);
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                    value *= scale_params.scale_factor;
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                    value /= scale_params.scale_factor;
+                }
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
+                v = (DecimalPrimitiveType)value;
+                _FIXED_SHIFT_DATA_OFFSET();
+            }
+            break;
         }
-        auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-        v = (DecimalPrimitiveType)value;
-        _FIXED_SHIFT_DATA_OFFSET();
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
@@ -377,7 +545,7 @@ public:
     ~ByteArrayDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         size_t num_values) override;
+                         ColumnSelectVector& select_vector) override;
 
     Status skip_values(size_t num_values) override;
 
@@ -388,7 +556,7 @@ public:
 protected:
     template <typename DecimalPrimitiveType>
     Status _decode_binary_decimal(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                  size_t num_values);
+                                  ColumnSelectVector& select_vector);
 
     // For dictionary encoding
     bool _has_dict = false;
@@ -400,41 +568,69 @@ protected:
 
 template <typename DecimalPrimitiveType>
 Status ByteArrayDecoder::_decode_binary_decimal(MutableColumnPtr& doris_column,
-                                                DataTypePtr& data_type, size_t num_values) {
+                                                DataTypePtr& data_type,
+                                                ColumnSelectVector& select_vector) {
     init_decimal_converter<DecimalPrimitiveType>(data_type);
     auto& column_data =
             static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*doris_column).get_data();
-    auto origin_size = column_data.size();
-    column_data.resize(origin_size + num_values);
+    size_t data_index = column_data.size();
+    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    size_t dict_index = 0;
     DecimalScaleParams& scale_params = _decode_params->decimal_scale;
-    for (int i = 0; i < num_values; ++i) {
-        char* buf_start;
-        uint32_t length;
-        if (_has_dict) {
-            StringRef& slice = _dict_items[_indexes[i]];
-            buf_start = const_cast<char*>(slice.data);
-            length = (uint32_t)slice.size;
-        } else {
-            if (UNLIKELY(_offset + 4 > _data->size)) {
-                return Status::IOError("Can't read byte array length from plain decoder");
+    ColumnSelectVector::DataReadType read_type;
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            for (size_t i = 0; i < run_length; ++i) {
+                char* buf_start;
+                uint32_t length;
+                if (_has_dict) {
+                    StringRef& slice = _dict_items[_indexes[dict_index++]];
+                    buf_start = const_cast<char*>(slice.data);
+                    length = (uint32_t)slice.size;
+                } else {
+                    if (UNLIKELY(_offset + 4 > _data->size)) {
+                        return Status::IOError("Can't read byte array length from plain decoder");
+                    }
+                    length = decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) +
+                                               _offset);
+                    _offset += 4;
+                    buf_start = _data->data + _offset;
+                    _offset += length;
+                }
+                // When Decimal in parquet is stored in byte arrays, binary and fixed,
+                // the unscaled number must be encoded as two's complement using big-endian byte order.
+                Int128 value = buf_start[0] & 0x80 ? -1 : 0;
+                memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - length, buf_start,
+                       length);
+                value = BigEndian::ToHost128(value);
+                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+                    value *= scale_params.scale_factor;
+                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+                    value /= scale_params.scale_factor;
+                }
+                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[data_index++]);
+                v = (DecimalPrimitiveType)value;
             }
-            length = decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-            _offset += 4;
-            buf_start = _data->data + _offset;
-            _offset += length;
+            break;
         }
-        // When Decimal in parquet is stored in byte arrays, binary and fixed,
-        // the unscaled number must be encoded as two's complement using big-endian byte order.
-        Int128 value = buf_start[0] & 0x80 ? -1 : 0;
-        memcpy(reinterpret_cast<char*>(&value) + sizeof(Int128) - length, buf_start, length);
-        value = BigEndian::ToHost128(value);
-        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
-            value *= scale_params.scale_factor;
-        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
-            value /= scale_params.scale_factor;
+        case ColumnSelectVector::NULL_DATA: {
+            data_index += run_length;
+            break;
         }
-        auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-        v = (DecimalPrimitiveType)value;
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            if (_has_dict) {
+                dict_index += run_length;
+            } else {
+                _offset += _type_length * run_length;
+            }
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            // do nothing
+            break;
+        }
+        }
     }
     return Status::OK();
 }
@@ -455,7 +651,7 @@ public:
     }
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         size_t num_values) override;
+                         ColumnSelectVector& select_vector) override;
 
     Status skip_values(size_t num_values) override;
 

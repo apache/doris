@@ -96,9 +96,9 @@ public class StringLiteral extends LiteralExpr {
         int minLength = Math.min(thisBytes.length, otherBytes.length);
         int i = 0;
         for (i = 0; i < minLength; i++) {
-            if (thisBytes[i] < otherBytes[i]) {
+            if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
                 return -1;
-            } else if (thisBytes[i] > otherBytes[i]) {
+            } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
                 return 1;
             }
         }
@@ -152,6 +152,11 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueForArray() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
     public long getLongValue() {
         return Long.valueOf(value);
     }
@@ -189,6 +194,16 @@ public class StringLiteral extends LiteralExpr {
             }
         }
         return newLiteral;
+    }
+
+    public boolean canConvertToDateV2(Type targetType) {
+        try {
+            Preconditions.checkArgument(targetType.isDateV2());
+            new DateLiteral(value, targetType);
+            return true;
+        } catch (AnalysisException e) {
+            return false;
+        }
     }
 
     @Override

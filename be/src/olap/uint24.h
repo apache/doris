@@ -64,7 +64,7 @@ public:
     }
 
     uint24_t& operator>>=(const int bits) {
-        *this = static_cast<uint>(*this) >> bits;
+        *this = static_cast<unsigned int>(*this) >> bits;
         return *this;
     }
 

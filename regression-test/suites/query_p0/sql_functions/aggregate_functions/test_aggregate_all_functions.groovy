@@ -59,13 +59,13 @@ suite("test_aggregate_all_functions") {
 
 
     
-    // BITMAP_UNION
+    // BITMAP_UNION group_bitmap_xor
     def tableName_03 = "pv_bitmap"
     def tableName_04 = "bitmap_base"
     sql "DROP TABLE IF EXISTS ${tableName_03}"
 
     sql """
-	CREATE TABLE ${tableName_03} (
+	CREATE TABLE IF NOT EXISTS ${tableName_03} (
 	 `dt` int(11) NULL COMMENT "",
 	 `page` varchar(10) NULL COMMENT "",
 	 `user_id` bitmap BITMAP_UNION NULL COMMENT ""
@@ -81,7 +81,7 @@ suite("test_aggregate_all_functions") {
     sql "DROP TABLE IF EXISTS ${tableName_04}"
 
     sql """
-	CREATE TABLE ${tableName_04} (
+	CREATE TABLE IF NOT EXISTS ${tableName_04} (
 	 `dt` int(11) NULL COMMENT "",
 	 `page` varchar(10) NULL COMMENT "",
 	 `user_id_bitmap` bitmap BITMAP_UNION NULL COMMENT "",
@@ -111,6 +111,8 @@ suite("test_aggregate_all_functions") {
 
     qt_select4 "select bitmap_union_count(user_id) from  ${tableName_03}"
     qt_select5 "select bitmap_count(bitmap_union(user_id)) FROM ${tableName_03}"
+
+    qt_group_bitmap_xor "select dt, bitmap_to_string(group_bitmap_xor(user_id_bitmap)) from ${tableName_04} group by dt order by dt"
 
     sql "DROP TABLE IF EXISTS ${tableName_03}"
     sql "DROP TABLE IF EXISTS ${tableName_04}"
@@ -240,8 +242,32 @@ suite("test_aggregate_all_functions") {
     qt_select18 "select id,MIN(level) from ${tableName_11} group by id order by id"
     qt_select19 "select MIN(level) from ${tableName_11}"
 
-    sql "DROP TABLE IF EXISTS ${tableName_11}"
 
+    sql "DROP TABLE IF EXISTS ${tableName_11}"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName_11} (
+          `k1` int(11) NULL,
+          `a1` int(11) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        )
+        """
+    sql "INSERT INTO ${tableName_11} values(1,1),(2,2),(3,3),(4,null),(null,5)"
+
+    qt_select "select * from (select k1 from ${tableName_11} union select null) t order by k1"
+    qt_select "select * from (select k1,a1 from ${tableName_11} union select null,null) t order by k1, a1"
+
+    qt_select "select min(k1) from (select k1 from ${tableName_11} union select null) t"
+    qt_select "select min(k1) from (select k1,a1 from ${tableName_11} union select null,null) t"
+
+    sql "DROP TABLE IF EXISTS ${tableName_11}"
     
     // PERCENTILE
     def tableName_13 = "percentile"
@@ -467,5 +493,11 @@ suite("test_aggregate_all_functions") {
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
 
-    qt_select44 """ select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
+    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
+
+    qt_select45 """select * from ${tableName_12} order by id,level"""
+
+    qt_select46 """select * from ${tableName_12} where id>=5 and id <=5 and level >10  order by id,level;"""
+
+    qt_select47 """select count(*) from ${tableName_12}"""
 }

@@ -40,28 +40,28 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 该语句用于向指定的 table 导入数据，与普通Load区别是，这种导入方式是同步导入。
 
-​        这种导入方式仍然能够保证一批导入任务的原子性，要么全部数据导入成功，要么全部失败。
+这种导入方式仍然能够保证一批导入任务的原子性，要么全部数据导入成功，要么全部失败。
 
-​        该操作会同时更新和此 base table 相关的 rollup table 的数据。
+该操作会同时更新和此 base table 相关的 rollup table 的数据。
 
-​        这是一个同步操作，整个数据导入工作完成后返回给用户导入结果。
+这是一个同步操作，整个数据导入工作完成后返回给用户导入结果。
 
-​        当前支持HTTP chunked与非chunked上传两种方式，对于非chunked方式，必须要有Content-Length来标示上传内容长度，这样能够保证数据的完整性。
+当前支持HTTP chunked与非chunked上传两种方式，对于非chunked方式，必须要有Content-Length来标示上传内容长度，这样能够保证数据的完整性。
 
-​        另外，用户最好设置Expect Header字段内容100-continue，这样可以在某些出错场景下避免不必要的数据传输。
+另外，用户最好设置Expect Header字段内容100-continue，这样可以在某些出错场景下避免不必要的数据传输。
 
 参数介绍：
         用户可以通过HTTP的Header部分来传入导入参数
 
 1. label: 一次导入的标签，相同标签的数据无法多次导入。用户可以通过指定Label的方式来避免一份数据重复导入的问题。
    
-     当前Doris内部保留30分钟内最近成功的label。
+    当前Doris内部保留30分钟内最近成功的label。
     
 2. column_separator：用于指定导入文件中的列分隔符，默认为\t。如果是不可见字符，则需要加\x作为前缀，使用十六进制来表示分隔符。
    
-    ​    如hive文件的分隔符\x01，需要指定为-H "column_separator:\x01"。
+    如hive文件的分隔符\x01，需要指定为-H "column_separator:\x01"。
     
-    ​    可以使用多个字符的组合作为列分隔符。
+    可以使用多个字符的组合作为列分隔符。
     
 3. line_delimiter：用于指定导入文件中的换行符，默认为\n。可以使用做多个字符的组合作为换行符。
    
@@ -69,17 +69,17 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
    
     如果源文件与表schema不对应，那么需要这个字段进行一些数据转换。这里有两种形式column，一种是直接对应导入文件中的字段，直接使用字段名表示；
     
-    ​    一种是衍生列，语法为 `column_name` = expression。举几个例子帮助理解。
+    一种是衍生列，语法为 `column_name` = expression。举几个例子帮助理解。
     
-    ​    例1: 表中有3个列“c1, c2, c3”，源文件中的三个列一次对应的是"c3,c2,c1"; 那么需要指定-H "columns: c3, c2, c1"
+    例1: 表中有3个列“c1, c2, c3”，源文件中的三个列一次对应的是"c3,c2,c1"; 那么需要指定-H "columns: c3, c2, c1"
     
-    ​    例2: 表中有3个列“c1, c2, c3", 源文件中前三列依次对应，但是有多余1列；那么需要指定-H "columns: c1, c2, c3, xxx";
+    例2: 表中有3个列“c1, c2, c3", 源文件中前三列依次对应，但是有多余1列；那么需要指定-H "columns: c1, c2, c3, xxx";
     
-    ​    最后一个列随意指定个名称占位即可
+    最后一个列随意指定个名称占位即可
     
-    ​    例3: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式；
+    例3: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式；
     
-    ​    那么可以指定-H "columns: col, year = year(col), month=month(col), day=day(col)"完成导入
+    那么可以指定-H "columns: col, year = year(col), month=month(col), day=day(col)"完成导入
     
 5. where: 用于抽取部分数据。用户如果有需要将不需要的数据过滤掉，那么可以通过设定这个选项来达到。
    
@@ -99,7 +99,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
 11. exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
-12. format: 指定导入数据格式，默认是csv，也支持：csv_with_names(支持csv文件行首过滤)，csv_with_names_and_types(支持csv文件前两行过滤) 或 json格式。
+12. format: 指定导入数据格式，默认是csv，也支持：<version since="1.2" type="inline"> csv_with_names(支持csv文件行首过滤)，csv_with_names_and_types(支持csv文件前两行过滤) </version> 或 json格式。
 
 13. jsonpaths: 导入json方式分为：简单模式和匹配模式。
     
@@ -126,7 +126,7 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 17. delete: 仅在 MERGE下有意义， 表示数据的删除条件
         function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
     
-18. fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
+18. fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高 json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
     
 19. num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
     
@@ -134,11 +134,14 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
     
 21. send_batch_parallelism: 整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
 
-22. hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。
-       ```
-           hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
-           系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
-       ```
+22. <version since="1.2" type="inline"> hidden_columns: 用于指定导入数据中包含的隐藏列，在Header中不包含columns时生效，多个hidden column用逗号分割。</version>
+
+      ```
+      hidden_columns: __DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__
+      系统会使用用户指定的数据导入数据。在上述用例中，导入数据中最后一列数据为__DORIS_SEQUENCE_COL__。
+      ```
+
+23. load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个 tablet，默认值为 false，该参数只允许在对带有 random 分区的 olap 表导数的时候设置。
 
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
@@ -166,11 +169,14 @@ ERRORS:
         可以通过以下语句查看导入错误详细信息：
 
        ```sql
-        SHOW LOAD WARNINGS ON 'url
+        SHOW LOAD WARNINGS ON 'url'
        ```
 
+    其中 url 为 ErrorURL 给出的 url。
 
-​        其中 url 为 ErrorURL 给出的 url。
+23: compress_type
+
+    指定文件的压缩格式。目前只支持 csv 文件的压缩。支持 gz, lzo, bz2, lz4, lzop, deflate 压缩格式。
 
 ### Example
 

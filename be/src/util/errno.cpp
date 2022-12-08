@@ -17,7 +17,9 @@
 
 #include "util/errno.h"
 
+#ifndef __APPLE__
 #include <features.h>
+#endif
 
 #include <cstring>
 

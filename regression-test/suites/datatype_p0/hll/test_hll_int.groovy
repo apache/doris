@@ -18,7 +18,7 @@
 suite("test_hll_int") {
     sql "DROP TABLE IF EXISTS test_int_hll"
     sql """
-        CREATE TABLE test_int_hll (`id` int COMMENT "", `hll_set` hll hll_union COMMENT "") 
+        CREATE TABLE IF NOT EXISTS test_int_hll (`id` int COMMENT "", `hll_set` hll hll_union COMMENT "") 
         ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 properties("replication_num" = "1");
         """
     sql "insert into test_int_hll values(1, hll_hash(1)), (2, hll_hash(2)), (3, hll_hash(3))"

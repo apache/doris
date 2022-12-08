@@ -47,17 +47,22 @@ struct TRowBatch {
 }
 
 // this is a union over all possible return types
-struct TColumnValue {
+struct TCell {
   // TODO: use <type>_val instead of camelcase
   1: optional bool boolVal
   2: optional i32 intVal
   3: optional i64 longVal
   4: optional double doubleVal
   5: optional string stringVal
+  // add type: date datetime
 }
 
 struct TResultRow {
-  1: list<TColumnValue> colVals
+  1: list<TCell> colVals
+}
+
+struct TRow {
+  1: optional list<TCell> column_value
 }
 
 // Serialized, self-contained version of a RowBatch (in be/src/runtime/row-batch.h).
@@ -71,5 +76,3 @@ struct TResultBatch {
   // packet seq used to check if there has packet lost
   3: required i64 packet_seq
 }
-
-

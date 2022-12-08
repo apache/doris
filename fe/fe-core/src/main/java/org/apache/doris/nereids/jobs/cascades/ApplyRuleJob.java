@@ -23,6 +23,10 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.metrics.EventChannel;
+import org.apache.doris.nereids.metrics.EventProducer;
+import org.apache.doris.nereids.metrics.consumer.LogConsumer;
+import org.apache.doris.nereids.metrics.event.TransformEvent;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,9 +38,10 @@ import java.util.List;
  * Job to apply rule on {@link GroupExpression}.
  */
 public class ApplyRuleJob extends Job {
+    private static final EventProducer APPLY_RULE_TRACER = new EventProducer(TransformEvent.class,
+            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, EventChannel.LOG)));
     private final GroupExpression groupExpression;
     private final Rule rule;
-    private final boolean exploredOnly;
 
     /**
      * Constructor of ApplyRuleJob.
@@ -49,7 +54,6 @@ public class ApplyRuleJob extends Job {
         super(JobType.APPLY_RULE, context);
         this.groupExpression = groupExpression;
         this.rule = rule;
-        this.exploredOnly = false;
     }
 
     @Override
@@ -57,11 +61,11 @@ public class ApplyRuleJob extends Job {
         if (groupExpression.hasApplied(rule)) {
             return;
         }
+        countJobExecutionTimesOfGroupExpressions(groupExpression);
 
         GroupExpressionMatching groupExpressionMatching
                 = new GroupExpressionMatching(rule.getPattern(), groupExpression);
         for (Plan plan : groupExpressionMatching) {
-            context.onInvokeRule(rule.getRuleType());
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
                 CopyInResult result = context.getCascadesContext()
@@ -70,19 +74,15 @@ public class ApplyRuleJob extends Job {
                 if (!result.generateNewExpression) {
                     continue;
                 }
-
                 GroupExpression newGroupExpression = result.correspondingExpression;
                 if (newPlan instanceof LogicalPlan) {
-                    if (exploredOnly) {
-                        pushJob(new ExploreGroupExpressionJob(newGroupExpression, context));
-                        pushJob(new DeriveStatsJob(newGroupExpression, context));
-                        continue;
-                    }
                     pushJob(new OptimizeGroupExpressionJob(newGroupExpression, context));
                     pushJob(new DeriveStatsJob(newGroupExpression, context));
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
                 }
+                APPLY_RULE_TRACER.log(TransformEvent.of(groupExpression, plan, newPlans, rule.getRuleType()),
+                        rule::isRewrite);
             }
         }
         groupExpression.setApplied(rule);

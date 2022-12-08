@@ -79,9 +79,6 @@ public class TableProperty implements Writable {
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
-    // remote storage policy, for cold data
-    private String remoteStoragePolicy;
-
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
     }
@@ -118,7 +115,8 @@ public class TableProperty implements Writable {
      *
      * @return this for chained
      */
-    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable) {
+    public TableProperty resetPropertiesForRestore(boolean reserveDynamicPartitionEnable,
+            ReplicaAllocation replicaAlloc) {
         // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             if (!reserveDynamicPartitionEnable) {
@@ -126,6 +124,7 @@ public class TableProperty implements Writable {
             }
             executeBuildDynamicProperty();
         }
+        setReplicaAlloc(replicaAlloc);
         return this;
     }
 
@@ -198,11 +197,6 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildRemoteStoragePolicy() {
-        remoteStoragePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, "");
-        return this;
-    }
-
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -218,11 +212,6 @@ public class TableProperty implements Writable {
         // set it to "properties" so that this info can be persisted
         properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                 replicaAlloc.toCreateStmt());
-    }
-
-    public void setRemoteStoragePolicy(String remotePolicyName) {
-        this.remoteStoragePolicy = remotePolicyName;
-        properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_POLICY, remotePolicyName);
     }
 
     public ReplicaAllocation getReplicaAllocation() {
@@ -267,10 +256,6 @@ public class TableProperty implements Writable {
         return dataSortInfo;
     }
 
-    public String getRemoteStoragePolicy() {
-        return remoteStoragePolicy;
-    }
-
     public TCompressionType getCompressionType() {
         return compressionType;
     }
@@ -286,6 +271,16 @@ public class TableProperty implements Writable {
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
+    }
+
+    public void setSequenceMapCol(String colName) {
+        properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL, colName);
+    }
+
+    public String getSequenceMapCol() {
+        return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
     }
 
     public void buildReplicaAllocation() {
@@ -312,7 +307,6 @@ public class TableProperty implements Writable {
                 .buildInMemory()
                 .buildStorageFormat()
                 .buildDataSortInfo()
-                .buildRemoteStoragePolicy()
                 .buildCompressionType()
                 .buildStoragePolicy()
                 .buildEnableLightSchemaChange();

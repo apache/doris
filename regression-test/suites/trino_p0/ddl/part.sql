@@ -1,4 +1,4 @@
-CREATE TABLE `part` (
+CREATE TABLE IF NOT EXISTS `part` (
   `p_partkey` integer NOT NULL,
   `p_name` varchar(55) NOT NULL,
   `p_mfgr` char(25) NOT NULL,

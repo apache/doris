@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
@@ -63,7 +64,7 @@ public class BackendServiceProxy {
         }
 
         static BackendServiceProxy get() {
-            return proxies[count.addAndGet(1) % PROXY_NUM];
+            return proxies[Math.abs(count.addAndGet(1) % PROXY_NUM)];
         }
     }
 
@@ -122,6 +123,8 @@ public class BackendServiceProxy {
         builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_2);
 
         final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
+        MetricRepo.BE_COUNTER_QUERY_RPC_ALL.getOrAdd(address.hostname).increase(1L);
+        MetricRepo.BE_COUNTER_QUERY_RPC_SIZE.getOrAdd(address.hostname).increase((long) pRequest.getSerializedSize());
         try {
             final BackendServiceClient client = getProxy(address);
             if (twoPhaseExecution) {
@@ -181,6 +184,18 @@ public class BackendServiceProxy {
             return client.fetchDataSync(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PFetchTableSchemaResult> fetchTableStructureAsync(
+            TNetworkAddress address, InternalService.PFetchTableSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchTableStructureAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch table structure catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }

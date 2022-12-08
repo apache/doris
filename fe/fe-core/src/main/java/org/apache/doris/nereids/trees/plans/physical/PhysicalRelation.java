@@ -38,7 +38,7 @@ import java.util.Optional;
  */
 public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
 
-    protected final List<String> qualifier;
+    protected final ImmutableList<String> qualifier;
 
     protected final RelationId id;
 
@@ -48,7 +48,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
     public PhysicalRelation(RelationId id, PlanType type, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(type, groupExpression, logicalProperties);
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.id = id;
     }
 
@@ -59,7 +59,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult);
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.id = id;
     }
 

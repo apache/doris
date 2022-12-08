@@ -30,6 +30,12 @@
 
 #include <sstream>
 
+#ifdef __APPLE__
+#ifndef HOST_NAME_MAX
+#define HOST_NAME_MAX MAXHOSTNAMELEN
+#endif
+#endif
+
 namespace doris {
 
 InetAddress::InetAddress(struct sockaddr* addr) {

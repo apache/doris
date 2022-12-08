@@ -28,6 +28,7 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -52,9 +53,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
@@ -160,6 +161,9 @@ public class OlapScanNode extends ScanNode {
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
 
+    private Set<Long> sampleTabletIds = Sets.newHashSet();
+    private TableSample tableSample;
+
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
@@ -189,6 +193,20 @@ public class OlapScanNode extends ScanNode {
 
     public boolean getCanTurnOnPreAggr() {
         return canTurnOnPreAggr;
+    }
+
+    public Set<Long> getSampleTabletIds() {
+        return sampleTabletIds;
+    }
+
+    public void setSampleTabletIds(List<Long> sampleTablets) {
+        if (sampleTablets != null) {
+            this.sampleTabletIds.addAll(sampleTablets);
+        }
+    }
+
+    public void setTableSample(TableSample tSample) {
+        this.tableSample = tSample;
     }
 
     public void setCanTurnOnPreAggr(boolean canChangePreAggr) {
@@ -331,12 +349,6 @@ public class OlapScanNode extends ScanNode {
                 update = true;
                 break CHECK;
             }
-            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            if (sessionVariable.getTestMaterializedView()) {
-                throw new AnalysisException("The old scan range info is different from the new one when "
-                        + "test_materialized_view is true. "
-                        + scanRangeInfo);
-            }
             situation = "The key type of table is aggregated.";
             update = false;
         } // CHECKSTYLE IGNORE THIS LINE
@@ -431,6 +443,7 @@ public class OlapScanNode extends ScanNode {
         computeColumnFilter();
         computePartitionInfo();
         computeTupleState(analyzer);
+        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -464,15 +477,12 @@ public class OlapScanNode extends ScanNode {
      * Remove the method after statistics collection is working properly
      */
     public void mockRowCountInStatistic() {
-        long tableId = desc.getTable().getId();
         cardinality = 0;
         for (long selectedPartitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(selectedPartitionId);
             final MaterializedIndex baseIndex = partition.getBaseIndex();
             cardinality += baseIndex.getRowCount();
         }
-        Env.getCurrentEnv().getStatisticsManager()
-                .getStatistics().mockTableStatsWithRowCount(tableId, cardinality);
     }
 
     @Override
@@ -518,7 +528,7 @@ public class OlapScanNode extends ScanNode {
         // update statsDeriveResult for real statistics
         // After statistics collection is complete, remove the logic
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            statsDeriveResult.setRowCount(cardinality);
+            statsDeriveResult = new StatsDeriveResult(cardinality, statsDeriveResult.getSlotIdToColumnStats());
         }
     }
 
@@ -642,6 +652,9 @@ public class OlapScanNode extends ScanNode {
                     errs.add(replica.getId() + "'s backend " + replica.getBackendId() + " does not exist or not alive");
                     continue;
                 }
+                if (!backend.isMixNode()) {
+                    continue;
+                }
                 if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
                     String err = String.format(
                             "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
@@ -662,7 +675,6 @@ public class OlapScanNode extends ScanNode {
 
                 // for CBO
                 if (!collectedStat && replica.getRowCount() != -1) {
-                    cardinality += replica.getRowCount();
                     totalBytes += replica.getDataSize();
                     collectedStat = true;
                 }
@@ -756,6 +768,76 @@ public class OlapScanNode extends ScanNode {
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
+    /**
+     * First, determine how many rows to sample from each partition according to the number of partitions.
+     * Then determine the number of Tablets to be selected for each partition according to the average number
+     * of rows of Tablet,
+     * If seek is not specified, the specified number of Tablets are pseudo-randomly selected from each partition.
+     * If seek is specified, it will be selected sequentially from the seek tablet of the partition.
+     * And add the manually specified Tablet id to the selected Tablet.
+     * simpleTabletNums = simpleRows / partitionNums / (partitionRows / partitionTabletNums)
+     */
+    public void computeSampleTabletIds() {
+        if (tableSample == null) {
+            return;
+        }
+        OlapTable olapTable = (OlapTable) desc.getTable();
+        long sampleRows; // The total number of sample rows
+        long hitRows = 1; // The total number of rows hit by the tablet
+        long totalRows = 0; // The total number of partition rows hit
+        long totalTablet = 0; // The total number of tablets in the hit partition
+        if (tableSample.isPercent()) {
+            sampleRows = (long) Math.max(olapTable.getRowCount() * (tableSample.getSampleValue() / 100.0), 1);
+        } else {
+            sampleRows = Math.max(tableSample.getSampleValue(), 1);
+        }
+
+        // calculate the number of tablets by each partition
+        long avgRowsPerPartition = sampleRows / Math.max(olapTable.getPartitions().size(), 1);
+
+        for (Partition p : olapTable.getPartitions()) {
+            List<Long> ids = p.getBaseIndex().getTabletIdsInOrder();
+
+            if (ids.isEmpty()) {
+                continue;
+            }
+
+            // Skip partitions with row count < row count / 2 expected to be sampled per partition.
+            // It can be expected to sample a smaller number of partitions to avoid uneven distribution
+            // of sampling results.
+            if (p.getBaseIndex().getRowCount() < (avgRowsPerPartition / 2)) {
+                continue;
+            }
+
+            long avgRowsPerTablet = Math.max(p.getBaseIndex().getRowCount() / ids.size(), 1);
+            long tabletCounts = Math.max(
+                    avgRowsPerPartition / avgRowsPerTablet + (avgRowsPerPartition % avgRowsPerTablet != 0 ? 1 : 0), 1);
+            tabletCounts = Math.min(tabletCounts, ids.size());
+
+            long seek = tableSample.getSeek() != -1
+                    ? tableSample.getSeek() : (long) (Math.random() * ids.size());
+            for (int i = 0; i < tabletCounts; i++) {
+                int seekTid = (int) ((i + seek) % ids.size());
+                sampleTabletIds.add(ids.get(seekTid));
+            }
+
+            hitRows += avgRowsPerTablet * tabletCounts;
+            totalRows += p.getBaseIndex().getRowCount();
+            totalTablet += ids.size();
+        }
+
+        // all hit, direct full
+        if (totalRows < sampleRows) {
+            // can't fill full sample rows
+            sampleTabletIds.clear();
+        } else if (sampleTabletIds.size() == totalTablet) {
+            // TODO add limit
+            sampleTabletIds.clear();
+        } else if (!sampleTabletIds.isEmpty()) {
+            // TODO add limit
+        }
+    }
+
     private void computeTabletInfo() throws UserException {
         /**
          * The tablet info could be computed only once.
@@ -769,6 +851,10 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = Lists.newArrayList();
             final Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
+            if (sampleTabletIds.size() != 0) {
+                tabletIds.retainAll(sampleTabletIds);
+                LOG.debug("after sample tablets: {}", tabletIds);
+            }
 
             List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
@@ -838,10 +924,24 @@ public class OlapScanNode extends ScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
 
-        String indexName = olapTable.getIndexNameById(selectedIndexId);
+        long selectedIndexIdForExplain = selectedIndexId;
+        if (selectedIndexIdForExplain == -1) {
+            // If there is no data in table, the selectedIndexId will be -1, set it to base index id,
+            // so that to avoid "null" in explain result.
+            selectedIndexIdForExplain = olapTable.getBaseIndexId();
+        }
+        String indexName = olapTable.getIndexNameById(selectedIndexIdForExplain);
         output.append(prefix).append("TABLE: ").append(olapTable.getQualifiedName())
                 .append("(").append(indexName).append(")");
         if (detailLevel == TExplainLevel.BRIEF) {
+            output.append("\n").append(prefix).append(String.format("cardinality=%,d", cardinality));
+            if (!runtimeFilters.isEmpty()) {
+                output.append("\n").append(prefix).append("Apply RFs: ");
+                output.append(getRuntimeFilterExplainString(false, true));
+            }
+            if (!conjuncts.isEmpty()) {
+                output.append("\n").append(prefix).append("PREDICATES: ").append(conjuncts.size()).append("\n");
+            }
             return output.toString();
         }
         if (isPreAggregation) {
@@ -1065,7 +1165,8 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void filterDeletedRows(Analyzer analyzer) throws AnalysisException {
-        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign()) {
+        if (!Util.showHiddenColumns() && olapTable.hasDeleteSign() && !ConnectContext.get().getSessionVariable()
+                .skipDeleteSign()) {
             SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
             deleteSignSlot.analyze(analyzer);
             deleteSignSlot.getDesc().setIsMaterialized(true);
@@ -1109,5 +1210,10 @@ public class OlapScanNode extends ScanNode {
     @VisibleForTesting
     public String getReasonOfPreAggregation() {
         return reasonOfPreAggregation;
+    }
+
+    @VisibleForTesting
+    public String getSelectedIndexName() {
+        return olapTable.getIndexNameById(selectedIndexId);
     }
 }

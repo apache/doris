@@ -16,10 +16,11 @@
 // under the License.
 
 #pragma once
-#ifdef LIBJVM
 
+#include <jni.h>
+
+#include "common/status.h"
 #include "exec/table_connector.h"
-#include "jni.h"
 
 namespace doris {
 namespace vectorized {
@@ -42,7 +43,7 @@ public:
 
     ~JdbcConnector() override;
 
-    Status open() override;
+    Status open(RuntimeState* state, bool read = false) override;
 
     Status query() override;
 
@@ -56,8 +57,12 @@ public:
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
 
+    Status close() override;
+
 private:
     Status _register_func_id(JNIEnv* env);
+    Status _check_column_type();
+    Status _check_type(SlotDescriptor*, const std::string& type_str);
     Status _convert_column_data(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
                                 vectorized::IColumn* column_ptr);
     std::string _jobject_to_string(JNIEnv* env, jobject jobj);
@@ -65,15 +70,18 @@ private:
     int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
 
     const JdbcConnectorParam& _conn_param;
+    bool _closed;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
     jclass _executor_string_clazz;
     jobject _executor_obj;
     jmethodID _executor_ctor_id;
-    jmethodID _executor_query_id;
+    jmethodID _executor_write_id;
+    jmethodID _executor_read_id;
     jmethodID _executor_has_next_id;
     jmethodID _executor_get_blocks_id;
+    jmethodID _executor_get_types_id;
     jmethodID _executor_close_id;
     jmethodID _executor_get_list_id;
     jmethodID _executor_get_list_size_id;
@@ -100,5 +108,3 @@ private:
 
 } // namespace vectorized
 } // namespace doris
-
-#endif

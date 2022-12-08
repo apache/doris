@@ -17,12 +17,14 @@
 
 #include "runtime/stream_load/stream_load_executor.h"
 
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
+
 #include "common/status.h"
 #include "common/utils.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/plan_fragment_executor.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_rpc_helper.h"
@@ -44,15 +46,15 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
-            ctx->put_result.params, [ctx, this](PlanFragmentExecutor* executor) {
-                ctx->commit_infos = std::move(executor->runtime_state()->tablet_commit_infos());
-                Status status = executor->status();
-                if (status.ok()) {
-                    ctx->number_total_rows = executor->runtime_state()->num_rows_load_total();
-                    ctx->number_loaded_rows = executor->runtime_state()->num_rows_load_success();
-                    ctx->number_filtered_rows = executor->runtime_state()->num_rows_load_filtered();
-                    ctx->number_unselected_rows =
-                            executor->runtime_state()->num_rows_load_unselected();
+            ctx->put_result.params, [ctx, this](RuntimeState* state, Status* status) {
+                ctx->commit_infos = std::move(state->tablet_commit_infos());
+                if (status->ok()) {
+                    LOG(WARNING) << "MYTEST " << int64_t(state) << " "
+                                 << state->num_rows_load_total();
+                    ctx->number_total_rows = state->num_rows_load_total();
+                    ctx->number_loaded_rows = state->num_rows_load_success();
+                    ctx->number_filtered_rows = state->num_rows_load_filtered();
+                    ctx->number_unselected_rows = state->num_rows_load_unselected();
 
                     int64_t num_selected_rows =
                             ctx->number_total_rows - ctx->number_unselected_rows;
@@ -61,15 +63,14 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                                 ctx->max_filter_ratio) {
                         // NOTE: Do not modify the error message here, for historical reasons,
                         // some users may rely on this error message.
-                        status = Status::InternalError("too many filtered rows");
+                        *status = Status::InternalError("too many filtered rows");
                     }
                     if (ctx->number_filtered_rows > 0 &&
-                        !executor->runtime_state()->get_error_log_file_path().empty()) {
-                        ctx->error_url = to_load_error_http_path(
-                                executor->runtime_state()->get_error_log_file_path());
+                        !state->get_error_log_file_path().empty()) {
+                        ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
                     }
 
-                    if (status.ok()) {
+                    if (status->ok()) {
                         DorisMetrics::instance()->stream_receive_bytes_total->increment(
                                 ctx->receive_bytes);
                         DorisMetrics::instance()->stream_load_rows_total->increment(
@@ -79,10 +80,10 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                     LOG(WARNING) << "fragment execute failed"
                                  << ", query_id="
                                  << UniqueId(ctx->put_result.params.params.query_id)
-                                 << ", err_msg=" << status.get_error_msg() << ", " << ctx->brief();
+                                 << ", err_msg=" << status->get_error_msg() << ", " << ctx->brief();
                     // cancel body_sink, make sender known it
                     if (ctx->body_sink != nullptr) {
-                        ctx->body_sink->cancel(status.get_error_msg());
+                        ctx->body_sink->cancel(status->get_error_msg());
                     }
 
                     switch (ctx->load_src_type) {
@@ -95,21 +96,21 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                     }
                 }
                 ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
-                ctx->promise.set_value(status);
+                ctx->promise.set_value(*status);
 
-                if (!status.ok() && ctx->body_sink != nullptr) {
+                if (!status->ok() && ctx->body_sink != nullptr) {
                     // In some cases, the load execution is exited early.
                     // For example, when max_filter_ratio is 0 and illegal data is encountered
                     // during stream loading, the entire load process is terminated early.
                     // However, the http connection may still be sending data to stream_load_pipe
                     // and waiting for it to be consumed.
                     // Therefore, we need to actively cancel to end the pipe.
-                    ctx->body_sink->cancel(status.get_error_msg());
+                    ctx->body_sink->cancel(status->get_error_msg());
                 }
 
                 if (ctx->need_commit_self && ctx->body_sink != nullptr) {
-                    if (ctx->body_sink->cancelled() || !status.ok()) {
-                        ctx->status = status;
+                    if (ctx->body_sink->cancelled() || !status->ok()) {
+                        ctx->status = *status;
                         this->rollback_txn(ctx);
                     } else {
                         this->commit_txn(ctx);
@@ -145,18 +146,23 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     }
     request.__set_request_id(ctx->id.to_thrift());
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnBeginResult result;
+    Status status;
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    if (master_addr.hostname.empty() || master_addr.port == 0) {
+        status = Status::ServiceUnavailable("Have not get FE Master heartbeat yet");
+    } else {
 #ifndef BE_TEST
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->loadTxnBegin(result, request);
-            }));
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, &result](FrontendServiceConnection& client) {
+                    client->loadTxnBegin(result, request);
+                }));
 #else
-    result = k_stream_load_begin_result;
+        result = k_stream_load_begin_result;
 #endif
-    Status status(result.status);
+        status = Status(result.status);
+    }
     if (!status.ok()) {
         LOG(WARNING) << "begin transaction failed, errmsg=" << status.get_error_msg()
                      << ctx->brief();
@@ -249,7 +255,7 @@ void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
     // set attachment if has
     TTxnCommitAttachment attachment;
     if (collect_load_stat(ctx, &attachment)) {
-        request.txnCommitAttachment = std::move(attachment);
+        request.txnCommitAttachment = attachment;
         request.__isset.txnCommitAttachment = true;
     }
 }
@@ -307,7 +313,7 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     // set attachment if has
     TTxnCommitAttachment attachment;
     if (collect_load_stat(ctx, &attachment)) {
-        request.txnCommitAttachment = std::move(attachment);
+        request.txnCommitAttachment = attachment;
         request.__isset.txnCommitAttachment = true;
     }
 
@@ -350,7 +356,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         rl_attach.__set_loadedBytes(ctx->loaded_bytes);
         rl_attach.__set_loadCostMs(ctx->load_cost_millis);
 
-        attach->rlTaskTxnCommitAttachment = std::move(rl_attach);
+        attach->rlTaskTxnCommitAttachment = rl_attach;
         attach->__isset.rlTaskTxnCommitAttachment = true;
         break;
     }
@@ -367,7 +373,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         TKafkaRLTaskProgress kafka_progress;
         kafka_progress.partitionCmtOffset = ctx->kafka_info->cmt_offset;
 
-        rl_attach.kafkaRLTaskProgress = std::move(kafka_progress);
+        rl_attach.kafkaRLTaskProgress = kafka_progress;
         rl_attach.__isset.kafkaRLTaskProgress = true;
         if (!ctx->error_url.empty()) {
             rl_attach.__set_errorLogUrl(ctx->error_url);
