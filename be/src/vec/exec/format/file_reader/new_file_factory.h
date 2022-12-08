@@ -84,6 +84,7 @@ public:
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                      io::FileSystem** hdfs_file_system, io::FileReaderSPtr* reader);
 
+    // TODO(ftw): should be delete after new_hdfs_file_writer ready
     static Status create_hdfs_writer(const std::map<std::string, std::string>& properties,
                                      const std::string& path, std::unique_ptr<FileWriter>& writer);
 
