@@ -141,8 +141,6 @@ Status VNestedLoopJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::close");
-    VExpr::close(_filter_src_expr_ctxs, state);
-    if (_vjoin_conjunct_ptr) (*_vjoin_conjunct_ptr)->close(state);
     _release_mem();
 
     return VJoinNodeBase::close(state);
@@ -523,6 +521,7 @@ Status VNestedLoopJoinNode::_do_filtering_and_update_visited_flags(Block* block,
 }
 
 Status VNestedLoopJoinNode::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
     if (_vjoin_conjunct_ptr) {
         RETURN_IF_ERROR((*_vjoin_conjunct_ptr)->open(state));
     }
@@ -532,7 +531,6 @@ Status VNestedLoopJoinNode::alloc_resource(doris::RuntimeState* state) {
 Status VNestedLoopJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(alloc_resource(state));
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
@@ -606,6 +604,12 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
 
 bool VNestedLoopJoinNode::need_more_input_data() const {
     return _need_more_input_data;
+}
+
+void VNestedLoopJoinNode::release_resource(doris::RuntimeState* state) {
+    VJoinNodeBase::release_resource(state);
+    VExpr::close(_filter_src_expr_ctxs, state);
+    if (_vjoin_conjunct_ptr) (*_vjoin_conjunct_ptr)->close(state);
 }
 
 } // namespace doris::vectorized

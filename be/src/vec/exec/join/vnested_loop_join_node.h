@@ -43,6 +43,8 @@ public:
 
     Status alloc_resource(doris::RuntimeState* state) override;
 
+    void release_resource(doris::RuntimeState* state) override;
+
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
@@ -222,7 +224,6 @@ private:
     std::unique_ptr<VExprContext*> _vjoin_conjunct_ptr;
 
     friend struct RuntimeFilterBuild;
-    //    friend struct pipeline::NestLoopJoinProbeOperator;
 };
 
 } // namespace doris::vectorized
