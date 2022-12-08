@@ -22,7 +22,7 @@
 namespace doris {
 namespace pipeline {
 
-OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, DataStateOperator)
+OPERATOR_CODE_GENERATOR(HashJoinProbeOperator, StatefulOperator)
 
 } // namespace pipeline
 } // namespace doris

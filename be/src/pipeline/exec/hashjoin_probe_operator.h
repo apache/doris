@@ -32,7 +32,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class HashJoinProbeOperator final : public DataStateOperator<HashJoinProbeOperatorBuilder> {
+class HashJoinProbeOperator final : public StatefulOperator<HashJoinProbeOperatorBuilder> {
 public:
     HashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator
