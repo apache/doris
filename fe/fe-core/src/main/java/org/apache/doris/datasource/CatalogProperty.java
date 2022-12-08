@@ -17,88 +17,107 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * CatalogProperty to store the properties for catalog.
  */
 @Data
 public class CatalogProperty implements Writable {
+    private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
+
+    @SerializedName(value = "resource")
+    private String resource;
     @SerializedName(value = "properties")
-    private Map<String, String> properties = Maps.newHashMap();
+    private Map<String, String> properties;
+
+    private volatile Resource catalogResource = null;
+
+    public CatalogProperty(String resource, Map<String, String> properties) {
+        this.resource = resource;
+        this.properties = properties;
+    }
+
+    private Resource catalogResource() throws UserException {
+        if (catalogResource == null) {
+            synchronized (this) {
+                if (catalogResource == null) {
+                    catalogResource = Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(resource))
+                            .orElseThrow(() -> new UserException("Resource doesn't exist: " + resource));
+                }
+            }
+        }
+        return catalogResource;
+    }
 
     public String getOrDefault(String key, String defaultVal) {
-        return properties.getOrDefault(key, defaultVal);
-    }
-
-    // get all properties with dfs.*  hadoop.*  yarn.*  hive.*
-    // besides dfs.* and hadoop.username, we need other properties when enable kerberos
-    public Map<String, String> getHdfsProperties() {
-        Map<String, String> dfsProperties = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(HdfsResource.HADOOP_FS_PREFIX)
-                    || entry.getKey().startsWith(HdfsResource.HADOOP_PREFIX)
-                    || entry.getKey().startsWith(HdfsResource.HIVE_PREFIX)
-                    || entry.getKey().startsWith(HdfsResource.YARN_PREFIX)) {
-                dfsProperties.put(entry.getKey(), entry.getValue());
+        if (resource == null) {
+            return properties.getOrDefault(key, defaultVal);
+        } else {
+            try {
+                return catalogResource().getCopiedProperties().getOrDefault(key, defaultVal);
+            } catch (UserException e) {
+                return defaultVal;
             }
         }
-        return dfsProperties;
     }
 
-    // todo: remove and use S3Resource
-    public Map<String, String> getS3Properties() {
-        Map<String, String> s3Properties = Maps.newHashMap();
-        if (properties.containsKey(S3Resource.S3_ACCESS_KEY)) {
-            s3Properties.put("fs.s3a.access.key", properties.get(S3Resource.S3_ACCESS_KEY));
-            s3Properties.put(S3Resource.S3_ACCESS_KEY, properties.get(S3Resource.S3_ACCESS_KEY));
-        }
-        if (properties.containsKey(S3Resource.S3_SECRET_KEY)) {
-            s3Properties.put("fs.s3a.secret.key", properties.get(S3Resource.S3_SECRET_KEY));
-            s3Properties.put(S3Resource.S3_SECRET_KEY, properties.get(S3Resource.S3_SECRET_KEY));
-        }
-        if (properties.containsKey(S3Resource.S3_ENDPOINT)) {
-            s3Properties.put("fs.s3a.endpoint", properties.get(S3Resource.S3_ENDPOINT));
-            s3Properties.put(S3Resource.S3_ENDPOINT, properties.get(S3Resource.S3_ENDPOINT));
-        }
-        if (properties.containsKey(S3Resource.S3_REGION)) {
-            s3Properties.put("fs.s3a.endpoint.region", properties.get(S3Resource.S3_REGION));
-            s3Properties.put(S3Resource.S3_REGION, properties.get(S3Resource.S3_REGION));
-        }
-        if (properties.containsKey(S3Resource.S3_MAX_CONNECTIONS)) {
-            s3Properties.put("fs.s3a.connection.maximum", properties.get(S3Resource.S3_MAX_CONNECTIONS));
-            s3Properties.put(S3Resource.S3_MAX_CONNECTIONS, properties.get(S3Resource.S3_MAX_CONNECTIONS));
-        }
-        if (properties.containsKey(S3Resource.S3_REQUEST_TIMEOUT_MS)) {
-            s3Properties.put("fs.s3a.connection.request.timeout", properties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
-            s3Properties.put(S3Resource.S3_REQUEST_TIMEOUT_MS, properties.get(S3Resource.S3_REQUEST_TIMEOUT_MS));
-        }
-        if (properties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
-            s3Properties.put("fs.s3a.connection.timeout", properties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
-            s3Properties.put(S3Resource.S3_CONNECTION_TIMEOUT_MS, properties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS));
-        }
-        s3Properties.put("fs.s3.impl.disable.cache", "true");
-        s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        s3Properties.put("fs.s3a.attempts.maximum", "2");
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(S3Resource.S3_FS_PREFIX)) {
-                s3Properties.put(entry.getKey(), entry.getValue());
+    public Map<String, String> getProperties() {
+        if (resource == null) {
+            return properties;
+        } else {
+            try {
+                return catalogResource().getCopiedProperties();
+            } catch (UserException e) {
+                LOG.warn(e.getMessage(), e);
+                return Collections.emptyMap();
             }
         }
-        return s3Properties;
+    }
+
+    public void modifyCatalogProps(Map<String, String> props) {
+        if (resource == null) {
+            properties.putAll(props);
+        } else {
+            LOG.warn("Please change the resource {} properties directly", resource);
+        }
+    }
+
+    public Map<String, String> getS3HadoopProperties() {
+        if (resource == null) {
+            return S3Resource.getS3HadoopProperties(properties);
+        } else {
+            try {
+                return S3Resource.getS3HadoopProperties(catalogResource().getCopiedProperties());
+            } catch (UserException e) {
+                LOG.warn(e.getMessage(), e);
+                return Collections.emptyMap();
+            }
+        }
+    }
+
+    public Map<String, String> getHadoopProperties() {
+        Map<String, String> hadoopProperties = getProperties();
+        hadoopProperties.putAll(getS3HadoopProperties());
+        return hadoopProperties;
     }
 
     @Override

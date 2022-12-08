@@ -23,12 +23,14 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ReferenceType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.external.elasticsearch.EsUtil;
-
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * A factory to create catalog instance of log or covert catalog into log.
@@ -43,6 +45,7 @@ public class CatalogFactory {
         if (stmt instanceof CreateCatalogStmt) {
             log.setCatalogId(catalogId);
             log.setCatalogName(((CreateCatalogStmt) stmt).getCatalogName());
+            log.setResource(((CreateCatalogStmt) stmt).getResource());
             log.setProps(((CreateCatalogStmt) stmt).getProperties());
         } else if (stmt instanceof DropCatalogStmt) {
             log.setCatalogId(catalogId);
@@ -65,54 +68,55 @@ public class CatalogFactory {
      * create the catalog instance from catalog log.
      */
     public static CatalogIf constructorFromLog(CatalogLog log) throws DdlException {
-        return constructorCatalog(log.getCatalogId(), log.getCatalogName(), log.getProps());
+        return constructorCatalog(log.getCatalogId(), log.getCatalogName(), log.getResource(), log.getProps());
     }
 
-    private static CatalogIf constructorCatalog(long catalogId, String name, Map<String, String> props)
-            throws DdlException {
-        String type = props.get("type");
+    private static CatalogIf constructorCatalog(
+            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
         CatalogIf catalog;
-        switch (type) {
-            case "hms":
-                catalog = new HMSExternalCatalog(catalogId, name, props);
-                break;
-            case "es":
-                validateEsCatalogProperties(props);
-                catalog = new EsExternalCatalog(catalogId, name, props);
-                break;
-            case "jdbc":
-                catalog = new JdbcExternalCatalog(catalogId, name, props);
-                break;
-            default:
-                throw new RuntimeException("Unknown catalog type: " + type);
+        if (resource == null) {
+            String type = props.get("type");
+            if (type == null) {
+                throw new DdlException("Need catalog type in properties");
+            }
+            switch (type) {
+                case "hms":
+                    catalog = new HMSExternalCatalog(catalogId, name, null, props);
+                    break;
+                case "es":
+                    catalog = new EsExternalCatalog(catalogId, name, null, props);
+                    break;
+                case "jdbc":
+                    catalog = new JdbcExternalCatalog(catalogId, name, null, props);
+                    break;
+                default:
+                    throw new DdlException("Unknown catalog type: " + type);
+            }
+        } else if (props.size() == 0) {
+            Resource catalogResource = Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(resource))
+                    .orElseThrow(() -> new DdlException("Resource doesn't exist: " + resource));
+            Resource.ResourceType type = catalogResource.getType();
+            switch (type) {
+                case HMS:
+                    catalog = new HMSExternalCatalog(catalogId, name, resource, props);
+                    break;
+                case ES:
+                    catalog = new EsExternalCatalog(catalogId, name, resource, props);
+                    break;
+                case JDBC:
+                    catalog = new JdbcExternalCatalog(catalogId, name, resource, props);
+                    break;
+                default:
+                    throw new DdlException("Unknown catalog type with resource: " + resource + ", type: " + type);
+            }
+            try {
+                catalogResource.addReference(name, ReferenceType.CATALOG);
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage(), e);
+            }
+        } else {
+            throw new DdlException("Can't provide resource and properties for catalog simultaneously");
         }
         return catalog;
-    }
-
-    private static void validateEsCatalogProperties(Map<String, String> properties) throws DdlException {
-        if (properties == null) {
-            throw new DdlException(
-                    "Please set properties of elasticsearch table, " + "they are: hosts, user, password, index");
-        }
-
-        if (StringUtils.isBlank(properties.get(EsExternalCatalog.PROP_HOSTS))) {
-            throw new DdlException("Hosts of ES table is null.");
-        }
-        String[] nodes = properties.get(EsExternalCatalog.PROP_HOSTS).trim().split(",");
-        // check protocol
-        for (String seed : nodes) {
-            if (!seed.startsWith("http")) {
-                throw new DdlException("the protocol must be used");
-            }
-            if (properties.containsKey(EsExternalCatalog.PROP_SSL)) {
-                boolean enableSsl = EsUtil.getBoolean(properties, EsExternalCatalog.PROP_SSL);
-                if (enableSsl && seed.startsWith("http://")) {
-                    throw new DdlException("if ssl_enabled is true, the https protocol must be used");
-                }
-                if (!enableSsl && seed.startsWith("https://")) {
-                    throw new DdlException("if ssl_enabled is false, the http protocol must be used");
-                }
-            }
-        }
     }
 }

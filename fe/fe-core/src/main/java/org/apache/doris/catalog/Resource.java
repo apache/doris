@@ -25,9 +25,11 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,8 +39,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
-public abstract class Resource implements Writable {
+public abstract class Resource implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
+    public static final String REFERENCE_SPLIT = "@";
 
     public enum ResourceType {
         UNKNOWN,
@@ -47,7 +50,8 @@ public abstract class Resource implements Writable {
         S3,
         JDBC,
         HDFS,
-        HMS;
+        HMS,
+        ES;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -59,10 +63,23 @@ public abstract class Resource implements Writable {
         }
     }
 
+    public enum ReferenceType {
+        TVF, // table valued function
+        LOAD,
+        EXPORT,
+        REPOSITORY,
+        OUTFILE,
+        TABLE,
+        POLICY,
+        CATALOG
+    }
+
     @SerializedName(value = "name")
     protected String name;
     @SerializedName(value = "type")
     protected ResourceType type;
+    @SerializedName(value = "references")
+    protected Map<String, ReferenceType> references = Maps.newHashMap();
 
     public Resource() {
     }
@@ -76,6 +93,29 @@ public abstract class Resource implements Writable {
         Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
         resource.setProperties(stmt.getProperties());
         return resource;
+    }
+
+    public synchronized boolean removeReference(String referenceName, ReferenceType type) {
+        String fullName = referenceName + REFERENCE_SPLIT + type.name();
+        if (references.remove(fullName) != null) {
+            Env.getCurrentEnv().getEditLog().logAlterResource(this);
+            LOG.info("Reference(type={}, name={}) is removed from resource {}, current set: {}",
+                    type, referenceName, name, references);
+            return true;
+        }
+        return false;
+    }
+
+    public synchronized boolean addReference(String referenceName, ReferenceType type) throws AnalysisException {
+        String fullName = referenceName + REFERENCE_SPLIT + type.name();
+        if (references.put(fullName, type) == null) {
+            // log set
+            Env.getCurrentEnv().getEditLog().logAlterResource(this);
+            LOG.info("Reference(type={}, name={}) is added to resource {}, current set: {}",
+                    type, referenceName, name, references);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -105,6 +145,9 @@ public abstract class Resource implements Writable {
                 break;
             case HMS:
                 resource = new HMSResource(name);
+                break;
+            case ES:
+                resource = new EsResource(name);
                 break;
             default:
                 throw new DdlException("Unknown resource type: " + type);
@@ -146,10 +189,14 @@ public abstract class Resource implements Writable {
      */
     protected abstract void setProperties(Map<String, String> properties) throws DdlException;
 
-
     public abstract Map<String, String> getCopiedProperties();
 
-    public void dropResource() throws DdlException { }
+    public void dropResource() throws DdlException {
+        if (!references.isEmpty()) {
+            String msg = String.join(", ", references.keySet());
+            throw new DdlException(String.format("Resource %s is used by: %s", name, msg));
+        }
+    }
 
     /**
      * Fill BaseProcResult with different properties in child resources
@@ -172,6 +219,14 @@ public abstract class Resource implements Writable {
     public static Resource read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Resource.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        // Resource is loaded from meta with older version
+        if (references == null) {
+            references = Maps.newHashMap();
+        }
     }
 
     @Override

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -221,14 +222,13 @@ public class IcebergScanProvider extends HiveScanProvider {
         return filters;
     }
 
-
     private org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
         org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = setConfiguration();
+        Configuration conf = getConfiguration();
         hiveCatalog.setConf(conf);
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put("hive.metastore.uris", getMetaStoreUrl());
+        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, getMetaStoreUrl());
         catalogProperties.put("uri", getMetaStoreUrl());
         hiveCatalog.initialize("hive", catalogProperties);
 

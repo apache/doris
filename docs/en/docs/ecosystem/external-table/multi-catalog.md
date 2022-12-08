@@ -81,9 +81,9 @@ This function will be used as a supplement and enhancement to the previous exter
 
 The following example is used to create a Catalog named hive to connect the specified Hive MetaStore, and provide the HDFS HA connection properties to access the corresponding files in HDFS.
 
-```
-CREATE CATALOG hive PROPERTIES (
-    "type"="hms",
+```sql
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hadoop.username' = 'hive',
     'dfs.nameservices'='your-nameservice',
@@ -92,17 +92,18 @@ CREATE CATALOG hive PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
+
+CREATE CATALOG hive WITH RESOURCE hms_resource;
 ```
 
 If you want to connect to a Hive MetaStore with kerberos authentication, you can do like this:
 
-```
-CREATE CATALOG hive PROPERTIES (
-    "type"="hms",
+```sql
+CREATE RESOURCE hms_resource PROPERTIES (
+    'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hive.metastore.sasl.enabled' = 'true',
     'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes. service1'='nn1,nn2',
     'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
@@ -112,6 +113,8 @@ CREATE CATALOG hive PROPERTIES (
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
     'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
 );
+
+CREATE CATALOG hive WITH RESOURCE hms_resource;
 ```
 
 Once created, you can view the catalog with the `SHOW CATALOGS` command:
@@ -261,12 +264,14 @@ Query OK, 1000 rows affected (0.28 sec)
 
 The following example creates a Catalog connection named es to the specified ES and turns off node discovery.
 
-```
-CREATE CATALOG es PROPERTIES (
+```sql
+CREATE RESOURCE es_resource PROPERTIES (
     "type"="es",
     "elasticsearch.hosts"="http://192.168.120.12:29200",
     "elasticsearch.nodes_discovery"="false"
 );
+
+CREATE CATALOG es WITH RESOURCE es_resource;
 ```
 
 Once created, you can view the catalog with the `SHOW CATALOGS` command:
@@ -334,27 +339,31 @@ Parameter | Description
 The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
 
 ```sql
-CREATE CATALOG jdbc PROPERTIES (
+CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
     "jdbc.user"="root",
     "jdbc.password"="123456",
     "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
     "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
     "jdbc.driver_class" = "com.mysql.jdbc.Driver"
-);
+)
+
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 ```
 
 Where `jdbc.driver_url` can be a remote jar package
 
 ```sql
-CREATE CATALOG jdbc PROPERTIES (
-"type"="jdbc",
-"jdbc.user"="root",
-"jdbc.password"="123456",
-"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-"jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
-);
+CREATE RESOURCE mysql_resource PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="root",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+
+CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 ```
 
 If the `jdbc.driver_url` is a remote jar package in the form of http, the Doris processing method is:
@@ -449,7 +458,7 @@ MySQL [db1]> select * from tbl1;
 
 1. Create hive-site.xml
 
-    Create hive-site.xml and put it in `fe/conf` and `be/conf`.
+    Create hive-site.xml and put it in `fe/conf`.
     
     ```
     <?xml version="1.0"?>
@@ -495,16 +504,19 @@ MySQL [db1]> select * from tbl1;
 
 2. Restart FE and create a catalog with the `CREATE CATALOG` statement.
 
-    ```
-    CREATE CATALOG dlf PROPERTIES (
+    HMS resource will read and analyze fe/conf/hive-site.xml
+    ```sql
+    CREATE RESOURCE dlf_resource PROPERTIES (
         "type"="hms",
         "hive.metastore.uris" = "thrift://127.0.0.1:9083"
-    );
+    )
+
+    CREATE CATALOG dlf WITH RESOURCE dlf_resource;
     ```
     
     where `type` is fixed to `hms`. The value of `hive.metastore.uris` can be filled in at will, but it will not be used in practice. But it needs to be filled in the standard hive metastore thrift uri format.
 
-After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
+    After that, the metadata under DLF can be accessed like a normal Hive MetaStore.
 
 ## Column Type Mapping
 

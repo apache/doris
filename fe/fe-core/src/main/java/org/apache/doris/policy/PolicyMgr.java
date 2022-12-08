@@ -24,6 +24,8 @@ import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -261,7 +263,19 @@ public class PolicyMgr implements Writable {
 
     private void unprotectedDrop(DropPolicyLog log) {
         List<Policy> policies = getPoliciesByType(log.getType());
-        policies.removeIf(policy -> policy.matchPolicy(log));
+        policies.removeIf(policy -> {
+            if (policy.matchPolicy(log)) {
+                if (policy instanceof StoragePolicy) {
+                    Resource resource = Env.getCurrentEnv().getResourceMgr()
+                            .getResource(((StoragePolicy) policy).getStorageResource());
+                    if (resource != null) {
+                        resource.removeReference(log.getPolicyName(), ReferenceType.POLICY);
+                    }
+                }
+                return true;
+            }
+            return false;
+        });
         typeToPolicyMap.put(log.getType(), policies);
         updateMergeTablePolicyMap();
     }

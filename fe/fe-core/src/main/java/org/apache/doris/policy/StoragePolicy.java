@@ -197,8 +197,7 @@ public class StoragePolicy extends Policy {
         }
 
         Resource r = checkIsS3ResourceAndExist(this.storageResource);
-        if (!((S3Resource) r).addReference(super.getPolicyName(), S3Resource.ReferenceType.POLICY)
-                && !ifNotExists) {
+        if (!r.addReference(super.getPolicyName(), Resource.ReferenceType.POLICY) && !ifNotExists) {
             throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
         }
         this.md5Checksum = calcPropertiesMd5();

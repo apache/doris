@@ -19,29 +19,27 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.external.jdbc.JdbcClient;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 @Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
-
-    public static final String PROP_USER = "jdbc.user";
-    public static final String PROP_PASSWORD = "jdbc.password";
-    public static final String PROP_JDBC_URL = "jdbc.jdbc_url";
-    public static final String PROP_DRIVER_URL = "jdbc.driver_url";
-    public static final String PROP_DRIVER_CLASS = "jdbc.driver_class";
 
     // Must add "transient" for Gson to ignore this field,
     // or Gson will throw exception with HikariCP
@@ -54,13 +52,17 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private String driverClass;
     private String checkSum;
 
-    public JdbcExternalCatalog(long catalogId, String name, Map<String, String> props) {
+    public JdbcExternalCatalog(
+            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
         this.id = catalogId;
         this.name = name;
         this.type = "jdbc";
-        setProperties(props);
-        this.catalogProperty = new CatalogProperty();
-        this.catalogProperty.setProperties(props);
+        if (resource == null) {
+            catalogProperty = new CatalogProperty(null, processCompatibleProperties(props));
+        } else {
+            catalogProperty = new CatalogProperty(resource, Collections.emptyMap());
+            processCompatibleProperties(catalogProperty.getProperties());
+        }
     }
 
     @Override
@@ -70,24 +72,30 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
     }
 
-    private void setProperties(Map<String, String> props) {
-        jdbcUser = props.getOrDefault(PROP_USER, "");
-        jdbcPasswd = props.getOrDefault(PROP_PASSWORD, "");
-        jdbcUrl = props.getOrDefault(PROP_JDBC_URL, "");
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) {
+        Map<String, String> properties = Maps.newHashMap();
+        for (Map.Entry<String, String> kv : props.entrySet()) {
+            properties.put(StringUtils.removeStart(kv.getKey(), JdbcResource.JDBC_PROPERTIES_PREFIX), kv.getValue());
+        }
+        jdbcUser = properties.getOrDefault(JdbcResource.USER, "");
+        jdbcPasswd = properties.getOrDefault(JdbcResource.PASSWORD, "");
+        jdbcUrl = properties.getOrDefault(JdbcResource.URL, "");
         handleJdbcUrl();
-        driverUrl = props.getOrDefault(PROP_DRIVER_URL, "");
-        driverClass = props.getOrDefault(PROP_DRIVER_CLASS, "");
+        properties.put(JdbcResource.URL, jdbcUrl);
+        driverUrl = properties.getOrDefault(JdbcResource.DRIVER_URL, "");
+        driverClass = properties.getOrDefault(JdbcResource.DRIVER_CLASS, "");
+        return properties;
     }
 
     // `yearIsDateType` is a parameter of JDBC, and the default is `yearIsDateType=true`
     // We force the use of `yearIsDateType=false`
     private void handleJdbcUrl() {
         // delete all space in jdbcUrl
-        jdbcUrl.replaceAll(" ", "");
+        jdbcUrl = jdbcUrl.replaceAll(" ", "");
         if (jdbcUrl.contains("yearIsDateType=false")) {
             return;
         } else if (jdbcUrl.contains("yearIsDateType=true")) {
-            jdbcUrl.replaceAll("yearIsDateType=true", "yearIsDateType=false");
+            jdbcUrl = jdbcUrl.replaceAll("yearIsDateType=true", "yearIsDateType=false");
         } else {
             String yearIsDateType = "yearIsDateType=false";
             if (jdbcUrl.contains("?")) {
@@ -166,7 +174,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
-        setProperties(this.catalogProperty.getProperties());
+        if (catalogProperty.getResource() == null) {
+            catalogProperty.setProperties(processCompatibleProperties(catalogProperty.getProperties()));
+        } else {
+            processCompatibleProperties(catalogProperty.getProperties());
+        }
     }
 
     @Override

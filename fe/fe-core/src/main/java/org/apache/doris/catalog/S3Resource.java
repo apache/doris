@@ -43,33 +43,23 @@ import java.util.Optional;
 
 /**
  * S3 resource
- *
+ * <p>
  * Syntax:
  * CREATE RESOURCE "remote_s3"
  * PROPERTIES
  * (
- *    "type" = "s3",
- *    "AWS_ENDPOINT" = "bj",
- *    "AWS_REGION" = "bj",
- *    "AWS_ROOT_PATH" = "/path/to/root",
- *    "AWS_ACCESS_KEY" = "bbb",
- *    "AWS_SECRET_KEY" = "aaaa",
- *    "AWS_MAX_CONNECTION" = "50",
- *    "AWS_REQUEST_TIMEOUT_MS" = "3000",
- *    "AWS_CONNECTION_TIMEOUT_MS" = "1000"
+ * "type" = "s3",
+ * "AWS_ENDPOINT" = "bj",
+ * "AWS_REGION" = "bj",
+ * "AWS_ROOT_PATH" = "/path/to/root",
+ * "AWS_ACCESS_KEY" = "bbb",
+ * "AWS_SECRET_KEY" = "aaaa",
+ * "AWS_MAX_CONNECTION" = "50",
+ * "AWS_REQUEST_TIMEOUT_MS" = "3000",
+ * "AWS_CONNECTION_TIMEOUT_MS" = "1000"
  * );
  */
 public class S3Resource extends Resource {
-    public enum ReferenceType {
-        TVF, // table valued function
-        LOAD,
-        EXPORT,
-        REPOSITORY,
-        OUTFILE,
-        TABLE,
-        POLICY
-    }
-
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
     public static final String S3_PROPERTIES_PREFIX = "AWS";
     public static final String S3_FS_PREFIX = "fs.s3";
@@ -96,9 +86,7 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    @SerializedName(value = "referenceSet")
-    private Map<String, ReferenceType> references;
-
+    @Override
     public boolean addReference(String referenceName, ReferenceType type) throws AnalysisException {
         if (type == ReferenceType.POLICY) {
             if (!properties.containsKey(S3_ROOT_PATH)) {
@@ -108,24 +96,16 @@ public class S3Resource extends Resource {
                 throw new AnalysisException(String.format("Missing [%s] in '%s' resource", S3_BUCKET, name));
             }
         }
-        if (references.put(referenceName, type) == null) {
-            // log set
-            Env.getCurrentEnv().getEditLog().logAlterResource(this);
-            LOG.info("Reference(type={}, name={}) is added to s3 resource, current set: {}",
-                    type, referenceName, references);
-            return true;
-        }
-        return false;
+        return super.addReference(referenceName, type);
     }
 
     public S3Resource(String name) {
-        this(name, Maps.newHashMap(), Maps.newHashMap());
+        this(name, Maps.newHashMap());
     }
 
-    public S3Resource(String name, Map<String, String> properties, Map<String, ReferenceType> policySet) {
+    public S3Resource(String name, Map<String, String> properties) {
         super(name, ResourceType.S3);
         this.properties = properties;
-        this.references = policySet;
     }
 
     public String getProperty(String propertyKey) {
@@ -183,13 +163,6 @@ public class S3Resource extends Resource {
     }
 
     @Override
-    public void dropResource() throws DdlException {
-        if (references.containsValue(ReferenceType.POLICY)) {
-            throw new DdlException("S3 resource used by policy, can't drop it.");
-        }
-    }
-
-    @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -203,6 +176,44 @@ public class S3Resource extends Resource {
         }
     }
 
+    public Map<String, String> getS3HadoopProperties() {
+        return getS3HadoopProperties(properties);
+    }
+
+    public static Map<String, String> getS3HadoopProperties(Map<String, String> properties) {
+        Map<String, String> s3Properties = Maps.newHashMap();
+        if (properties.containsKey(S3_ACCESS_KEY)) {
+            s3Properties.put("fs.s3a.access.key", properties.get(S3_ACCESS_KEY));
+        }
+        if (properties.containsKey(S3Resource.S3_SECRET_KEY)) {
+            s3Properties.put("fs.s3a.secret.key", properties.get(S3_SECRET_KEY));
+        }
+        if (properties.containsKey(S3Resource.S3_ENDPOINT)) {
+            s3Properties.put("fs.s3a.endpoint", properties.get(S3_ENDPOINT));
+        }
+        if (properties.containsKey(S3Resource.S3_REGION)) {
+            s3Properties.put("fs.s3a.endpoint.region", properties.get(S3_REGION));
+        }
+        if (properties.containsKey(S3Resource.S3_MAX_CONNECTIONS)) {
+            s3Properties.put("fs.s3a.connection.maximum", properties.get(S3_MAX_CONNECTIONS));
+        }
+        if (properties.containsKey(S3Resource.S3_REQUEST_TIMEOUT_MS)) {
+            s3Properties.put("fs.s3a.connection.request.timeout", properties.get(S3_REQUEST_TIMEOUT_MS));
+        }
+        if (properties.containsKey(S3Resource.S3_CONNECTION_TIMEOUT_MS)) {
+            s3Properties.put("fs.s3a.connection.timeout", properties.get(S3_CONNECTION_TIMEOUT_MS));
+        }
+        s3Properties.put("fs.s3.impl.disable.cache", "true");
+        s3Properties.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        s3Properties.put("fs.s3a.attempts.maximum", "2");
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(S3Resource.S3_FS_PREFIX)) {
+                s3Properties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return s3Properties;
+    }
+
     private void notifyUpdate() {
         if (references.containsValue(ReferenceType.POLICY)) {
             SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
@@ -214,11 +225,12 @@ public class S3Resource extends Resource {
                 this.references.forEach(
                         (policy, type) -> {
                             if (type == ReferenceType.POLICY) {
+                                String policyName = policy.split(REFERENCE_SPLIT)[0];
                                 List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
                                         .getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
                                 Optional<Policy> findPolicy = policiesByType.stream()
                                         .filter(p -> p.getType() == PolicyTypeEnum.STORAGE
-                                                && policy.equals(p.getPolicyName()))
+                                                && policyName.equals(p.getPolicyName()))
                                         .findAny();
                                 LOG.info("find policy in {} ", policiesByType);
                                 if (!findPolicy.isPresent()) {

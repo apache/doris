@@ -207,13 +207,9 @@ public class HiveScanProvider extends HMSTableScanProvider {
         allFiles.addAll(files);
     }
 
-    protected Configuration setConfiguration() {
+    protected Configuration getConfiguration() {
         Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : hmsTable.getCatalog().getCatalogProperty().getProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        Map<String, String> s3Properties = hmsTable.getS3Properties();
-        for (Map.Entry<String, String> entry : s3Properties.entrySet()) {
+        for (Map.Entry<String, String> entry : hmsTable.getHadoopProperties().entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
         return conf;
@@ -240,14 +236,7 @@ public class HiveScanProvider extends HMSTableScanProvider {
 
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
-        TFileType locationType = getLocationType();
-        if (locationType == TFileType.FILE_S3) {
-            return hmsTable.getS3Properties();
-        } else if (locationType == TFileType.FILE_HDFS) {
-            return hmsTable.getHdfsProperties();
-        } else {
-            return Maps.newHashMap();
-        }
+        return hmsTable.getCatalogProperties();
     }
 
     @Override

@@ -26,33 +26,29 @@ suite("test_es_query", "p0") {
         sql """drop catalog if exists es6;"""
         sql """drop catalog if exists es7;"""
         sql """drop catalog if exists es8;"""
-        sql """
-            create catalog es6
-            properties (
-                "type"="es",
-                "elasticsearch.hosts"="http://127.0.0.1:$es_6_port",
-                "elasticsearch.nodes_discovery"="false",
-                "elasticsearch.keyword_sniff"="true"
-            );
-            """
-        sql """
-            create catalog es7
-            properties (
-                "type"="es",
-                "elasticsearch.hosts"="http://127.0.0.1:$es_7_port",
-                "elasticsearch.nodes_discovery"="false",
-                "elasticsearch.keyword_sniff"="true"
-            );
-            """
-        sql """
-            create catalog es8
-            properties (
-                "type"="es",
-                "elasticsearch.hosts"="http://127.0.0.1:$es_8_port",
-                "elasticsearch.nodes_discovery"="false",
-                "elasticsearch.keyword_sniff"="false"
-            );
-            """
+
+        sql """create resource if not exists es6_resource properties(
+            "type"="es",
+            "hosts"="http://127.0.0.1:$es_6_port",
+            "nodes_discovery"="false",
+            "enable_keyword_sniff"="true"
+        );"""
+        sql """create resource if not exists es7_resource properties(
+            "type"="es",
+            "hosts"="http://127.0.0.1:$es_7_port",
+            "nodes_discovery"="false",
+            "enable_keyword_sniff"="true"
+        );"""
+        sql """create resource if not exists es8_resource properties(
+            "type"="es",
+            "hosts"="http://127.0.0.1:$es_8_port",
+            "nodes_discovery"="false",
+            "enable_keyword_sniff"="true"
+        );"""
+
+        sql """create catalog if not exists es6 with resource es6_resource;"""
+        sql """create catalog if not exists es7 with resource es7_resource;"""
+        sql """create catalog if not exists es8 with resource es8_resource;"""
         sql """switch es6"""
         // order_qt_sql61 """show tables"""
         order_qt_sql62 """select * from test1 where test2='text#1'"""
@@ -67,5 +63,12 @@ suite("test_es_query", "p0") {
         // sql """switch es8"""
         // order_qt_sql1 """select * from test1 where test2='text'"""
         // order_qt_sql2 """select * from test2_20220808 where test4='2022-08-08'"""
+
+        sql """drop catalog if exists es6;"""
+        sql """drop catalog if exists es7;"""
+        sql """drop catalog if exists es8;"""
+        sql """drop resource if exists es6_resource;"""
+        sql """drop resource if exists es7_resource;"""
+        sql """drop resource if exists es8_resource;"""
     }
 }

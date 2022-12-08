@@ -25,6 +25,7 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -32,8 +33,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.List;
@@ -43,20 +42,21 @@ import java.util.Map;
  * External catalog for hive metastore compatible data sources.
  */
 public class HMSExternalCatalog extends ExternalCatalog {
-    private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
-
     private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
 
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(long catalogId, String name, Map<String, String> props) {
+    public HMSExternalCatalog(
+            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
         this.id = catalogId;
         this.name = name;
         this.type = "hms";
-        this.catalogProperty = new CatalogProperty();
-        this.catalogProperty.setProperties(props);
+        if (resource == null) {
+            props.putAll(HMSResource.getPropertiesFromDLF());
+        }
+        catalogProperty = new CatalogProperty(resource, props);
     }
 
     public String getHiveMetastoreUris() {
@@ -97,9 +97,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         HiveConf hiveConf = new HiveConf();
-        for (String key : catalogProperty.getHdfsProperties().keySet()) {
-            String val = catalogProperty.getOrDefault(key, "");
-            hiveConf.set(key, val);
+        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
+            hiveConf.set(kv.getKey(), kv.getValue());
         }
 
         String authentication = catalogProperty.getOrDefault(
@@ -121,13 +120,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
             }
         }
-        // 1. read properties from hive-site.xml.
-        // and then use properties in CatalogProperty to override properties got from hive-site.xml
-        Map<String, String> properties = HiveMetaStoreClientHelper.getPropertiesForDLF(name, hiveConf);
-        properties.putAll(catalogProperty.getProperties());
-        catalogProperty.setProperties(properties);
 
-        // 2. init hms client
         client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
     }
 
