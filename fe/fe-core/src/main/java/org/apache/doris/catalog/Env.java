@@ -4439,7 +4439,16 @@ public class Env {
             throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
                     ErrorCode.ERR_UNKNOWN_CATALOG);
         }
+
+        String currentDB = ctx.getDatabase();
+        if (StringUtils.isNotEmpty(currentDB)) {
+            catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+        }
         ctx.changeDefaultCatalog(catalogName);
+        String lastDb = catalogMgr.getLastDB(catalogName);
+        if (StringUtils.isNotEmpty(lastDb)) {
+            ctx.setDatabase(lastDb);
+        }
         if (catalogIf instanceof EsExternalCatalog) {
             ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
                     + EsExternalCatalog.DEFAULT_DB);
