@@ -79,6 +79,7 @@ enum class TypeIndex {
     TimeV2,
     FixedLengthObject,
     JSONB,
+    Struct,
 };
 
 struct Consted {
@@ -454,6 +455,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "FixedLengthObject";
     case TypeIndex::JSONB:
         return "JSONB";
+    case TypeIndex::Struct:
+        return "Struct";
     }
 
     __builtin_unreachable();

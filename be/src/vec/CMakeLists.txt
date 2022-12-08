@@ -47,6 +47,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_avg_weighted.cpp
   columns/column.cpp
   columns/column_array.cpp
+  columns/column_struct.cpp
   columns/column_const.cpp
   columns/column_decimal.cpp
   columns/column_nullable.cpp
@@ -71,6 +72,7 @@ set(VEC_FILES
   core/materialize_block.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
+  data_types/data_type_struct.cpp
   data_types/data_type_bitmap.cpp
   data_types/data_type_factory.cpp
   data_types/data_type_fixed_length_object.cpp
