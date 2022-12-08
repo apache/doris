@@ -37,7 +37,9 @@
 #include "exec/streaming_aggregation_source_operator.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline_task.h"
 #include "runtime/client_cache.h"
@@ -345,6 +347,13 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr builder =
                 std::make_shared<RepeatOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(builder));
+        break;
+    }
+    case TPlanNodeType::ASSERT_NUM_ROWS_NODE: {
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+        OperatorBuilderPtr builder =
+                std::make_shared<AssertNumRowsOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(builder));
         break;
     }
