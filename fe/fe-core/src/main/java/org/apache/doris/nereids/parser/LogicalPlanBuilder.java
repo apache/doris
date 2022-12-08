@@ -1019,11 +1019,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
             // TODO: natural join, lateral join, using join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
-            Optional<Expression> condition;
-            if (joinCriteria == null) {
-                condition = Optional.empty();
-            } else {
-                condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
+            Optional<Expression> condition = Optional.empty();
+            if (joinCriteria != null) {
+                if (joinCriteria.booleanExpression() != null) {
+                    condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
+                }
+                if (joinCriteria.USING() != null) {
+                    List<UnboundSlot> ids =
+                            visitIdentifierList(joinCriteria.identifierList())
+                                    .stream().map(UnboundSlot::quoted).collect(
+                                            Collectors.toList());
+                    return new LogicalJoin(JoinType.USING_JOIN, ids, last, plan(join.relationPrimary()));
+                }
             }
 
             last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
