@@ -208,7 +208,7 @@ Status SubFileCache::_get_need_cache_offsets(size_t offset, size_t req_size,
 }
 
 Status SubFileCache::clean_timeout_cache() {
-    GcQueue gc_queue;
+    SubGcQueue gc_queue;
     _gc_lru_queue.swap(gc_queue);
     std::vector<size_t> timeout_keys;
     {
@@ -219,7 +219,7 @@ Status SubFileCache::clean_timeout_cache() {
                 timeout_keys.emplace_back(iter->first);
             } else {
                 auto [cache_file, done_file] = _cache_path(iter->first);
-                _gc_lru_queue.push({cache_file, iter->first, iter->second});
+                _gc_lru_queue.push({iter->first, iter->second});
             }
         }
     }

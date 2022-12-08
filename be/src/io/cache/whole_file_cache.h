@@ -54,6 +54,10 @@ public:
 
     Status clean_one_cache(size_t* cleaned_size) override;
 
+    int64_t get_oldest_match_time() const override { return _last_match_time; };
+
+    bool is_gc_finish() const override { return _cache_file_reader == nullptr; }
+
 private:
     Status _generate_cache_reader(size_t offset, size_t req_size);
 

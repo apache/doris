@@ -62,6 +62,12 @@ public:
 
     bool is_dummy_file_cache() override { return true; }
 
+    int64_t get_oldest_match_time() const override {
+        return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
+    };
+
+    bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
+
 private:
     Status _clean_unfinished_cache();
     void _add_file_cache(const Path& data_file);
@@ -69,6 +75,14 @@ private:
     Status _clean_cache_internal(const Path&, size_t*);
 
 private:
+    struct DummyFileInfo {
+        Path file;
+        int64_t last_match_time;
+    };
+    using DummyGcQueue = std::priority_queue<DummyFileInfo, std::vector<DummyFileInfo>,
+                                             SubFileLRUComparator<DummyFileInfo>>;
+    DummyGcQueue _gc_lru_queue;
+
     Path _cache_dir;
     int64_t _alive_time_sec;
 

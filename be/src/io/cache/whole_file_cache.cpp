@@ -133,33 +133,22 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
 }
 
 Status WholeFileCache::clean_timeout_cache() {
-    GcQueue gc_queue;
-    _gc_lru_queue.swap(gc_queue);
-    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     if (time(nullptr) - _last_match_time > _alive_time_sec) {
         _clean_cache_internal(nullptr);
-    } else {
-        Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;
-        _gc_lru_queue.push({cache_file, 0, _last_match_time});
     }
     return Status::OK();
 }
 
 Status WholeFileCache::clean_all_cache() {
-    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     return _clean_cache_internal(nullptr);
 }
 
 Status WholeFileCache::clean_one_cache(size_t* cleaned_size) {
-    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
-    if (!_gc_lru_queue.empty()) {
-        RETURN_IF_ERROR(_clean_cache_internal(cleaned_size));
-        _gc_lru_queue.pop();
-    }
-    return Status::OK();
+    return _clean_cache_internal(cleaned_size);
 }
 
 Status WholeFileCache::_clean_cache_internal(size_t* cleaned_size) {
+    std::unique_lock<std::shared_mutex> wrlock(_cache_lock);
     _cache_file_reader.reset();
     _cache_file_size = 0;
     Path cache_file = _cache_dir / WHOLE_FILE_CACHE_NAME;

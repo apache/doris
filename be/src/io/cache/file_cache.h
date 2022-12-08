@@ -50,7 +50,7 @@ public:
 
     virtual Status clean_one_cache(size_t* cleaned_size) = 0;
 
-    bool is_gc_finish() { return _gc_lru_queue.empty(); }
+    virtual bool is_gc_finish() const = 0;
 
     virtual bool is_dummy_file_cache() { return false; }
 
@@ -58,30 +58,19 @@ public:
                                    io::FileReaderSPtr remote_file_reader, size_t req_size,
                                    size_t offset = 0);
 
-    int64_t get_oldest_match_time() const {
-        return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
-    };
+    virtual int64_t get_oldest_match_time() const = 0;
 
 protected:
     Status _remove_file(const Path& cache_file, const Path& cache_done_file, size_t* cleaned_size);
 
-    struct CacheFileInfo {
-        Path file;
-        size_t offset;
-        int64_t last_match_time;
-    };
-
-    struct CacheFileLRUComparator {
-        bool operator()(const CacheFileInfo& lhs, const CacheFileInfo& rhs) const {
+    template <typename T>
+    struct SubFileLRUComparator {
+        bool operator()(const T& lhs, const T& rhs) const {
             return lhs.last_match_time > rhs.last_match_time;
-        }
+        };
     };
 
     size_t _cache_file_size;
-
-    using GcQueue =
-            std::priority_queue<CacheFileInfo, std::vector<CacheFileInfo>, CacheFileLRUComparator>;
-    GcQueue _gc_lru_queue;
 };
 
 using FileCachePtr = std::shared_ptr<FileCache>;
