@@ -21,6 +21,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(EmptySetSourceOperator, Operator)
+OPERATOR_CODE_GENERATOR(EmptySetSourceOperator, SourceOperator)
 
 } // namespace doris::pipeline

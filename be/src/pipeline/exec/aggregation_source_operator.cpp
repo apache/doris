@@ -22,7 +22,7 @@
 namespace doris {
 namespace pipeline {
 
-OPERATOR_CODE_GENERATOR(AggSourceOperator, Operator)
+OPERATOR_CODE_GENERATOR(AggSourceOperator, SourceOperator)
 
 } // namespace pipeline
 } // namespace doris
