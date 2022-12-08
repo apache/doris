@@ -934,12 +934,16 @@ static int last_index_of(const uint8_t* source, int source_len, const uint8_t* t
     const uint8_t last = target[target_len - 1];
     int min = target_len;
     for (int i = to_index; i >= min; i--) {
-        while (i >= min && source[i] != last) i--; // Look for last character
+        while (i >= min && source[i] != last) {
+            i--; // Look for last character
+        }
         if (i >= min) { // Found first character, now look at the rest of v2
             int j = i - 1;
             int end = j - target_len + 1;
-            for (int k = target_len - 2; j > end && source[j] == target[k]; j--, k--)
-                ;
+            for (int k = target_len - 2; j > end && source[j] == target[k];) {
+                 j--;
+                 k--;
+            }
             if (j == end) {
                 return i - target_len + 1;
             }
