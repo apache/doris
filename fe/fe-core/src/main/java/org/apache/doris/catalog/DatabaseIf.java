@@ -120,6 +120,16 @@ public interface DatabaseIf<T extends TableIf> {
         return table;
     }
 
+    default T getTableViewOrMetaException(String tableName) throws MetaNotFoundException {
+        T table = getTableOrMetaException(tableName);
+        if (table.getType() != TableIf.TableType.OLAP && table.getType() != TableIf.TableType.MATERIALIZED_VIEW) {
+            throw new MetaNotFoundException(
+                    "table type is not olap or materialized view, tableName=" + tableName + ", type="
+                            + table.getType());
+        }
+        return table;
+    }
+
     default T getTableOrMetaException(long tableId, TableIf.TableType tableType) throws MetaNotFoundException {
         T table = getTableOrMetaException(tableId);
         if (table.getType() != tableType) {

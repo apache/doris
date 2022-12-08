@@ -68,7 +68,9 @@ public class MTMVTaskExecutorPool {
             if (!isSuccess) {
                 task.setState(TaskState.FAILED);
                 task.setErrorCode(-1);
-                task.setMessage(lastExceptionString);
+                if (lastExceptionString.length() > 0) {
+                    task.setMessage(lastExceptionString);
+                }
             }
         });
         taskExecutor.setFuture(future);
