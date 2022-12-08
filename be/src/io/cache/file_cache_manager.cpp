@@ -193,7 +193,7 @@ void FileCacheManager::gc_file_caches() {
     // policy2: GC file cache by disk size
     if (gc_conf_size > 0) {
         for (size_t i = 0; i < contexts.size(); ++i) {
-            auto context = contexts[i];
+            auto& context = contexts[i];
             FileCachePtr file_cache;
             while ((file_cache = context.top()) != nullptr) {
                 {

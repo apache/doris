@@ -79,6 +79,7 @@ private:
     };
     using SubGcQueue = std::priority_queue<SubFileInfo, std::vector<SubFileInfo>,
                                            SubFileLRUComparator<SubFileInfo>>;
+    // used by gc thread, and currently has no lock protection
     SubGcQueue _gc_lru_queue;
 
     Path _cache_dir;
