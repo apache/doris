@@ -612,7 +612,4 @@ private:
     T _value;
 };
 
-template <PrimitiveType Type, PredicateType PT>
-constexpr PrimitiveType ComparisonPredicateBase<Type, PT>::EvalType;
-
 } //namespace doris

@@ -633,7 +633,4 @@ private:
     std::list<std::string> _temp_datas;
 };
 
-template <PrimitiveType Type, PredicateType PT>
-constexpr PrimitiveType InListPredicateBase<Type, PT>::EvalType;
-
 } //namespace doris
