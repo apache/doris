@@ -1020,8 +1020,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 joinType = JoinType.LEFT_OUTER_JOIN;
             } else if (join.joinType().RIGHT() != null) {
                 joinType = JoinType.RIGHT_OUTER_JOIN;
-            } else {
+            } else if (join.joinType().INNER() != null) {
                 joinType = JoinType.INNER_JOIN;
+            } else {
+                joinType = JoinType.CROSS_JOIN;
             }
 
             // TODO: natural join, lateral join, using join, union join
@@ -1037,6 +1039,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                     .stream().map(UnboundSlot::quoted).collect(
                                             Collectors.toList());
                     return new LogicalJoin(JoinType.USING_JOIN, ids, last, plan(join.relationPrimary()));
+                }
+            } else {
+                // keep same with original planner, allow cross/inner join
+                if (!joinType.isInnerOrCrossJoin()) {
+                    throw new ParseException("on mustn't be empty except for cross/inner join", join);
                 }
             }
 
