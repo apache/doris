@@ -19,14 +19,9 @@
 
 #include <fmt/format.h>
 
-#include <iostream>
-
-#include "exec/exec_node.h"
-#include "exec/plain_text_line_reader.h"
+#include "exec/line_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
-#include "exprs/expr_context.h"
-#include "util/utf8_check.h"
 
 namespace doris::vectorized {
 

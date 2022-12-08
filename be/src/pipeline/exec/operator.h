@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "exec/data_sink.h"
 #include "exec/exec_node.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
