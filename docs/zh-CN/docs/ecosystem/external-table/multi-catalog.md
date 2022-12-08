@@ -36,6 +36,7 @@ under the License.
 
 1. Hive MetaStore：对接一个 Hive MetaStore，从而可以直接访问其中的 Hive、Iceberg、Hudi 等数据。
 2. Elasticsearch：对接一个 ES 集群，并直接访问其中的表和分片。
+3. JDBC: 对接数据库访问的标准接口(JDBC)来访问各式数据库的数据。（目前只支持访问MYSQL）
 
 该功能将作为之前外表连接方式（External Table）的补充和增强，帮助用户进行快速的多数据目录联邦查询。
 
@@ -371,6 +372,100 @@ mysql> select * from test;
     
 之后，可以像正常的 Hive MetaStore 一样，访问 DLF 下的元数据。 
 
+### 连接JDBC
+
+以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前只支持MYSQL数据库类型。
+```sql
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="root",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.driver_url" = "file:/mnt/disk2/ftw/tools/jar/mysql-connector-java-5.1.47/mysql-connector-java-5.1.47.jar",
+    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+);
+```
+
+创建后，可以通过 SHOW CATALOGS 命令查看 catalog：
+
+```sql
+MySQL [(none)]> show catalogs;
++-----------+-------------+----------+
+| CatalogId | CatalogName | Type     |
++-----------+-------------+----------+
+|         0 | internal    | internal |
+|     10480 | jdbc        | jdbc     |
++-----------+-------------+----------+
+2 rows in set (0.02 sec)
+```
+
+通过 SWITCH 命令切换到 es catalog，并查看其中的数据库：
+```sql
+MySQL [(none)]> switch jdbc;
+Query OK, 0 rows affected (0.02 sec)
+
+MySQL [(none)]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| __db1              |
+| _db1               |
+| db1                |
+| demo               |
+| information_schema |
+| mysql              |
+| mysql_db_test      |
+| performance_schema |
+| sys                |
++--------------------+
+9 rows in set (0.67 sec)
+```
+
+查看`db1`数据库下的表，并查询：
+```sql
+MySQL [demo]> use db1;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+MySQL [db1]> show tables;
++---------------+
+| Tables_in_db1 |
++---------------+
+| tbl1          |
++---------------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> desc tbl1;
++-------+------+------+------+---------+-------+
+| Field | Type | Null | Key  | Default | Extra |
++-------+------+------+------+---------+-------+
+| k1    | INT  | Yes  | true | NULL    |       |
++-------+------+------+------+---------+-------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> select * from tbl1;
++------+
+| k1   |
++------+
+|    1 |
+|    2 |
+|    3 |
+|    4 |
++------+
+4 rows in set (0.19 sec)
+```
+
+#### 参数说明：
+
+参数 | 说明
+---|---
+**jdbc.user** | 连接数据库使用的用户名
+**jdbc.password** | 连接数据库使用的密码
+**jdbc.jdbc_url** | 连接到指定数据库的标识符
+**jdbc.driver_url** | jdbc驱动包的url
+**jdbc.driver_class** | jdbc驱动类
 
 ## 列类型映射
 
@@ -420,6 +515,32 @@ mysql> select * from test;
 | array | | 开发中 |
 |other| string ||
 
+### JDBC
+
+#### MYSQL
+ MYSQL Type | Doris Type | Comment |
+|---|---|---|
+| BOOLEAN | BOOLEAN | |
+| TINYINT | TINYINT | |
+| SMALLINT | SMALLINT | |
+| MEDIUMINT | INT | |
+| INT | INT | |
+| BIGINT | BIGINT | |
+| UNSIGNED TINYINT | SMALLINT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
+| UNSIGNED MEDIUMINT | INT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
+| UNSIGNED INT | BIGINT |Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
+| UNSIGNED BIGINT | STRING | |
+| FLOAT | FLOAT | |
+| DOUBLE | DOUBLE | |
+| DECIMAL | DECIMAL | |
+| DATE | DATE | |
+| TIMESTAMP | DATETIME | |
+| DATETIME | DATETIME | |
+| YEAR | SMALLINT | |
+| TIME | STRING | |
+| CHAR | CHAR | |
+| VARCHAR | STRING | |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
 ## 权限管理
 
 使用 Doris 对 External Catalog 中库表进行访问，并不受外部数据目录自身的权限控制，而是依赖 Doris 自身的权限访问管理功能。
