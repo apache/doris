@@ -268,12 +268,12 @@ private:
             // when in AGG_KEYS table, we return the row in order of segment id, because
             // we need replace the value with lower segment id by the one with higher segment id when
             // non-vectorized.
-
             if (_is_unique) {
                 bool result = res == 0 ? lhs->data_id() < rhs->data_id() : res < 0;
                 result ? lhs->set_skip(true) : rhs->set_skip(true);
                 return result;
-            }     
+            }
+
             return lhs->data_id() > rhs->data_id();
         }
 
