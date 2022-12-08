@@ -97,6 +97,7 @@ Status VUnionNode::open(RuntimeState* state) {
 }
 
 Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
+    LOG(INFO)<<"Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block)";
     DCHECK(!reached_limit());
     DCHECK(!is_in_subplan());
     DCHECK_LT(_child_idx, _children.size());
@@ -121,6 +122,7 @@ Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
 }
 
 Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
+    LOG(INFO)<<"Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block)";
     // Fetch from children, evaluate corresponding exprs and materialize.
     DCHECK(!reached_limit());
     DCHECK_LT(_child_idx, _children.size());
@@ -178,6 +180,8 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
 }
 
 Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
+    LOG(INFO)<<"Status VUnionNode::get_next_const(RuntimeState* state, Block* block)";
+    LOG(INFO)<<block->dump_data();
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     DCHECK_LT(_const_expr_list_idx, _const_expr_lists.size());
 
@@ -186,17 +190,23 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
             mem_reuse ? MutableBlock::build_mutable_block(block)
                       : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
                                 _row_descriptor)));
+    LOG(INFO)<<"_const_expr_list_idx _const_expr_lists.size(): "<<_const_expr_list_idx<<" "<<_const_expr_lists.size();
     for (; _const_expr_list_idx < _const_expr_lists.size(); ++_const_expr_list_idx) {
         Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
                           std::make_shared<vectorized::DataTypeUInt8>(), ""});
         int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
+        LOG(INFO)<<tmp_block.dump_data();
+        LOG(INFO)<<"_const_expr_lists[_const_expr_list_idx].size(): "<<const_expr_lists_size;
         std::vector<int> result_list(const_expr_lists_size);
         for (size_t i = 0; i < const_expr_lists_size; ++i) {
+            LOG(INFO)<<"_const_expr_lists[_const_expr_list_idx][i]: "<<typeid(_const_expr_lists[_const_expr_list_idx][i]->root()).name();
             RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
                                                                                 &result_list[i]));
         }
+        LOG(INFO)<<tmp_block.dump_data();
         tmp_block.erase_not_in(result_list);
+        LOG(INFO)<<tmp_block.dump_data();
         if (tmp_block.rows() > 0) {
             mblock.merge(tmp_block);
         }
@@ -213,7 +223,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         block->insert({vectorized::ColumnUInt8::create(1),
                        std::make_shared<vectorized::DataTypeUInt8>(), ""});
     }
-
+    LOG(INFO)<<"ready to return";
+    LOG(INFO)<<block->dump_data();
     return Status::OK();
 }
 
