@@ -78,6 +78,9 @@ public class AlterTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
         for (AlterClause op : ops) {
+            if (op instanceof AlterTableClause) {
+                ((AlterTableClause) op).setTableName(tbl);
+            }
             op.analyze(analyzer);
         }
     }
