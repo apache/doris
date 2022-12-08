@@ -22,6 +22,7 @@
 
 #include "common/object_pool.h"
 #include "exprs/expr.h"
+#include "exprs/scalar_fn_call.h"
 
 namespace doris {
 

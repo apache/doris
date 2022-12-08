@@ -258,7 +258,8 @@ public class CastExpr extends Expr {
         msg.node_type = TExprNodeType.CAST_EXPR;
         msg.setOpcode(opcode);
         msg.setOutputColumn(outputColumn);
-        if (type.isNativeType() && getChild(0).getType().isNativeType()) {
+        if ((type.isNativeType() && getChild(0).getType().isNativeType())
+                || (type.isArrayType() && getChild(0).getType().isVarchar())) {
             msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
         }
     }

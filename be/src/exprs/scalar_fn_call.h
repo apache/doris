@@ -63,6 +63,7 @@ public:
 
 protected:
     friend class Expr;
+    friend class CastExpr;
 
     ScalarFnCall(const TExprNode& node);
     virtual Status prepare(RuntimeState* state, const RowDescriptor& desc,

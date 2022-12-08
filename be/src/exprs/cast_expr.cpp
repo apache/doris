@@ -40,6 +40,8 @@ Expr* CastExpr::from_thrift(const TExprNode& node) {
         return new CastFloatExpr(node);
     case TPrimitiveType::DOUBLE:
         return new CastDoubleExpr(node);
+    case TPrimitiveType::VARCHAR:
+        return new ScalarFnCall(node);
     default:
         return nullptr;
     }
