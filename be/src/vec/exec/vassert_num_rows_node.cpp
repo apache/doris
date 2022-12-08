@@ -37,16 +37,11 @@ VAssertNumRowsNode::VAssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode,
 }
 
 Status VAssertNumRowsNode::open(RuntimeState* state) {
-    RETURN_IF_ERROR(alloc_resource(state));
-    // ISSUE-3435
-    RETURN_IF_ERROR(child(0)->open(state));
-    return Status::OK();
-}
-
-Status VAssertNumRowsNode::alloc_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAssertNumRowsNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    RETURN_IF_ERROR(ExecNode::open(state));
+    // ISSUE-3435
+    RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
 

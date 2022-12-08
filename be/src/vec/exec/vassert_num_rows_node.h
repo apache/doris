@@ -33,7 +33,6 @@ public:
 
     Status open(RuntimeState* state) override;
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    Status alloc_resource(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
 
 private:
