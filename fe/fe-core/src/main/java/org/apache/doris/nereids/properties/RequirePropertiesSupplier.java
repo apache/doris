@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.RequestProperties.RequestPropertiesTree;
+import org.apache.doris.nereids.properties.RequireProperties.RequirePropertiesTree;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.base.Preconditions;
@@ -26,40 +26,40 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/** RequestPropertiesSupplier */
-public interface RequestPropertiesSupplier<P extends Plan> {
+/** RequirePropertiesSupplier */
+public interface RequirePropertiesSupplier<P extends Plan> {
     List<Plan> children();
 
-    RequestProperties getRequestProperties();
+    RequireProperties getRequireProperties();
 
-    Plan withRequestAndChildren(RequestProperties requestProperties, List<Plan> children);
+    Plan withRequireAndChildren(RequireProperties requireProperties, List<Plan> children);
 
-    default P withRequest(RequestProperties requestProperties) {
-        return (P) withRequestAndChildren(requestProperties, children());
+    default P withRequire(RequireProperties requireProperties) {
+        return (P) withRequireAndChildren(requireProperties, children());
     }
 
-    /** withRequestsTree */
-    default P withRequestTree(RequestPropertiesTree tree) {
-        List<RequestPropertiesTree> childrenRequests = tree.children;
+    /** withRequireTree */
+    default P withRequireTree(RequirePropertiesTree tree) {
+        List<RequirePropertiesTree> childrenRequires = tree.children;
         List<Plan> children = children();
-        if (!childrenRequests.isEmpty() && children.size() != childrenRequests.size()) {
-            throw new AnalysisException("The number of RequestProperties mismatch the plan tree");
+        if (!childrenRequires.isEmpty() && children.size() != childrenRequires.size()) {
+            throw new AnalysisException("The number of RequireProperties mismatch the plan tree");
         }
 
         List<Plan> newChildren = children;
-        if (!childrenRequests.isEmpty()) {
+        if (!childrenRequires.isEmpty()) {
             ImmutableList.Builder<Plan> newChildrenBuilder =
-                    ImmutableList.builderWithExpectedSize(childrenRequests.size());
+                    ImmutableList.builderWithExpectedSize(childrenRequires.size());
             for (int i = 0; i < children.size(); i++) {
                 Plan child = children.get(i);
-                Preconditions.checkState(child instanceof RequestPropertiesSupplier,
-                        "child should be RequestPropertiesTree: " + child);
-                Plan newChild = ((RequestPropertiesSupplier<Plan>) child).withRequestTree(childrenRequests.get(i));
+                Preconditions.checkState(child instanceof RequirePropertiesSupplier,
+                        "child should be RequirePropertiesTree: " + child);
+                Plan newChild = ((RequirePropertiesSupplier<Plan>) child).withRequireTree(childrenRequires.get(i));
                 newChildrenBuilder.add(newChild);
             }
             newChildren = newChildrenBuilder.build();
         }
 
-        return (P) withRequestAndChildren(tree.requestProperties, newChildren);
+        return (P) withRequireAndChildren(tree.requireProperties, newChildren);
     }
 }

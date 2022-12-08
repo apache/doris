@@ -50,6 +50,10 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         this.rewriter = Objects.requireNonNull(rewriter, "rewriter is null");
     }
 
+    public Expression rewrite(Expression expression) {
+        return rewriter.rewrite(expression);
+    }
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(

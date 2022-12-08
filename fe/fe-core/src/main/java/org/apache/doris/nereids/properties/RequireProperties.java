@@ -27,39 +27,39 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-/** RequestPhysicalProperties */
-public class RequestProperties {
+/** RequireProperties */
+public class RequireProperties {
     private final boolean followParentProperties;
     private final List<PhysicalProperties> properties;
 
-    private RequestProperties(PhysicalProperties... properties) {
+    private RequireProperties(PhysicalProperties... properties) {
         this(false, properties);
     }
 
-    private RequestProperties(boolean followParentProperties, PhysicalProperties... requestProperties) {
-        Preconditions.checkArgument((followParentProperties == false && requestProperties.length > 0)
-                || (followParentProperties == true && requestProperties.length == 0));
-        this.properties = ImmutableList.copyOf(requestProperties);
+    private RequireProperties(boolean followParentProperties, PhysicalProperties... requireProperties) {
+        Preconditions.checkArgument((followParentProperties == false && requireProperties.length > 0)
+                || (followParentProperties == true && requireProperties.length == 0));
+        this.properties = ImmutableList.copyOf(requireProperties);
         this.followParentProperties = followParentProperties;
     }
 
-    public static RequestProperties of(PhysicalProperties... properties) {
-        return new RequestProperties(properties);
+    public static RequireProperties of(PhysicalProperties... properties) {
+        return new RequireProperties(properties);
     }
 
-    public static RequestProperties followParent() {
-        return new RequestProperties(true);
+    public static RequireProperties followParent() {
+        return new RequireProperties(true);
     }
 
-    public RequestPropertiesTree withChildren(RequestProperties... requestProperties) {
-        List<RequestPropertiesTree> children = Arrays.stream(requestProperties)
-                .map(child -> new RequestPropertiesTree(child, ImmutableList.of()))
+    public RequirePropertiesTree withChildren(RequireProperties... requireProperties) {
+        List<RequirePropertiesTree> children = Arrays.stream(requireProperties)
+                .map(child -> new RequirePropertiesTree(child, ImmutableList.of()))
                 .collect(ImmutableList.toImmutableList());
-        return new RequestPropertiesTree(this, children);
+        return new RequirePropertiesTree(this, children);
     }
 
-    public RequestPropertiesTree withChildren(RequestPropertiesTree... children) {
-        return new RequestPropertiesTree(this, ImmutableList.copyOf(children));
+    public RequirePropertiesTree withChildren(RequirePropertiesTree... children) {
+        return new RequirePropertiesTree(this, ImmutableList.copyOf(children));
     }
 
     public boolean isFollowParentProperties() {
@@ -70,20 +70,20 @@ public class RequestProperties {
         return properties;
     }
 
-    /** computeRequestPhysicalProperties */
-    public List<PhysicalProperties> computeRequestPhysicalProperties(
-            Plan currentPlan, PhysicalProperties parentRequest) {
+    /** computeRequirePhysicalProperties */
+    public List<PhysicalProperties> computeRequirePhysicalProperties(
+            Plan currentPlan, PhysicalProperties parentRequire) {
         int childNum = currentPlan.arity();
         if (followParentProperties) {
             // CostAndEnforcerJob will modify this list: requestChildrenProperties.set(curChildIndex, outputProperties)
-            List<PhysicalProperties> requestProperties = Lists.newArrayListWithCapacity(childNum);
+            List<PhysicalProperties> requireProperties = Lists.newArrayListWithCapacity(childNum);
             for (int i = 0; i < childNum; i++) {
-                requestProperties.add(parentRequest);
+                requireProperties.add(parentRequire);
             }
-            return requestProperties;
+            return requireProperties;
         } else {
             Preconditions.checkState(properties.size() == childNum,
-                    "Expect request physical properties num is " + childNum + ", but real is "
+                    "Expect require physical properties num is " + childNum + ", but real is "
                             + properties.size());
             // CostAndEnforcerJob will modify this list: requestChildrenProperties.set(curChildIndex, outputProperties)
             return Lists.newArrayList(properties);
@@ -107,7 +107,7 @@ public class RequestProperties {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        RequestProperties that = (RequestProperties) o;
+        RequireProperties that = (RequireProperties) o;
         return followParentProperties == that.followParentProperties && Objects.equals(properties,
                 that.properties);
     }
@@ -117,13 +117,13 @@ public class RequestProperties {
         return Objects.hash(followParentProperties, properties);
     }
 
-    /** RequestTree */
-    public static class RequestPropertiesTree {
-        public final RequestProperties requestProperties;
-        public final List<RequestPropertiesTree> children;
+    /** RequirePropertiesTree */
+    public static class RequirePropertiesTree {
+        public final RequireProperties requireProperties;
+        public final List<RequirePropertiesTree> children;
 
-        private RequestPropertiesTree(RequestProperties requestProperties, List<RequestPropertiesTree> children) {
-            this.requestProperties = requestProperties;
+        private RequirePropertiesTree(RequireProperties requireProperties, List<RequirePropertiesTree> children) {
+            this.requireProperties = requireProperties;
             this.children = children;
         }
     }

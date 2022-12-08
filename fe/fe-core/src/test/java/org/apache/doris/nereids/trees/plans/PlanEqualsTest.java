@@ -23,7 +23,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.properties.RequestProperties;
+import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -188,14 +188,14 @@ public class PlanEqualsTest {
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> actual = new PhysicalHashAggregate<>(Lists.newArrayList(), outputExpressionList,
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
-                RequestProperties.of(PhysicalProperties.GATHER), child);
+                RequireProperties.of(PhysicalProperties.GATHER), child);
 
         List<NamedExpression> outputExpressionList1 = ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()));
         PhysicalHashAggregate<Plan> expected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList1,
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), true, logicalProperties,
-                RequestProperties.of(PhysicalProperties.GATHER), child);
+                RequireProperties.of(PhysicalProperties.GATHER), child);
         Assertions.assertEquals(expected, actual);
 
         List<NamedExpression> outputExpressionList2 = ImmutableList.of(
@@ -203,7 +203,7 @@ public class PlanEqualsTest {
         PhysicalHashAggregate<Plan> unexpected = new PhysicalHashAggregate<>(Lists.newArrayList(),
                 outputExpressionList2,
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT), false, logicalProperties,
-                RequestProperties.of(PhysicalProperties.GATHER), child);
+                RequireProperties.of(PhysicalProperties.GATHER), child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

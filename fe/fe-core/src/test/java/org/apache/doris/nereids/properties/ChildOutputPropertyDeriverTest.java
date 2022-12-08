@@ -279,7 +279,7 @@ public class ChildOutputPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
                 true,
                 logicalProperties,
-                RequestProperties.of(PhysicalProperties.GATHER),
+                RequireProperties.of(PhysicalProperties.GATHER),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -303,7 +303,7 @@ public class ChildOutputPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequestProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.AGGREGATE)),
+                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.AGGREGATE)),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -332,7 +332,7 @@ public class ChildOutputPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequestProperties.of(PhysicalProperties.GATHER),
+                RequireProperties.of(PhysicalProperties.GATHER),
                 groupPlan
         );
 

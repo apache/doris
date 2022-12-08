@@ -81,7 +81,7 @@ public class MemoTestUtils {
     }
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, Plan initPlan) {
-        PhysicalProperties requestProperties = NereidsPlanner.buildInitRequestProperties(initPlan);
+        PhysicalProperties requestProperties = NereidsPlanner.buildInitRequireProperties(initPlan);
         CascadesContext cascadesContext = CascadesContext.newContext(
                 statementContext, initPlan, requestProperties);
         MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);

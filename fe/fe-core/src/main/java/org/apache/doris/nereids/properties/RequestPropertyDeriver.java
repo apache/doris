@@ -75,10 +75,10 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        if (plan instanceof RequestPropertiesSupplier) {
-            RequestProperties requestProperties = ((RequestPropertiesSupplier) plan).getRequestProperties();
+        if (plan instanceof RequirePropertiesSupplier) {
+            RequireProperties requireProperties = ((RequirePropertiesSupplier) plan).getRequireProperties();
             List<PhysicalProperties> requestPhysicalProperties =
-                    requestProperties.computeRequestPhysicalProperties(plan, requestPropertyFromParent);
+                    requireProperties.computeRequirePhysicalProperties(plan, requestPropertyFromParent);
             addRequestPropertyToChildren(requestPhysicalProperties);
             return null;
         }

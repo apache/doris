@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -189,6 +190,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitLiteral(Literal literal, PlanTranslatorContext context) {
         return literal.toLegacyLiteral();
+    }
+
+    @Override
+    public Expr visitNullLiteral(NullLiteral nullLiteral, PlanTranslatorContext context) {
+        org.apache.doris.analysis.NullLiteral nullLit = new org.apache.doris.analysis.NullLiteral();
+        nullLit.setType(nullLiteral.getDataType().toCatalogDataType());
+        return nullLit;
     }
 
     @Override

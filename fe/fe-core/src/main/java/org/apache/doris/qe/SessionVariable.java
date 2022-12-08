@@ -1241,7 +1241,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public Set<String> getDisableNereidsRules() {
-        return Arrays.stream(disableNereidsRules.split(",[\\d]*"))
+        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
                 .collect(ImmutableSet.toImmutableSet());
     }

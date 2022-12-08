@@ -20,8 +20,8 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.properties.RequestProperties;
-import org.apache.doris.nereids.properties.RequestPropertiesSupplier;
+import org.apache.doris.nereids.properties.RequireProperties;
+import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -45,7 +45,7 @@ import java.util.Optional;
  * Physical hash aggregation plan.
  */
 public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE>
-        implements Aggregate<CHILD_TYPE>, RequestPropertiesSupplier<PhysicalHashAggregate<CHILD_TYPE>> {
+        implements Aggregate<CHILD_TYPE>, RequirePropertiesSupplier<PhysicalHashAggregate<CHILD_TYPE>> {
 
     private final List<Expression> groupByExpressions;
 
@@ -57,21 +57,21 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     private final boolean maybeUsingStream;
 
-    private final RequestProperties requestProperties;
+    private final RequireProperties requireProperties;
 
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             AggregateParam aggregateParam, boolean maybeUsingStream, LogicalProperties logicalProperties,
-            RequestProperties requestProperties, CHILD_TYPE child) {
+            RequireProperties requireProperties, CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, Optional.empty(), aggregateParam,
-                maybeUsingStream, Optional.empty(), logicalProperties, requestProperties, child);
+                maybeUsingStream, Optional.empty(), logicalProperties, requireProperties, child);
     }
 
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam,
-            boolean maybeUsingStream, LogicalProperties logicalProperties, RequestProperties requestProperties,
+            boolean maybeUsingStream, LogicalProperties logicalProperties, RequireProperties requireProperties,
             CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, partitionExpressions, aggregateParam,
-                maybeUsingStream, Optional.empty(), logicalProperties, requestProperties, child);
+                maybeUsingStream, Optional.empty(), logicalProperties, requireProperties, child);
     }
 
     /**
@@ -81,12 +81,12 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
      * @param outputExpressions agg expr list.
      * @param partitionExpressions hash distribute expr list
      * @param maybeUsingStream whether it's stream agg.
-     * @param requestProperties the request physical properties
+     * @param requireProperties the request physical properties
      */
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            RequestProperties requestProperties, CHILD_TYPE child) {
+            RequireProperties requireProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(groupByExpressions, "groupByExpressions cannot be null"));
@@ -96,7 +96,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
         this.maybeUsingStream = maybeUsingStream;
-        this.requestProperties = Objects.requireNonNull(requestProperties, "requestProperties cannot be null");
+        this.requireProperties = Objects.requireNonNull(requireProperties, "requireProperties cannot be null");
     }
 
     /**
@@ -106,12 +106,12 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
      * @param outputExpressions agg expr list.
      * @param partitionExpressions hash distribute expr list
      * @param maybeUsingStream whether it's stream agg.
-     * @param requestProperties the request physical properties
+     * @param requireProperties the request physical properties
      */
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            RequestProperties requestProperties, PhysicalProperties physicalProperties,
+            RequireProperties requireProperties, PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statsDeriveResult,
                 child);
@@ -123,7 +123,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
         this.maybeUsingStream = maybeUsingStream;
-        this.requestProperties = Objects.requireNonNull(requestProperties, "requestProperties cannot be null");
+        this.requireProperties = Objects.requireNonNull(requireProperties, "requireProperties cannot be null");
     }
 
     public List<Expression> getGroupByExpressions() {
@@ -155,15 +155,15 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public RequestProperties getRequestProperties() {
-        return requestProperties;
+    public RequireProperties getRequireProperties() {
+        return requireProperties;
     }
 
     @Override
-    public PhysicalHashAggregate<Plan> withRequestAndChildren(
-            RequestProperties requestProperties, List<Plan> children) {
+    public PhysicalHashAggregate<Plan> withRequireAndChildren(
+            RequireProperties requireProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return withRequestPropertiesAndChild(requestProperties, children.get(0));
+        return withRequirePropertiesAndChild(requireProperties, children.get(0));
     }
 
     @Override
@@ -189,7 +189,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
                 "partitionExpr", partitionExpressions,
-                "requestProperties", requestProperties,
+                "requireProperties", requireProperties,
                 "stats", statsDeriveResult
         );
     }
@@ -210,33 +210,33 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 && Objects.equals(partitionExpressions, that.partitionExpressions)
                 && Objects.equals(aggregateParam, that.aggregateParam)
                 && maybeUsingStream == that.maybeUsingStream
-                && Objects.equals(requestProperties, that.requestProperties);
+                && Objects.equals(requireProperties, that.requireProperties);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, requestProperties);
+                aggregateParam, maybeUsingStream, requireProperties);
     }
 
     @Override
     public PhysicalHashAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, getLogicalProperties(), requestProperties, children.get(0));
+                aggregateParam, maybeUsingStream, getLogicalProperties(), requireProperties, children.get(0));
     }
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(), requestProperties, child());
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(), requireProperties, child());
     }
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, Optional.empty(), logicalProperties.get(),
-                requestProperties, child());
+                requireProperties, child());
     }
 
     @Override
@@ -244,7 +244,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             StatsDeriveResult statsDeriveResult) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                requestProperties, physicalProperties, statsDeriveResult,
+                requireProperties, physicalProperties, statsDeriveResult,
                 child());
     }
 
@@ -252,13 +252,13 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new PhysicalHashAggregate<>(groupByExpressions, newOutput, partitionExpressions,
                 aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                requestProperties, physicalProperties, statsDeriveResult, child());
+                requireProperties, physicalProperties, statsDeriveResult, child());
     }
 
-    public <C extends Plan> PhysicalHashAggregate<C> withRequestPropertiesAndChild(
-            RequestProperties requestProperties, C newChild) {
+    public <C extends Plan> PhysicalHashAggregate<C> withRequirePropertiesAndChild(
+            RequireProperties requireProperties, C newChild) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                requestProperties, physicalProperties, statsDeriveResult, newChild);
+                requireProperties, physicalProperties, statsDeriveResult, newChild);
     }
 }

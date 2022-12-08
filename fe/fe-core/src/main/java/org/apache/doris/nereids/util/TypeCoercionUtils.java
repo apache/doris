@@ -351,7 +351,7 @@ public class TypeCoercionUtils {
      * cast input type if input's datatype is not same with dateType.
      */
     public static Expression castIfNotSameType(Expression input, DataType dataType) {
-        if (input.getDataType().equals(dataType) || input.getDataType().isNullType()) {
+        if (input.getDataType().equals(dataType)) {
             return input;
         } else {
             if (input instanceof Literal) {

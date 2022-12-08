@@ -87,21 +87,21 @@ public class CascadesContext {
      * @param statementContext {@link StatementContext} reference
      */
     public CascadesContext(Memo memo, StatementContext statementContext,
-            CTEContext cteContext, PhysicalProperties requestProperties) {
+            CTEContext cteContext, PhysicalProperties requireProperties) {
         this.memo = memo;
         this.statementContext = statementContext;
         this.ruleSet = new RuleSet();
         this.jobPool = new JobStack();
         this.jobScheduler = new SimpleJobScheduler();
-        this.currentJobContext = new JobContext(this, requestProperties, Double.MAX_VALUE);
+        this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
         this.cteContext = cteContext;
     }
 
     public static CascadesContext newContext(StatementContext statementContext,
-            Plan initPlan, PhysicalProperties requestProperties) {
-        return new CascadesContext(new Memo(initPlan), statementContext, requestProperties);
+            Plan initPlan, PhysicalProperties requireProperties) {
+        return new CascadesContext(new Memo(initPlan), statementContext, requireProperties);
     }
 
     public NereidsAnalyzer newAnalyzer() {

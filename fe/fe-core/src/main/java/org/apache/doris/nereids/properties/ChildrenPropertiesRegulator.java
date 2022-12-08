@@ -77,12 +77,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Double, Void> {
                 && children.get(0).getPlan() instanceof PhysicalDistribute) {
             return -1.0;
         }
-        // invalid plan
-        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
-                && agg.getGroupByExpressions().isEmpty()
-                && !agg.getDistinctArguments().isEmpty()) {
-            return -1.0;
-        }
         return 0.0;
     }
 

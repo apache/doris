@@ -248,12 +248,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         slotList.addAll(aggFunctionOutput);
         outputTupleDesc = generateTupleDesc(slotList, null, context);
 
-        List<Integer> aggFunOutputIds = outputTupleDesc
-                .getSlots()
-                .subList(groupSlotList.size(), aggregate.getOutput().size())
-                .stream()
-                .map(slot -> slot.getId().asInt())
-                .collect(ImmutableList.toImmutableList());
+        List<Integer> aggFunOutputIds = ImmutableList.of();
+        if (!aggFunctionOutput.isEmpty()) {
+            aggFunOutputIds = outputTupleDesc
+                    .getSlots()
+                    .subList(groupSlotList.size(), outputTupleDesc.getSlots().size())
+                    .stream()
+                    .map(slot -> slot.getId().asInt())
+                    .collect(ImmutableList.toImmutableList());
+        }
         boolean isPartial = aggregate.getAggregateParam().aggMode.productAggregateBuffer;
         AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
                 aggFunOutputIds, isPartial, outputTupleDesc, outputTupleDesc, aggregate.getAggPhase().toExec());

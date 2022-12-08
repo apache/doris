@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -41,10 +42,14 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -208,7 +213,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         Expression child = process(cast.child(), context);
         // todo: process other null case
         if (child.isNullLiteral()) {
-            return Literal.of(null);
+            return new NullLiteral(cast.getDataType());
         }
         if (child.isLiteral()) {
             return child.castTo(cast.getDataType());
@@ -228,6 +233,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return ExpressionEvaluator.INSTANCE.eval(boundFunction.withChildren(newArgs));
         }
         return boundFunction.withChildren(newArgs);
+    }
+
+    @Override
+    public Expression visitAlias(Alias alias, ExpressionRewriteContext context) {
+        Expression newChild = alias.child().accept(this, context);
+        if (alias.child() == newChild) {
+            return alias;
+        }
+        return alias.withChildren(ImmutableList.of(newChild));
     }
 
     @Override
@@ -309,6 +323,71 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, ExpressionRewriteContext context) {
         return ExpressionEvaluator.INSTANCE.eval(arithmetic);
+    }
+
+    @Override
+    public Expression visitCount(Count count, ExpressionRewriteContext context) {
+        // don't break the aggregate information
+        if (count.isDistinct()) {
+            return count;
+        }
+        // distinct
+        List<Expression> newArguments = count.children()
+                .stream()
+                .map(arg -> arg.accept(this, context))
+                .distinct()
+                .collect(Collectors.toList());
+
+        count = count.withDistinctAndChildren(count.isDistinct(), newArguments);
+
+        // TODO: add a switch to optimize aggregate function to result
+        /*boolean containsNullLiteral = count.getArguments()
+                .stream()
+                .anyMatch(arg -> arg instanceof NullLiteral);
+        if (containsNullLiteral) {
+            return new BigIntLiteral(0);
+        }*/
+
+        List<Expression> literals = count.getArguments()
+                .stream()
+                .filter(arg -> arg instanceof Literal)
+                .collect(Collectors.toList());
+
+        // TODO: add a switch to optimize aggregate function to result
+        /*if (count.isDistinct() && !literals.isEmpty() && count.arity() == literals.size()) {
+            return new BigIntLiteral(1);
+        }*/
+
+        // remove literals if contains non-literal
+        if (count.isDistinct() && !literals.isEmpty() && count.arity() > literals.size()) {
+            List<Expression> nonLiteralArgs = count.getArguments()
+                    .stream()
+                    .filter(arg -> !(arg instanceof Literal))
+                    .collect(Collectors.toList());
+            return count.withDistinctAndChildren(count.isDistinct(), nonLiteralArgs);
+        }
+        return count;
+    }
+
+    @Override
+    public Expression visitIf(If function, ExpressionRewriteContext context) {
+        List<Expression> arguments = function.children()
+                .stream()
+                .map(arg -> arg.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
+        function = function.withChildren(arguments);
+
+        // TODO: this process will get rid of some slots in the count(distinct some slots) and break the semantics.
+        //       we should find a better way to do the simplify
+        /*
+        if (arguments.get(0).equals(BooleanLiteral.TRUE)) {
+            return arguments.get(1);
+        }
+        if (arguments.get(0).equals(BooleanLiteral.FALSE) || arguments.get(0) instanceof NullLiteral) {
+            return arguments.get(2);
+        }
+         */
+        return function;
     }
 }
 
