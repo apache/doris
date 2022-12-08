@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class SelectExceptTest implements PatternMatchSupported {
@@ -44,5 +46,63 @@ public class SelectExceptTest implements PatternMatchSupported {
                                 logicalOlapScan()
                         ).when(proj -> proj.getExcepts().isEmpty() && proj.getProjects().size() == 1)
                 );
+    }
+
+    @Test
+    public void testParse() {
+        String sql1 = "select * except(v1, v2) from t1";
+        PlanChecker.from(MemoTestUtils.createConnectContext())
+                .checkParse(sql1, (checker) -> checker.matches(
+                        logicalProject(
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
+                        ).when(project -> project.getExcepts().size() == 2
+                                && project.getProjects().get(0) instanceof UnboundStar)
+                ));
+
+        String sql2 = "select k1, k2, v1, v2 except(v1, v2) from t1";
+        Assertions.assertThrows(ParseException.class, () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                .checkParse(sql2, (checker) -> checker.matches(
+                        logicalProject(
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
+                        ).when(project -> project.getExcepts().size() == 2
+                                && project.getProjects().get(0) instanceof UnboundStar)
+                )));
+
+        String sql3 = "select * except(v1, v2)";
+        Assertions.assertThrows(ParseException.class, () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                .checkParse(sql3, (checker) -> checker.matches(
+                        logicalProject(
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
+                        ).when(project -> project.getExcepts().size() == 2
+                                && project.getProjects().get(0) instanceof UnboundStar)
+                )));
+
+        String sql4 = "select * except() from t1";
+        Assertions.assertThrows(ParseException.class, () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                .checkParse(sql4, (checker) -> checker.matches(
+                        logicalProject(
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
+                        ).when(project -> project.getExcepts().size() == 2
+                                && project.getProjects().get(0) instanceof UnboundStar)
+                )));
+
+        String sql5 = "select * except(v1 + v2, v3 as k3) from t1";
+        Assertions.assertThrows(ParseException.class, () -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                .checkParse(sql5, (checker) -> checker.matches(
+                        logicalProject(
+                                logicalCheckPolicy(
+                                        unboundRelation()
+                                )
+                        ).when(project -> project.getExcepts().size() == 2
+                                && project.getProjects().get(0) instanceof UnboundStar)
+                )));
     }
 }
