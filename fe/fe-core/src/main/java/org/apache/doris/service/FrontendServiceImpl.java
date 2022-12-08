@@ -1170,10 +1170,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
                         s3Info.setS3MaxConn(
                                 Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
-                        s3Info.setS3RequestTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
-                        s3Info.setS3ConnTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
+                        s3Info.setS3RequestTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
+                        s3Info.setS3ConnTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
                     });
 
                     rEntry.setS3StorageParam(s3Info);
