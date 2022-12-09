@@ -859,6 +859,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
