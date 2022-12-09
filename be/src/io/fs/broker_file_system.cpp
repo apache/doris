@@ -116,8 +116,7 @@ Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
         file_size = response->size;
     }
     fd = response->fd;
-    *reader =
-            std::make_shared<BrokerFileReader>(_broker_addr, path, file_size, std::move(fd), this);
+    *reader = std::make_shared<BrokerFileReader>(_broker_addr, path, file_size, fd, this);
     return Status::OK();
 }
 

@@ -28,7 +28,7 @@ class BrokerFileSystem;
 class BrokerFileReader : public FileReader {
 public:
     BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path, size_t file_size,
-                     const TBrokerFD& fd, BrokerFileSystem* fs);
+                     TBrokerFD fd, BrokerFileSystem* fs);
 
     ~BrokerFileReader() override;
 
@@ -48,7 +48,7 @@ private:
     size_t _file_size;
 
     const TNetworkAddress& _broker_addr;
-    const TBrokerFD& _fd;
+    TBrokerFD _fd;
 
     BrokerFileSystem* _fs;
     std::atomic<bool> _closed = false;
