@@ -226,6 +226,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
@@ -477,6 +478,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StrRight.class, "strright"),
             scalar(StrToDate.class, "str_to_date"),
             scalar(SubBitmap.class, "sub_bitmap"),
+            scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring"),
             scalar(Tan.class, "tan"),
             scalar(TimeDiff.class, "timediff"),

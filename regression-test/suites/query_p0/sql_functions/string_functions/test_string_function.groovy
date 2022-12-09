@@ -142,4 +142,15 @@ suite("test_string_function") {
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
+
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+
+    qt_sql "select elt(0, \"hello\", \"doris\");"
+    qt_sql "select elt(1, \"hello\", \"doris\");"
+    qt_sql "select elt(2, \"hello\", \"doris\");"
+    qt_sql "select elt(3, \"hello\", \"doris\");"
+
+    qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
+    qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 }
