@@ -146,7 +146,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     @Override
     public PhysicalStorageLayerAggregate visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, CascadesContext context) {
-        visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
+        storageLayerAggregate.getRelation().accept(this, context);
         return storageLayerAggregate;
     }
 

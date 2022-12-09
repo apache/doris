@@ -212,9 +212,9 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
-    public StatsDeriveResult visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate,
-            Void context) {
-        return computeScan(storageLayerAggregate.getOlapScan());
+    public StatsDeriveResult visitPhysicalStorageLayerAggregate(
+            PhysicalStorageLayerAggregate storageLayerAggregate, Void context) {
+        return storageLayerAggregate.getRelation().accept(this, context);
     }
 
     @Override

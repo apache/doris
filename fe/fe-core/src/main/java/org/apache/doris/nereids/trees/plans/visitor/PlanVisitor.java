@@ -221,7 +221,7 @@ public abstract class PlanVisitor<R, C> {
     }
 
     public R visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {
-        return visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
+        return storageLayerAggregate.getRelation().accept(this, context);
     }
 
     public R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {

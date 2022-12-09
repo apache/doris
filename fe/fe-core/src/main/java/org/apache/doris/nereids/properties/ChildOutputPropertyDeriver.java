@@ -232,7 +232,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
-        return visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
+        return storageLayerAggregate.getRelation().accept(this, context);
     }
 
     @Override

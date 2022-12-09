@@ -403,7 +403,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanTranslatorContext context) {
-        PlanFragment planFragment = visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
+        Preconditions.checkState(storageLayerAggregate.getRelation() instanceof PhysicalOlapScan,
+                "PhysicalStorageLayerAggregate only support PhysicalOlapScan: "
+                        + storageLayerAggregate.getRelation().getClass().getName());
+        PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
         TPushAggOp pushAggOp;
@@ -444,7 +447,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
         olapScanNode.setSampleTabletIds(olapScan.getSelectedTabletIds());
-        olapScanNode.setPushDownAggNoGrouping(olapScan.getPushDownAggOperator().toThrift());
 
         switch (olapScan.getTable().getKeysType()) {
             case AGG_KEYS:

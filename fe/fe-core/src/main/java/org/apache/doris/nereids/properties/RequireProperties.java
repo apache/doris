@@ -108,8 +108,8 @@ public class RequireProperties {
             return false;
         }
         RequireProperties that = (RequireProperties) o;
-        return followParentProperties == that.followParentProperties && Objects.equals(properties,
-                that.properties);
+        return followParentProperties == that.followParentProperties
+                && Objects.equals(properties, that.properties);
     }
 
     @Override

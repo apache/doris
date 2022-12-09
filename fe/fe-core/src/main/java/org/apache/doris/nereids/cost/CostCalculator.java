@@ -100,9 +100,9 @@ public class CostCalculator {
         }
 
         @Override
-        public CostEstimate visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate,
-                PlanContext context) {
-            CostEstimate costEstimate = visitPhysicalOlapScan(storageLayerAggregate.getOlapScan(), context);
+        public CostEstimate visitPhysicalStorageLayerAggregate(
+                PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
+            CostEstimate costEstimate = storageLayerAggregate.getRelation().accept(this, context);
             // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
             return new CostEstimate(costEstimate.getCpuCost() * 0.7, costEstimate.getMemoryCost(),
                     costEstimate.getNetworkCost(), costEstimate.getPenalty());

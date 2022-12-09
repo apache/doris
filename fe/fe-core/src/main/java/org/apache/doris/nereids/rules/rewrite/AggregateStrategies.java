@@ -95,18 +95,18 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         return ImmutableList.of(
             RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT.build(
                 logicalAggregate(
-                    logicalOlapScan().when(LogicalOlapScan::supportStorageLayerAggregate)
+                    logicalOlapScan()
                 )
-                .when(LogicalAggregate::supportStorageLayerAggregate)
+                .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                 .thenApply(ctx -> storageLayerAggregate(ctx.root, null, ctx.root.child(), ctx.cascadesContext))
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
                 logicalAggregate(
                     logicalProject(
-                        logicalOlapScan().when(LogicalOlapScan::supportStorageLayerAggregate)
+                        logicalOlapScan()
                     )
                 )
-                .when(LogicalAggregate::supportStorageLayerAggregate)
+                .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
                 .thenApply(ctx -> {
                     LogicalAggregate<LogicalProject<LogicalOlapScan>> agg = ctx.root;
                     LogicalProject<LogicalOlapScan> project = agg.child();
@@ -184,19 +184,27 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalOlapScan olapScan, CascadesContext cascadesContext) {
         final LogicalAggregate<? extends Plan> canNotPush = aggregate;
 
-        List<AggregateFunction> aggregateFunctions = ExpressionUtils.collectAll(
-                aggregate.getOutputExpressions(), AggregateFunction.class::isInstance);
-
-        Set<String> aggNames = aggregateFunctions.stream()
-                .map(aggFun -> aggFun.getName().toLowerCase())
-                .collect(Collectors.toSet());
-
-        Map<String, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
-        if (!supportedAgg.keySet().containsAll(aggNames)) {
+        KeysType keysType = olapScan.getTable().getKeysType();
+        if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS) {
             return canNotPush;
         }
-        KeysType keysType = olapScan.getTable().getKeysType();
-        if (aggNames.contains("count") && keysType != KeysType.DUP_KEYS) {
+
+        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        if (!groupByExpressions.isEmpty() || !aggregate.getDistinctArguments().isEmpty()) {
+            return canNotPush;
+        }
+
+        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
+        Set<Class<? extends AggregateFunction>> functionClasses = aggregateFunctions
+                .stream()
+                .map(AggregateFunction::getClass)
+                .collect(Collectors.toSet());
+
+        Map<Class, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
+        if (!supportedAgg.keySet().containsAll(functionClasses)) {
+            return canNotPush;
+        }
+        if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
             return canNotPush;
         }
         if (aggregateFunctions.stream().anyMatch(fun -> fun.arity() > 1)) {
@@ -233,7 +241,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
 
-        Set<PushDownAggOp> pushDownAggOps = aggNames.stream()
+        Set<PushDownAggOp> pushDownAggOps = functionClasses.stream()
                 .map(supportedAgg::get)
                 .collect(Collectors.toSet());
 
@@ -1089,5 +1097,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return ifWithCoercion.withChildren(newArgs);
         }
         return ifWithCoercion;
+    }
+
+    private boolean enablePushDownNoGroupAgg() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext == null || connectContext.getSessionVariable().enablePushDownNoGroupAgg();
     }
 }
