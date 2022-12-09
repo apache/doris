@@ -1292,7 +1292,7 @@ Min stream load timeout applicable to all type of load
 
 #### `max_stream_load_timeout_second`
 
-Default：259200 （3天）
+Default：259200 （3 day）
 
 IsMutable：true
 
@@ -1302,7 +1302,7 @@ This configuration is specifically used to limit timeout setting for stream load
 
 #### `max_load_timeout_second`
 
-Default：259200 （3天）
+Default：259200 （3 day）
 
 IsMutable：true
 
@@ -1312,7 +1312,7 @@ Max load timeout applicable to all type of load except for stream load
 
 #### `stream_load_default_timeout_second`
 
-Default：600（s）
+Default：86400 * 3 （3 day）
 
 IsMutable：true
 
@@ -2185,7 +2185,7 @@ Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
 #### `alter_table_timeout_second`
 
-Default：86400   （1 day）
+Default：86400 * 30（1 month）
 
 IsMutable：true
 
