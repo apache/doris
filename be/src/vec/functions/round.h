@@ -72,27 +72,34 @@ struct IntegerRoundingComputation {
             return x / scale * scale;
         }
         case RoundingMode::Floor: {
-            if (x < 0) x -= scale - 1;
+            if (x < 0) {
+                x -= scale - 1;
+            }
             return x / scale * scale;
         }
         case RoundingMode::Ceil: {
-            if (x >= 0) x += scale - 1;
+            if (x >= 0) {
+                x += scale - 1;
+            }
             return x / scale * scale;
         }
         case RoundingMode::Round: {
-            if (x < 0) x -= scale;
+            if (x < 0) {
+                x -= scale;
+            }
             switch (tie_breaking_mode) {
             case TieBreakingMode::Auto:
                 x = (x + scale / 2) / scale * scale;
                 break;
             case TieBreakingMode::Bankers: {
                 T quotient = (x + scale / 2) / scale;
-                if (quotient * scale == x + scale / 2)
+                if (quotient * scale == x + scale / 2) {
                     // round half to even
                     x = ((quotient + (x < 0)) & ~1) * scale;
-                else
+                } else {
                     // round the others as usual
                     x = quotient * scale;
+                }
                 break;
             }
             }
@@ -268,17 +275,19 @@ public:
                                T* __restrict out) {
         auto val = Base::load(in);
 
-        if (scale_mode == ScaleMode::Positive)
+        if (scale_mode == ScaleMode::Positive) {
             val = Base::multiply(val, scale);
-        else if (scale_mode == ScaleMode::Negative)
+        } else if (scale_mode == ScaleMode::Negative) {
             val = Base::divide(val, scale);
+        }
 
         val = Base::template apply<rounding_mode>(val);
 
-        if (scale_mode == ScaleMode::Positive)
+        if (scale_mode == ScaleMode::Positive) {
             val = Base::divide(val, scale);
-        else if (scale_mode == ScaleMode::Negative)
+        } else if (scale_mode == ScaleMode::Negative) {
             val = Base::multiply(val, scale);
+        }
 
         Base::store(out, val);
     }
@@ -440,9 +449,10 @@ struct Dispatcher {
             auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
             auto& vec_res = col_res->get_data();
 
-            if (!vec_res.empty())
+            if (!vec_res.empty()) {
                 FunctionRoundingImpl<ScaleMode::Negative>::apply(
                         decimal_col->get_data(), decimal_col->get_scale(), vec_res, scale_arg);
+            }
 
             return col_res;
         } else {
