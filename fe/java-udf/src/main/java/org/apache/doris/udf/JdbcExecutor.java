@@ -53,6 +53,7 @@ public class JdbcExecutor {
     private ResultSetMetaData resultSetMetaData = null;
     // Use HikariDataSource to help us manage the JDBC connections.
     private HikariDataSource dataSource = null;
+    private List<String> resultColumnTypeNames = null;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -107,6 +108,19 @@ public class JdbcExecutor {
             }
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+        }
+    }
+
+    public List<String> getResultColumnTypeNames() throws UdfRuntimeException {
+        try {
+            int count = resultSetMetaData.getColumnCount();
+            resultColumnTypeNames = new ArrayList<>(count);
+            for (int i = 0; i < count; ++i) {
+                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+            }
+            return resultColumnTypeNames;
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor getResultColumnTypeNames has error: ", e);
         }
     }
 

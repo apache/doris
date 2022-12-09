@@ -71,10 +71,11 @@ void FindOrCreateJavaVM() {
     if (rv == 0) {
         auto classpath = GetDorisJNIClasspath();
         std::string heap_size = fmt::format("-Xmx{}", config::jvm_max_heap_size);
-
+        std::string log_path = fmt::format("-DlogPath={}/log/udf-jdbc.log", getenv("DORIS_HOME"));
         JavaVMOption options[] = {
                 {const_cast<char*>(classpath.c_str()), nullptr},
                 {const_cast<char*>(heap_size.c_str()), nullptr},
+                {const_cast<char*>(log_path.c_str()), nullptr},
 #ifdef __APPLE__
                 // On macOS, we should disable MaxFDLimit, otherwise the RLIMIT_NOFILE
                 // will be assigned the minimum of OPEN_MAX (10240) and rlim_cur (See src/hotspot/os/bsd/os_bsd.cpp)

@@ -135,20 +135,20 @@ public class AlterTest {
         // s3 resource
         createRemoteStorageResource(
                 "create resource \"remote_s3\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
-                        + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
-                        + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
-                        + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
-                        + "   \"s3_bucket\" = \"test-bucket\"\n"
+                        + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
+                        + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
+                        + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStorageResource(
                 "create resource \"remote_s3_1\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
-                        + "   \"s3_endpoint\" = \"bj\",\n" + "   \"s3_region\" = \"bj\",\n"
-                        + "   \"s3_root_path\" = \"/path/to/root\",\n" + "   \"s3_access_key\" = \"bbb\",\n"
-                        + "   \"s3_secret_key\" = \"aaaa\",\n" + "   \"s3_max_connections\" = \"50\",\n"
-                        + "   \"s3_request_timeout_ms\" = \"3000\",\n" + "   \"s3_connection_timeout_ms\" = \"1000\",\n"
-                        + "   \"s3_bucket\" = \"test-bucket\"\n"
+                        + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
+                        + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
+                        + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_BUCKET\" = \"test-bucket\"\n"
                         + ");");
 
         createRemoteStoragePolicy(

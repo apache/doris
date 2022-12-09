@@ -1137,13 +1137,13 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshTableStmt(tbl);
     :}
-    | KW_REFRESH KW_DATABASE ident:db
+    | KW_REFRESH KW_DATABASE ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(db);
+        RESULT = new RefreshDbStmt(db, properties);
     :}
-    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db
+    | KW_REFRESH KW_DATABASE ident:ctl DOT ident:db opt_properties:properties
     {:
-        RESULT = new RefreshDbStmt(ctl, db);
+        RESULT = new RefreshDbStmt(ctl, db, properties);
     :}
     | KW_REFRESH KW_MATERIALIZED KW_VIEW table_name:mv
     {:
@@ -1153,9 +1153,9 @@ refresh_stmt ::=
     {:
         RESULT = new RefreshMaterializedViewStmt(mv, MVRefreshInfo.RefreshMethod.COMPLETE);
     :}
-    | KW_REFRESH KW_CATALOG ident:catalogName
+    | KW_REFRESH KW_CATALOG ident:catalogName opt_properties:properties
     {:
-        RESULT = new RefreshCatalogStmt(catalogName);
+        RESULT = new RefreshCatalogStmt(catalogName, properties);
     :}
     ;
 
@@ -1267,10 +1267,6 @@ alter_stmt ::=
     opt_properties:properties
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
-    :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
-    {:
-        RESULT = new AlterTableStatsStmt(tbl, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
@@ -3419,6 +3415,10 @@ show_param ::=
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
+    | KW_CREATE KW_CATALOG ident:catalogName
+        {:
+            RESULT = new ShowCreateCatalogStmt(catalogName);
+        :}
     /* Create Function */
     | KW_CREATE KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
     {:
@@ -3671,11 +3671,6 @@ show_param ::=
     | KW_SYNC KW_JOB opt_db:dbName
     {:
         RESULT = new ShowSyncJobStmt(dbName);
-    :}
-    /* show table stats */
-    | KW_TABLE KW_STATS opt_table_name:tbl opt_partition_names:partitionNames
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
     | KW_COLUMN KW_STATS table_name:tbl opt_partition_names:partitionNames

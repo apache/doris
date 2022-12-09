@@ -39,7 +39,6 @@ import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
-import org.apache.doris.analysis.AlterTableStatsStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -165,8 +164,6 @@ public class DdlExecutor {
             env.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             env.alterTable((AlterTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterTableStatsStmt) {
-            env.getStatisticsManager().alterTableStatistics((AlterTableStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterColumnStatsStmt) {
             StatisticsRepository.alterColumnStatistics((AlterColumnStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterViewStmt) {
@@ -342,7 +339,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStatsStmt) {
-            env.getStatisticsManager().dropStats((DropTableStatsStmt) ddlStmt);
+            // TODO: support later
         } else {
             throw new DdlException("Unknown statement.");
         }

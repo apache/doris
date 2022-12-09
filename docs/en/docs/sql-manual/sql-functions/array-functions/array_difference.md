@@ -23,9 +23,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="1.2.0">
 
 ## array_difference
+
+<version since="1.2.0">
+
+array_difference
+
+</version>
 
 ### description
 
@@ -66,4 +71,3 @@ mysql> select *,array_difference(k2) from array_type_table;
 
 ARRAY, DIFFERENCE, ARRAY_DIFFERENCE
 
-</version>

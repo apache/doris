@@ -28,6 +28,7 @@ set(PIPELINE_FILES
         task_scheduler.cpp
         exec/operator.cpp
         exec/scan_operator.cpp
+        exec/datagen_operator.cpp
         exec/empty_set_operator.cpp
         exec/exchange_source_operator.cpp
         exec/exchange_sink_operator.cpp
@@ -35,6 +36,8 @@ set(PIPELINE_FILES
         exec/result_sink_operator.cpp
         exec/aggregation_sink_operator.cpp
         exec/aggregation_source_operator.cpp
+        exec/hashjoin_build_sink.cpp
+        exec/hashjoin_probe_operator.cpp
         exec/streaming_aggregation_source_operator.cpp
         exec/streaming_aggregation_sink_operator.cpp
         exec/agg_context.cpp

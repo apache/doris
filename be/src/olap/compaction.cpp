@@ -101,8 +101,9 @@ int64_t Compaction::get_avg_segment_rows() {
     // take care of empty rowset
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
-    // in disk is config::writer_buffer_size
-    return config::write_buffer_size / (_input_rowsets_size / (_input_row_num + 1) + 1);
+    // in disk is config::max_segment_size_in_vertical_compaction
+    return config::max_segment_size_in_vertical_compaction /
+           (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
 
 bool Compaction::is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs) {

@@ -1588,3 +1588,15 @@ Translated with www.DeepL.com/Translator (free version)
 * Type: int32
 * Description: The segment whose row number above the threshold will be compacted during segcompaction
 * Default value: 1048576
+
+### `big_column_size_buffer`
+* Type: int64
+* Description: When using the odbc external table, if a column type of the odbc source table is HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
+* Default value: 65535
+
+### `small_column_size_buffer`
+
+* Type: int64
+* Description: When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
+* Default value: 100
+

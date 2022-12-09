@@ -32,7 +32,6 @@
 #include "http/rest_monitor_iface.h"
 #include "runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
-#include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thread.h"
 
@@ -62,15 +61,13 @@ std::string to_load_error_http_path(const std::string& file_name);
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
-    using FinishCallback = std::function<void(PlanFragmentExecutor*)>;
+    using FinishCallback = std::function<void(RuntimeState*, Status*)>;
 
     FragmentMgr(ExecEnv* exec_env);
-    virtual ~FragmentMgr();
+    ~FragmentMgr() override;
 
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
-
-    Status exec_pipeline(const TExecPlanFragmentParams& params);
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
@@ -87,9 +84,12 @@ public:
     void cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
                 const std::string& msg = "");
 
+    void cancel_query(const TUniqueId& query_id, const PPlanFragmentCancelReason& reason,
+                      const std::string& msg = "");
+
     void cancel_worker();
 
-    virtual void debug(std::stringstream& ss);
+    void debug(std::stringstream& ss) override;
 
     // input: TScanOpenParams fragment_instance_id
     // output: selected_columns

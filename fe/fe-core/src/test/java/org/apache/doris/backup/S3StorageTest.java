@@ -17,6 +17,8 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.S3Resource;
+
 import org.apache.commons.codec.digest.DigestUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -56,7 +58,7 @@ public class S3StorageTest {
         properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("AWS_ENDPOINT", "http://s3.bj.bcebos.com");
-        properties.put(S3Storage.USE_PATH_STYLE, "false");
+        properties.put(S3Resource.USE_PATH_STYLE, "false");
 
         properties.put("AWS_REGION", "bj");
         storage = new S3Storage(properties);

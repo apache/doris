@@ -118,7 +118,6 @@ private:
     //    RuntimeProfile::Counter* _start_timer;
     //    RuntimeProfile::Counter* _prepare_timer;
 
-private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);

@@ -134,7 +134,7 @@ public class EsExternalCatalog extends ExternalCatalog {
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.ES);
         if (dbNameToId != null && dbNameToId.containsKey(DEFAULT_DB)) {
-            idToDb.get(dbNameToId.get(DEFAULT_DB)).setUnInitialized();
+            idToDb.get(dbNameToId.get(DEFAULT_DB)).setUnInitialized(invalidCacheInInit);
             initCatalogLog.addRefreshDb(dbNameToId.get(DEFAULT_DB));
         } else {
             dbNameToId = Maps.newConcurrentMap();

@@ -455,6 +455,19 @@ public:
         cond_column.column = materialize_column_if_const(cond_column.column);
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
 
+        if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
+            if (check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
+                ColumnWithTypeAndName& then_column = block.get_by_position(arguments[1]);
+                then_column.column = materialize_column_if_const(then_column.column);
+            }
+        }
+        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
+            if (check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
+                ColumnWithTypeAndName& else_column = block.get_by_position(arguments[2]);
+                else_column.column = materialize_column_if_const(else_column.column);
+            }
+        }
+
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arg_cond, arg_then, arg_else, result) ||
             execute_for_null_then_else(context, block, arg_cond, arg_then, arg_else, result,

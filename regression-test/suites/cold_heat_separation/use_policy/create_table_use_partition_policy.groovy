@@ -57,12 +57,12 @@ suite("create_table_use_partition_policy") {
             CREATE RESOURCE "test_create_table_partition_use_resource_1"
             PROPERTIES(
                 "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket"
             );
         """
         def create_succ_1 = try_sql """
@@ -81,12 +81,12 @@ suite("create_table_use_partition_policy") {
             CREATE RESOURCE "test_create_table_partition_use_resource_2"
             PROPERTIES(
                 "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket"
             );
         """
         def create_succ_1 = try_sql """

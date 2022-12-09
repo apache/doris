@@ -104,6 +104,7 @@ public:
     void set_check_limit(bool check_limit) { _check_limit = check_limit; }
     std::string exceed_mem_limit_msg() { return _exceed_mem_limit_msg; }
     void clear_exceed_mem_limit_msg() { _exceed_mem_limit_msg = ""; }
+    void disable_wait_gc() { _wait_gc = false; }
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
@@ -119,7 +120,7 @@ public:
 
 private:
     void cancel_fragment();
-    void exceeded();
+    void exceeded(int64_t size);
 
     void save_exceed_mem_limit_msg() {
         _exceed_mem_limit_msg = _limiter_tracker_raw->mem_limit_exceeded(
@@ -138,6 +139,8 @@ private:
 
     std::string _failed_consume_msg = std::string();
     std::string _exceed_mem_limit_msg = std::string();
+    bool _is_process_exceed = false;
+    bool _wait_gc = true;
 
     std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
     MemTrackerLimiter* _limiter_tracker_raw = nullptr;
@@ -216,10 +219,11 @@ inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
     old_untracked_mem = _untracked_mem;
     if (_count_scope_mem) _scope_mem += _untracked_mem;
     if (CheckLimit) {
-        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, _failed_consume_msg)) {
+        if (!_limiter_tracker_raw->try_consume(old_untracked_mem, _failed_consume_msg,
+                                               _is_process_exceed)) {
             if (Force) _limiter_tracker_raw->consume(old_untracked_mem);
             save_exceed_mem_limit_msg();
-            exceeded();
+            exceeded(old_untracked_mem);
             if (!Force) return false;
         }
     } else {

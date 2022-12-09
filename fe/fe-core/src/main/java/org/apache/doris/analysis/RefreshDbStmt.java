@@ -31,19 +31,26 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
+
 public class RefreshDbStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(RefreshDbStmt.class);
+    private static final String INVALID_CACHE = "invalid_cache";
 
     private String catalogName;
     private String dbName;
+    private Map<String, String> properties;
+    private boolean invalidCache = false;
 
-    public RefreshDbStmt(String dbName) {
+    public RefreshDbStmt(String dbName, Map<String, String> properties) {
         this.dbName = dbName;
+        this.properties = properties;
     }
 
-    public RefreshDbStmt(String catalogName, String dbName) {
+    public RefreshDbStmt(String catalogName, String dbName, Map<String, String> properties) {
         this.catalogName = catalogName;
         this.dbName = dbName;
+        this.properties = properties;
     }
 
     public String getDbName() {
@@ -52,6 +59,10 @@ public class RefreshDbStmt extends DdlStmt {
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    public boolean isInvalidCache() {
+        return invalidCache;
     }
 
     @Override
@@ -82,6 +93,9 @@ public class RefreshDbStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
+        String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
+        // Default is to invalid cache.
+        invalidCache = invalidConfig == null ? true : invalidConfig.equalsIgnoreCase("true");
     }
 
     @Override
