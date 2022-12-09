@@ -66,7 +66,7 @@ public class CacheTest extends TestWithFeService {
         new MockUp<ColumnStatistic>() {
 
             @Mock
-            public Column findColumn(long catalogId, long dbId, long tblId, String columnName) {
+            public Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
                 return new Column("abc", PrimitiveType.BIGINT);
             }
         };
@@ -86,6 +86,7 @@ public class CacheTest extends TestWithFeService {
                 colNames.add("data_size_in_bytes");
                 colNames.add("catalog_id");
                 colNames.add("db_id");
+                colNames.add("idx_id");
                 colNames.add("tbl_id");
                 colNames.add("col_id");
                 colNames.add("min");
@@ -107,6 +108,7 @@ public class CacheTest extends TestWithFeService {
                 values.add("3");
                 values.add("4");
                 values.add("5");
+                values.add("-1");
                 values.add("6");
                 values.add("7");
                 values.add("8");
