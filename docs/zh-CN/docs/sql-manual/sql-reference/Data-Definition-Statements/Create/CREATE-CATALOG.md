@@ -58,8 +58,8 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
    CREATE CATALOG hive PROPERTIES (
 		"type"="hms",
 		'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-		'dfs.nameservices'='service1',
-		'dfs.ha.namenodes. service1'='nn1,nn2',
+		'dfs.nameservices'='HDFS8000871',
+		'dfs.ha.namenodes.HDFS8000871'='nn1,nn2',
 		'dfs.namenode.rpc-address.HDFS8000871.nn1'='172.21.0.2:4007',
 		'dfs.namenode.rpc-address.HDFS8000871.nn2'='172.21.0.3:4007',
 		'dfs.client.failover.proxy.provider.HDFS8000871'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'

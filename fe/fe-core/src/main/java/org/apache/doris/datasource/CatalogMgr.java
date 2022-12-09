@@ -23,10 +23,12 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -36,6 +38,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -375,6 +378,31 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     rows.add(row);
                 }
             }
+        } finally {
+            readUnlock();
+        }
+
+        return new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        readLock();
+        try {
+            CatalogIf catalog = nameToCatalog.get(showStmt.getCatalog());
+            if (catalog == null) {
+                throw new AnalysisException("No catalog found with name " + showStmt.getCatalog());
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("CREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
+                    .append("`");
+            if (catalog.getProperties().size() > 0) {
+                sb.append(" PROPERTIES (\n");
+                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, false));
+                sb.append("\n);");
+            }
+
+            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()), sb.toString()));
         } finally {
             readUnlock();
         }
