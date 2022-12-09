@@ -1,3 +1,4 @@
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -15,19 +16,24 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# doris env
-fe_master_host=127.0.0.1
-fe_master_port=9030
-doris_username=root
-doris_password=
-doris_odbc_name='MySQL ODBC 5.3 Unicode Driver'
-doris_jdbc_catalog='jdbc_catalog'
-doris_jdbc_default_db='information_schema'
-doris_jdcb_driver_url='https://repo1.maven.org/maven2/mysql/mysql-connector-java/5.1.47/mysql-connector-java-5.1.47.jar'
-doris_jdbc_driver_class='com.mysql.jdbc.Driver'
+cur_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+home_dir=$(cd "${cur_dir}"/../.. && pwd)
 
-# mysql env
-mysql_host=127.0.0.1
-mysql_port=3306
-mysql_username=root
-mysql_password=123456
+source ${home_dir}/conf/env.conf
+
+# mkdir files to store tables and tables.sql
+mkdir -p ${home_dir}/result/mysql
+
+path=${1:-${home_dir}/result/mysql/jdbc_catalog.sql}
+
+rm -f $path
+
+echo 'CREATE CATALOG IF NOT EXISTS '${doris_jdbc_catalog}'
+PROPERTIES (
+  "type"="jdbc",
+  "jdbc.user"="'${mysql_username}'",
+  "jdbc.password"="'${mysql_password}'",
+  "jdbc.jdbc_url"="jdbc:mysql://'${mysql_host}:${mysql_port}/${doris_jdbc_default_db}'?useSSL=false",
+  "jdbc.driver_url"="'${doris_jdcb_driver_url}'",
+  "jdbc.driver_class"="'${doris_jdbc_driver_class}'"
+); ' >> $path
