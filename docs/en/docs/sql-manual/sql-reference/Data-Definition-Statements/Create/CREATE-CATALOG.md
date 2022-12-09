@@ -45,6 +45,7 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
 
 * hms：Hive MetaStore
 * es：Elasticsearch
+* jdbc: Database access standard interface (JDBC), currently only support `jdbc:mysql`
 
 ### Example
 
@@ -69,6 +70,19 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
 	   "type"="es",
 	   "elasticsearch.hosts"="http://127.0.0.1:9200"
    );
+   ```
+
+3. Create catalog jdbc
+
+   ```sql
+   CREATE CATALOG jdbc PROPERTIES (
+		"type"="jdbc",
+		"jdbc.user"="root",
+		"jdbc.password"="123456",
+		"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+		"jdbc.driver_url" = "file:/mnt/disk2/ftw/tools/jar/mysql-connector-java-5.1.47/mysql-connector-java-5.1.47.jar",
+		"jdbc.driver_class" = "com.mysql.jdbc.Driver"
+	);
    ```
 
 ### Keywords
