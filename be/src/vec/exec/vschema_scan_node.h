@@ -44,13 +44,13 @@ public:
 
     // Prepare conjuncts, create Schema columns to slots mapping
     // initialize schema_scanner
-    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode,    RuntimeState* state = nullptr) override;
     // Start Schema scan using schema_scanner.
     Status open(RuntimeState* state) override;
-
-private:
     // Close the schema_scanner, and report errors.
     Status close(RuntimeState* state) override;
+
+private:
 
     // this is no use in this class
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
