@@ -24,6 +24,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/exec/vdata_gen_scan_node.h"
+#include "vec/exec/vmysql_scan_node.h"
 
 #define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                                                 \
     NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)                               \
