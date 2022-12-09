@@ -57,7 +57,6 @@
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vsort_node.h"
-#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vresult_sink.h"
 
 using apache::thrift::transport::TTransportException;
