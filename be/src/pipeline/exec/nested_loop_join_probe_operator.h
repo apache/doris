@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class NestLoopJoinProbeOperator final : public DataStateOperator<NestLoopJoinProbeOperatorBuilder> {
+class NestLoopJoinProbeOperator final : public StatefulOperator<NestLoopJoinProbeOperatorBuilder> {
 public:
     NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 

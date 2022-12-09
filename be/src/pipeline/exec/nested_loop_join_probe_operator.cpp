@@ -21,17 +21,17 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, DataStateOperator)
+OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, StatefulOperator)
 
 Status NestLoopJoinProbeOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
     _child_block.reset(_node->get_left_block());
-    return DataStateOperator::prepare(state);
+    return StatefulOperator::prepare(state);
 }
 
 Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
     _child_block.release();
-    return DataStateOperator::close(state);
+    return StatefulOperator::close(state);
 }
 
 } // namespace doris::pipeline
