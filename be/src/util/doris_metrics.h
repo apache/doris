@@ -155,6 +155,7 @@ public:
     IntCounter* local_file_reader_total;
     IntCounter* s3_file_reader_total;
     IntCounter* hdfs_file_reader_total;
+    IntCounter* broker_file_reader_total;
     IntCounter* local_file_writer_total;
     IntCounter* s3_file_writer_total;
     IntCounter* file_created_total;
@@ -166,6 +167,7 @@ public:
     IntGauge* local_file_open_reading;
     IntGauge* s3_file_open_reading;
     IntGauge* hdfs_file_open_reading;
+    IntGauge* broker_file_open_reading;
     IntGauge* local_file_open_writing;
     IntGauge* s3_file_open_writing;
 
