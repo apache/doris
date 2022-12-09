@@ -281,7 +281,10 @@ set(VEC_FILES
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
-  exec/format/table/iceberg_reader.cpp)
+  exec/format/table/iceberg_reader.cpp
+  exec/format/file_reader/new_file_factory.cpp
+  exec/format/file_reader/new_plain_text_line_reader.cpp
+  )
 
 add_library(Vec STATIC
         ${VEC_FILES}
