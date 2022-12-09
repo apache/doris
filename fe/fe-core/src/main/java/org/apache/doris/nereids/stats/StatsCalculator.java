@@ -71,6 +71,8 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.HashMap;
@@ -83,6 +85,7 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
+    private static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
 
     private final GroupExpression groupExpression;
 
@@ -289,6 +292,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         Map<Id, ColumnStatistic> columnStatisticMap = new HashMap<>();
         Table table = scan.getTable();
         double rowCount = scan.getTable().estimatedRowCount();
+        LOG.info("####" + scan.getTable().getName() + " estimatedRowCount = " + rowCount);
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
             if (colName == null) {
@@ -302,6 +306,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             }
             columnStatisticMap.put(slotReference.getExprId(), colStats);
         }
+        LOG.info("####" + scan.getTable().getName() + " col stats RowCount = " + rowCount);
         StatsDeriveResult stats = new StatsDeriveResult(rowCount, columnStatisticMap);
         return stats;
     }
