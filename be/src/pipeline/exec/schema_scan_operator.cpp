@@ -16,6 +16,7 @@
 // under the License.
 
 #include "schema_scan_operator.h"
+
 #include "vec/exec/vschema_scan_node.h"
 
 namespace doris::pipeline {

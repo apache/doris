@@ -31,7 +31,7 @@ class RuntimeState;
 class Status;
 
 namespace pipeline {
-    class SchemaScanOperator;
+class SchemaScanOperator;
 }
 
 namespace vectorized {
