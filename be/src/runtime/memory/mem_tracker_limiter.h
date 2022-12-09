@@ -25,6 +25,7 @@
 #include "service/backend_options.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -144,8 +145,18 @@ public:
     Status fragment_mem_limit_exceeded(RuntimeState* state, const std::string& msg,
                                        int64_t failed_allocation_size = 0);
 
-    // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is released.
-    static int64_t free_top_query(int64_t min_free_mem);
+    // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
+    static int64_t free_top_memory_query(int64_t min_free_mem);
+    // Start canceling from the query with the largest memory overcommit ratio until the memory
+    // of min_free_mem size is freed.
+    static int64_t free_top_overcommit_query(int64_t min_free_mem);
+    // only for Type::QUERY or Type::LOAD.
+    static TUniqueId label_to_queryid(const std::string& label) {
+        auto queryid = split(label, "#Id=")[1];
+        TUniqueId querytid;
+        parse_id(queryid, &querytid);
+        return querytid;
+    };
 
     static std::string process_mem_log_str() {
         return fmt::format(
@@ -254,7 +265,7 @@ inline bool MemTrackerLimiter::try_consume(int64_t bytes, std::string& failed_ms
         return false;
     }
 
-    if (_limit < 0) {
+    if (_limit < 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
         _consumption->add(bytes); // No limit at this tracker.
     } else {
         if (!_consumption->try_add(bytes, _limit)) {
@@ -271,7 +282,9 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     if (sys_mem_exceed_limit_check(bytes)) {
         return Status::MemoryLimitExceeded(process_limit_exceeded_errmsg_str(bytes));
     }
-    if (bytes <= 0) return Status::OK();
+    if (bytes <= 0 || (_type == Type::QUERY && config::enable_query_memroy_overcommit)) {
+        return Status::OK();
+    }
     if (_limit > 0 && _consumption->current_value() + bytes > _limit) {
         return Status::MemoryLimitExceeded(tracker_limit_exceeded_errmsg_str(bytes, this));
     }
