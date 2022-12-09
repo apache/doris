@@ -145,12 +145,12 @@ class RecorderEventListener implements EventListener {
 
                 def timeCol = new HashMap()
                 timeCol.put("tag","text")
-                timeCol.put("text","【TIME】:  ${timestamp} \n")
+                timeCol.put("text","[TIME]:  ${timestamp} \n")
                 colList.add(timeCol)
 
                 def clickCol = new HashMap()
                 clickCol.put("tag","text")
-                clickCol.put("text","【CLICK】: ")
+                clickCol.put("text","[CLICK]: ")
                 colList.add(clickCol)
 
                 def teamcityLinkCol = new HashMap()
@@ -160,41 +160,40 @@ class RecorderEventListener implements EventListener {
                 colList.add(teamcityLinkCol)
 
 
-                def failedSuiteCol = new HashMap()
-                failedSuiteCol.put("tag","text")
-                failedSuiteCol.put("text","【FailedSuite】:  ${suiteContext.flowName}\n")
-                colList.add(failedSuiteCol)
-
                 def repoCol = new HashMap()
                 repoCol.put("tag","text")
-                repoCol.put("text","【REPO】:  ${repo}\n")
+                repoCol.put("text","[REPO]:  ${repo}\n")
                 colList.add(repoCol)
 
                 def branchCol = new HashMap()
                 branchCol.put("tag","text")
-                branchCol.put("text","【BRANCH】:  ${testBranch}\n")
+                branchCol.put("text","[BRANCH]:  ${testBranch}\n")
                 colList.add(branchCol)
 
-                def beInfoCol = new HashMap()
-                beInfoCol.put("tag","text")
-                beInfoCol.put("text","【BEINFO】:  ${beInfo}\n")
-                colList.add(beInfoCol)
+//                def beInfoCol = new HashMap()
+//                beInfoCol.put("tag","text")
+//                beInfoCol.put("text","【BEINFO】:  ${beInfo}\n")
+//                colList.add(beInfoCol)
                 def feInfoCol = new HashMap()
                 feInfoCol.put("tag","text")
-                feInfoCol.put("text","【FEINFO】:  ${feInfo}\n\n")
+                feInfoCol.put("text","[FEINFO]:  ${feInfo}\n\n")
                 colList.add(feInfoCol)
+
+                def failedSuiteCol = new HashMap()
+                failedSuiteCol.put("tag","text")
+                failedSuiteCol.put("text","[FAILEDSUITE]:  ${suiteContext.flowName}\n\n")
+                colList.add(failedSuiteCol)
 
                 def detailMessageCol = new HashMap()
                 detailMessageCol.put("tag","text")
-                detailMessageCol.put("text","【DETAIL】:  \n${escape(errorMsg)} \n\n")
+                detailMessageCol.put("text","[DETAIL]:  \n${escape(errorMsg)} \n\n")
                 colList.add(detailMessageCol)
-
 
                 def bestStackTrace = "${escape(stackTrace)}".toString().split("\t")[0]
 
                 def stackTraceCol = new HashMap()
                 stackTraceCol.put("tag","text")
-                stackTraceCol.put("text","【STACKTRACE】:  \n${bestStackTrace} \n")
+                stackTraceCol.put("text","[STACKTRACE]:  \n${bestStackTrace} \n")
                 colList.add(stackTraceCol)
 
                 def outArrayList = new ArrayList()
