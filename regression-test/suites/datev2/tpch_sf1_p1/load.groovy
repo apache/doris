@@ -24,8 +24,9 @@ suite("load") {
     def tables = ["customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier"]
 
     for (String table in tables) {
+        sql "drop table if exists ${table}"
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
-        sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
+        // sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     }
 
     for (String tableName in tables) {

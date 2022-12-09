@@ -36,8 +36,9 @@ suite("load") {
                   supplier: ["s_suppkey, s_name, s_address, s_nationkey, s_phone, s_acctbal, s_comment,temp"]]
 
     tables.forEach { tableName, columns ->
+        sql "drop table if exists ${tableName}"
         sql new File("""${context.file.parent}/ddl/${tableName}.sql""").text
-        sql new File("""${context.file.parent}/ddl/${tableName}_delete.sql""").text
+        // sql new File("""${context.file.parent}/ddl/${tableName}_delete.sql""").text
         streamLoad {
             // a default db 'regression_test' is specified in
             // ${DORIS_HOME}/conf/regression-conf.groovy
