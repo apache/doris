@@ -500,7 +500,6 @@ Status VSchemaScanNode::close(RuntimeState* state) {
 
     _tuple_pool.reset();
     return ExecNode::close(state);
-    ;
 }
 
 void VSchemaScanNode::debug_string(int indentation_level, std::stringstream* out) const {

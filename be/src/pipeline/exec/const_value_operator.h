@@ -19,32 +19,34 @@
 
 #include "operator.h"
 
-namespace doris::vectorized {
-class VScanNode;
-class VScanner;
-class ScannerContext;
-} // namespace doris::vectorized
+namespace doris {
+namespace vectorized {
+class VUnionNode;
+} // namespace vectorized
 
-namespace doris::pipeline {
+namespace pipeline {
 
-class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
+class ConstValueOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
 public:
-    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
+    ConstValueOperatorBuilder(int32_t id, ExecNode* node)
+            : OperatorBuilder(id, "ConstValueOperatorBuilder", node) {};
+
     OperatorPtr build_operator() override;
+
+    bool is_source() const override { return true; }
 };
 
-class ScanOperator : public Operator<ScanOperatorBuilder> {
+class ConstValueOperator final : public Operator<ConstValueOperatorBuilder> {
 public:
-    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
+    ConstValueOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
+            : Operator(operator_builder, node) {};
 
-    bool can_read() override; // for source
-
-    bool is_pending_finish() const override;
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
+    bool can_read() override { return true; };
 };
 
-} // namespace doris::pipeline
+OperatorPtr ConstValueOperatorBuilder::build_operator() {
+    return std::make_shared<ConstValueOperator>(this, _node);
+}
+
+} // namespace pipeline
+} // namespace doris

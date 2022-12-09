@@ -20,27 +20,23 @@
 #include "operator.h"
 
 namespace doris::vectorized {
-class VScanNode;
-class VScanner;
-class ScannerContext;
+class VMysqlScanNode;
 } // namespace doris::vectorized
 
 namespace doris::pipeline {
 
-class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
+class MysqlScanOperatorBuilder : public OperatorBuilder<vectorized::VMysqlScanNode> {
 public:
-    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
+    MysqlScanOperatorBuilder(int32_t id, ExecNode* exec_node);
     bool is_source() const override { return true; }
     OperatorPtr build_operator() override;
 };
 
-class ScanOperator : public Operator<ScanOperatorBuilder> {
+class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
 public:
-    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
+    MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
 
-    bool can_read() override; // for source
-
-    bool is_pending_finish() const override;
+    bool can_read() override { return true; };
 
     Status open(RuntimeState* state) override;
 

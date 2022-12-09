@@ -15,36 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("select_except") {
+    sql "SET enable_vectorized_engine=true"
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
-#include "operator.h"
-
-namespace doris::vectorized {
-class VScanNode;
-class VScanner;
-class ScannerContext;
-} // namespace doris::vectorized
-
-namespace doris::pipeline {
-
-class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
-public:
-    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
-    OperatorPtr build_operator() override;
-};
-
-class ScanOperator : public Operator<ScanOperatorBuilder> {
-public:
-    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
-
-    bool can_read() override; // for source
-
-    bool is_pending_finish() const override;
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
-
-} // namespace doris::pipeline
+    qt_select "select * except (s_name) from supplier order by s_suppkey"
+}

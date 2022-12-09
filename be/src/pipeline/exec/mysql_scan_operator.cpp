@@ -15,36 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "mysql_scan_operator.h"
 
-#include "operator.h"
-
-namespace doris::vectorized {
-class VScanNode;
-class VScanner;
-class ScannerContext;
-} // namespace doris::vectorized
+#include "vec/exec/vmysql_scan_node.h"
 
 namespace doris::pipeline {
 
-class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
-public:
-    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
-    OperatorPtr build_operator() override;
-};
+OPERATOR_CODE_GENERATOR(MysqlScanOperator, Operator)
 
-class ScanOperator : public Operator<ScanOperatorBuilder> {
-public:
-    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
+Status MysqlScanOperator::open(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(Operator::open(state));
+    return _node->open(state);
+}
 
-    bool can_read() override; // for source
-
-    bool is_pending_finish() const override;
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
+Status MysqlScanOperator::close(RuntimeState* state) {
+    RETURN_IF_ERROR(Operator::close(state));
+    _node->close(state);
+    return Status::OK();
+}
 
 } // namespace doris::pipeline
