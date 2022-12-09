@@ -970,7 +970,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：缓存文件的类型。whole_file_cache：将segment文件整个下载，sub_file_cache：将segment文件按大小切分成多个文件。
 * 默认值：""
 
-### `file_cache_alive_time_sec`
+#### `file_cache_alive_time_sec`
 
 * 类型：int64
 * 描述：缓存文件的保存时间，单位：秒

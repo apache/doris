@@ -956,7 +956,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Type of cache file. whole_ file_ Cache: download the entire segment file, sub_ file_ Cache: the segment file is divided into multiple files by size.
 * Default value: null
 
-### `file_cache_alive_time_sec`
+#### `file_cache_alive_time_sec`
 
 * Type: int64
 * Description: Save time of cache file
