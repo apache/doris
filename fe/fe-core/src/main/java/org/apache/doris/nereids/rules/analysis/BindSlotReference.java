@@ -102,8 +102,11 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     LogicalProject<GroupPlan> project = ctx.root;
                     List<NamedExpression> boundSlots =
                             bind(project.getProjects(), project.children(), project, ctx.cascadesContext);
-                    List<NamedExpression> newOutput = adjustNullableForProjects(project, boundSlots);
-                    return new LogicalProject<>(flatBoundStar(newOutput), project.child());
+                    List<NamedExpression> exceptSlots = bind(project.getExcepts(), project.children(), project,
+                            ctx.cascadesContext);
+                    List<NamedExpression> newOutput = flatBoundStar(adjustNullableForProjects(project, boundSlots));
+                    newOutput.removeAll(exceptSlots);
+                    return new LogicalProject<>(newOutput, project.child());
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
