@@ -30,7 +30,6 @@ import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -47,7 +46,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -197,15 +195,6 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             LOG.warn("failed to get const expr value from be: {}", e.getMessage());
         }
         return resultMap;
-    }
-
-    @Override
-    public Expression visitAlias(Alias alias, ExpressionRewriteContext context) {
-        Expression newChild = alias.child().accept(this, context);
-        if (alias.child() == newChild) {
-            return alias;
-        }
-        return alias.withChildren(ImmutableList.of(newChild));
     }
 }
 
