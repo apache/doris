@@ -187,7 +187,8 @@ private:
     std::string _gen_predicate_sign(ColumnPredicate* predicate);
     std::string _gen_predicate_sign(ColumnPredicateInfo* predicate_info);
 
-    void _build_index_return_column(vectorized::Block* block, const std::string& index_result_column_sign,
+    void _build_index_return_column(vectorized::Block* block,
+                                    const std::string& index_result_column_sign,
                                     const roaring::Roaring& index_result);
 
     void _output_index_return_column(vectorized::Block* block);

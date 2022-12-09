@@ -258,7 +258,8 @@ public:
             } else if (value.first == FILTER_LESS_OR_EQUAL) {
                 condition.__set_condition_op("<=");
             }
-            condition.condition_values.push_back(cast_to_string<primitive_type, CppType>(value.second, _scale));
+            condition.condition_values.push_back(
+                    cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
                 filters.push_back(condition);
             }
@@ -318,8 +319,8 @@ public:
         range.add_range(op, *value);
     }
 
-     static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op, 
-                                    CppType* value) {
+    static void add_compound_value_range(ColumnValueRange<primitive_type>& range, SQLFilterOp op,
+                                         CppType* value) {
         range.add_compound_value(op, *value);
     }
 
@@ -373,7 +374,8 @@ private:
                                                   primitive_type == PrimitiveType::TYPE_DATETIME ||
                                                   primitive_type == PrimitiveType::TYPE_DATETIMEV2;
 
-    std::set<std::pair<SQLFilterOp, CppType>> _boundary_values; // range boundary value in CompoundPredicate
+    // range boundary value in CompoundPredicate
+    std::set<std::pair<SQLFilterOp, CppType>> _boundary_values;
     TCompoundType::type _compound_type = TCompoundType::UNKNOWN;
 };
 
@@ -554,10 +556,8 @@ bool ColumnValueRange<primitive_type>::is_empty_value_range() const {
         return true;
     }
 
-    return (!is_fixed_value_range() && 
-                !is_scope_value_range() && 
-                !contain_null() &&
-                !is_boundary_value_range());
+    return (!is_fixed_value_range() && !is_scope_value_range() && !contain_null() &&
+            !is_boundary_value_range());
 }
 
 template <PrimitiveType primitive_type>

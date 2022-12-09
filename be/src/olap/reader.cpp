@@ -480,7 +480,8 @@ void TabletReader::_init_compound_conditions_param(const ReaderParams& read_para
             TCondition tmp_cond = condition;
             auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
             tmp_cond.__set_column_unique_id(condition_col_uid);
-            ColumnPredicate* predicate = parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
+            ColumnPredicate* predicate =
+                    parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
             if (predicate != nullptr) {
                 auto predicate_params = predicate->predicate_params();
                 predicate_params->value = condition.condition_values[0];

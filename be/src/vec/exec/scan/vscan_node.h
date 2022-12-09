@@ -310,18 +310,19 @@ private:
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              PushDownType* pdt);
 
-    Status _normalize_compound_predicate(vectorized::VExpr* expr, 
-                    VExprContext* expr_ctx, 
-                    PushDownType* pdt,
-                    std::vector<ColumnValueRangeType>* column_value_rangs,
-                    const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>& in_predicate_checker,
-                    const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>& eq_predicate_checker);
+    Status _normalize_compound_predicate(
+            vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
+            std::vector<ColumnValueRangeType>* column_value_rangs,
+            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+                    in_predicate_checker,
+            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+                    eq_predicate_checker);
 
     template <PrimitiveType T>
-    Status _normalize_binary_in_compound_predicate(
-                vectorized::VExpr* expr, VExprContext* expr_ctx,
-                SlotDescriptor* slot, ColumnValueRange<T>& range,
-                PushDownType* pdt, const TCompoundType::type& compound_type);
+    Status _normalize_binary_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                   PushDownType* pdt,
+                                                   const TCompoundType::type& compound_type);
 
     TCompoundType::type _get_compound_type_by_fn_name(const std::string& fn_name);
 

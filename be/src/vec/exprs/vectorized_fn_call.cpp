@@ -106,7 +106,7 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     block->insert({nullptr, _data_type, _expr_name});
     if (_function->can_fast_execute()) {
         bool ok = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
-                                       num_columns_without_result, block->rows());
+                               num_columns_without_result, block->rows());
         if (ok) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
@@ -119,8 +119,9 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     return Status::OK();
 }
 
-bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count) {
+bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block,
+                                    const ColumnNumbers& arguments, size_t result,
+                                    size_t input_rows_count) {
     auto column_with_name = block.get_by_position(arguments[1]);
     auto query_value = column_with_name.to_string(0);
     std::string column_name = block.get_by_position(arguments[0]).name;
@@ -128,8 +129,9 @@ bool VectorizedFnCall::fast_execute(FunctionContext* context, Block& block, cons
     if (!block.has(result_column_name)) {
         return false;
     }
-    
-    auto result_column = block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
+
+    auto result_column =
+            block.get_by_name(result_column_name).column->convert_to_full_column_if_const();
     block.replace_by_position(result, std::move(result_column));
     return true;
 }

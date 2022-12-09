@@ -529,10 +529,10 @@ public:
 
     bool is_deterministic() const override { return function->is_deterministic(); }
 
-    bool can_fast_execute() const override { 
-        return function->get_name() == "eq" || function->get_name() == "ne"
-                || function->get_name() == "lt" || function->get_name() == "gt"
-                || function->get_name() == "le" || function->get_name() == "ge"; 
+    bool can_fast_execute() const override {
+        return function->get_name() == "eq" || function->get_name() == "ne" ||
+               function->get_name() == "lt" || function->get_name() == "gt" ||
+               function->get_name() == "le" || function->get_name() == "ge";
     }
 
     bool is_deterministic_in_scope_of_query() const override {

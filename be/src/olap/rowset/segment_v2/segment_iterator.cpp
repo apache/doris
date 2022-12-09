@@ -420,15 +420,15 @@ Status SegmentIterator::_execute_all_compound_predicates(vectorized::VExpr* expr
     if (node_type == TExprNodeType::SLOT_REF) {
         _column_predicate_info->column_name = expr->expr_name();
     } else if (_is_literal_node(node_type)) {
-        auto v_literal_expr =  dynamic_cast<doris::vectorized::VLiteral*>(expr);
+        auto v_literal_expr = dynamic_cast<doris::vectorized::VLiteral*>(expr);
         _column_predicate_info->query_value = v_literal_expr->value();
     } else if (node_type == TExprNodeType::BINARY_PRED) {
         _column_predicate_info->query_op = expr->fn().name.function_name;
         // get child condition result in compound condtions
         auto column_sign = _gen_predicate_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
-        if (_rowid_result_for_index.count(column_sign) > 0 
-                && _rowid_result_for_index[column_sign].first) {
+        if (_rowid_result_for_index.count(column_sign) > 0 &&
+            _rowid_result_for_index[column_sign].first) {
             auto apply_reuslt = _rowid_result_for_index[column_sign].second;
             _compound_predicate_execute_result.push_back(apply_reuslt);
         }
@@ -447,7 +447,8 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
         if (size < 2) {
             return Status::InternalError("execute and logic compute error.");
         }
-        _compound_predicate_execute_result.at(size - 2) &= _compound_predicate_execute_result.at(size - 1);
+        _compound_predicate_execute_result.at(size - 2) &=
+                _compound_predicate_execute_result.at(size - 1);
         _compound_predicate_execute_result.pop_back();
         return Status::OK();
     };
@@ -457,7 +458,8 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
         if (size < 2) {
             return Status::InternalError("execute or logic compute error.");
         }
-        _compound_predicate_execute_result.at(size - 2) |= _compound_predicate_execute_result.at(size - 1);
+        _compound_predicate_execute_result.at(size - 2) |=
+                _compound_predicate_execute_result.at(size - 1);
         _compound_predicate_execute_result.pop_back();
         return Status::OK();
     };
@@ -502,17 +504,18 @@ bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
     return true;
 }
 
-Status SegmentIterator::_apply_bitmap_index_in_compound(ColumnPredicate* pred, roaring::Roaring* output_result) {
+Status SegmentIterator::_apply_bitmap_index_in_compound(ColumnPredicate* pred,
+                                                        roaring::Roaring* output_result) {
     int32_t unique_id = _schema.unique_id(pred->column_id());
     RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
-                                       output_result));
+                                   output_result));
     return Status::OK();
 }
 
 Status SegmentIterator::_apply_index_in_compound() {
     for (auto pred : _all_compound_col_predicates) {
         auto pred_type = pred->type();
-        bool is_support_in_compound = 
+        bool is_support_in_compound =
                 pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                 pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
                 pred_type == PredicateType::GT || pred_type == PredicateType::GE;
@@ -537,8 +540,7 @@ Status SegmentIterator::_apply_index_in_compound() {
         }
 
         std::string pred_sign = _gen_predicate_sign(pred);
-        _rowid_result_for_index.emplace(
-                std::make_pair(pred_sign, std::make_pair(true, bitmap)));
+        _rowid_result_for_index.emplace(std::make_pair(pred_sign, std::make_pair(true, bitmap)));
     }
 
     return Status::OK();
@@ -1309,7 +1311,7 @@ void SegmentIterator::_output_index_return_column(vectorized::Block* block) {
     if (block->rows() == 0) {
         return;
     }
-    
+
     for (auto column_sign : _rowid_result_for_index) {
         block->insert({vectorized::ColumnUInt8::create(),
                        std::make_shared<vectorized::DataTypeUInt8>(), column_sign.first});
@@ -1321,9 +1323,9 @@ void SegmentIterator::_output_index_return_column(vectorized::Block* block) {
     }
 }
 
-void SegmentIterator::_build_index_return_column(vectorized::Block* block, 
-                                    const std::string& index_result_column_sign,
-                                    const roaring::Roaring& index_result) {
+void SegmentIterator::_build_index_return_column(vectorized::Block* block,
+                                                 const std::string& index_result_column_sign,
+                                                 const roaring::Roaring& index_result) {
     auto index_result_column = vectorized::ColumnUInt8::create();
     vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
     vec_match_pred.resize(block->rows());

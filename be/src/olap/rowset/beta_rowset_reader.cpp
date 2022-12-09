@@ -105,7 +105,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                     single_column_block_predicate);
         }
     }
-    
+
     if (read_context->all_compound_predicates != nullptr) {
         _read_options.all_compound_column_predicates.insert(
                 _read_options.all_compound_column_predicates.end(),
