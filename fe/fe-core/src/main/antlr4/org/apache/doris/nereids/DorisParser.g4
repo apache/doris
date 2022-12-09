@@ -49,7 +49,7 @@ singleStatement
     ;
 
 statement
-    : explain? cte? query                           #statementDefault
+    : explain? query                           #statementDefault
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
@@ -72,7 +72,7 @@ planType
 
 //  -----------------Query-----------------
 query
-    : queryTerm queryOrganization
+    : cte? queryTerm queryOrganization
     ;
 
 queryTerm
