@@ -34,7 +34,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class RepeatOperator final : public DataStateOperator<RepeatOperatorBuilder> {
+class RepeatOperator final : public StatefulOperator<RepeatOperatorBuilder> {
 public:
     RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
 };

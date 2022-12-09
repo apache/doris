@@ -21,6 +21,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(RepeatOperator, DataStateOperator)
+OPERATOR_CODE_GENERATOR(RepeatOperator, StatefulOperator)
 
 } // namespace doris::pipeline
