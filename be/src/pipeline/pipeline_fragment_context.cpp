@@ -45,6 +45,7 @@
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
@@ -64,6 +65,8 @@
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
+#include "vec/exec/vunion_node.h"
+#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vresult_sink.h"
 
 using apache::thrift::transport::TTransportException;
@@ -325,6 +328,19 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr operator_t =
                 std::make_shared<DataGenOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::UNION_NODE: {
+        auto* union_node = assert_cast<vectorized::VUnionNode*>(node);
+        if (union_node->children_count() == 0) {
+            OperatorBuilderPtr builder =
+                    std::make_shared<ConstValueOperatorBuilder>(next_operator_builder_id(), node);
+            RETURN_IF_ERROR(cur_pipe->add_operator(builder));
+        } else {
+            return Status::InternalError(
+                    "Unsupported exec type in pipeline: {}, later will be support.",
+                    print_plan_node_type(node_type));
+        }
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
