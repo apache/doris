@@ -14,34 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#pragma once
 
-#include "operator.h"
+#include "nested_loop_join_build_operator.h"
 
-namespace doris {
-namespace vectorized {
-class AggregationNode;
-}
+#include "vec/exec/join/vnested_loop_join_node.h"
 
-namespace pipeline {
+namespace doris::pipeline {
 
-class AggSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
-public:
-    AggSourceOperatorBuilder(int32_t, ExecNode*);
+OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, Operator)
 
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class AggSourceOperator final : public Operator<AggSourceOperatorBuilder> {
-public:
-    AggSourceOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resoucre()` function call, only sink operator
-    // call the function
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
-
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline
