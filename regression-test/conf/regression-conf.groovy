@@ -23,11 +23,11 @@ defaultDb = "regression_test"
 // add useLocalSessionState so that the jdbc will not send
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:4830/?useLocalSessionState=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "127.0.0.1:8030"
+feHttpAddress = "127.0.0.1:4630"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -44,7 +44,7 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
-testDirectories = ""
+testDirectories = "ssb_sf1_p2"
 
 // this groups will not be executed
 excludeGroups = ""
@@ -117,6 +117,6 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+s3Endpoint = "cos.ap-hongkong.myqcloud.com/regression"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
