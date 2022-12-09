@@ -36,11 +36,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStat;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatsDeriveResult;
-import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -238,13 +236,7 @@ public class StatsCalculatorTest {
 
     @Test
     public void testOlapScan(@Mocked ConnectContext context) {
-        ColumnStat columnStat1 = new ColumnStat();
-        columnStat1.setNdv(10);
-        columnStat1.setNumNulls(5);
         long tableId1 = 0;
-        TableStats tableStats1 = new TableStats();
-        tableStats1.putColumnStats("c1", columnStat1);
-
         List<String> qualifier = ImmutableList.of("test", "t");
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
 

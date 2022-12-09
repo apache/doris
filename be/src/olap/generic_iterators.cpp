@@ -263,15 +263,18 @@ private:
             }
 
             // if row cursors equal, compare segment id.
-            // here we sort segment id in reverse order, because of the row order in AGG_KEYS
-            // dose no matter, but in UNIQUE_KEYS table we only read the latest is one, so we
-            // return the row in reverse order of segment id
-            bool result = res == 0 ? lhs->data_id() < rhs->data_id() : res < 0;
+            // when in UNIQUE_KEYS table, we need only read the latest one, so we
+            // return the row in reverse order of segment id.
+            // when in AGG_KEYS table, we return the row in order of segment id, because
+            // we need replace the value with lower segment id by the one with higher segment id when
+            // non-vectorized.
             if (_is_unique) {
+                bool result = res == 0 ? lhs->data_id() < rhs->data_id() : res < 0;
                 result ? lhs->set_skip(true) : rhs->set_skip(true);
+                return result;
             }
 
-            return result;
+            return lhs->data_id() > rhs->data_id();
         }
 
         int _sequence_id_idx;

@@ -29,7 +29,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class TableFunctionOperator final : public DataStateOperator<TableFunctionOperatorBuilder> {
+class TableFunctionOperator final : public StatefulOperator<TableFunctionOperatorBuilder> {
 public:
     TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 };

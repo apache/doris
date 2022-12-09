@@ -26,12 +26,9 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/query_fragments_ctx.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
-#include "util/hash_util.hpp"
-#include "util/time.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -77,8 +74,7 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    typedef std::function<void(const Status& status, RuntimeProfile* profile, bool done)>
-            report_status_callback;
+    using report_status_callback = std::function<void(const Status&, RuntimeProfile*, bool)>;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
@@ -212,7 +208,7 @@ private:
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges
-    typedef std::map<TPlanNodeId, std::vector<TScanRangeParams>> PerNodeScanRanges;
+    using PerNodeScanRanges = std::map<TPlanNodeId, std::vector<TScanRangeParams>>;
 
     // Main loop of profile reporting thread.
     // Exits when notified on _done_cv.

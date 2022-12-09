@@ -228,11 +228,13 @@ void Daemon::memory_maintenance_thread() {
                     doris::MemInfo::sys_mem_available_low_water_mark() ||
             doris::MemInfo::proc_mem_no_allocator_cache() >= doris::MemInfo::mem_limit()) {
             interval_milliseconds = 100;
+            doris::MemInfo::process_full_gc();
         } else if (doris::MemInfo::sys_mem_available() <
                            doris::MemInfo::sys_mem_available_warning_water_mark() ||
                    doris::MemInfo::proc_mem_no_allocator_cache() >=
                            doris::MemInfo::soft_mem_limit()) {
             interval_milliseconds = 200;
+            doris::MemInfo::process_minor_gc();
         } else {
             interval_milliseconds = config::memory_maintenance_sleep_time_ms;
         }

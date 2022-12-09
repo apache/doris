@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -51,17 +50,6 @@ public class HiveTable extends Table {
 
     public static final String HIVE_DB = "database";
     public static final String HIVE_TABLE = "table";
-    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
-    public static final String HIVE_HDFS_PREFIX = "dfs.";
-    public static final String S3_FS_PREFIX = "fs.s3";
-    public static final String S3_PROPERTIES_PREFIX = "AWS";
-    public static final String S3_AK = "AWS_ACCESS_KEY";
-    public static final String S3_SK = "AWS_SECRET_KEY";
-    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
-    public static final String AWS_REGION = "AWS_REGION";
-    public static final String AWS_MAX_CONN_SIZE = "AWS_MAX_CONN_SIZE";
-    public static final String AWS_REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
-    public static final String AWS_CONN_TIMEOUT_MS = "AWS_CONN_TIMEOUT_MS";
 
     public HiveTable() {
         super(TableType.HIVE);
@@ -109,56 +97,56 @@ public class HiveTable extends Table {
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetaStoreUris = copiedProps.get(HIVE_METASTORE_URIS);
+        String hiveMetaStoreUris = copiedProps.get(HMSResource.HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetaStoreUris)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG, HIVE_METASTORE_URIS, HIVE_METASTORE_URIS));
+            throw new DdlException(String.format(
+                    PROPERTY_MISSING_MSG, HMSResource.HIVE_METASTORE_URIS, HMSResource.HIVE_METASTORE_URIS));
         }
-        copiedProps.remove(HIVE_METASTORE_URIS);
-        hiveProperties.put(HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        copiedProps.remove(HMSResource.HIVE_METASTORE_URIS);
+        hiveProperties.put(HMSResource.HIVE_METASTORE_URIS, hiveMetaStoreUris);
 
         // check auth type
-        String authType = copiedProps.get(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION);
+        String authType = copiedProps.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION);
         if (Strings.isNullOrEmpty(authType)) {
             authType = AuthType.SIMPLE.getDesc();
         }
         if (!AuthType.isSupportedAuthType(authType)) {
             throw new DdlException(String.format(PROPERTY_ERROR_MSG,
-                    BrokerUtil.HADOOP_SECURITY_AUTHENTICATION, authType));
+                    HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authType));
         }
-        copiedProps.remove(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION);
-        hiveProperties.put(BrokerUtil.HADOOP_SECURITY_AUTHENTICATION, authType);
+        copiedProps.remove(HdfsResource.HADOOP_SECURITY_AUTHENTICATION);
+        hiveProperties.put(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authType);
 
         if (AuthType.KERBEROS.getDesc().equals(authType)) {
             // check principal
-            String principal = copiedProps.get(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL);
+            String principal = copiedProps.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
             if (Strings.isNullOrEmpty(principal)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG,
-                        BrokerUtil.HADOOP_KERBEROS_PRINCIPAL, BrokerUtil.HADOOP_KERBEROS_PRINCIPAL));
+                        HdfsResource.HADOOP_KERBEROS_PRINCIPAL, HdfsResource.HADOOP_KERBEROS_PRINCIPAL));
             }
-            hiveProperties.put(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL, principal);
-            copiedProps.remove(BrokerUtil.HADOOP_KERBEROS_PRINCIPAL);
+            hiveProperties.put(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, principal);
+            copiedProps.remove(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
             // check keytab
-            String keytabPath = copiedProps.get(BrokerUtil.HADOOP_KERBEROS_KEYTAB);
+            String keytabPath = copiedProps.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
             if (Strings.isNullOrEmpty(keytabPath)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG,
-                        BrokerUtil.HADOOP_KERBEROS_KEYTAB, BrokerUtil.HADOOP_KERBEROS_KEYTAB));
-            }
-            if (!Strings.isNullOrEmpty(keytabPath)) {
-                hiveProperties.put(BrokerUtil.HADOOP_KERBEROS_KEYTAB, keytabPath);
-                copiedProps.remove(BrokerUtil.HADOOP_KERBEROS_KEYTAB);
+                        HdfsResource.HADOOP_KERBEROS_KEYTAB, HdfsResource.HADOOP_KERBEROS_KEYTAB));
+            } else {
+                hiveProperties.put(HdfsResource.HADOOP_KERBEROS_KEYTAB, keytabPath);
+                copiedProps.remove(HdfsResource.HADOOP_KERBEROS_KEYTAB);
             }
         }
-        String hdfsUserName = copiedProps.get(BrokerUtil.HADOOP_USER_NAME);
+        String hdfsUserName = copiedProps.get(HdfsResource.HADOOP_USER_NAME);
         if (!Strings.isNullOrEmpty(hdfsUserName)) {
-            hiveProperties.put(BrokerUtil.HADOOP_USER_NAME, hdfsUserName);
-            copiedProps.remove(BrokerUtil.HADOOP_USER_NAME);
+            hiveProperties.put(HdfsResource.HADOOP_USER_NAME, hdfsUserName);
+            copiedProps.remove(HdfsResource.HADOOP_USER_NAME);
         }
         if (!copiedProps.isEmpty()) {
             Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
             while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 String key = entry.getKey();
-                if (key.startsWith(HIVE_HDFS_PREFIX) || key.startsWith(S3_PROPERTIES_PREFIX)) {
+                if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX) || key.startsWith(S3Resource.S3_PROPERTIES_PREFIX)) {
                     hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }
@@ -166,7 +154,7 @@ public class HiveTable extends Table {
         }
 
         if (!copiedProps.isEmpty()) {
-            throw new DdlException("Unknown table properties: " + copiedProps.toString());
+            throw new DdlException("Unknown table properties: " + copiedProps);
         }
     }
 

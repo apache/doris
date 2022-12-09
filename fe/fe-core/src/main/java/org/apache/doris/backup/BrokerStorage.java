@@ -506,10 +506,15 @@ public class BrokerStorage extends BlobStorage {
         return Status.OK;
     }
 
+    @Override
+    public Status list(String remotePath, List<RemoteFile> result) {
+        return list(remotePath, result, true);
+    }
+
     // List files in remotePath
     // The remote file name will only contains file name only(Not full path)
     @Override
-    public Status list(String remotePath, List<RemoteFile> result) {
+    public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         // get a proper broker
         Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBroker();
         if (pair == null) {

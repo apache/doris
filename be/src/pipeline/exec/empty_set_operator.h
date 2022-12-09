@@ -18,12 +18,9 @@
 #pragma once
 
 #include "operator.h"
+#include "vec/exec/vempty_set_node.h"
 
 namespace doris {
-
-namespace vectorized {
-class VEmptySetNode;
-}
 
 namespace pipeline {
 

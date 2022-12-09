@@ -45,7 +45,9 @@ public abstract class Resource implements Writable {
         SPARK,
         ODBC_CATALOG,
         S3,
-        JDBC;
+        JDBC,
+        HDFS,
+        HMS;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -98,6 +100,12 @@ public abstract class Resource implements Writable {
             case JDBC:
                 resource = new JdbcResource(name);
                 break;
+            case HDFS:
+                resource = new HdfsResource(name);
+                break;
+            case HMS:
+                resource = new HMSResource(name);
+                break;
             default:
                 throw new DdlException("Unknown resource type: " + type);
         }
@@ -125,7 +133,7 @@ public abstract class Resource implements Writable {
      * @param properties
      * @throws AnalysisException
      */
-    public abstract void checkProperties(Map<String, String> properties) throws AnalysisException;
+    public void checkProperties(Map<String, String> properties) throws AnalysisException { }
 
     protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
         if (!Strings.isNullOrEmpty(value)) {
@@ -140,6 +148,8 @@ public abstract class Resource implements Writable {
 
 
     public abstract Map<String, String> getCopiedProperties();
+
+    public void dropResource() throws DdlException { }
 
     /**
      * Fill BaseProcResult with different properties in child resources

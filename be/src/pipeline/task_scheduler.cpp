@@ -211,7 +211,7 @@ void TaskScheduler::_do_work(size_t index) {
         if (!task) {
             task = queue->steal_take(index);
             if (!task) {
-                // TODO: The take is a stock method, rethink the logic
+                // TODO: The take is a blocking method, rethink the logic
                 task = queue->take(index);
                 if (!task) {
                     continue;

@@ -81,6 +81,10 @@ PROPERTIES (
 | **table**        | 在Doris中建立外表时，与外部数据库相映射的表名。|
 | **table_type**   | 在Doris中建立外表时，该表来自那个数据库。例如mysql,postgresql,sqlserver,oracle|
 
+>**注意：**
+>
+>如果你是本地路径方式，这里数据库驱动依赖的jar包，FE、BE节点都要放置
+
 ### 查询用法
 
 ```
@@ -165,16 +169,16 @@ PROPERTIES (
 |  MySQL   |  Doris   |
 | :------: | :------: |
 | BOOLEAN  | BOOLEAN  |
-|   CHAR   |   CHAR   |
-| VARCHAR  | VARCHAR  |
-|   DATE   |   DATE   |
-|  FLOAT   |  FLOAT   |
 | TINYINT  | TINYINT  |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
 |  BIGINT  |  BIGINT  |
-|  DOUBLE  |  DOUBLE  |
+|BIGINT UNSIGNED|LARGEINT|
+| VARCHAR  | VARCHAR  |
+|   DATE   |   DATE   |
+|  FLOAT   |  FLOAT   |
 | DATETIME | DATETIME |
+|  DOUBLE  |  DOUBLE  |
 | DECIMAL  | DECIMAL  |
 
 
@@ -183,26 +187,26 @@ PROPERTIES (
 |    PostgreSQL    |  Doris   |
 | :--------------: | :------: |
 |     BOOLEAN      | BOOLEAN  |
-|       CHAR       |   CHAR   |
-|     VARCHAR      | VARCHAR  |
-|       DATE       |   DATE   |
-|       REAL       |  FLOAT   |
 |     SMALLINT     | SMALLINT |
 |       INT        |   INT    |
 |      BIGINT      |  BIGINT  |
-| DOUBLE PRECISION |  DOUBLE  |
+|     VARCHAR      | VARCHAR  |
+|       DATE       |   DATE   |
 |    TIMESTAMP     | DATETIME |
+|       REAL       |  FLOAT   |
+|      FLOAT       |  DOUBLE  |
 |     DECIMAL      | DECIMAL  |
 
 ### Oracle
 
 |  Oracle  |  Doris   |
 | :------: | :------: |
-|   CHAR   |   CHAR   |
 | VARCHAR  | VARCHAR  |
 |   DATE   | DATETIME |
 | SMALLINT | SMALLINT |
 |   INT    |   INT    |
+|   REAL   |   FLOAT  |
+|   FLOAT  |   DOUBLE |
 |  NUMBER  | DECIMAL  |
 
 
@@ -211,15 +215,15 @@ PROPERTIES (
 | SQLServer |  Doris   |
 | :-------: | :------: |
 |    BIT    | BOOLEAN  |
-|   CHAR    |   CHAR   |
-|  VARCHAR  | VARCHAR  |
-|   DATE    |   DATE   |
-|   REAL    |  FLOAT   |
 |  TINYINT  | TINYINT  |
 | SMALLINT  | SMALLINT |
 |    INT    |   INT    |
 |  BIGINT   |  BIGINT  |
+|  VARCHAR  | VARCHAR  |
+|   DATE    |   DATE   |
 | DATETIME  | DATETIME |
+|   REAL    |  FLOAT   |
+|   FLOAT   |  DOUBLE  |
 |  DECIMAL  | DECIMAL  |
 
 ### ClickHouse

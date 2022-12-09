@@ -96,6 +96,8 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
 * "file"=" http://IP:port/udf -code. Jar ", you can also use http to download jar packages in a multi machine environment.
 
 * The "always_nullable" is optional attribute, if there is special treatment for the NULL value in the calculation, it is determined that the result will not return NULL, and it can be set to false, so that the performance may be better in the whole calculation process.
+
+* If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
 ## Create UDAF
 <br/>
 When using Java code to write UDAF, there are some functions that must be implemented (mark required) and an inner class State, which will be explained with a specific example below.

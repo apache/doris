@@ -172,7 +172,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         } else if (not.child() instanceof InSubquery || not.child() instanceof Exists) {
             return new BoolLiteral(true);
         } else if (not.child() instanceof IsNull) {
-            return new IsNullPredicate(not.child().accept(this, context), true);
+            return new IsNullPredicate(((IsNull) not.child()).child().accept(this, context), true);
         } else {
             return new CompoundPredicate(CompoundPredicate.Operator.NOT,
                     not.child(0).accept(this, context), null);
