@@ -380,15 +380,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         boolean isAnalyticFunction = false;
         String functionName = function.getName();
-        // String functionName = function.isDistinct() ? "MULTI_DISTINCT_" + function.getName() : function.getName();
-        // if (aggregateParam.aggPhase == AggPhase.DISTINCT_LOCAL
-        //         || aggregateParam.aggPhase == AggPhase.DISTINCT_GLOBAL) {
-        //     if (function.getName().equalsIgnoreCase("count")) {
-        //         functionName = "SUM";
-        //     } else {
-        //         functionName = function.getName();
-        //     }
-        // }
         org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
                 new FunctionName(functionName), argTypes,
                 function.getDataType().toCatalogDataType(),

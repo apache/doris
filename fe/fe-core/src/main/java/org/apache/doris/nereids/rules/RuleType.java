@@ -78,6 +78,7 @@ public enum RuleType {
     RESOLVE_ORDINAL_IN_GROUP_BY(RuleTypeClass.REWRITE),
 
     // check analysis rule
+    CHECK_AGGREGATE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_ANALYSIS(RuleTypeClass.CHECK),
 
     // rewrite rules
