@@ -34,6 +34,7 @@
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
 #include "exec/scan_operator.h"
+#include "exec/schema_scan_operator.h"
 #include "exec/set_probe_sink_operator.h"
 #include "exec/set_sink_operator.h"
 #include "exec/set_source_operator.h"
@@ -60,6 +61,7 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vrepeat_node.h"
+#include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/sink/vresult_sink.h"
@@ -298,6 +300,12 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::MYSQL_SCAN_NODE: {
         OperatorBuilderPtr operator_t =
                 std::make_shared<MysqlScanOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::SCHEMA_SCAN_NODE: {
+        OperatorBuilderPtr operator_t = std::make_shared<SchemaScanOperatorBuilder>(
+                fragment_context->next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
