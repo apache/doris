@@ -231,7 +231,7 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    bool is_inited() { return _is_inited; }
+    bool is_inited() const { return _is_inited; }
 
 private:
     // Don't allow constructor
