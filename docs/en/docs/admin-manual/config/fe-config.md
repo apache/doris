@@ -520,7 +520,7 @@ MasterOnly：true
    3. After the decommission operation is completed, the BE will not be dropped. At this time, cancel the decommission status of the BE. Then the data will start to balance from other BE nodes back to this node. At this time, the data will be evenly distributed to all disks of the BE.
    4. Perform steps 2 and 3 for all BE nodes in sequence, and finally achieve the purpose of disk balancing for all nodes
 
-#### max_backend_down_time_second
+#### `max_backend_down_time_second`
 
 Default：3600  （1 hours）
 
@@ -909,7 +909,7 @@ IsMutable：true
 
 Limit on the depth of an expr tree.  Exceed this limit may cause long analysis time while holding db read lock.  Do not set this if you know what you are doing
 
-#### expr_children_limit
+#### `expr_children_limit`
 
 Default：10000
 
@@ -1292,7 +1292,7 @@ Min stream load timeout applicable to all type of load
 
 #### `max_stream_load_timeout_second`
 
-Default：259200 （3天）
+Default：259200 （3 day）
 
 IsMutable：true
 
@@ -1302,7 +1302,7 @@ This configuration is specifically used to limit timeout setting for stream load
 
 #### `max_load_timeout_second`
 
-Default：259200 （3天）
+Default：259200 （3 day）
 
 IsMutable：true
 
@@ -1312,7 +1312,7 @@ Max load timeout applicable to all type of load except for stream load
 
 #### `stream_load_default_timeout_second`
 
-Default：600（s）
+Default：86400 * 3 （3 day）
 
 IsMutable：true
 
@@ -2185,7 +2185,7 @@ Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
 #### `alter_table_timeout_second`
 
-Default：86400   （1 day）
+Default：86400 * 30（1 month）
 
 IsMutable：true
 
