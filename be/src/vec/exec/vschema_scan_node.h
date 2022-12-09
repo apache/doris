@@ -36,7 +36,6 @@ class VSchemaScanNode : public ScanNode {
 public:
     VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VSchemaScanNode();
-
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
         return Status::NotSupported("Not Implemented VSchemaScanNode Node::get_next scalar");
