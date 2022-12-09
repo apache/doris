@@ -757,7 +757,8 @@ public:
             return Status::OK();
         }
 
-        block.get_by_position(result).column = make_nullable(block.get_by_position(arguments[pos]).column);
+        block.get_by_position(result).column =
+                make_nullable(block.get_by_position(arguments[pos]).column);
         return Status::OK();
     }
 };
