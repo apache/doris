@@ -60,6 +60,7 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -226,8 +227,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    ctx->db = req->param(HTTP_DB_KEY);
-    ctx->table = req->param(HTTP_TABLE_KEY);
+    url_decode(req->param(HTTP_DB_KEY), &ctx->db);
+    url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
     if (ctx->label.empty()) {
         ctx->label = generate_uuid_string();
