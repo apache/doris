@@ -33,7 +33,7 @@ under the License.
 
 Returns the specified partition by splitting the string according to the delimiter. If field is positive, splitting and counting from the beginning of content, otherwise from the ending.
 
-`field` should be constant.
+`delimiter` and `field` parameter should be constant.
 
 ### example
 

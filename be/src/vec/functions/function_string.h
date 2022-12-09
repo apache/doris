@@ -1251,37 +1251,36 @@ public:
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
 
-        size_t argument_size = arguments.size();
-        ColumnPtr argument_columns[argument_size];
+        ColumnPtr content_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
 
-        for (size_t i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
+            // Danger: Here must dispose the null map data first! Because
+            // argument_columns[0]=nullable->get_nested_column_ptr(); will release the mem
+            // of column nullable mem of null map
+            VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
+            content_column = nullable->get_nested_column_ptr();
+        }
 
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                // Danger: Here must dispose the null map data first! Because
-                // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
-                // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
-                argument_columns[i] = nullable->get_nested_column_ptr();
+        for (size_t i = 1; i <= 2; i++) {
+            ColumnPtr columnPtr = remove_nullable(block.get_by_position(arguments[i]).column);
+
+            if (!is_column_const(*columnPtr)) {
+                return Status::RuntimeError("Argument at index {} for function {} must be constant",
+                                            i + 1, get_name());
             }
         }
 
-        ColumnPtr argument_column = block.get_by_position(arguments[2]).column;
-        ColumnPtr columnPtr = remove_nullable(argument_column);
+        auto str_col = assert_cast<const ColumnString*>(content_column.get());
 
-        if (!is_column_const(*columnPtr)) {
-            return Status::RuntimeError("Argument at index 3 for function {} must be constant",
-                                        get_name());
-        }
+        const IColumn& delimiter_col = *block.get_by_position(arguments[1]).column;
+        const auto* delimiter_const = typeid_cast<const ColumnConst*>(&delimiter_col);
+        auto delimiter = delimiter_const->get_field().get<String>();
+        int32_t delimiter_size = delimiter.size();
 
-        auto str_col = assert_cast<const ColumnString*>(argument_columns[0].get());
-        auto delimiter_col = assert_cast<const ColumnString*>(argument_columns[1].get());
-        auto part_num_col = assert_cast<const ColumnInt32*>(argument_columns[2].get());
-        auto& part_num_col_data = part_num_col->get_data();
-
-        auto part_number = part_num_col_data[0];
+        const IColumn& part_num_col = *block.get_by_position(arguments[2]).column;
+        const auto* part_num_col_const = typeid_cast<const ColumnConst*>(&part_num_col);
+        auto part_number = part_num_col_const->get_field().get<Int32>();
 
         if (part_number >= 0) {
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -1289,13 +1288,11 @@ public:
                     StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
                     continue;
                 }
-                auto delimiter = delimiter_col->get_data_at(i);
-                auto delimiter_str = delimiter_col->get_data_at(i).to_string();
 
                 auto str = str_col->get_data_at(i);
-                if (delimiter.size == 0) {
+                if (delimiter_size == 0) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
-                } else if (delimiter.size == 1) {
+                } else if (delimiter_size == 1) {
                     // If delimiter is a char, use memchr to split
                     int32_t pre_offset = -1;
                     int32_t offset = -1;
@@ -1304,7 +1301,7 @@ public:
                         pre_offset = offset;
                         size_t n = str.size - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
-                                memchr(str.data + offset + 1, delimiter_str[0], n));
+                                memchr(str.data + offset + 1, delimiter[0], n));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             num++;
@@ -1326,15 +1323,15 @@ public:
                     }
                 } else {
                     // If delimiter is a string, use memmem to split
-                    int32_t pre_offset = -delimiter.size;
-                    int32_t offset = -delimiter.size;
+                    int32_t pre_offset = -delimiter_size;
+                    int32_t offset = pre_offset;
                     int32_t num = 0;
                     while (num < part_number) {
                         pre_offset = offset;
-                        size_t n = str.size - offset - delimiter.size;
-                        char* pos =
-                                reinterpret_cast<char*>(memmem(str.data + offset + delimiter.size,
-                                                               n, delimiter.data, delimiter.size));
+                        size_t n = str.size - offset - delimiter_size;
+                        char* pos = reinterpret_cast<char*>(
+                                memmem(str.data + offset + delimiter_size, n, delimiter.c_str(),
+                                       delimiter_size));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             num++;
@@ -1348,8 +1345,8 @@ public:
                     if (num == part_number) {
                         StringOP::push_value_string(
                                 std::string_view {reinterpret_cast<const char*>(
-                                                          str.data + pre_offset + delimiter.size),
-                                                  (size_t)offset - pre_offset - delimiter.size},
+                                                          str.data + pre_offset + delimiter_size),
+                                                  (size_t)offset - pre_offset - delimiter_size},
                                 i, res_chars, res_offsets);
                     } else {
                         StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
@@ -1359,19 +1356,17 @@ public:
         } else {
             part_number = -part_number;
             for (size_t i = 0; i < input_rows_count; ++i) {
-                auto delimiter_str = delimiter_col->get_data_at(i).to_string();
-
-                auto str = str_col->get_data_at(i);
-                auto str_str = str.to_string();
-                if (delimiter_str.size() == 0) {
+                if (delimiter_size == 0) {
                     StringOP::push_empty_string(i, res_chars, res_offsets);
                 } else {
+                    auto str = str_col->get_data_at(i);
+                    auto str_str = str.to_string();
                     int32_t offset = str.size;
                     int32_t pre_offset = offset;
                     int32_t num = 0;
                     auto substr = str_str;
                     while (num <= part_number && offset >= 0) {
-                        offset = (int)substr.rfind(delimiter_str, offset);
+                        offset = (int)substr.rfind(delimiter, offset);
                         if (offset != -1) {
                             if (++num == part_number) {
                                 break;
@@ -1394,8 +1389,8 @@ public:
                         } else {
                             StringOP::push_value_string(
                                     std::string_view {str_str.substr(
-                                            offset + delimiter_str.size(),
-                                            (size_t)pre_offset - offset - delimiter_str.size())},
+                                            offset + delimiter_size,
+                                            (size_t)pre_offset - offset - delimiter_size)},
                                     i, res_chars, res_offsets);
                         }
                     } else {
