@@ -695,5 +695,7 @@ Status ArrayColumnWriter::finish_current_page() {
     return Status::NotSupported("array writer has no data, can not finish_current_page");
 }
 
+
+
 } // namespace segment_v2
 } // namespace doris
