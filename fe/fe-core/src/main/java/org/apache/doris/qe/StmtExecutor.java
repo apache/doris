@@ -1107,13 +1107,13 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         // handle select .. from xx  limit 0
-        if(parsedStmt instanceof SelectStmt){
+        if (parsedStmt instanceof SelectStmt) {
             SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
-            if(parsedSelectStmt.getLimit() == 0){
+            if (parsedSelectStmt.getLimit() == 0) {
                 LOG.info("ignore handle limit 0 ,sql:{}", parsedSelectStmt.toSql());
                 sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
                 context.getState().setEof();
-                return ;
+                return;
             }
         }
 
