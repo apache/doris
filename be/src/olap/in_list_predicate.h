@@ -114,7 +114,8 @@ public:
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        using HybridSetType = std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type>>;
+        using HybridSetType =
+                std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type, true>>;
 
         CHECK(hybrid_set != nullptr);
 
