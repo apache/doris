@@ -38,7 +38,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
         pool.executeTask(executor);
         executor.getFuture().get();
-        Assertions.assertEquals(TaskState.SUCCESS, executor.getTask().getState());
+        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
     }
 
 
@@ -67,7 +67,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
         pool.executeTask(executor);
         executor.getFuture().get();
-        Assertions.assertEquals(TaskState.SUCCESS, executor.getTask().getState());
+        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
     }
 
     @Test
