@@ -46,6 +46,7 @@ public:
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     bool need_more_input_data();
+    void prepare_for_next() {}
 
 protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;

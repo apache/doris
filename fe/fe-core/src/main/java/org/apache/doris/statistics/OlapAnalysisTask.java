@@ -62,6 +62,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
+        params.put("idxId", "-1");
         params.put("colId", String.valueOf(info.colName));
         params.put("dataSizeFunction", getDataSizeFunction(col));
         params.put("dbName", info.dbName);
@@ -90,7 +91,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
         execSQL(sql);
-        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), col.getName());
+        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
     }
 
     @VisibleForTesting

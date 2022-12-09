@@ -113,6 +113,9 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
 
 template <PrimitiveType type>
+constexpr PrimitiveType PredicateEvaluateType = is_string_type(type) ? TYPE_STRING : type;
+
+template <PrimitiveType type>
 struct PrimitiveTypeTraits;
 
 template <>

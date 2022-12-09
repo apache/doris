@@ -37,8 +37,6 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
-// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
-sf1DataPath = "https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
@@ -119,6 +117,6 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+s3Endpoint = "cos.ap-hongkong.myqcloud.com/regression"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"

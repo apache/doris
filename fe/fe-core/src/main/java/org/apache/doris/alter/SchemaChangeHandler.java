@@ -492,9 +492,8 @@ public class SchemaChangeHandler extends AlterHandler {
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("Can not assign aggregation method on key column: " + modColumn.getName());
-            } else if (null == modColumn.getAggregationType()) {
-                // in aggregate key table, no aggregation method indicate key column
-                modColumn.setIsKey(true);
+            } else if (!modColumn.isKey() && null == modColumn.getAggregationType()) {
+                throw new DdlException("Aggregate method must be specified for value column: " + modColumn.getName());
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             if (null != modColumn.getAggregationType()) {

@@ -156,12 +156,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     }
 
     @Override
-    public void convertToVectoriezd() {
+    public void convertToVectorized() {
         if (!joinConjuncts.isEmpty()) {
             vJoinConjunct = convertConjunctsToAndCompoundPredicate(joinConjuncts);
             initCompoundPredicate(vJoinConjunct);
         }
-        super.convertToVectoriezd();
+        super.convertToVectorized();
     }
 
     @Override

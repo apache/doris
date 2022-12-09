@@ -54,7 +54,7 @@ public class MVStatisticsTest extends TestWithFeService {
     public void testCreate() throws Exception {
         new Expectations() {
             {
-                statisticsCache.refreshSync(anyLong, anyString);
+                statisticsCache.refreshSync(anyLong, anyLong, anyString);
                 times = 5;
             }
         };

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.UserException;
@@ -174,7 +175,7 @@ public class HiveScanNode extends BrokerScanNode {
         if (!isLoad()) {
             output.append(prefix).append("TABLE: ").append(hiveTable.getName()).append("\n");
             output.append(prefix).append("PATH: ")
-                    .append(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS)).append("\n");
+                    .append(hiveTable.getHiveProperties().get(HMSResource.HIVE_METASTORE_URIS)).append("\n");
         }
         return output.toString();
     }

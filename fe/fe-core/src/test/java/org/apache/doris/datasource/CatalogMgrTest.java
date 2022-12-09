@@ -25,6 +25,7 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -36,6 +37,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -167,6 +169,17 @@ public class CatalogMgrTest extends TestWithFeService {
         showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(1, showResultSet.getResultRows().size());
 
+        String alterCatalogNameFailSql = "ALTER CATALOG hms_catalog RENAME hive;";
+        AlterCatalogNameStmt alterNameFailStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameFailSql);
+
+        try {
+            mgr.alterCatalogName(alterNameFailStmt);
+            Assert.fail("Catalog with name hive already exist, rename should be failed");
+        } catch (DdlException e) {
+            Assert.assertEquals(e.getMessage(),
+                    "errCode = 2, detailMessage = Catalog with name hive already exist");
+        }
+
         String alterCatalogNameSql = "ALTER CATALOG hms_catalog RENAME " + MY_CATALOG + ";";
         AlterCatalogNameStmt alterNameStmt = (AlterCatalogNameStmt) parseAndAnalyzeStmt(alterCatalogNameSql);
         mgr.alterCatalogName(alterNameStmt);
@@ -204,6 +217,15 @@ public class CatalogMgrTest extends TestWithFeService {
                 Assertions.assertEquals("nn1,nn2", row.get(1));
             }
         }
+
+        String showCreateCatalog = "SHOW CREATE CATALOG my_catalog";
+        ShowCreateCatalogStmt showCreateStmt = (ShowCreateCatalogStmt) parseAndAnalyzeStmt(showCreateCatalog);
+        showResultSet = mgr.showCreateCatalog(showCreateStmt);
+
+        Assert.assertEquals(1, showResultSet.getResultRows().size());
+        List<String> result = showResultSet.getResultRows().get(0);
+        Assertions.assertEquals("my_catalog", result.get(0));
+        Assertions.assertTrue(result.get(1).startsWith("CREATE CATALOG `my_catalog` PROPERTIES ("));
 
         testCatalogMgrPersist();
 
@@ -341,6 +363,23 @@ public class CatalogMgrTest extends TestWithFeService {
         try {
             env.getCatalogMgr()
                     .showCatalogs((ShowCatalogStmt) parseAndAnalyzeStmt("show catalog iceberg;", user2Ctx));
+            Assert.fail("");
+        } catch (AnalysisException e) {
+            Assert.assertEquals(e.getMessage(),
+                    "errCode = 2, detailMessage = Access denied for user 'default_cluster:user2' to catalog 'iceberg'");
+        }
+
+        //test show create catalog: have permission to hive, have no permission to iceberg;
+        ShowCreateCatalogStmt user2ShowCreateHive = (ShowCreateCatalogStmt) parseAndAnalyzeStmt(
+                "show create catalog hive;", user2Ctx);
+        List<List<String>> user2ShowCreateHiveResult = env.getCatalogMgr().showCreateCatalog(user2ShowCreateHive)
+                .getResultRows();
+        Assert.assertTrue(
+                user2ShowCreateHiveResult.stream().map(l -> l.get(0)).anyMatch(c -> c.equals("hive")));
+        try {
+            env.getCatalogMgr()
+                    .showCreateCatalog(
+                            (ShowCreateCatalogStmt) parseAndAnalyzeStmt("show create catalog iceberg;", user2Ctx));
             Assert.fail("");
         } catch (AnalysisException e) {
             Assert.assertEquals(e.getMessage(),

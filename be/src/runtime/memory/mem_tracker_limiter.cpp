@@ -20,13 +20,14 @@
 #include <fmt/format.h>
 
 #include <boost/stacktrace.hpp>
+#include <queue>
 
 #include "gutil/once.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/pretty_printer.h"
 #include "util/stack_util.h"
-#include "util/string_util.h"
 
 namespace doris {
 
@@ -240,42 +241,129 @@ Status MemTrackerLimiter::fragment_mem_limit_exceeded(RuntimeState* state, const
     return Status::MemoryLimitExceeded(failed_msg);
 }
 
-// TODO(zxy) More observable methods
-// /// Logs the usage of 'limit' number of queries based on maximum total memory
-// /// consumption.
-// std::string MemTracker::LogTopNQueries(int limit) {
-//     if (limit == 0) return "";
-//     priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
-//                    std::greater<pair<int64_t, string>>>
-//             min_pq;
-//     GetTopNQueries(min_pq, limit);
-//     std::vector<string> usage_strings(min_pq.size());
-//     while (!min_pq.empty()) {
-//         usage_strings.push_back(min_pq.top().second);
-//         min_pq.pop();
-//     }
-//     std::reverse(usage_strings.begin(), usage_strings.end());
-//     return join(usage_strings, "\n");
-// }
+int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem) {
+    std::priority_queue<std::pair<int64_t, std::string>,
+                        std::vector<std::pair<int64_t, std::string>>,
+                        std::greater<std::pair<int64_t, std::string>>>
+            min_pq;
+    // After greater than min_free_mem, will not be modified.
+    int64_t prepare_free_mem = 0;
 
-// /// Helper function for LogTopNQueries that iterates through the MemTracker hierarchy
-// /// and populates 'min_pq' with 'limit' number of elements (that contain state related
-// /// to query MemTrackers) based on maximum total memory consumption.
-// void MemTracker::GetTopNQueries(
-//         priority_queue<pair<int64_t, string>, std::vector<pair<int64_t, string>>,
-//                        greater<pair<int64_t, string>>>& min_pq,
-//         int limit) {
-//     list<weak_ptr<MemTracker>> children;
-//     {
-//         lock_guard<SpinLock> l(child_trackers_lock_);
-//         children = child_trackers_;
-//     }
-//     for (const auto& child_weak : children) {
-//         shared_ptr<MemTracker> child = child_weak.lock();
-//         if (child) {
-//             child->GetTopNQueries(min_pq, limit);
-//         }
-//     }
-// }
+    auto cancel_top_query = [&](auto min_pq) -> int64_t {
+        std::vector<std::string> usage_strings;
+        int64_t freed_mem = 0;
+        while (!min_pq.empty()) {
+            TUniqueId cancelled_queryid = label_to_queryid(min_pq.top().second);
+            ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                    cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
+                    fmt::format("Process has no memory available, cancel top memory usage query: "
+                                "query memory tracker <{}> consumption {}, backend {} "
+                                "process memory used {} exceed limit {} or sys mem available {} "
+                                "less than low water mark {}. Execute again after enough memory, "
+                                "details see be.INFO.",
+                                min_pq.top().second, print_bytes(min_pq.top().first),
+                                BackendOptions::get_localhost(), PerfCounters::get_vm_rss_str(),
+                                MemInfo::mem_limit_str(), MemInfo::sys_mem_available_str(),
+                                print_bytes(MemInfo::sys_mem_available_low_water_mark())));
+
+            freed_mem += min_pq.top().first;
+            usage_strings.push_back(fmt::format("{} memory usage {} Bytes", min_pq.top().second,
+                                                min_pq.top().first));
+            min_pq.pop();
+        }
+        if (!usage_strings.empty()) {
+            LOG(INFO) << "Process GC Free Top Memory Usage Query: " << join(usage_strings, ",");
+        }
+        return freed_mem;
+    };
+
+    for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
+        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
+        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
+            if (tracker->type() == Type::QUERY) {
+                if (tracker->consumption() > min_free_mem) {
+                    std::priority_queue<std::pair<int64_t, std::string>,
+                                        std::vector<std::pair<int64_t, std::string>>,
+                                        std::greater<std::pair<int64_t, std::string>>>
+                            min_pq_null;
+                    std::swap(min_pq, min_pq_null);
+                    min_pq.push(
+                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    return cancel_top_query(min_pq);
+                } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
+                    min_pq.push(
+                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    prepare_free_mem += tracker->consumption();
+                } else if (tracker->consumption() > min_pq.top().first) {
+                    // No need to modify prepare_free_mem, prepare_free_mem will always be greater than min_free_mem.
+                    min_pq.push(
+                            pair<int64_t, std::string>(tracker->consumption(), tracker->label()));
+                    min_pq.pop();
+                }
+            }
+        }
+    }
+    return cancel_top_query(min_pq);
+}
+
+int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem) {
+    std::priority_queue<std::pair<int64_t, std::string>,
+                        std::vector<std::pair<int64_t, std::string>>,
+                        std::greater<std::pair<int64_t, std::string>>>
+            min_pq;
+    std::unordered_map<std::string, int64_t> query_consumption;
+
+    for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
+        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
+        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
+            if (tracker->type() == Type::QUERY) {
+                int64_t overcommit_ratio =
+                        (static_cast<double>(tracker->consumption()) / tracker->limit()) * 10000;
+                if (overcommit_ratio == 0) { // Small query does not cancel
+                    continue;
+                }
+                min_pq.push(pair<int64_t, std::string>(overcommit_ratio, tracker->label()));
+                query_consumption[tracker->label()] = tracker->consumption();
+            }
+        }
+    }
+
+    std::priority_queue<std::pair<int64_t, std::string>> max_pq;
+    // Min-heap to Max-heap.
+    while (!min_pq.empty()) {
+        max_pq.push(min_pq.top());
+        min_pq.pop();
+    }
+
+    std::vector<std::string> usage_strings;
+    int64_t freed_mem = 0;
+    while (!max_pq.empty()) {
+        TUniqueId cancelled_queryid = label_to_queryid(max_pq.top().second);
+        int64_t query_mem = query_consumption[max_pq.top().second];
+        ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+                cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
+                fmt::format("Process has no memory available, cancel top memory usage query: "
+                            "query memory tracker <{}> consumption {}, backend {} "
+                            "process memory used {} exceed limit {} or sys mem available {} "
+                            "less than low water mark {}. Execute again after enough memory, "
+                            "details see be.INFO.",
+                            max_pq.top().second, print_bytes(query_mem),
+                            BackendOptions::get_localhost(), PerfCounters::get_vm_rss_str(),
+                            MemInfo::mem_limit_str(), MemInfo::sys_mem_available_str(),
+                            print_bytes(MemInfo::sys_mem_available_low_water_mark())));
+
+        usage_strings.push_back(fmt::format("{} memory usage {} Bytes, overcommit ratio: {}",
+                                            max_pq.top().second, query_mem, max_pq.top().first));
+        freed_mem += query_mem;
+        if (freed_mem > min_free_mem) {
+            break;
+        }
+        max_pq.pop();
+    }
+    if (!usage_strings.empty()) {
+        LOG(INFO) << "Process GC Free Top Memory Overcommit Query: " << join(usage_strings, ",");
+    }
+    return freed_mem;
+}
 
 } // namespace doris

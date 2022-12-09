@@ -117,31 +117,46 @@ PROPERTIES ("key"="value", ...);
    CREATE RESOURCE "remote_s3"
    PROPERTIES
    (
-   	"type" = "s3",
-   	"s3_endpoint" = "bj.s3.com",
-   	"s3_region" = "bj",
-   	"s3_root_path" = "/path/to/root",
-   	"s3_access_key" = "bbb",
-   	"s3_secret_key" = "aaaa",
-    "s3_bucket" = "test-bucket",
-   	"s3_max_connections" = "50",
-   	"s3_request_timeout_ms" = "3000",
-   	"s3_connection_timeout_ms" = "1000"
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- the followings are optional
+      "AWS_MAX_CONNECTIONS" = "50",
+      "AWS_REQUEST_TIMEOUT_MS" = "3000",
+      "AWS_CONNECTION_TIMEOUT_MS" = "1000"
+   );
+   ```
+
+   如果 s3 reource 在[冷热分离](../../../../../docs/advanced/cold_hot_separation.md)中使用，需要添加额外的字段。
+   ```sql
+   CREATE RESOURCE "remote_s3"
+   PROPERTIES
+   (
+      "type" = "s3",
+      "AWS_ENDPOINT" = "bj.s3.com",
+      "AWS_REGION" = "bj",
+      "AWS_ACCESS_KEY" = "bbb",
+      "AWS_SECRET_KEY" = "aaaa",
+      -- required by cooldown
+      "AWS_ROOT_PATH" = "/path/to/root",
+      "AWS_BUCKET" = "test-bucket"
    );
    ```
 
    S3 相关参数如下：
    - 必需参数
-       - `s3_endpoint`：s3 endpoint
-       - `s3_region`：s3 region
-       - `s3_root_path`：s3 根目录
-       - `s3_access_key`：s3 access key
-       - `s3_secret_key`：s3 secret key
-       - `s3_bucket`：s3 的桶名
+       - `AWS_ENDPOINT`：s3 endpoint
+       - `AWS_REGION`：s3 region
+       - `AWS_ROOT_PATH`：s3 根目录
+       - `AWS_ACCESS_KEY`：s3 access key
+       - `AWS_SECRET_KEY`：s3 secret key
+       - `AWS_BUCKET`：s3 的桶名
    - 可选参数
-       - `s3_max_connections`：s3 最大连接数量，默认为 50
-       - `s3_request_timeout_ms`：s3 请求超时时间，单位毫秒，默认为 3000
-       - `s3_connection_timeout_ms`：s3 连接超时时间，单位毫秒，默认为 1000
+       - `AWS_MAX_CONNECTIONS`：s3 最大连接数量，默认为 50
+       - `AWS_REQUEST_TIMEOUT_MS`：s3 请求超时时间，单位毫秒，默认为 3000
+       - `AWS_CONNECTION_TIMEOUT_MS`：s3 连接超时时间，单位毫秒，默认为 1000
 
 ### Keywords
 
