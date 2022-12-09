@@ -43,6 +43,9 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "tableId")
     private long tableId;
 
+    @SerializedName(value = "invalidCache")
+    private boolean invalidCache;
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));

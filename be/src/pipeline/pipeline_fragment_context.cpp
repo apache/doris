@@ -27,17 +27,27 @@
 #include "exec/empty_set_operator.h"
 #include "exec/exchange_sink_operator.h"
 #include "exec/exchange_source_operator.h"
+#include "exec/hashjoin_build_sink.h"
+#include "exec/hashjoin_probe_operator.h"
+#include "exec/mysql_scan_operator.h"
 #include "exec/repeat_operator.h"
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
 #include "exec/scan_operator.h"
+#include "exec/schema_scan_operator.h"
+#include "exec/set_probe_sink_operator.h"
+#include "exec/set_sink_operator.h"
+#include "exec/set_source_operator.h"
 #include "exec/sort_sink_operator.h"
 #include "exec/sort_source_operator.h"
 #include "exec/streaming_aggregation_sink_operator.h"
 #include "exec/streaming_aggregation_source_operator.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
+#include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
 #include "pipeline_task.h"
 #include "runtime/client_cache.h"
@@ -45,13 +55,17 @@
 #include "runtime/runtime_state.h"
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
+#include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/exec/vrepeat_node.h"
+#include "vec/exec/vschema_scan_node.h"
+#include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
+#include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -286,6 +300,18 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
+    case TPlanNodeType::MYSQL_SCAN_NODE: {
+        OperatorBuilderPtr operator_t =
+                std::make_shared<MysqlScanOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::SCHEMA_SCAN_NODE: {
+        OperatorBuilderPtr operator_t = std::make_shared<SchemaScanOperatorBuilder>(
+                fragment_context->next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
     case TPlanNodeType::EXCHANGE_NODE: {
         OperatorBuilderPtr operator_t =
                 std::make_shared<ExchangeSourceOperatorBuilder>(next_operator_builder_id(), node);
@@ -302,6 +328,19 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr operator_t =
                 std::make_shared<DataGenOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
+    case TPlanNodeType::UNION_NODE: {
+        auto* union_node = assert_cast<vectorized::VUnionNode*>(node);
+        if (union_node->children_count() == 0) {
+            OperatorBuilderPtr builder =
+                    std::make_shared<ConstValueOperatorBuilder>(next_operator_builder_id(), node);
+            RETURN_IF_ERROR(cur_pipe->add_operator(builder));
+        } else {
+            return Status::InternalError(
+                    "Unsupported exec type in pipeline: {}, later will be support.",
+                    print_plan_node_type(node_type));
+        }
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
@@ -348,6 +387,13 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(cur_pipe->add_operator(builder));
         break;
     }
+    case TPlanNodeType::ASSERT_NUM_ROWS_NODE: {
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+        OperatorBuilderPtr builder =
+                std::make_shared<AssertNumRowsOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(builder));
+        break;
+    }
     case TPlanNodeType::TABLE_FUNCTION_NODE: {
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr builder =
@@ -355,11 +401,58 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(cur_pipe->add_operator(builder));
         break;
     }
+    case TPlanNodeType::HASH_JOIN_NODE: {
+        auto* join_node = assert_cast<vectorized::HashJoinNode*>(node);
+        auto new_pipe = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        OperatorBuilderPtr join_sink =
+                std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
+        RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+        OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
+                next_operator_builder_id(), join_node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
+
+        cur_pipe->add_dependency(new_pipe);
+        break;
+    }
+    case TPlanNodeType::INTERSECT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(node, cur_pipe));
+        break;
+    }
+    case TPlanNodeType::EXCEPT_NODE: {
+        RETURN_IF_ERROR(_build_operators_for_set_operation_node<false>(node, cur_pipe));
+        break;
+    }
     default:
         return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(node_type));
     }
     return Status::OK();
+}
+
+template <bool is_intersect>
+Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode* node,
+                                                                        PipelinePtr cur_pipe) {
+    auto build_pipeline = add_pipeline();
+    RETURN_IF_ERROR(_build_pipelines(node->child(0), build_pipeline));
+    OperatorBuilderPtr sink_builder = std::make_shared<SetSinkOperatorBuilder<is_intersect>>(
+            next_operator_builder_id(), node);
+    RETURN_IF_ERROR(build_pipeline->set_sink(sink_builder));
+
+    for (int child_id = 1; child_id < node->children_count(); ++child_id) {
+        auto probe_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(child_id), probe_pipeline));
+        OperatorBuilderPtr probe_sink_builder =
+                std::make_shared<SetProbeSinkOperatorBuilder<is_intersect>>(
+                        next_operator_builder_id(), child_id, node);
+        RETURN_IF_ERROR(probe_pipeline->set_sink(probe_sink_builder));
+    }
+
+    OperatorBuilderPtr source_builder = std::make_shared<SetSourceOperatorBuilder<is_intersect>>(
+            next_operator_builder_id(), node);
+    return cur_pipe->add_operator(source_builder);
 }
 
 Status PipelineFragmentContext::submit() {

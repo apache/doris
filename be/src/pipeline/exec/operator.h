@@ -24,6 +24,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/exec/vdata_gen_scan_node.h"
+#include "vec/exec/vmysql_scan_node.h"
 
 #define OPERATOR_CODE_GENERATOR(NAME, SUBCLASS)                                                 \
     NAME##Builder::NAME##Builder(int32_t id, ExecNode* exec_node)                               \
@@ -36,19 +37,33 @@
 
 namespace doris::pipeline {
 
-// Result of source pull data, init state is DEPEND_ON_SOURCE
+/**
+ * State of source operator.
+ *                      |------> MORE_DATA ------|
+ *                      |         ^    |         |
+ * DEPEND_ON_SOURCE ----|         |----|         |----> FINISHED
+ *    ^       |         |------------------------|
+ *    |-------|
+ */
 enum class SourceState : uint8_t {
-    DEPEND_ON_SOURCE = 0, // Operator has no more data in itself, needs to read from source.
-    MORE_DATA = 1,        // Still have data can read
+    DEPEND_ON_SOURCE = 0, // Need more data from source.
+    MORE_DATA = 1,        // Has more data to output. (e.g. RepeatNode)
     FINISHED = 2
 };
 
+/**
+ * State of sink operator.
+ *                     |------> SINK_BUSY ------|
+ *                     |         ^    |         |
+ *   SINK_IDLE --------|         |----|         |----> FINISHED
+ *   ^       |         |------------------------|
+ *   |-------|
+ */
 enum class SinkState : uint8_t {
-    SINK_IDLE = 0, // can send block to sink
-    SINK_BUSY = 1, // sink buffer is full， should wait sink to send some block
+    SINK_IDLE = 0, // Can send block to sink.
+    SINK_BUSY = 1, // Sink buffer is full, sink operator is blocked until buffer is freed.
     FINISHED = 2
 };
-////////////////       DO NOT USE THE UP State     ////////////////
 
 class OperatorBuilderBase;
 class OperatorBase;
@@ -70,10 +85,8 @@ public:
     virtual bool is_sink() const { return false; }
     virtual bool is_source() const { return false; }
 
-    // create the object used by all operator
     virtual Status prepare(RuntimeState* state);
 
-    // destory the object used by all operator
     virtual void close(RuntimeState* state);
 
     std::string get_name() const { return _name; }
@@ -131,32 +144,30 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    // After both sink and source need to know the cancel state.
-    // do cancel work
     bool is_sink() const;
 
     bool is_source() const;
 
-    // Only result sink and data stream sink need to impl the virtual function
     virtual Status init(const TDataSink& tsink) { return Status::OK(); };
 
-    // Do prepare some state of Operator
+    // Prepare for running. (e.g. resource allocation, etc.)
     virtual Status prepare(RuntimeState* state) = 0;
 
-    // Like ExecNode，when pipeline task first time be scheduled， can't block
-    // the pipeline should be open after dependencies is finish
-    // Eg a -> c, b-> c, after a, b pipeline finish, c pipeline should call open
-    // Now the pipeline only have one task, so the there is no performance bottleneck for the mechanism，
-    // but if one pipeline have multi task to parallel work, need to rethink the logic
-    //
-    // Each operator should call alloc_resource() to prepare resource to do data compute.
-    // if ExecNode split to sink and source operator, alloc_resource() should be called in sink operator
+    /**
+     * Allocate resources needed by this operator.
+     *
+     * This is called when current pipeline is scheduled first time.
+     * e.g. If we got three pipeline and dependencies are A -> B, B-> C, all operators' `open`
+     * method in pipeline C will be called once pipeline A and B finished.
+     *
+     * Now we have only one task per pipeline, so it has no problem，
+     * But if one pipeline have multi task running in parallel, we need to rethink this logic.
+     */
     virtual Status open(RuntimeState* state) = 0;
 
-    // Release the resource, should not block the thread
-    //
-    // Each operator should call close_self() to release resource
-    // if ExecNode split to sink and source operator, close_self() should be called in source operator
+    /**
+     * Release all resources once this operator done its work.
+     */
     virtual Status close(RuntimeState* state) = 0;
 
     Status set_child(OperatorPtr child) {
@@ -171,13 +182,19 @@ public:
 
     virtual bool can_write() { return false; } // for sink
 
-    // for pipeline
+    /**
+     * The main method to execute a pipeline task.
+     * Now it is a pull-based pipeline and operators pull data from its child by this method.
+     */
     virtual Status get_block(RuntimeState* runtime_state, vectorized::Block* block,
                              SourceState& result_state) {
         return Status::OK();
     };
 
-    // return can write continue
+    /**
+     * Push data to the sink operator.
+     * Data in this block will be sent by RPC or written to somewhere finally.
+     */
     virtual Status sink(RuntimeState* state, vectorized::Block* block,
                         SourceState source_state) = 0;
 
@@ -187,14 +204,15 @@ public:
         return Status::NotSupported(error_msg.str());
     }
 
-    // close be called
-    // - Source: scan thread do not exist
-    // - Sink: RPC do not be disposed
-    // - else return false
+    /**
+     * pending_finish means we have called `close` and there are still some work to do before finishing.
+     * Now it is a pull-based pipeline and operators pull data from its child by this method.
+     *
+     * For source operator, it is pending_finish iff scan threads have not been released yet
+     * For sink operator, it is pending_finish iff RPC resources have not been released yet
+     * Otherwise, it will return false.
+     */
     virtual bool is_pending_finish() const { return false; }
-
-    // TODO: should we keep the function
-    // virtual bool is_finished() = 0;
 
     bool is_closed() const { return _is_closed; }
 
@@ -211,8 +229,6 @@ protected:
     std::unique_ptr<MemTracker> _mem_tracker;
 
     OperatorBuilderBase* _operator_builder;
-    // source has no child
-    // if an operator is not source, it will get data from its child.
     OperatorPtr _child;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
@@ -223,6 +239,11 @@ private:
     bool _is_closed = false;
 };
 
+/**
+ * All operators inherited from DataSinkOperator will hold a SinkNode inside. Namely, it is a one-to-one relation between DataSinkOperator and DataSink.
+ *
+ * It should be mentioned that, not all SinkOperators are inherited from this (e.g. SortSinkOperator which holds a sort node inside instead of a DataSink).
+ */
 template <typename OperatorBuilderType>
 class DataSinkOperator : public OperatorBase {
 public:
@@ -251,9 +272,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
-        if (!UNLIKELY(in_block)) {
-            DCHECK(source_state == SourceState::FINISHED)
-                    << "block is null, eos should invoke in finalize.";
+        if (UNLIKELY(!in_block || in_block->rows() == 0)) {
             return Status::OK();
         }
         return _sink->send(state, in_block, source_state == SourceState::FINISHED);
@@ -275,6 +294,9 @@ protected:
     NodeType* _sink;
 };
 
+/**
+ * All operators inherited from Operator will hold a ExecNode inside.
+ */
 template <typename OperatorBuilderType>
 class Operator : public OperatorBase {
 public:
@@ -337,18 +359,26 @@ protected:
     NodeType* _node;
 };
 
+/**
+ * StatefulOperator indicates the operators with some states inside.
+ *
+ * Specifically, we called an operator stateful if an operator can determine its output by itself.
+ * For example, hash join probe operator is a typical StatefulOperator. When it gets a block from probe side, it will hold this block inside (e.g. _child_block).
+ * If there are still remain rows in probe block, we can get output block by calling `get_block` without any data from its child.
+ * In a nutshell, it is a one-to-many relation between input blocks and output blocks for StatefulOperator.
+ */
 template <typename OperatorBuilderType>
-class DataStateOperator : public Operator<OperatorBuilderType> {
+class StatefulOperator : public Operator<OperatorBuilderType> {
 public:
     using NodeType =
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
-    DataStateOperator(OperatorBuilderBase* builder, ExecNode* node)
+    StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : Operator<OperatorBuilderType>(builder, node),
               _child_block(new vectorized::Block),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {};
 
-    virtual ~DataStateOperator() = default;
+    virtual ~StatefulOperator() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
@@ -361,6 +391,7 @@ public:
             if (_child_block->rows() == 0) {
                 return Status::OK();
             }
+            node->prepare_for_next();
             node->push(state, _child_block.get(), source_state == SourceState::FINISHED);
         }
 

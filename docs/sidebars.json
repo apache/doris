@@ -713,6 +713,7 @@
                                     "type": "category",
                                     "label": "Alter",
                                     "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
@@ -858,6 +859,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CATALOGS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CHARSET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",

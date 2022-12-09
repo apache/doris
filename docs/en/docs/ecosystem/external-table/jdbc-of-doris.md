@@ -81,6 +81,10 @@ Parameter Description：
 | **table**        | The table name mapped to the external database when creating the external table in Doris.|
 | **table_type**   | When creating an appearance in Doris, the table comes from that database. for example mysql,postgresql,sqlserver,oracle.|
 
+>**Notice:**
+>
+>If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
+
 ### Query usage
 
 ```

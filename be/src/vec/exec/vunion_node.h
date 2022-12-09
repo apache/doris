@@ -22,17 +22,22 @@
 namespace doris {
 namespace vectorized {
 
-class VUnionNode : public ExecNode {
+class VUnionNode final : public ExecNode {
 public:
     VUnionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
         return Status::NotSupported("Not Implemented get RowBatch in vecorized execution.");
     }
-    virtual Status close(RuntimeState* state);
+    Status close(RuntimeState* state) override;
+
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
+
+    size_t children_count() const { return _children.size(); }
 
 private:
     /// Const exprs materialized by this node. These exprs don't refer to any children.
@@ -102,7 +107,7 @@ private:
                _const_expr_list_idx < _const_expr_lists.size();
     }
 
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
 };
 
 } // namespace vectorized

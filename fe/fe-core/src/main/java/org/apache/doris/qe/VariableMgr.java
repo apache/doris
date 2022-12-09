@@ -144,7 +144,7 @@ public class VariableMgr {
         if (!attr.checker().equals("")) {
             Preconditions.checkArgument(obj instanceof SessionVariable);
             try {
-                SessionVariable.class.getDeclaredMethod(attr.checker()).invoke(obj);
+                SessionVariable.class.getDeclaredMethod(attr.checker(), String.class).invoke(obj, value);
             } catch (Exception e) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
             }
@@ -527,6 +527,7 @@ public class VariableMgr {
 
         // the function name that check the VarAttr before setting it to sessionVariable
         // only support check function: 0 argument and 0 return value, if an error occurs, throw an exception.
+        // the checker function should be: public void checker(String value), value is the input string.
         String checker() default "";
 
         // Set to true if the variables need to be forwarded along with forward statement.

@@ -39,6 +39,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.logical.PruneOlapScanTablet;
+import org.apache.doris.nereids.rules.rewrite.logical.PushAggregateToOlapScan;
 import org.apache.doris.nereids.rules.rewrite.logical.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 
@@ -94,6 +95,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 // to avoid two consecutive same project appear when we do optimization.
                 .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new EliminateUnnecessaryProject())))
+                .add(topDownBatch(ImmutableList.of(new PushAggregateToOlapScan())))
                 // this rule batch must keep at the end of rewrite to do some plan check
                 .add(bottomUpBatch(ImmutableList.of(new CheckAfterRewrite())))
                 .build();

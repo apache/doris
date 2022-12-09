@@ -15,26 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "mysql_scan_operator.h"
 
-#include "vec/exec/vset_operation_node.h"
+#include "vec/exec/vmysql_scan_node.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::pipeline {
 
-class VExceptNode : public VSetOperationNode {
-public:
-    VExceptNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    using VSetOperationNode::get_next;
-    virtual Status get_next(RuntimeState* state, vectorized::Block* output_block, bool* eos);
-    virtual Status close(RuntimeState* state);
+OPERATOR_CODE_GENERATOR(MysqlScanOperator, Operator)
 
-private:
-    template <class HashTableContext, bool is_intersected>
-    friend struct HashTableProbe;
-};
-} // namespace vectorized
-} // namespace doris
+Status MysqlScanOperator::open(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
+    RETURN_IF_ERROR(Operator::open(state));
+    return _node->open(state);
+}
+
+Status MysqlScanOperator::close(RuntimeState* state) {
+    RETURN_IF_ERROR(Operator::close(state));
+    _node->close(state);
+    return Status::OK();
+}
+
+} // namespace doris::pipeline

@@ -38,6 +38,7 @@ public enum JoinType {
     RIGHT_ANTI_JOIN,
     CROSS_JOIN,
     NULL_AWARE_LEFT_ANTI_JOIN,
+    USING_JOIN,
     ;
 
     private static final Map<JoinType, JoinType> joinSwapMap = ImmutableMap

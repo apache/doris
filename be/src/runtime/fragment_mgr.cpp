@@ -18,6 +18,7 @@
 #include "runtime/fragment_mgr.h"
 
 #include <bvar/latency_recorder.h>
+#include <gen_cpp/HeartbeatService_types.h>
 #include <gperftools/profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -469,7 +470,7 @@ FragmentMgr::~FragmentMgr() {
     }
 }
 
-static void empty_function(PlanFragmentExecutor* exec) {}
+static void empty_function(RuntimeState*, Status*) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
@@ -511,7 +512,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     }
 
     // Callback after remove from this id
-    cb(exec_state->executor());
+    auto status = exec_state->executor()->status();
+    cb(exec_state->executor()->runtime_state(), &status);
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
@@ -545,7 +547,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         set_pipe(params.params.fragment_instance_id, pipe);
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
+        return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1,
+                                                          std::placeholders::_2));
     }
 }
 
@@ -669,12 +672,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             fragments_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
                     MemTrackerLimiter::Type::LOAD,
                     fmt::format("Load#Id={}", print_id(fragments_ctx->query_id)), bytes_limit);
-            fragments_ctx->set_ready_to_execute(false);
         } else { // EXTERNAL
             fragments_ctx->query_mem_tracker = std::make_shared<MemTrackerLimiter>(
                     MemTrackerLimiter::Type::LOAD,
                     fmt::format("External#Id={}", print_id(fragments_ctx->query_id)), bytes_limit);
-            fragments_ctx->set_ready_to_execute(false);
         }
         if (params.query_options.__isset.is_report_success &&
             params.query_options.is_report_success) {
@@ -709,42 +710,23 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     int64_t duration_ns = 0;
-    {
-        SCOPED_RAW_TIMER(&duration_ns);
-        RETURN_IF_ERROR(exec_state->prepare(params));
-    }
-    g_fragmentmgr_prepare_latency << (duration_ns / 1000);
-
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    _runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state());
-    exec_state->set_merge_controller_handler(handler);
-
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
-        _cv.notify_all();
-    }
-
-    if (params.query_options.__isset.enable_pipeline_engine &&
-        params.query_options.enable_pipeline_engine) {
-        std::shared_ptr<pipeline::PipelineFragmentContext> context =
-                std::make_shared<pipeline::PipelineFragmentContext>(
-                        fragments_ctx->query_id, fragment_instance_id, params.backend_num,
-                        fragments_ctx, _exec_env);
-        RETURN_IF_ERROR(context->prepare(params));
+    if (!params.query_options.__isset.enable_pipeline_engine ||
+        !params.query_options.enable_pipeline_engine) {
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            RETURN_IF_ERROR(exec_state->prepare(params));
+        }
+        g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+        // TODO: Support runtime filter on pipeline engine
+        std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+        _runtimefilter_controller.add_entity(params, &handler,
+                                             exec_state->executor()->runtime_state());
+        exec_state->set_merge_controller_handler(handler);
         {
             std::lock_guard<std::mutex> lock(_lock);
-            _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
+            _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
             _cv.notify_all();
         }
-        auto st = context->submit();
-        if (!st.ok()) {
-            context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
-            remove_pipeline_context(context);
-            return Status::InternalError("Submit pipeline failed. err = {}, BE: {}",
-                                         st.get_error_msg(), BackendOptions::get_localhost());
-        }
-    } else {
         auto st = _thread_pool->submit_func(
                 [this, exec_state, cb,
                  parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
@@ -763,6 +745,34 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                     "push plan fragment $0 to thread pool failed. err = $1, BE: $2",
                     print_id(params.params.fragment_instance_id), st.get_error_msg(),
                     BackendOptions::get_localhost()));
+        }
+    } else {
+        if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
+            fragments_ctx->set_ready_to_execute_only();
+        }
+
+        std::shared_ptr<pipeline::PipelineFragmentContext> context =
+                std::make_shared<pipeline::PipelineFragmentContext>(
+                        fragments_ctx->query_id, fragment_instance_id, params.backend_num,
+                        fragments_ctx, _exec_env);
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            RETURN_IF_ERROR(context->prepare(params));
+            g_fragmentmgr_prepare_latency << (duration_ns / 1000);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(_lock);
+            _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
+            _cv.notify_all();
+        }
+        auto st = context->submit();
+        cb(context->get_runtime_state(), &st);
+        if (!st.ok()) {
+            context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
+            remove_pipeline_context(context);
+            return Status::InternalError("Submit pipeline failed. err = {}, BE: {}",
+                                         st.get_error_msg(), BackendOptions::get_localhost());
         }
     }
 

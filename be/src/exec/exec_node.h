@@ -242,6 +242,8 @@ public:
 
     ExecNode* child(int i) { return _children[i]; }
 
+    size_t children_count() const { return _children.size(); }
+
 protected:
     friend class DataSink;
 

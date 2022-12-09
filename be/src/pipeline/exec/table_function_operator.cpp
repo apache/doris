@@ -19,6 +19,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(TableFunctionOperator, DataStateOperator)
+OPERATOR_CODE_GENERATOR(TableFunctionOperator, StatefulOperator)
 
 } // namespace doris::pipeline
