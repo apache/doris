@@ -101,7 +101,7 @@ public class PhysicalStorageLayerAggregateTest implements GeneratedPatterns {
         return RulePromise.IMPLEMENT;
     }
 
-        @Test
+    @Test
     public void testWithProject() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
@@ -173,14 +173,14 @@ public class PhysicalStorageLayerAggregateTest implements GeneratedPatterns {
         context = MemoTestUtils.createCascadesContext(aggregate);
 
         PlanChecker.from(context)
-            .applyImplementation(storageLayerAggregateWithProject())
-            .matches(
-                logicalAggregate(
-                    logicalProject(
-                        logicalOlapScan()
+                .applyImplementation(storageLayerAggregateWithProject())
+                .matches(
+                    logicalAggregate(
+                        logicalProject(
+                            logicalOlapScan()
+                        )
                     )
-                )
-            );
+                );
     }
 
     private Rule storageLayerAggregateWithoutProject() {
