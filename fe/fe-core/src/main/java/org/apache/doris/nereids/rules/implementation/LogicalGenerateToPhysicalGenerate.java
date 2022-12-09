@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.analyzer.identifier;
+package org.apache.doris.nereids.rules.implementation;
+
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 
 /**
- * Identifier used for table.
+ * generate impl.
  */
-public class TableIdentifier extends IdentifierWithDatabase {
-    public TableIdentifier(String tableName, String databaseName) {
-        this.identifier = tableName;
-        this.databaseName = databaseName;
-    }
-
-    public TableIdentifier(String tableName) {
-        this.identifier = tableName;
-    }
-
-    public String getTableName() {
-        return identifier;
+public class LogicalGenerateToPhysicalGenerate extends OneImplementationRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalGenerate().then(generate -> new PhysicalGenerate<>(
+                generate.getGenerators(),
+                generate.getGeneratorOutput(),
+                generate.getLogicalProperties(),
+                generate.child())
+        ).toRule(RuleType.LOGICAL_GENERATE_TO_PHYSICAL_GENERATE);
     }
 }

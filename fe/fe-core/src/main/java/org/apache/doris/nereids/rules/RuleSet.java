@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
+import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion
 import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
@@ -92,6 +94,7 @@ public class RuleSet {
             new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),
+            new MergeGenerates(),
             new MergeLimits());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
@@ -112,6 +115,7 @@ public class RuleSet {
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())
+            .add(new LogicalGenerateToPhysicalGenerate())
             .build();
 
     public static final List<Rule> LEFT_DEEP_TREE_JOIN_REORDER = planRuleFactories()

@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -45,7 +44,7 @@ public class ColumnStatistic {
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
     public static final StatsType HISTOGRAM = StatsType.HISTOGRAM;
 
-    private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
     public static ColumnStatistic DEFAULT = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.MAX_VALUE).setMinValue(Double.MIN_VALUE)

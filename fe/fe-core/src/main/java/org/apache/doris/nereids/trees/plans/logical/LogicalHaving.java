@@ -65,7 +65,7 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalHaving((LogicalHaving<Plan>) this, context);
+        return visitor.visitLogicalHaving(this, context);
     }
 
     @Override

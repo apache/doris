@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -149,13 +150,19 @@ public class BindFunction implements AnalysisRuleFactory {
             .collect(Collectors.toList());
     }
 
-    private static class FunctionBinder extends DefaultExpressionRewriter<Env> {
+    /**
+     * function binder
+     */
+    public static class FunctionBinder extends DefaultExpressionRewriter<Env> {
         public static final FunctionBinder INSTANCE = new FunctionBinder();
 
         public <E extends Expression> E bind(E expression, Env env) {
             return (E) expression.accept(this, env);
         }
 
+        /**
+         * bindTableValuedFunction
+         */
         public LogicalTVFRelation bindTableValuedFunction(UnboundTVFRelation unboundTVFRelation,
                 StatementContext statementContext) {
             Env env = statementContext.getConnectContext().getEnv();
@@ -171,6 +178,25 @@ public class BindFunction implements AnalysisRuleFactory {
 
             RelationId relationId = statementContext.getNextRelationId();
             return new LogicalTVFRelation(relationId, (TableValuedFunction) function);
+        }
+
+        /**
+         * bindTableGeneratingFunction
+         */
+        public BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,
+                StatementContext statementContext) {
+            Env env = statementContext.getConnectContext().getEnv();
+            FunctionRegistry functionRegistry = env.getFunctionRegistry();
+
+            String functionName = unboundFunction.getName();
+            FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(
+                    functionName, unboundFunction.getArguments());
+            BoundFunction function = functionBuilder.build(functionName, unboundFunction.getArguments());
+            if (!(function instanceof TableGeneratingFunction)) {
+                throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
+            }
+
+            return function;
         }
 
         @Override

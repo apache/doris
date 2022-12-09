@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindFunction.FunctionBinder;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -41,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -53,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -315,7 +319,31 @@ public class BindSlotReference implements AnalysisRuleFactory {
                     return setOperation.withNewOutputs(newOutputs);
                 })
             ),
+            RuleType.BINDING_GENERATE_SLOT.build(
+              logicalGenerate().when(Plan::canBind).thenApply(ctx -> {
+                  LogicalGenerate<GroupPlan> generate = ctx.root;
+                  List<Function> boundSlotGenerators = bind(generate.getGenerators(), generate.children(),
+                          generate, ctx.cascadesContext);
+                  List<Function> boundFunctionGenerators = boundSlotGenerators.stream()
+                          .map(f -> FunctionBinder.INSTANCE.bindTableGeneratingFunction(
+                                  (UnboundFunction) f, ctx.statementContext))
+                          .collect(Collectors.toList());
+                  ImmutableList.Builder<Slot> slotBuilder = ImmutableList.builder();
+                  for (int i = 0; i < generate.getGeneratorOutput().size(); i++) {
+                      Function generator = boundFunctionGenerators.get(i);
+                      UnboundSlot slot = (UnboundSlot) generate.getGeneratorOutput().get(i);
+                      Preconditions.checkState(slot.getNameParts().size() == 2,
+                              "the size of nameParts of UnboundSlot in LogicalGenerate must be 2.");
+                      Slot boundSlot = new SlotReference(slot.getNameParts().get(1), generator.getDataType(),
+                              generator.nullable(), ImmutableList.of(slot.getNameParts().get(0)));
+                      slotBuilder.add(boundSlot);
+                  }
+                  return new LogicalGenerate<>(boundFunctionGenerators, slotBuilder.build(), generate.child());
+              })
+            ),
 
+            // when child update, we need update current plan's logical properties,
+            // since we use cache to avoid compute more than once.
             RuleType.BINDING_NON_LEAF_LOGICAL_PLAN.build(
                 logicalPlan()
                     .when(plan -> plan.canBind() && !(plan instanceof LeafPlan))
