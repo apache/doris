@@ -225,7 +225,8 @@ Master FE 的 bdbje 同步策略。 如果您只部署一个 Follower FE，请�
 
 是否可以动态配置：true
 
-如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
+如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 
+非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
 
 #### `meta_delay_toleration_second`
 
@@ -379,7 +380,13 @@ Doris FE 通过 mysql 协议查询连接端口
 
 ### `frontend_address`
 
-状态:已弃用，不建议使用。类型:string 描述:显式配置FE的IP地址，不使用*InetAddress。getByName*获取IP地址。通常在*InetAddress中。getByName*当无法获得预期结果时。只支持IP地址，不支持主机名。默认值:0.0.0.0
+状态:已弃用，不建议使用。
+
+类型:string 
+
+描述:显式配置FE的IP地址，不使用*InetAddress。getByName*获取IP地址。通常在*InetAddress中。getByName*当无法获得预期结果时。只支持IP地址，不支持主机名。
+
+默认值:0.0.0.0
 
 #### `priority_networks`
 
@@ -405,7 +412,7 @@ FE http 端口，当前所有 FE http 端口都必须相同
 
 查询请求调度器中的最大线程数。
 
-前的策略是，有请求过来，就为其单独申请一个线程进行服务
+目前的策略是，有请求过来，就为其单独申请一个线程进行服务
 
 #### `check_java_version`
 
@@ -445,7 +452,9 @@ thrift 服务器的 backlog_num 当你扩大这个 backlog_num 时，你应该�
 
 默认值：0
 
-thrift 服务器的连接超时和套接字超时配置 thrift_client_timeout_ms 的默认值设置为零以防止读取超时
+thrift 服务器的连接超时和套接字超时配置 
+
+thrift_client_timeout_ms 的默认值设置为零以防止读取超时
 
 #### `use_compact_thrift_rpc`
 
@@ -563,7 +572,9 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。
 
-该配置目前主要用来解决 `PUBLISH_VERSION` 代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到 BE 存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
+该配置目前主要用来解决 `PUBLISH_VERSION` 代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值。
+
+由于把代理任务提交到代理任务队列和提交到 BE 存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
 
 但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。
 
@@ -667,8 +678,6 @@ http header size 配置参数
 
 导出到 zipkin: http://127.0.0.1:9411/api/v2/spans
 导出到 collector: http://127.0.0.1:4318/v1/traces
-
-如果启用此配置，您还应该指定 trace_export_url。
 
 ### 查询引擎
 
@@ -782,6 +791,8 @@ http header size 配置参数
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：false
+
+如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count，则结果集会被缓存，下一条相同的SQL会命中缓存
 
 如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
 
@@ -1214,7 +1225,7 @@ routine load V2 版本加载的默认等待作业数 ，这是一个理想的数
 
 是否临时启用 spark load，默认不启用
 
-**注意：** 这个参数在1.2中已经删除，默认开启spark_load
+**注意：** 这个参数在1.2版本中已经删除，默认开启spark_load
 
 #### `spark_load_checker_interval_second`
 
@@ -1276,7 +1287,7 @@ Spark 负载调度程序运行间隔,默认 60 秒
 
 是否为 Master FE 节点独有的配置项：true
 
-mini load 超时时间，适用于所有类型的加载
+最小超时时间，适用于所有类型的load
 
 #### `max_stream_load_timeout_second`
 
@@ -1300,7 +1311,7 @@ load 最大超时时间，适用于除 stream load 之外的所有类型的加�
 
 #### `stream_load_default_timeout_second`
 
-默认值：600 （s）
+默认值：600（s）
 
 是否可以动态配置：true
 
@@ -1310,17 +1321,17 @@ load 最大超时时间，适用于除 stream load 之外的所有类型的加�
 
 #### `stream_load_default_precommit_timeout_second`
 
-默认值：3600 （s）
+默认值：3600（s）
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-默认 stream load 预提交 超时时间
+默认 stream load 预提交超时时间
 
 #### `insert_load_default_timeout_second`
 
-默认值：3600    （1小时）
+默认值：3600（1小时）
 
 是否可以动态配置：true
 
@@ -1330,7 +1341,7 @@ load 最大超时时间，适用于除 stream load 之外的所有类型的加�
 
 #### `mini_load_default_timeout_second`
 
-默认值：3600    （1小时）
+默认值：3600（1小时）
 
 是否可以动态配置：true
 
@@ -1340,7 +1351,7 @@ load 最大超时时间，适用于除 stream load 之外的所有类型的加�
 
 #### `broker_load_default_timeout_second`
 
-默认值：14400   （4小时）
+默认值：14400（4小时）
 
 是否可以动态配置：true
 
@@ -1350,7 +1361,7 @@ Broker load 的默认超时时间
 
 #### `spark_load_default_timeout_second`
 
-默认值：86400  (1天)
+默认值：86400 (1天)
 
 是否可以动态配置：true
 
@@ -1360,7 +1371,7 @@ Broker load 的默认超时时间
 
 #### `hadoop_load_default_timeout_second`
 
-默认值：86400 * 3   (3天)
+默认值：86400 * 3 (3天)
 
 是否可以动态配置：true
 
@@ -1427,7 +1438,11 @@ NORMAL 优先级挂起加载作业的并发数。
 是否为 Master FE 节点独有的配置项：true
 
 负载中落后节点的最大等待秒数
-例如：有 3 个副本 A, B, C load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，将调用事务管理器提交事务并告诉事务管理器 C 失败。
+   例如：
+      有 3 个副本 A, B, C 
+      load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，
+      如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，
+      将调用事务管理器提交事务并告诉事务管理器 C 失败。
 
 这也用于等待发布任务时
 
@@ -1602,8 +1617,8 @@ sys_log_dir:
 详细模块。 VERBOSE 级别由 log4j DEBUG 级别实现。
 
 例如：
-sys_log_verbose_modules = org.apache.doris.catalog
-这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
+   sys_log_verbose_modules = org.apache.doris.catalog
+   这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
 
 #### `sys_log_roll_interval`
 
@@ -1671,11 +1686,12 @@ HOUR: log前缀是：yyyyMMddHH
 默认值：30d
 
 默认为 30 天，如果日志的最后修改时间为 30 天前，则将其删除。
+
 支持格式：
-7d 7 天
-10 小时 10 小时
-60m 60 分钟
-120s    120 秒
+- 7d     7 天
+- 10小时  10 小时
+- 60m    60 分钟
+- 120s   120 秒
 
 ### 存储
 
@@ -1733,7 +1749,9 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
+在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 
+
+在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 
@@ -1883,7 +1901,7 @@ BE副本数的平衡阈值。
 
    3. 低水位为(AUC * (1 - clone_capacity_balance_threshold))
 
-克隆检查器将尝试将副本从高水位 BE 移动到低水位 BE。
+   4. 克隆检查器将尝试将副本从高水位 BE 移动到低水位 BE。
 
 #### `disable_colocate_balance`
 
@@ -2031,11 +2049,7 @@ tablet 状态更新间隔
 
 #### `storage_flood_stage_left_capacity_bytes`
 
-默认值：
-
-storage_flood_stage_usage_percent  : 95  (95%)
-
-storage_flood_stage_left_capacity_bytes :  1 * 1024 * 1024 * 1024 (1GB)
+默认值： 1 * 1024 * 1024 * 1024 (1GB)
 
 是否可以动态配置：true
 
@@ -2153,9 +2167,10 @@ storage_flood_stage_left_capacity_bytes :  1 * 1024 * 1024 * 1024 (1GB)
 是否为 Master FE 节点独有的配置项：true
 
 创建单个副本的最长等待时间。
+
 例如。
-如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
-创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
+   如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
+   创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
 
 #### `tablet_delete_timeout_second`
 
@@ -2262,7 +2277,7 @@ multi catalog 并发文件扫描大小
 
 是否为 Master FE 节点独有的配置项：false
 
-从 1.2 开始，我们不再支持创建hudi和iceberg外表。请改用multi catalog功能。
+从 1.2 版本开始，我们不再支持创建hudi和iceberg外表。请改用multi catalog功能。
 
 #### `iceberg_table_creation_interval_second`
 
@@ -2282,8 +2297,8 @@ fe 将每隔 iceberg_table_creation_interval_second 创建iceberg table
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 TRUE，iceberg 表和 Doris 表的列定义必须一致。
-如果设置为 FALSE，Doris 只创建支持的数据类型的列。
+如果设置为 true，iceberg 表和 Doris 表的列定义必须一致。
+如果设置为 false，Doris 只创建支持的数据类型的列。
 
 #### `max_iceberg_table_creation_record_size`
 
@@ -2382,7 +2397,7 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
             hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
         }
 
-#### dpp_config_str
+#### `dpp_config_str`
 
 默认值：{
             palo-dpp : {
@@ -2501,7 +2516,10 @@ SmallFileMgr 中存储的最大文件数
 
 是否为  Master FE  节点独有的配置项：true
 
-这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。 并且每个 BE 每 1 分钟会报告一次 tablet 信息，因此无限制接收报告是不可接受的。以后我们会优化 tablet 报告的处理速度
+这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。 
+
+并且每个 BE 每 1 分钟会报告一次 tablet 信息，因此无限制接收报告是不可接受的。
+以后我们会优化 tablet 报告的处理速度
 
 **不建议修改这个值**
 
