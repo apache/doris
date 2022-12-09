@@ -182,10 +182,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     SCOPED_CONSUME_MEM_TRACKER(scanner->runtime_state()->scanner_mem_tracker());
     Thread::set_self_name("_scanner_scan");
     scanner->update_wait_worker_timer();
-    // Do not use ScopedTimer. There is no guarantee that, the counter
-    // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
-    ThreadCpuStopWatch cpu_watch;
-    cpu_watch.start();
+    scanner->start_scan_cpu_timer();
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = ctx->state();
@@ -270,6 +267,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         ctx->append_blocks_to_queue(blocks);
     }
 
+    scanner->update_scan_cpu_timer();
     if (eos || should_stop) {
         scanner->mark_to_need_to_close();
     }
