@@ -49,7 +49,7 @@ class BitmapIndexReader;
 class ColumnIterator;
 
 struct ColumnPredicateInfo {
-    ColumnPredicateInfo() {};
+    ColumnPredicateInfo() = default;
     std::string column_name;
     std::string query_value;
     std::string query_op;

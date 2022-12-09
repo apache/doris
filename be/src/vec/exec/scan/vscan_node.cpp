@@ -975,15 +975,18 @@ Status VScanNode::_normalize_binary_in_compound_predicate(
 
         StringRef value;
         int slot_ref_child = -1;
-        PushDownType eq_pdt =
-                _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
-                                                   expr_ctx, &value, &slot_ref_child, eq_checker);
-        PushDownType ne_pdt =
-                _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr),
-                                                   expr_ctx, &value, &slot_ref_child, ne_checker);
-        PushDownType noneq_pdt = _should_push_down_binary_predicate(reinterpret_cast<VectorizedFnCall*>(expr), 
-                                                    expr_ctx, &value, &slot_ref_child, noneq_checker);
-
+        PushDownType eq_pdt;
+        PushDownType ne_pdt;
+        PushDownType noneq_pdt;
+        RETURN_IF_ERROR(_should_push_down_binary_predicate(
+                reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx, &value, &slot_ref_child,
+                eq_checker, eq_pdt));
+        RETURN_IF_ERROR(_should_push_down_binary_predicate(
+                reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx, &value, &slot_ref_child,
+                ne_checker, ne_pdt));
+        RETURN_IF_ERROR(_should_push_down_binary_predicate(
+                reinterpret_cast<VectorizedFnCall*>(expr), expr_ctx, &value, &slot_ref_child,
+                noneq_checker, noneq_pdt));
         if (eq_pdt == PushDownType::UNACCEPTABLE 
                 && ne_pdt == PushDownType::UNACCEPTABLE
                 && noneq_pdt == PushDownType::UNACCEPTABLE) {

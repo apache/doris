@@ -229,7 +229,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
             std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
             for (const auto& filter : filters) {
-                _olap_filters.push_back(std::move(filter));
+                _olap_filters.push_back(filter);
             }
         }
 
@@ -247,7 +247,7 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                 }, iter);
 
                 for (const auto& filter : filters) {
-                    conditions.push_back(std::move(filter));
+                    conditions.push_back(filter);
                 }
             }
 

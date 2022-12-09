@@ -449,6 +449,7 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
         }
         _compound_predicate_execute_result.at(size - 2) &= _compound_predicate_execute_result.at(size - 1);
         _compound_predicate_execute_result.pop_back();
+        return Status::OK();
     };
 
     auto or_execute_result = [&]() {
@@ -458,6 +459,7 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
         }
         _compound_predicate_execute_result.at(size - 2) |= _compound_predicate_execute_result.at(size - 1);
         _compound_predicate_execute_result.pop_back();
+        return Status::OK();
     };
 
     auto not_execute_result = [&]() {
@@ -468,14 +470,15 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
         roaring::Roaring tmp = _row_bitmap;
         tmp -= _compound_predicate_execute_result.at(size - 1);
         _compound_predicate_execute_result.at(size - 1) = tmp;
+        return Status::OK();
     };
 
     if (function_name == "and") {
-        and_execute_result();
+        RETURN_IF_ERROR(and_execute_result());
     } else if (function_name == "or") {
-        or_execute_result();
+        RETURN_IF_ERROR(or_execute_result());
     } else if (function_name == "not") {
-        not_execute_result();
+        RETURN_IF_ERROR(not_execute_result());
     }
     return Status::OK();
 }
@@ -512,8 +515,7 @@ Status SegmentIterator::_apply_index_in_compound() {
         bool is_support_in_compound = 
                 pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                 pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
-                pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
-                pred_type == PredicateType::MATCH;
+                pred_type == PredicateType::GT || pred_type == PredicateType::GE;
         if (!is_support_in_compound) {
             continue;
         }
