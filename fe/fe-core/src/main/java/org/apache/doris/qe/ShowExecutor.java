@@ -38,6 +38,7 @@ import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
+import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
@@ -378,6 +379,8 @@ public class ShowExecutor {
             handleShowPolicy();
         } else if (stmt instanceof ShowCatalogStmt) {
             handleShowCatalogs();
+        } else if (stmt instanceof ShowCreateCatalogStmt) {
+            handleShowCreateCatalog();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
         } else if (stmt instanceof AdminCopyTabletStmt) {
@@ -2311,6 +2314,14 @@ public class ShowExecutor {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt);
     }
+
+    // Show create catalog
+    private void handleShowCreateCatalog() throws AnalysisException {
+        ShowCreateCatalogStmt showStmt = (ShowCreateCatalogStmt) stmt;
+
+        resultSet = Env.getCurrentEnv().getCatalogMgr().showCreateCatalog(showStmt);
+    }
+
 
     private void handleShowAnalyze() throws AnalysisException {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
