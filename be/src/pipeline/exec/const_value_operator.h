@@ -26,26 +26,26 @@ class VUnionNode;
 
 namespace pipeline {
 
-class UnionNodeOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
+class ConstValueOperatorBuilder final : public OperatorBuilder<vectorized::VUnionNode> {
 public:
-    UnionNodeOperatorBuilder(int32_t id, ExecNode* node)
-            : OperatorBuilder(id, "UnionNodeOperatorBuilder", node) {};
+    ConstValueOperatorBuilder(int32_t id, ExecNode* node)
+            : OperatorBuilder(id, "ConstValueOperatorBuilder", node) {};
 
     OperatorPtr build_operator() override;
 
     bool is_source() const override { return true; }
 };
 
-class UnionNodeOperator final : public Operator<UnionNodeOperatorBuilder> {
+class ConstValueOperator final : public Operator<ConstValueOperatorBuilder> {
 public:
-    UnionNodeOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
+    ConstValueOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
             : Operator(operator_builder, node) {};
 
     bool can_read() override { return true; };
 };
 
-OperatorPtr UnionNodeOperatorBuilder::build_operator() {
-    return std::make_shared<UnionNodeOperator>(this, _node);
+OperatorPtr ConstValueOperatorBuilder::build_operator() {
+    return std::make_shared<ConstValueOperator>(this, _node);
 }
 
 } // namespace pipeline

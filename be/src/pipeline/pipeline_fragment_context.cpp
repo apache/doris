@@ -43,10 +43,10 @@
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
-#include "pipeline/exec/union_node_operator.h"
 #include "pipeline_task.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
@@ -319,7 +319,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         auto* union_node = assert_cast<vectorized::VUnionNode*>(node);
         if (union_node->children_count() == 0) {
             OperatorBuilderPtr builder =
-                    std::make_shared<UnionNodeOperatorBuilder>(next_operator_builder_id(), node);
+                    std::make_shared<ConstValueOperatorBuilder>(next_operator_builder_id(), node);
             RETURN_IF_ERROR(cur_pipe->add_operator(builder));
         } else {
             return Status::InternalError(
