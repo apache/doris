@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.PushDownAggOperator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
@@ -75,9 +76,12 @@ public class MergeProjectPostProcessTest {
         t1Output.add(b);
         t1Output.add(c);
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
-        PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1, qualifier, 0L,
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(), PushDownAggOperator.NONE,
-                Optional.empty(), t1Properties);
+        PhysicalOlapScan scan = new PhysicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId())
+                .setOlapTable(t1).setQualifier(qualifier).setSelectedIndexId(0L)
+                .setSelectedTabletIds(Collections.emptyList()).setSelectedPartitionIds(Collections.emptyList())
+                .setDistributionSpec(null).setPreAggStatus(PreAggStatus.on())
+                .setPushDownAggOperator(PushDownAggOperator.NONE).setGroupExpression(Optional.empty())
+                .setLogicalProperties(t1Properties).build();
         Alias x = new Alias(a, "x");
         List<NamedExpression> projList3 = Lists.newArrayList(x, b, c);
         PhysicalProject proj3 = new PhysicalProject(projList3, placeHolder, scan);

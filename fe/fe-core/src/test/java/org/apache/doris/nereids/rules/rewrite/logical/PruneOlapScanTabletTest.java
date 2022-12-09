@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -150,7 +151,9 @@ public class PruneOlapScanTabletTest {
 
         Expression expr = ExpressionUtils.and(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo);
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(expr,
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable));
+                new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId()).setTable(olapTable)
+                        .setSelectedPartitionIds(olapTable.getPartitionIds())
+                        .build());
 
         Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());
 

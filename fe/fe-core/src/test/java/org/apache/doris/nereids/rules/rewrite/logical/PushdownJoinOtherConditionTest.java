@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -53,9 +54,10 @@ public class PushdownJoinOtherConditionTest {
      */
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
-        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+        rStudent = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(PlanConstructor.student).setQualifier(ImmutableList.of("")).build();
+        rScore = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId()).setTable(PlanConstructor.score)
+                .setQualifier(ImmutableList.of("")).build();
     }
 
     @Test

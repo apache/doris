@@ -25,8 +25,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
 
-import com.google.common.annotations.VisibleForTesting;
-
 public abstract class BaseAnalysisTask {
 
     protected static final String INSERT_PART_STATISTICS = "INSERT INTO "
@@ -88,11 +86,6 @@ public abstract class BaseAnalysisTask {
     protected StmtExecutor stmtExecutor;
 
     protected AnalysisState analysisState;
-
-    @VisibleForTesting
-    public BaseAnalysisTask() {
-
-    }
 
     public BaseAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
         this.analysisTaskScheduler = analysisTaskScheduler;

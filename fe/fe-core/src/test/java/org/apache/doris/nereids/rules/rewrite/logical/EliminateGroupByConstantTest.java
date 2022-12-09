@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.thrift.TStorageType;
@@ -69,7 +70,8 @@ public class EliminateGroupByConstantTest {
         LogicalAggregate<LogicalOlapScan> aggregate = new LogicalAggregate<>(
                 ImmutableList.of(new IntegerLiteral(1), k2),
                 ImmutableList.of(k1, k2),
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table)
+                new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId()).setTable(table)
+                        .build()
         );
 
         CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
@@ -88,7 +90,8 @@ public class EliminateGroupByConstantTest {
                         new StringLiteral("str"), k2),
                 ImmutableList.of(
                         new Alias(new StringLiteral("str"), "str"), k1, k2),
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table)
+                new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId()).setTable(table)
+                        .build()
         );
 
         CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
@@ -112,7 +115,8 @@ public class EliminateGroupByConstantTest {
                 ImmutableList.of(
                         new Alias(new StringLiteral("str"), "str"),
                         k2, k1, new Alias(new IntegerLiteral(1), "integer")),
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table)
+                new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId()).setTable(table)
+                        .build()
         );
 
         CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
@@ -137,7 +141,8 @@ public class EliminateGroupByConstantTest {
                         new Alias(new Max(k1), "max"),
                         new Alias(new Min(k2), "min"),
                         new Alias(new Add(k1, k2), "add")),
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table)
+                new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId()).setTable(table)
+                        .build()
         );
 
         CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
@@ -161,7 +166,8 @@ public class EliminateGroupByConstantTest {
                 ImmutableList.of(
                         new Alias(new StringLiteral("str"), "str"),
                         k2, k1, new Alias(new IntegerLiteral(1), "integer")),
-                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table)
+                new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId()).setTable(table)
+                        .build()
         );
 
         CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);

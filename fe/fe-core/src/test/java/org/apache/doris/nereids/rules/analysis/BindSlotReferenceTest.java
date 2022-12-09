@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -44,7 +45,8 @@ class BindSlotReferenceTest {
     @Test
     public void testCannotFindSlot() {
         LogicalProject project = new LogicalProject<>(ImmutableList.of(new UnboundSlot("foo")),
-                new LogicalOlapScan(new RelationId(0), PlanConstructor.student));
+                new LogicalOlapScanBuilder().setId(new RelationId(0)).setTable(PlanConstructor.student)
+                        .build());
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
         Assertions.assertEquals("Cannot find column foo.", exception.getMessage());
@@ -52,8 +54,10 @@ class BindSlotReferenceTest {
 
     @Test
     public void testAmbiguousSlot() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
-        LogicalOlapScan scan2 = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student);
+        LogicalOlapScan scan1 = new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId())
+                .setTable(PlanConstructor.student).build();
+        LogicalOlapScan scan2 = new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId())
+                .setTable(PlanConstructor.student).build();
         LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
                 JoinType.CROSS_JOIN, scan1, scan2);
         LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(

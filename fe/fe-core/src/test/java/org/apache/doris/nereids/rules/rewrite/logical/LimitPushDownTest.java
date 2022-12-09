@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
@@ -48,8 +48,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 class LimitPushDownTest extends TestWithFeService implements PatternMatchSupported {
-    private Plan scanScore = new LogicalOlapScan(new RelationId(0), PlanConstructor.score);
-    private Plan scanStudent = new LogicalOlapScan(new RelationId(1), PlanConstructor.student);
+    private Plan scanScore = new LogicalOlapScanBuilder().setId(new RelationId(0)).setTable(PlanConstructor.score)
+            .build();
+    private Plan scanStudent = new LogicalOlapScanBuilder().setId(new RelationId(1)).setTable(PlanConstructor.student)
+            .build();
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -212,8 +214,10 @@ class LimitPushDownTest extends TestWithFeService implements PatternMatchSupport
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(new RelationId(0), PlanConstructor.score),
-                new LogicalOlapScan(new RelationId(1), PlanConstructor.student)
+                new LogicalOlapScanBuilder().setId(new RelationId(0)).setTable(PlanConstructor.score)
+                        .build(),
+                new LogicalOlapScanBuilder().setId(new RelationId(1)).setTable(PlanConstructor.student)
+                        .build()
         );
 
         if (hasProject) {

@@ -49,6 +49,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -88,6 +89,9 @@ public class PruneOlapScanPartition extends OneRewriteRuleFactory {
             PartitionPruner partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
             Collection<Long> selectedPartitionId = Utils.execWithReturnVal(partitionPruner::prune);
+            if (!CollectionUtils.isEmpty(scan.getPartitions())) {
+                selectedPartitionId.retainAll(scan.getPartitions());
+            }
             LogicalOlapScan rewrittenScan =
                     scan.withSelectedPartitionIds(new ArrayList<>(selectedPartitionId));
             return new LogicalFilter<>(filter.getPredicates(), rewrittenScan);

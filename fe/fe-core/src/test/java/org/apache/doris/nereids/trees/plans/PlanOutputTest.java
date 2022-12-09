@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelationBuilder;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -57,7 +58,8 @@ public class PlanOutputTest {
     @Test
     public void testLazyComputeOutput() {
         // not throw exception when create new UnboundRelation
-        UnboundRelation relationPlan = new UnboundRelation(ImmutableList.of("a"));
+        UnboundRelation relationPlan = new UnboundRelationBuilder().setNameParts(ImmutableList.of("a"))
+                .build();
 
         try {
             // throw exception when getOutput

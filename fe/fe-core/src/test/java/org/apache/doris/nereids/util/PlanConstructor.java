@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
@@ -102,11 +103,15 @@ public class PlanConstructor {
     // With OlapTable.
     // Warning: equals() of Table depends on tableId.
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+        return new LogicalOlapScanBuilder().setId(RELATION_ID_GENERATOR.getNextId())
+                .setTable(newOlapTable(tableId, tableName, hashColumn)).setQualifier(ImmutableList.of("db"))
+                .build();
     }
 
     public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+        return new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId())
+                .setTable(newOlapTable(tableId, tableName, hashColumn)).setQualifier(ImmutableList.of("db"))
+                .build();
     }
 
     public static RelationId getNextRelationId() {

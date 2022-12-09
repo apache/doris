@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelationBuilder;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -71,7 +71,7 @@ public class RewriteTopDownJobTest {
 
     @Test
     public void testSimplestScene() {
-        Plan leaf = new UnboundRelation(Lists.newArrayList("test"));
+        Plan leaf = new UnboundRelationBuilder().setNameParts(Lists.newArrayList("test")).build();
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
                 leaf

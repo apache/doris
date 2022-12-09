@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
@@ -54,8 +54,10 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternM
 
     @BeforeAll
     public final void beforeAll() {
-        student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
-        course = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.course, ImmutableList.of(""));
+        student = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(PlanConstructor.student).setQualifier(ImmutableList.of("")).build();
+        course = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(PlanConstructor.course).setQualifier(ImmutableList.of("")).build();
         //select *
         //from student join course
         //where (course.cid=1 and student.age=10) or (student.gender = 0 and course.name='abc')

@@ -46,11 +46,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "     (SELECT NDV(`${colName}`) AS ndv "
             + "     FROM `${dbName}`.`${tblName}`) t2\n";
 
-    @VisibleForTesting
-    public OlapAnalysisTask() {
-        super();
-    }
-
     public OlapAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
         super(analysisTaskScheduler, info);
     }

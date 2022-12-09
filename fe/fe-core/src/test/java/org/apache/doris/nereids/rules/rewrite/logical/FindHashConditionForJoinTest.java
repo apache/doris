@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -55,10 +55,10 @@ import java.util.List;
 class FindHashConditionForJoinTest {
     @Test
     public void testFindHashCondition() {
-        Plan student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
-        Plan score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score,
-                ImmutableList.of(""));
+        Plan student = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(PlanConstructor.student).setQualifier(ImmutableList.of("")).build();
+        Plan score = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(PlanConstructor.score).setQualifier(ImmutableList.of("")).build();
 
         Slot studentId = student.getOutput().get(0);
         Slot gender = student.getOutput().get(1);

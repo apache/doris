@@ -38,7 +38,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.PlanRewriter;
 import org.apache.doris.system.SystemInfoService;
@@ -98,7 +98,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
 
     @Test
     public void checkUser() throws AnalysisException, org.apache.doris.common.AnalysisException {
-        LogicalRelation relation = new LogicalOlapScan(new RelationId(0), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScanBuilder().setId(new RelationId(0)).setTable(olapTable)
+                .setQualifier(Arrays.asList(fullDbName)).build();
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
 
         useUser("root");
@@ -113,7 +114,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkNoPolicy() throws org.apache.doris.common.AnalysisException {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(new RelationId(0), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScanBuilder().setId(new RelationId(0)).setTable(olapTable)
+                .setQualifier(Arrays.asList(fullDbName)).build();
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
         Assertions.assertEquals(plan, relation);
@@ -122,7 +124,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkOnePolicy() throws Exception {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(new RelationId(0), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScanBuilder().setId(new RelationId(0)).setTable(olapTable)
+                .setQualifier(Arrays.asList(fullDbName)).build();
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         createPolicy("CREATE ROW POLICY "

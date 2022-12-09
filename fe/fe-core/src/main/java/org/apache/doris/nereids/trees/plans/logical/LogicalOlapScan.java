@@ -59,22 +59,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
 
     private final boolean aggPushed;
     private final PushDownAggOperator pushDownAggOperator;
-
-    public LogicalOlapScan(RelationId id, OlapTable table) {
-        this(id, table, ImmutableList.of());
-    }
-
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false, ImmutableList.of(), false,
-                ImmutableList.of(), false, PreAggStatus.on(), false, PushDownAggOperator.NONE);
-    }
-
-    public LogicalOlapScan(RelationId id, Table table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                ((OlapTable) table).getPartitionIds(), false, ImmutableList.of(), false,
-                ImmutableList.of(), false, PreAggStatus.on(), false, PushDownAggOperator.NONE);
-    }
+    private final List<Long> partitions;
 
     /**
      * Constructor for LogicalOlapScan.
@@ -84,7 +69,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
             List<Long> selectedPartitionIds, boolean partitionPruned,
             List<Long> selectedTabletIds, boolean tabletPruned,
             List<Long> candidateIndexIds, boolean indexSelected, PreAggStatus preAggStatus,
-            boolean aggPushed, PushDownAggOperator pushDownAggOperator) {
+            boolean aggPushed, PushDownAggOperator pushDownAggOperator, List<Long> partitions) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties, selectedPartitionIds);
         // TODO: use CBO manner to select best index id, according to index's statistics info,
@@ -99,6 +84,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
         this.preAggStatus = preAggStatus;
         this.aggPushed = aggPushed;
         this.pushDownAggOperator = pushDownAggOperator;
+        this.partitions = partitions;
     }
 
     @Override
@@ -147,40 +133,44 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOlapScan(id, table, qualifier, groupExpression, Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
+        return new LogicalOlapScanBuilder(this).setGroupExpression(groupExpression).build();
     }
 
     @Override
     public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), logicalProperties,
-                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
+        return new LogicalOlapScanBuilder(this).setLogicalProperties(logicalProperties)
+                .setGroupExpression(Optional.empty())
+                .build();
     }
 
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, true, selectedTabletIds, tabletPruned,
-                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
+        return new LogicalOlapScanBuilder(this).setPartitionPruned(true)
+                .setGroupExpression(Optional.empty())
+                .setSelectedPartitionIds(selectedPartitionIds).build();
     }
 
     public LogicalOlapScan withMaterializedIndexSelected(PreAggStatus preAgg, List<Long> candidateIndexIds) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, tabletPruned,
-                candidateIndexIds, true, preAgg, aggPushed, pushDownAggOperator);
+        return new LogicalOlapScanBuilder(this)
+                .setIndexSelected(true)
+                .setPreAggStatus(preAgg)
+                .setGroupExpression(Optional.empty())
+                .setCandidateIndexIds(candidateIndexIds).build();
     }
 
     public LogicalOlapScan withSelectedTabletIds(List<Long> selectedTabletIds) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
-                candidateIndexIds, indexSelected, preAggStatus, aggPushed, pushDownAggOperator);
+        return new LogicalOlapScanBuilder(this)
+                .setTabletPruned(true)
+                .setGroupExpression(Optional.empty())
+                .setSelectedTabletIds(selectedTabletIds)
+                .build();
     }
 
     public LogicalOlapScan withPushDownAggregateOperator(PushDownAggOperator pushDownAggOperator) {
-        return new LogicalOlapScan(id, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
-                selectedPartitionIds, partitionPruned, selectedTabletIds, true,
-                candidateIndexIds, indexSelected, preAggStatus, true, pushDownAggOperator);
+        return new LogicalOlapScanBuilder(this)
+                .setTabletPruned(true)
+                .setAggPushed(true)
+                .setGroupExpression(Optional.empty())
+                .setPushDownAggOperator(pushDownAggOperator).build();
     }
 
     @Override
@@ -224,5 +214,13 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation 
     public Optional<String> getSelectedMaterializedIndexName() {
         return indexSelected ? Optional.ofNullable(((OlapTable) table).getIndexNameById(selectedIndexId))
                 : Optional.empty();
+    }
+
+    public List<Long> getCandidateIndexIds() {
+        return candidateIndexIds;
+    }
+
+    public List<Long> getPartitions() {
+        return partitions;
     }
 }

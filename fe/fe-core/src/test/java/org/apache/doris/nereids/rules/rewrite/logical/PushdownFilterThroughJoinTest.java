@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -52,9 +52,10 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
      */
     @BeforeEach
     public final void beforeEach() {
-        rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
-        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+        rStudent = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(PlanConstructor.student).setQualifier(ImmutableList.of("")).build();
+        rScore = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId()).setTable(PlanConstructor.score)
+                .setQualifier(ImmutableList.of("")).build();
     }
 
     @Test

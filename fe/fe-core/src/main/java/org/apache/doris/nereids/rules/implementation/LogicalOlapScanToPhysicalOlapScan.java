@@ -29,7 +29,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScanBuilder;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -44,18 +44,14 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     @Override
     public Rule build() {
         return logicalOlapScan().then(olapScan ->
-            new PhysicalOlapScan(
-                    olapScan.getId(),
-                    olapScan.getTable(),
-                    olapScan.getQualifier(),
-                    olapScan.getSelectedIndexId(),
-                    olapScan.getSelectedTabletIds(),
-                    olapScan.getSelectedPartitionIds(),
-                    convertDistribution(olapScan),
-                    olapScan.getPreAggStatus(),
-                    olapScan.getPushDownAggOperator(),
-                    Optional.empty(),
-                    olapScan.getLogicalProperties())
+                new PhysicalOlapScanBuilder().setId(olapScan.getId()).setOlapTable(olapScan.getTable())
+                        .setQualifier(olapScan.getQualifier()).setSelectedIndexId(olapScan.getSelectedIndexId())
+                        .setSelectedTabletIds(olapScan.getSelectedTabletIds())
+                        .setSelectedPartitionIds(olapScan.getSelectedPartitionIds())
+                        .setDistributionSpec(convertDistribution(olapScan)).setPreAggStatus(olapScan.getPreAggStatus())
+                        .setPushDownAggOperator(olapScan.getPushDownAggOperator()).setGroupExpression(Optional.empty())
+                        .setLogicalProperties(olapScan.getLogicalProperties())
+                        .build()
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 

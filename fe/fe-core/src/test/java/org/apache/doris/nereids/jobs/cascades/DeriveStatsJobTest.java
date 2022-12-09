@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -85,7 +86,8 @@ public class DeriveStatsJobTest {
             }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        return new LogicalOlapScan(RelationId.createGenerator().getNextId(), table1, Collections.emptyList()).withLogicalProperties(
+        return new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId()).setTable(table1)
+                .setQualifier(Collections.emptyList()).build().withLogicalProperties(
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
     }
 

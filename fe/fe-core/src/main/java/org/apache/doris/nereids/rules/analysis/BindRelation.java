@@ -18,24 +18,29 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.collections.CollectionUtils;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Rule to bind relations in query plan.
@@ -49,11 +54,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (nameParts.size()) {
                 case 1: { // table
                     // Use current database name from catalog.
-                    return bindWithCurrentDb(ctx.cascadesContext, nameParts.get(0));
+                    return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
                 }
                 case 2: { // db.table
                     // Use database name from table name parts.
-                    return bindWithDbNameFromNamePart(ctx.cascadesContext, nameParts);
+                    return bindWithDbNameFromNamePart(ctx.cascadesContext, ctx.root);
                 }
                 default:
                     throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -61,7 +66,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).toRule(RuleType.BINDING_RELATION);
     }
 
-    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String tableName) {
+    private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, UnboundRelation r) {
+        String tableName = r.getNameParts().get(0);
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getCteContext();
         Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTE(tableName);
@@ -76,10 +82,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         String dbName = cascadesContext.getConnectContext().getDatabase();
         Table table = cascadesContext.getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
+        List<Long> partIds = getPartitionIds(table, r);
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
-                    (OlapTable) table, ImmutableList.of(dbName));
+            return new LogicalOlapScanBuilder().setId(cascadesContext.getStatementContext().getNextRelationId())
+                    .setTable((OlapTable) table).setQualifier(ImmutableList.of(dbName))
+                    .setSelectedPartitionIds(CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() :
+                            partIds)
+                    .setPartitions(partIds).build();
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
@@ -87,7 +97,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         throw new AnalysisException("Unsupported tableType:" + table.getType());
     }
 
-    private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, List<String> nameParts) {
+    private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, UnboundRelation r) {
+        List<String> nameParts = r.getNameParts();
         ConnectContext connectContext = cascadesContext.getConnectContext();
         // if the relation is view, nameParts.get(0) is dbName.
         String dbName = nameParts.get(0);
@@ -95,9 +106,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
             dbName = connectContext.getClusterName() + ":" + dbName;
         }
         Table table = cascadesContext.getTable(dbName, nameParts.get(1), connectContext.getEnv());
+        List<Long> partIds = getPartitionIds(table, r);
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
-                    (OlapTable) table, ImmutableList.of(dbName));
+            return new LogicalOlapScanBuilder().setId(cascadesContext.getStatementContext().getNextRelationId())
+                    .setTable((OlapTable) table).setQualifier(ImmutableList.of(dbName))
+                    .setSelectedPartitionIds(CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() :
+                            partIds)
+                    .setPartitions(partIds).build();
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
@@ -113,5 +128,24 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getMemo().copyOut(false);
+    }
+
+    private List<Long> getPartitionIds(Table t, UnboundRelation r) {
+        List<String> parts = r.getPartitionNames();
+        if (CollectionUtils.isEmpty(parts)) {
+            return Collections.emptyList();
+        }
+        if (!t.getType().equals(TableType.OLAP)) {
+            throw new IllegalStateException(String.format(
+                    "Only OLAP table is support select by partition for now,"
+                            + "Table: %s is not OLAP table", t.getName()));
+        }
+        return parts.stream().map(name -> {
+            Partition part = ((OlapTable) t).getPartition(name);
+            if (part == null) {
+                throw new IllegalStateException(String.format("Partition: %s is not exists", name));
+            }
+            return part.getId();
+        }).collect(Collectors.toList());
     }
 }

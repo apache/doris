@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.PushDownAggOperator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -63,10 +64,12 @@ public class PhysicalPlanTranslatorTest {
         t1Output.add(col2);
         t1Output.add(col3);
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
-        PhysicalOlapScan scan = new PhysicalOlapScan(RelationId.createGenerator().getNextId(), t1, qualifier, 0L,
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(), PushDownAggOperator.NONE,
-                Optional.empty(),
-                t1Properties);
+        PhysicalOlapScan scan = new PhysicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId())
+                .setOlapTable(t1).setQualifier(qualifier).setSelectedIndexId(0L)
+                .setSelectedTabletIds(Collections.emptyList()).setSelectedPartitionIds(Collections.emptyList())
+                .setDistributionSpec(null).setPreAggStatus(PreAggStatus.on())
+                .setPushDownAggOperator(PushDownAggOperator.NONE).setGroupExpression(Optional.empty())
+                .setLogicalProperties(t1Properties).build();
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =

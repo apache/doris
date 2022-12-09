@@ -88,7 +88,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelationBuilder;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -185,6 +185,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -345,7 +346,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        LogicalPlan checkedRelation = withCheckPolicy(new UnboundRelation(tableId));
+        List<String> partitionNames = new ArrayList<>();
+        if (ctx.specified_partition() != null) {
+            if (ctx.specified_partition().identifier() != null) {
+                partitionNames.add(ctx.specified_partition().identifier().getText());
+            } else {
+                partitionNames.addAll(Arrays
+                        .stream(ctx.specified_partition().identifierList().identifierSeq().getText().split(","))
+                        .collect(Collectors.toList()));
+            }
+        }
+        LogicalPlan checkedRelation = withCheckPolicy(
+                new UnboundRelationBuilder()
+                        .setNameParts(tableId)
+                        .setPartitionNames(partitionNames).build());
         return withTableAlias(checkedRelation, ctx.tableAlias());
     }
 

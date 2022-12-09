@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.BigIntType;
@@ -249,18 +250,27 @@ public class PlanEqualsTest {
 
         RelationId id = RelationId.createGenerator().getNextId();
 
-        PhysicalOlapScan actual = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
-                olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), PushDownAggOperator.NONE, Optional.empty(), logicalProperties);
+        PhysicalOlapScan actual = new PhysicalOlapScanBuilder().setId(id).setOlapTable(olapTable)
+                .setQualifier(Lists.newArrayList("a")).setSelectedIndexId(olapTable.getBaseIndexId())
+                .setSelectedTabletIds(selectedTabletId).setSelectedPartitionIds(olapTable.getPartitionIds())
+                .setDistributionSpec(distributionSpecHash).setPreAggStatus(PreAggStatus.on())
+                .setPushDownAggOperator(PushDownAggOperator.NONE).setGroupExpression(Optional.empty())
+                .setLogicalProperties(logicalProperties).build();
 
-        PhysicalOlapScan expected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
-                olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), PushDownAggOperator.NONE, Optional.empty(), logicalProperties);
+        PhysicalOlapScan expected = new PhysicalOlapScanBuilder().setId(id).setOlapTable(olapTable)
+                .setQualifier(Lists.newArrayList("a")).setSelectedIndexId(olapTable.getBaseIndexId())
+                .setSelectedTabletIds(selectedTabletId).setSelectedPartitionIds(olapTable.getPartitionIds())
+                .setDistributionSpec(distributionSpecHash).setPreAggStatus(PreAggStatus.on())
+                .setPushDownAggOperator(PushDownAggOperator.NONE).setGroupExpression(Optional.empty())
+                .setLogicalProperties(logicalProperties).build();
         Assertions.assertEquals(expected, actual);
 
-        PhysicalOlapScan unexpected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
-                olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
-                PreAggStatus.on(), PushDownAggOperator.NONE, Optional.empty(), logicalProperties);
+        PhysicalOlapScan unexpected = new PhysicalOlapScanBuilder().setId(id).setOlapTable(olapTable)
+                .setQualifier(Lists.newArrayList("b")).setSelectedIndexId(olapTable.getBaseIndexId())
+                .setSelectedTabletIds(selectedTabletId).setSelectedPartitionIds(olapTable.getPartitionIds())
+                .setDistributionSpec(distributionSpecHash).setPreAggStatus(PreAggStatus.on())
+                .setPushDownAggOperator(PushDownAggOperator.NONE).setGroupExpression(Optional.empty())
+                .setLogicalProperties(logicalProperties).build();
         Assertions.assertNotEquals(unexpected, actual);
     }
 

@@ -203,7 +203,7 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias                                            #tableName
+    : multipartIdentifier specified_partition? tableAlias                       #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
     | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
     | tvfName=identifier LEFT_PAREN
@@ -357,6 +357,8 @@ number
     : MINUS? INTEGER_VALUE            #integerLiteral
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
+
+
 
 // When `SQL_standard_keyword_behavior=true`, there are 2 kinds of keywords in Spark SQL.
 // - Reserved keywords:
@@ -583,6 +585,11 @@ ansiNonReserved
     | YEAR
     | ZONE
 //--ANSI-NON-RESERVED-END
+    ;
+
+specified_partition
+    : PARTITION identifier
+    | PARTITIONS identifierList
     ;
 
 // When `SQL_standard_keyword_behavior=false`, there are 2 kinds of keywords in Spark SQL.

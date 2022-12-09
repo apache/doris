@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -88,7 +89,8 @@ class PruneOlapScanPartitionTest {
                 olapTable.getName();
                 result = "tbl";
             }};
-        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
+        LogicalOlapScan scan = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(olapTable).build();
         SlotReference slotRef = new SlotReference("col1", IntegerType.INSTANCE);
         Expression expression = new LessThan(slotRef, new IntegerLiteral(4));
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(expression, scan);
@@ -104,7 +106,8 @@ class PruneOlapScanPartitionTest {
         Expression greaterThan6 = new GreaterThan(slotRef, new IntegerLiteral(6));
         Or lessThan0OrGreaterThan6 = new Or(lessThan0, greaterThan6);
         filter = new LogicalFilter<>(lessThan0OrGreaterThan6, scan);
-        scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
+        scan = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId()).setTable(olapTable)
+                .build();
         cascadesContext = MemoTestUtils.createCascadesContext(filter);
         rules = Lists.newArrayList(new PruneOlapScanPartition().build());
         cascadesContext.topDownRewrite(rules);
@@ -118,7 +121,8 @@ class PruneOlapScanPartitionTest {
         Expression lessThanEqual5 =
                 new LessThanEqual(slotRef, new IntegerLiteral(5));
         And greaterThanEqual0AndLessThanEqual5 = new And(greaterThanEqual0, lessThanEqual5);
-        scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
+        scan = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId()).setTable(olapTable)
+                .build();
         filter = new LogicalFilter<>(greaterThanEqual0AndLessThanEqual5, scan);
         cascadesContext = MemoTestUtils.createCascadesContext(filter);
         rules = Lists.newArrayList(new PruneOlapScanPartition().build());
@@ -153,7 +157,8 @@ class PruneOlapScanPartitionTest {
                 olapTable.getName();
                 result = "tbl";
             }};
-        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), olapTable);
+        LogicalOlapScan scan = new LogicalOlapScanBuilder().setId(PlanConstructor.getNextRelationId())
+                .setTable(olapTable).build();
         Expression left = new LessThan(new SlotReference("col1", IntegerType.INSTANCE), new IntegerLiteral(4));
         Expression right = new GreaterThan(new SlotReference("col2", IntegerType.INSTANCE), new IntegerLiteral(11));
         CompoundPredicate and = new And(left, right);

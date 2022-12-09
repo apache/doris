@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.RelationId;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScanBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -60,8 +60,8 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
      */
     @Test
     public void pushDownPredicateOneFilterTest() {
-        LogicalPlan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student,
-                ImmutableList.of(""));
+        LogicalPlan scan = new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId())
+                .setTable(PlanConstructor.student).setQualifier(ImmutableList.of("")).build();
         Slot gender = scan.getOutput().get(1);
 
         Expression filterPredicate = new GreaterThan(gender, Literal.of(1));
@@ -107,8 +107,8 @@ public class PushdownFilterThroughAggregationTest implements PatternMatchSupport
      */
     @Test
     public void pushDownPredicateTwoFilterTest() {
-        LogicalPlan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), PlanConstructor.student,
-                ImmutableList.of(""));
+        LogicalPlan scan = new LogicalOlapScanBuilder().setId(RelationId.createGenerator().getNextId())
+                .setTable(PlanConstructor.student).setQualifier(ImmutableList.of("")).build();
         Slot gender = scan.getOutput().get(1);
         Slot name = scan.getOutput().get(2);
 

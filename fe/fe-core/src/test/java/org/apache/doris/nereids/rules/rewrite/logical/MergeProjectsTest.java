@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelationBuilder;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -43,7 +44,8 @@ import java.util.List;
 public class MergeProjectsTest {
     @Test
     public void testMergeConsecutiveProjects() {
-        UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
+        UnboundRelation relation = new UnboundRelationBuilder().setNameParts(Lists.newArrayList("db", "table"))
+                .build();
         NamedExpression colA = new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
         NamedExpression colB = new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
         NamedExpression colC = new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
@@ -74,10 +76,15 @@ public class MergeProjectsTest {
      */
     @Test
     public void testMergeConsecutiveProjectsWithAlias() {
-        UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
-        NamedExpression colA = new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
-        NamedExpression colB = new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
-        NamedExpression colC = new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
+        UnboundRelation relation =
+                new UnboundRelationBuilder().setNameParts(Lists.newArrayList("db", "table"))
+                .build();
+        NamedExpression colA =
+                new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
+        NamedExpression colB =
+                new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
+        NamedExpression colC =
+                new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
         Alias alias = new Alias(new Add(colA, new IntegerLiteral(1)), "X");
         Slot aliasRef = alias.toSlot();
 

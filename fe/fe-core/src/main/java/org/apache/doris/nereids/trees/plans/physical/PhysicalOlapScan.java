@@ -54,23 +54,6 @@ public class PhysicalOlapScan extends PhysicalRelation {
     public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, PushDownAggOperator pushDownAggOperator,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
-        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties);
-        this.olapTable = olapTable;
-        this.selectedIndexId = selectedIndexId;
-        this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
-        this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
-        this.distributionSpec = distributionSpec;
-        this.preAggStatus = preAggStatus;
-        this.pushDownAggOperator = pushDownAggOperator;
-    }
-
-    /**
-     * Constructor for PhysicalOlapScan.
-     */
-    public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
-            List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
-            PreAggStatus preAggStatus, PushDownAggOperator pushDownAggOperator,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,
@@ -149,24 +132,33 @@ public class PhysicalOlapScan extends PhysicalRelation {
 
     @Override
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, preAggStatus, pushDownAggOperator,
-                groupExpression, getLogicalProperties());
+        return new PhysicalOlapScanBuilder().setId(id).setOlapTable(olapTable).setQualifier(qualifier)
+                .setSelectedIndexId(selectedIndexId).setSelectedTabletIds(selectedTabletIds)
+                .setSelectedPartitionIds(selectedPartitionIds).setDistributionSpec(distributionSpec)
+                .setPreAggStatus(preAggStatus).setPushDownAggOperator(pushDownAggOperator)
+                .setGroupExpression(groupExpression).setLogicalProperties(getLogicalProperties())
+                .build();
     }
 
     @Override
     public PhysicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, preAggStatus, pushDownAggOperator,
-                Optional.empty(), logicalProperties.get());
+        return new PhysicalOlapScanBuilder().setId(id).setOlapTable(olapTable).setQualifier(qualifier)
+                .setSelectedIndexId(selectedIndexId).setSelectedTabletIds(selectedTabletIds)
+                .setSelectedPartitionIds(selectedPartitionIds).setDistributionSpec(distributionSpec)
+                .setPreAggStatus(preAggStatus).setPushDownAggOperator(pushDownAggOperator)
+                .setGroupExpression(Optional.empty()).setLogicalProperties(logicalProperties.get())
+                .build();
     }
 
     @Override
     public PhysicalOlapScan withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, preAggStatus, pushDownAggOperator,
-                Optional.empty(), getLogicalProperties(),
-                physicalProperties, statsDeriveResult);
+        return new PhysicalOlapScanBuilder().setId(id).setOlapTable(olapTable).setQualifier(qualifier)
+                .setSelectedIndexId(selectedIndexId).setSelectedTabletIds(selectedTabletIds)
+                .setSelectedPartitionIds(selectedPartitionIds).setDistributionSpec(distributionSpec)
+                .setPreAggStatus(preAggStatus).setPushDownAggOperator(pushDownAggOperator)
+                .setGroupExpression(Optional.empty()).setLogicalProperties(getLogicalProperties())
+                .setStatsDeriveResult(statsDeriveResult).setPhysicalProperties(physicalProperties)
+                .build();
     }
 }
