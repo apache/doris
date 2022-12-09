@@ -332,7 +332,6 @@ std::string Block::each_col_size() {
     return ss.str();
 }
 
-
 void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
