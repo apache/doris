@@ -218,10 +218,9 @@ TEST(MathFunctionTest, ceil_test) {
 
     InputTypeSet input_types = {TypeIndex::Float64};
 
-    DataSet data_set = {
-            {{2.3}, 3.0}, {{2.8}, 3.0}, {{-2.3}, -2.0}, {{2.8}, 3.0}};
+    DataSet data_set = {{{2.3}, 3.0}, {{2.8}, 3.0}, {{-2.3}, -2.0}, {{2.8}, 3.0}};
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
 TEST(MathFunctionTest, floor_test) {
@@ -229,10 +228,9 @@ TEST(MathFunctionTest, floor_test) {
 
     InputTypeSet input_types = {TypeIndex::Float64};
 
-    DataSet data_set = {
-            {{2.3}, 2.0}, {{2.8}, 2.0}, {{-2.3}, -3.0}, {{-2.8}, -3.0}};
+    DataSet data_set = {{{2.3}, 2.0}, {{2.8}, 2.0}, {{-2.3}, -3.0}, {{-2.8}, -3.0}};
 
-    check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
 TEST(MathFunctionTest, degrees_test) {
@@ -367,7 +365,7 @@ TEST(MathFunctionTest, round_test) {
         DataSet data_set = {{{30.1}, 30.0}, {{90.6}, 91.0}, {{Null()}, Null()},
                             {{0.0}, 0.0},   {{-1.1}, -1.0}, {{-60.7}, -61.0}};
 
-        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
     }
 }
 
