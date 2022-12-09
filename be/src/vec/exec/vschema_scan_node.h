@@ -30,18 +30,12 @@ class TupleDescriptor;
 class RuntimeState;
 class Status;
 
-namespace pipeline {
-class SchemaScanOperator;
-}
-
 namespace vectorized {
 
 class VSchemaScanNode : public ScanNode {
 public:
     VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VSchemaScanNode();
-
-    friend class pipeline::SchemaScanOperator;
 
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
