@@ -17,22 +17,36 @@
 
 #pragma once
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "io/file_reader.h"
-#include "io/file_writer.h"
-
+#include "io/fs/file_reader.h"
+#include "io/fs/hdfs_file_system.h"
 namespace doris {
+namespace io {
 
-// TODO(ftw): This file should be deleted when new_file_factory.h replace file_factory.h
-class HdfsReaderWriter {
+class HdfsFileReader : public FileReader {
 public:
-    static Status create_reader(const THdfsParams& hdfs_params, const std::string& path,
-                                int64_t start_offset, FileReader** reader);
+    HdfsFileReader(Path path, size_t file_size, const std::string& name_node, hdfsFile hdfs_file,
+                   HdfsFileSystem* fs);
 
-    static Status create_reader(const std::map<std::string, std::string>& properties,
-                                const std::string& path, int64_t start_offset, FileReader** reader);
+    ~HdfsFileReader() override;
 
-    static Status create_writer(const std::map<std::string, std::string>& properties,
-                                const std::string& path, std::unique_ptr<FileWriter>& writer);
+    Status close() override;
+
+    Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
+                   size_t* bytes_read) override;
+
+    const Path& path() const override { return _path; }
+
+    size_t size() const override { return _file_size; }
+
+    bool closed() const override { return _closed.load(std::memory_order_acquire); }
+
+private:
+    Path _path;
+    size_t _file_size;
+    const std::string& _name_node;
+    hdfsFile _hdfs_file;
+    HdfsFileSystem* _fs;
+    std::atomic<bool> _closed = false;
 };
+} // namespace io
 } // namespace doris
