@@ -36,6 +36,7 @@ The new Multi-Catalog function adds a new layer of Catalog to the original metad
 
 1. Hive MetaStore: Connect to a Hive MetaStore, so that you can directly access Hive, Iceberg, Hudi and other data in it.
 2. Elasticsearch: Connect to an ES cluster and directly access the tables and shards in it.
+3. JDBC: Connect to the standard database access interface (JDBC) to access data of various databases. (currently only support `jdbc:mysql`)
 
 This function will be used as a supplement and enhancement to the previous external table connection method (External Table) to help users perform fast multi-catalog federated queries.
 
@@ -307,6 +308,121 @@ Parameter | Description
 **elasticsearch.nodes_discovery** | Whether or not to enable ES node discovery, the default is true. In network isolation, set this parameter to false. Only the specified node is connected
 **elasticsearch.ssl** | Whether ES cluster enables https access mode, the current FE/BE implementation is to trust all
 
+### Connect JDBC
+
+
+The following example creates a Catalog connection named jdbc. This jdbc Catalog will connect to the specified database according to the 'jdbc.jdbc_url' parameter(`jdbc::mysql` in the example, so connect to the mysql database). Currently, only the MYSQL database type is supported.
+
+```sql
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.user"="root",
+    "jdbc.password"="123456",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
+    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+);
+```
+
+Where `jdbc.driver_url` can be a remote jar package
+
+```sql
+CREATE CATALOG jdbc PROPERTIES (
+"type"="jdbc",
+"jdbc.user"="root",
+"jdbc.password"="123456",
+"jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+"jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+"jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+);
+```
+
+If the `jdbc.driver_url` is a remote jar package in the form of http, the Doris processing method is:
+1. Only query the meta-data, without inquiring the table data (such as the operation `show catalogs/database/tables`): This URL will be used to load the driver class by FE.
+2. When querying the tables in JDBC Catalog (like `select from`): BE will download the jar package to the local directory `be/lib/udf/`, and the jar package will be loaded directly from the local path When queried.
+
+Once created, you can view the catalog with the `SHOW CATALOGS` command:
+
+```sql
+MySQL [(none)]> show catalogs;
++-----------+-------------+----------+
+| CatalogId | CatalogName | Type     |
++-----------+-------------+----------+
+|         0 | internal    | internal |
+|     10480 | jdbc        | jdbc     |
++-----------+-------------+----------+
+2 rows in set (0.02 sec)
+```
+
+Switch to the jdbc catalog with the `SWITCH` command and view the databases in it:
+
+```sql
+MySQL [(none)]> switch jdbc;
+Query OK, 0 rows affected (0.02 sec)
+
+MySQL [(none)]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| __db1              |
+| _db1               |
+| db1                |
+| demo               |
+| information_schema |
+| mysql              |
+| mysql_db_test      |
+| performance_schema |
+| sys                |
++--------------------+
+9 rows in set (0.67 sec)
+```
+
+Show the tables under the `db1` database and query one table:
+
+```sql
+MySQL [demo]> use db1;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+MySQL [db1]> show tables;
++---------------+
+| Tables_in_db1 |
++---------------+
+| tbl1          |
++---------------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> desc tbl1;
++-------+------+------+------+---------+-------+
+| Field | Type | Null | Key  | Default | Extra |
++-------+------+------+------+---------+-------+
+| k1    | INT  | Yes  | true | NULL    |       |
++-------+------+------+------+---------+-------+
+1 row in set (0.00 sec)
+
+MySQL [db1]> select * from tbl1;
++------+
+| k1   |
++------+
+|    1 |
+|    2 |
+|    3 |
+|    4 |
++------+
+4 rows in set (0.19 sec)
+```
+
+#### 参数说明：
+
+参数 | 说明
+---|---
+**jdbc.user** | The username used to connect to the database
+**jdbc.password** | The password used to connect to the database
+**jdbc.jdbc_url** | The identifier used to connect to the specified database
+**jdbc.driver_url** | The url of JDBC driver package
+**jdbc.driver_class** | The class of JDBC driver
+
 ### Connect Aliyun Data Lake Formation
 
 > [What is Data Lake Formation](https://www.alibabacloud.com/product/datalake-formation)
@@ -417,6 +533,33 @@ For Hive/Iceberge/Hudi
 | object |string | |
 | array | | Comming soon |
 |other| string ||
+
+### JDBC
+
+#### MYSQL
+ MYSQL Type | Doris Type | Comment |
+|---|---|---|
+| BOOLEAN | BOOLEAN | |
+| TINYINT | TINYINT | |
+| SMALLINT | SMALLINT | |
+| MEDIUMINT | INT | |
+| INT | INT | |
+| BIGINT | BIGINT | |
+| UNSIGNED TINYINT | SMALLINT | DORIS does not have the UNSIGNED data type, so expand the type|
+| UNSIGNED MEDIUMINT | INT | DORIS does not have the UNSIGNED data type, so expand the type|
+| UNSIGNED INT | BIGINT | DORIS does not have the UNSIGNED data type, so expand the type|
+| UNSIGNED BIGINT | STRING | |
+| FLOAT | FLOAT | |
+| DOUBLE | DOUBLE | |
+| DECIMAL | DECIMAL | |
+| DATE | DATE | |
+| TIMESTAMP | DATETIME | |
+| DATETIME | DATETIME | |
+| YEAR | SMALLINT | |
+| TIME | STRING | |
+| CHAR | CHAR | |
+| VARCHAR | STRING | |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
 
 ## Privilege Management
 
