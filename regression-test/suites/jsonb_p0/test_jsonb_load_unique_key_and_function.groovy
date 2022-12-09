@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jsonb_load_and_function", "p0") {
+suite("test_jsonb_unique_load_and_function", "p0") {
     // define a sql table
-    def testTable = "tbl_test_jsonb"
-    def dataFile = "test_jsonb.csv"
+    def testTable = "tbl_test_jsonb_unique"
+    def dataFile = "test_jsonb_unique_key.csv"
 
     sql """ set enable_vectorized_engine = true """
 
@@ -52,9 +52,9 @@ suite("test_jsonb_load_and_function", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals("too many filtered rows", json.Message)
-            assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
-            assertEquals(7, json.NumberFilteredRows)
+            assertEquals(75, json.NumberTotalRows)
+            assertEquals(54, json.NumberLoadedRows)
+            assertEquals(21, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
         }
     }
@@ -78,9 +78,9 @@ suite("test_jsonb_load_and_function", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(25, json.NumberTotalRows)
-            assertEquals(18, json.NumberLoadedRows)
-            assertEquals(7, json.NumberFilteredRows)
+            assertEquals(75, json.NumberTotalRows)
+            assertEquals(54, json.NumberLoadedRows)
+            assertEquals(21, json.NumberFilteredRows)
             assertTrue(json.LoadBytes > 0)
         }
     }
