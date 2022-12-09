@@ -378,7 +378,7 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 Doris FE 通过 mysql 协议查询连接端口
 
-### `frontend_address`
+#### `frontend_address`
 
 状态:已弃用，不建议使用。
 
@@ -983,7 +983,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 ### 导入与导出
 
-### `enable_vectorized_load`
+#### `enable_vectorized_load`
 
 默认值：true
 
@@ -2095,7 +2095,7 @@ tablet 状态更新间隔
 
 创建表（或分区）时，可以指定其存储介质（HDD 或 SSD）。 如果设置为 SSD，这将指定tablet在 SSD 上停留的默认时间。 之后，tablet将自动移动到 HDD。 您可以在 `CREATE TABLE stmt` 中设置存储冷却时间。
 
-### `default_storage_medium`
+#### `default_storage_medium`
 
 默认值：HDD
 
