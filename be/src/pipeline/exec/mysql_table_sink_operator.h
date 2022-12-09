@@ -18,26 +18,32 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/exec/vmysql_scan_node.h"
+#include "vec/sink/vmysql_table_sink.h"
 
-namespace doris::pipeline {
+namespace doris {
 
-class MysqlScanOperatorBuilder : public OperatorBuilder<vectorized::VMysqlScanNode> {
+namespace pipeline {
+
+class MysqlTableSinkOperatorBuilder final
+        : public DataSinkOperatorBuilder<vectorized::VMysqlTableSink> {
 public:
-    MysqlScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
+    MysqlTableSinkOperatorBuilder(int32_t id, DataSink* sink)
+            : DataSinkOperatorBuilder(id, "MysqlTableSinkOperator", sink) {};
+
     OperatorPtr build_operator() override;
 };
 
-class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
+class MysqlTableSinkOperator final : public DataSinkOperator<MysqlTableSinkOperatorBuilder> {
 public:
-    MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
+    MysqlTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
+            : DataSinkOperator(operator_builder, sink) {};
 
-    bool can_read() override { return true; };
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
+    bool can_write() override { return true; }
 };
 
-} // namespace doris::pipeline
+OperatorPtr MysqlTableSinkOperatorBuilder::build_operator() {
+    return std::make_shared<MysqlTableSinkOperator>(this, _sink);
+}
+
+} // namespace pipeline
+} // namespace doris
