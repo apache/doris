@@ -213,26 +213,13 @@ TEST(MathFunctionTest, pow_test) {
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
-TEST(MathFunctionTest, truncate_test) {
-    std::string func_name = "truncate"; // truncate(x,y)
-
-    InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
-
-    DataSet data_set = {{{123.4567, 3.0}, 123.456}, {{-123.4567, 3.0}, -123.456},
-                        {{123.4567, 0.0}, 123.0},   {{-123.4567, 0.0}, -123.0},
-                        {{123.4567, -2.0}, 100.0},  {{-123.4567, -2.0}, -100.0},
-                        {{-123.4567, -3.0}, 0.0}};
-
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
-}
-
 TEST(MathFunctionTest, ceil_test) {
     std::string func_name = "ceil";
 
     InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {
-            {{2.3}, (int64_t)3}, {{2.8}, (int64_t)3}, {{-2.3}, (int64_t)-2}, {{2.8}, (int64_t)3.0}};
+            {{2.3}, 3.0}, {{2.8}, 3.0}, {{-2.3}, -2.0}, {{2.8}, 3.0}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
@@ -243,7 +230,7 @@ TEST(MathFunctionTest, floor_test) {
     InputTypeSet input_types = {TypeIndex::Float64};
 
     DataSet data_set = {
-            {{2.3}, (int64_t)2}, {{2.8}, (int64_t)2}, {{-2.3}, (int64_t)-3}, {{-2.8}, (int64_t)-3}};
+            {{2.3}, 2.0}, {{2.8}, 2.0}, {{-2.3}, -3.0}, {{-2.8}, -3.0}};
 
     check_function<DataTypeInt64, true>(func_name, input_types, data_set);
 }
@@ -377,18 +364,10 @@ TEST(MathFunctionTest, round_test) {
     {
         InputTypeSet input_types = {TypeIndex::Float64};
 
-        DataSet data_set = {{{30.1}, (int64_t)30}, {{90.6}, (int64_t)91}, {{Null()}, Null()},
-                            {{0.0}, (int64_t)0},   {{-1.1}, (int64_t)-1}, {{-60.7}, (int64_t)-61}};
+        DataSet data_set = {{{30.1}, 30.0}, {{90.6}, 91.0}, {{Null()}, Null()},
+                            {{0.0}, 0.0},   {{-1.1}, -1.0}, {{-60.7}, -61.0}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
-    }
-    {
-        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Int32};
-
-        DataSet data_set = {{{3.1415926, 2}, 3.14}, {{3.1415926, 3}, 3.142}, {{Null(), -2}, Null()},
-                            {{193.0, -2}, 200.0},   {{193.0, -1}, 190.0},    {{193.0, -3}, 0.0}};
-
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
     }
 }
 
