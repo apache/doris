@@ -94,8 +94,6 @@ set(VEC_FILES
   exec/vexchange_node.cpp
   exec/vset_operation_node.cpp
   exec/vunion_node.cpp
-  exec/vintersect_node.cpp
-  exec/vexcept_node.cpp
   exec/vselect_node.cpp
   exec/vmysql_scan_node.cpp
   exec/vschema_scan_node.cpp

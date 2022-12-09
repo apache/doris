@@ -271,9 +271,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
-        if (!UNLIKELY(in_block)) {
-            DCHECK(source_state == SourceState::FINISHED)
-                    << "block is null, eos should invoke in finalize.";
+        if (UNLIKELY(!in_block || in_block->rows() == 0)) {
             return Status::OK();
         }
         return _sink->send(state, in_block, source_state == SourceState::FINISHED);
