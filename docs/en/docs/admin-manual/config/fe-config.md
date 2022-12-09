@@ -670,14 +670,15 @@ If this configuration is enabled, you should also specify the enable_tracing=tru
 
 #### `trace_export_url`
 
-Default：http://127.0.0.1:9411/api/v2/spans
+Default：`http://127.0.0.1:9411/api/v2/spans`
 
 IsMutable：false
 
 MasterOnly：false
 
-export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-export to collector like: http://127.0.0.1:4318/v1/traces
+trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
+
+trace export to collector like: `http://127.0.0.1:4318/v1/traces`
 
 ### Query Engine
 

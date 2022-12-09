@@ -670,14 +670,15 @@ http header size 配置参数
 
 #### `trace_export_url`
 
-默认值：http://127.0.0.1:9411/api/v2/spans
+默认值：`http://127.0.0.1:9411/api/v2/spans`
 
 是否可以动态配置：false
 
 是否为 Master FE 节点独有的配置项：false
 
-导出到 zipkin: http://127.0.0.1:9411/api/v2/spans
-导出到 collector: http://127.0.0.1:4318/v1/traces
+trace导出到 zipkin: `http://127.0.0.1:9411/api/v2/spans`
+
+trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 ### 查询引擎
 
