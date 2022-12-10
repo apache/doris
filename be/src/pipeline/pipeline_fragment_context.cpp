@@ -46,6 +46,8 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/const_value_operator.h"
+#include "pipeline/exec/nested_loop_join_build_operator.h"
+#include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
@@ -56,6 +58,7 @@
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -412,6 +415,21 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
                 next_operator_builder_id(), join_node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
+
+        cur_pipe->add_dependency(new_pipe);
+        break;
+    }
+    case TPlanNodeType::CROSS_JOIN_NODE: {
+        auto new_pipe = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        OperatorBuilderPtr join_sink = std::make_shared<NestLoopJoinBuildOperatorBuilder>(
+                next_operator_builder_id(), node);
+        RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+        OperatorBuilderPtr join_source = std::make_shared<NestLoopJoinProbeOperatorBuilder>(
+                next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
 
         cur_pipe->add_dependency(new_pipe);

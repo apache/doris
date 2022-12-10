@@ -14,34 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#pragma once
 
-#include "operator.h"
+#include "nested_loop_join_probe_operator.h"
 
-namespace doris {
-namespace vectorized {
-class AggregationNode;
+#include "vec/exec/join/vnested_loop_join_node.h"
+
+namespace doris::pipeline {
+
+OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, StatefulOperator)
+
+Status NestLoopJoinProbeOperator::prepare(doris::RuntimeState* state) {
+    // just for speed up, the way is dangerous
+    _child_block.reset(_node->get_left_block());
+    return StatefulOperator::prepare(state);
 }
 
-namespace pipeline {
+Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
+    _child_block.release();
+    return StatefulOperator::close(state);
+}
 
-class AggSourceOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
-public:
-    AggSourceOperatorBuilder(int32_t, ExecNode*);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class AggSourceOperator final : public Operator<AggSourceOperatorBuilder> {
-public:
-    AggSourceOperator(OperatorBuilderBase*, ExecNode*);
-    // if exec node split to: sink, source operator. the source operator
-    // should skip `alloc_resoucre()` function call, only sink operator
-    // call the function
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
-
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline
