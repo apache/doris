@@ -437,7 +437,6 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         cur_pipe->add_dependency(new_pipe);
         break;
     }
-<<<<<<< HEAD
     case TPlanNodeType::CROSS_JOIN_NODE: {
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
