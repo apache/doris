@@ -489,7 +489,7 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     }
     case TDataSinkType::MYSQL_TABLE_SINK: {
         sink_ = std::make_shared<MysqlTableSinkOperatorBuilder>(next_operator_builder_id(),
-                                                               _sink.get());
+                                                                _sink.get());
         break;
     }
     default:
