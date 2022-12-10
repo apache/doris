@@ -205,6 +205,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         }
     }
 
+    bool insert_after_parse_failure = true;
     StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
     // Parse the raw-text data. Translate the text string to internal format.
     switch (slot_desc->type().type) {
@@ -271,6 +272,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         vectorized::VecDateTimeValue ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
+            insert_after_parse_failure = false;
             break;
         }
         ts_slot.cast_to_date();
@@ -283,6 +285,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         vectorized::VecDateTimeValue ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
+            insert_after_parse_failure = false;
             break;
         }
         ts_slot.to_datetime();
@@ -295,6 +298,7 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         DecimalV2Value decimal_slot;
         if (decimal_slot.parse_from_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
+            insert_after_parse_failure = false;
             break;
         }
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
@@ -308,12 +312,14 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
 
     if (UNLIKELY(parse_result == StringParser::PARSE_FAILURE)) {
-        if (true == slot_desc->is_nullable()) {
+        if (slot_desc->is_nullable()) {
             auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(nullable_col_ptr);
             size_t size = nullable_column->get_null_map_data().size();
             doris::vectorized::NullMap& null_map_data = nullable_column->get_null_map_data();
             null_map_data[size - 1] = 1;
-            nullable_column->get_nested_column().insert_default();
+            if (!insert_after_parse_failure) {
+                nullable_column->get_nested_column().insert_default();
+            }
         }
         return false;
     }
