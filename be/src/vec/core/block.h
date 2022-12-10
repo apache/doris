@@ -180,6 +180,8 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
+    std::string each_col_size();
+
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);
 
