@@ -22,12 +22,10 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.PlanUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -37,27 +35,10 @@ import java.util.Set;
  * Push the other join conditions in LogicalJoin to children.
  */
 public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
-    private static final ImmutableList<JoinType> PUSH_DOWN_LEFT_VALID_TYPE = ImmutableList.of(
-            JoinType.INNER_JOIN,
-            JoinType.LEFT_SEMI_JOIN,
-            JoinType.RIGHT_OUTER_JOIN,
-            JoinType.RIGHT_ANTI_JOIN,
-            JoinType.RIGHT_SEMI_JOIN,
-            JoinType.CROSS_JOIN
-    );
-
-    private static final ImmutableList<JoinType> PUSH_DOWN_RIGHT_VALID_TYPE = ImmutableList.of(
-            JoinType.INNER_JOIN,
-            JoinType.LEFT_OUTER_JOIN,
-            JoinType.LEFT_ANTI_JOIN,
-            JoinType.LEFT_SEMI_JOIN,
-            JoinType.RIGHT_SEMI_JOIN,
-            JoinType.CROSS_JOIN
-    );
-
     @Override
     public Rule build() {
         return logicalJoin()
+                .when(join -> join.getJoinType().isInnerOrCrossJoin())
                 .whenNot(join -> join.getOtherJoinConjuncts().isEmpty())
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
@@ -66,11 +47,9 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
                     List<Expression> rightConjuncts = Lists.newArrayList();
 
                     for (Expression otherConjunct : otherJoinConjuncts) {
-                        if (PUSH_DOWN_LEFT_VALID_TYPE.contains(join.getJoinType())
-                                && allCoveredBy(otherConjunct, join.left().getOutputSet())) {
+                        if (allCoveredBy(otherConjunct, join.left().getOutputSet())) {
                             leftConjuncts.add(otherConjunct);
-                        } else if (PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType())
-                                && allCoveredBy(otherConjunct, join.right().getOutputSet())) {
+                        } else if (allCoveredBy(otherConjunct, join.right().getOutputSet())) {
                             rightConjuncts.add(otherConjunct);
                         } else {
                             remainingOther.add(otherConjunct);
