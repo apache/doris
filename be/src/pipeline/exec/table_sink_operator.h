@@ -18,31 +18,32 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/sink/vmysql_table_sink.h"
+#include "vec/sink/vtable_sink.h"
 
 namespace doris {
 
 namespace pipeline {
 
-class MysqlTableSinkOperatorBuilder final
-        : public DataSinkOperatorBuilder<vectorized::VMysqlTableSink> {
+// used for VMysqlTableSink, VJdbcTableSink and VOdbcTableSink.
+class TableSinkOperatorBuilder final
+        : public DataSinkOperatorBuilder<vectorized::VTableSink> {
 public:
-    MysqlTableSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "MysqlTableSinkOperator", sink) {};
+    TableSinkOperatorBuilder(int32_t id, DataSink* sink)
+            : DataSinkOperatorBuilder(id, "TableSinkOperator", sink) {};
 
     OperatorPtr build_operator() override;
 };
 
-class MysqlTableSinkOperator final : public DataSinkOperator<MysqlTableSinkOperatorBuilder> {
+class TableSinkOperator final : public DataSinkOperator<TableSinkOperatorBuilder> {
 public:
-    MysqlTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
+    TableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {};
 
     bool can_write() override { return true; }
 };
 
-OperatorPtr MysqlTableSinkOperatorBuilder::build_operator() {
-    return std::make_shared<MysqlTableSinkOperator>(this, _sink);
+OperatorPtr TableSinkOperatorBuilder::build_operator() {
+    return std::make_shared<TableSinkOperator>(this, _sink);
 }
 
 } // namespace pipeline

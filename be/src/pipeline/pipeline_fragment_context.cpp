@@ -32,7 +32,6 @@
 #include "exec/hashjoin_build_sink.h"
 #include "exec/hashjoin_probe_operator.h"
 #include "exec/mysql_scan_operator.h"
-#include "exec/mysql_table_sink_operator.h"
 #include "exec/repeat_operator.h"
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
@@ -45,6 +44,7 @@
 #include "exec/sort_source_operator.h"
 #include "exec/streaming_aggregation_sink_operator.h"
 #include "exec/streaming_aggregation_source_operator.h"
+#include "exec/table_sink_operator.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
@@ -300,7 +300,9 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     auto node_type = node->type();
     switch (node_type) {
     // for source
-    case TPlanNodeType::OLAP_SCAN_NODE: {
+    case TPlanNodeType::OLAP_SCAN_NODE:
+    case TPlanNodeType::JDBC_SCAN_NODE:
+    case TPlanNodeType::ODBC_SCAN_NODE: {
         OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
                 fragment_context->next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
@@ -520,9 +522,10 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
                                                                _sink.get());
         break;
     }
-    case TDataSinkType::MYSQL_TABLE_SINK: {
-        sink_ = std::make_shared<MysqlTableSinkOperatorBuilder>(next_operator_builder_id(),
-                                                                _sink.get());
+    case TDataSinkType::MYSQL_TABLE_SINK:
+    case TDataSinkType::JDBC_TABLE_SINK:
+    case TDataSinkType::ODBC_TABLE_SINK: {
+        sink_ = std::make_shared<TableSinkOperatorBuilder>(next_operator_builder_id(), _sink.get());
         break;
     }
     default:
