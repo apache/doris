@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -100,7 +101,9 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalFilter().then(filter -> {
-                List<Expression> newConjuncts = rewriter.rewrite(filter.getConjuncts());
+                List<Expression> newConjuncts = filter.getConjuncts().stream()
+                        .map(expr -> ExpressionUtils.extractConjunction(rewriter.rewrite(expr)))
+                        .flatMap(List::stream).collect(Collectors.toList());
                 if (newConjuncts.equals(filter.getConjuncts())) {
                     return filter;
                 }
