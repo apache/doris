@@ -30,6 +30,7 @@
 #include "exec/hashjoin_build_sink.h"
 #include "exec/hashjoin_probe_operator.h"
 #include "exec/mysql_scan_operator.h"
+#include "exec/mysql_table_sink_operator.h"
 #include "exec/repeat_operator.h"
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
@@ -502,6 +503,11 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     case TDataSinkType::OLAP_TABLE_SINK: {
         sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
                                                                _sink.get());
+        break;
+    }
+    case TDataSinkType::MYSQL_TABLE_SINK: {
+        sink_ = std::make_shared<MysqlTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                _sink.get());
         break;
     }
     default:
