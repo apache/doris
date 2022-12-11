@@ -19,6 +19,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, Operator)
+OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 } // namespace doris::pipeline
