@@ -1999,8 +1999,8 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 RowLocation loc;
                 // first check if exist in pre segment
                 if (check_pre_segments) {
-                    auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, *key, dummy_version,
-                                                        delete_bitmap, &loc);
+                    auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, *key,
+                                                        dummy_version, delete_bitmap, &loc);
                     if (st.ok()) {
                         delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
                                            loc.row_id);
@@ -2046,9 +2046,9 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
     return Status::OK();
 }
 
-Status Tablet::_check_pk_in_pre_segments(RowsetId rowset_id,
-        const std::vector<segment_v2::SegmentSharedPtr>& pre_segments, const Slice& key,
-        const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
+Status Tablet::_check_pk_in_pre_segments(
+        RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
+        const Slice& key, const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
         auto st = (*it)->lookup_row_key(key, loc);
         CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
@@ -2064,8 +2064,7 @@ Status Tablet::_check_pk_in_pre_segments(RowsetId rowset_id,
             // delete all rows with same key in all pre segments
             if (!delete_bitmap->contains({rowset_id, loc->segment_id, version.first},
                                          loc->row_id)) {
-                delete_bitmap->add({rowset_id, loc->segment_id, version.first},
-                                   loc->row_id);
+                delete_bitmap->add({rowset_id, loc->segment_id, version.first}, loc->row_id);
             }
             continue;
         }
