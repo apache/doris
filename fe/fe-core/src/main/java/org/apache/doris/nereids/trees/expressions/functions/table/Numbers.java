@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
@@ -81,6 +82,15 @@ public class Numbers extends TableValuedFunction {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNumbers(this, context);
+    }
+
+    @Override
+    public PhysicalProperties getPhysicalProperties() {
+        String backendNum = getTVFProperties().getMap().getOrDefault(NumbersTableValuedFunction.BACKEND_NUM, "1");
+        if (backendNum.trim().equals("1")) {
+            return PhysicalProperties.GATHER;
+        }
+        return PhysicalProperties.ANY;
     }
 
     @Override

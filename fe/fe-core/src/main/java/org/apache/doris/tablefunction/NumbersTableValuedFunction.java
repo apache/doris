@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.DataGenScanNode;
+import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.system.Backend;
@@ -145,5 +146,13 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
         return new DataGenScanNode(id, desc, "DataGenScanNode", this);
+    }
+
+    @Override
+    public DataPartition getDataPartition() {
+        if (tabletsNum == 1) {
+            return DataPartition.UNPARTITIONED;
+        }
+        return DataPartition.RANDOM;
     }
 }

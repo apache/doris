@@ -498,7 +498,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.findSlotRef(slot.getExprId()).setLabel(tableColumnName);
         }
 
-        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);
+        DataPartition dataPartition = tvfRelation.getFunction().getCatalogFunction().getDataPartition();
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), scanNode, dataPartition);
         context.addPlanFragment(planFragment);
         return planFragment;
     }
