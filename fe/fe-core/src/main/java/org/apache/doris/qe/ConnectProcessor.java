@@ -181,8 +181,8 @@ public class ConnectProcessor {
                 .setState(ctx.getState().toString())
                 .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
-                        ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " "))
-                ).setQueryTime(elapseMs)
+                        ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
+                .setQueryTime(elapseMs)
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
