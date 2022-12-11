@@ -43,11 +43,11 @@ public:
     virtual Status add_row(const ContiguousRow& row) = 0;
 
     virtual Status add_block(const vectorized::Block* block) {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
     virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
                                bool is_key, uint32_t max_rows_per_segment) {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
@@ -59,18 +59,14 @@ public:
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
-    virtual Status flush_columns() {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
-    }
-    virtual Status final_flush() {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
-    }
+    virtual Status flush_columns() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
+    virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
     virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
     virtual Status flush_single_memtable(const vectorized::Block* block) {
-        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).

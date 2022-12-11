@@ -262,7 +262,7 @@ Status Expr::create_expr_tree(ObjectPool* pool, const TExpr& texpr, ExprContext*
     }
     if (!status.ok()) {
         LOG(ERROR) << "Could not construct expr tree.\n"
-                   << status.get_error_msg() << "\n"
+                   << status << "\n"
                    << apache::thrift::ThriftDebugString(texpr);
     }
     return status;
@@ -931,7 +931,7 @@ Status Expr::create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root) {
         Status status = create_tree_internal(texpr.nodes, pool, root, &child_node_idx);
         if (UNLIKELY(!status.ok())) {
             LOG(ERROR) << "Could not construct expr tree.\n"
-                       << status.get_error_msg() << "\n"
+                       << status << "\n"
                        << apache::thrift::ThriftDebugString(texpr);
             return status;
         }

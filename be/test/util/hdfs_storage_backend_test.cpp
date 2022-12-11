@@ -31,6 +31,7 @@
 #include "util/storage_backend.h"
 
 namespace doris {
+using namespace ErrorCode;
 static const std::string fs_name = "hdfs://127.0.0.1:9000"; // An invalid address
 static const std::string user = "test";
 static const std::string base_path = "/user/test";
@@ -96,7 +97,7 @@ TEST_F(HDFSStorageBackendTest, hdfs_upload) {
     status = _fs->upload(_test_file + "_not_found", _base_path + "/Ode_to_the_West_Wind1.txt");
     EXPECT_FALSE(status.ok());
     status = _fs->exist(_base_path + "/Ode_to_the_West_Wind1.txt");
-    EXPECT_EQ(TStatusCode::NOT_FOUND, status.code());
+    EXPECT_EQ(NOT_FOUND, status.code());
 }
 
 TEST_F(HDFSStorageBackendTest, hdfs_direct_upload) {
@@ -165,7 +166,7 @@ TEST_F(HDFSStorageBackendTest, hdfs_rm) {
     status = _fs->rm(_base_path + "/Ode_to_the_West_Wind.txt");
     EXPECT_TRUE(status.ok());
     status = _fs->exist(_base_path + "/Ode_to_the_West_Wind.txt");
-    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == NOT_FOUND);
 }
 
 } // namespace doris

@@ -78,7 +78,7 @@ private:
 template <typename T>
 Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
-        return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
     }
 
     // 处理base为空的情况

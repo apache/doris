@@ -293,7 +293,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         Status status = start_scan(state);
 
         if (!status.ok()) {
-            LOG(ERROR) << "StartScan Failed cause " << status.get_error_msg();
+            LOG(ERROR) << "StartScan Failed cause " << status;
             *eos = true;
             return status;
         }
@@ -1577,8 +1577,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                     COUNTER_UPDATE(_scanner_sched_counter, 1);
                     olap_scanners.erase(iter++);
                 } else {
-                    LOG(FATAL) << "Failed to assign scanner task to thread pool! "
-                               << s.get_error_msg();
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s;
                 }
                 ++_total_assign_num;
             }
@@ -1751,7 +1750,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {
-            LOG(WARNING) << "Scan thread read OlapScanner failed: " << status.to_string();
+            LOG(WARNING) << "Scan thread read OlapScanner failed: " << status;
             eos = true;
             break;
         }

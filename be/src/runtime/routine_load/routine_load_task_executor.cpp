@@ -31,6 +31,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
@@ -225,8 +226,8 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                                                 std::unique_lock<std::mutex> l(_lock);
                                                 _task_map.erase(ctx->id);
                                                 LOG(INFO) << "finished routine load task "
-                                                          << ctx->brief() << ", status: "
-                                                          << ctx->status.get_error_msg()
+                                                          << ctx->brief()
+                                                          << ", status: " << ctx->status
                                                           << ", current tasks num: "
                                                           << _task_map.size();
                                                 if (ctx->unref()) {
@@ -249,14 +250,14 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 
 void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool* consumer_pool,
                                         ExecFinishCallback cb) {
-#define HANDLE_ERROR(stmt, err_msg)                                                        \
-    do {                                                                                   \
-        Status _status_ = (stmt);                                                          \
-        if (UNLIKELY(!_status_.ok() && _status_.code() != TStatusCode::PUBLISH_TIMEOUT)) { \
-            err_handler(ctx, _status_, err_msg);                                           \
-            cb(ctx);                                                                       \
-            return;                                                                        \
-        }                                                                                  \
+#define HANDLE_ERROR(stmt, err_msg)                                        \
+    do {                                                                   \
+        Status _status_ = (stmt);                                          \
+        if (UNLIKELY(!_status_.ok() && !_status_.is<PUBLISH_TIMEOUT>())) { \
+            err_handler(ctx, _status_, err_msg);                           \
+            cb(ctx);                                                       \
+            return;                                                        \
+        }                                                                  \
     } while (false);
 
     LOG(INFO) << "begin to execute routine load task: " << ctx->brief();
@@ -273,7 +274,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
         Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
                             ->assign_topic_partitions(ctx);
         if (!st.ok()) {
-            err_handler(ctx, st, st.get_error_msg());
+            err_handler(ctx, st, st.to_string());
             cb(ctx);
             return;
         }
@@ -324,7 +325,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
         if (!st.ok()) {
             // Kafka Offset Commit is idempotent, Failure should not block the normal process
             // So just print a warning
-            LOG(WARNING) << st.get_error_msg();
+            LOG(WARNING) << st;
             break;
         }
 
@@ -339,7 +340,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
         if (!st.ok()) {
             // Kafka Offset Commit is idempotent, Failure should not block the normal process
             // So just print a warning
-            LOG(WARNING) << st.get_error_msg();
+            LOG(WARNING) << st;
         }
         _data_consumer_pool.return_consumer(consumer);
 
