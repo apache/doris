@@ -21,6 +21,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, Operator)
+OPERATOR_CODE_GENERATOR(NestLoopJoinBuildOperator, StreamingOperator)
 
 } // namespace doris::pipeline

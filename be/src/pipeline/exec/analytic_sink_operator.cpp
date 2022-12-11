@@ -20,6 +20,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, Operator)
+OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, StreamingOperator)
 
 } // namespace doris::pipeline

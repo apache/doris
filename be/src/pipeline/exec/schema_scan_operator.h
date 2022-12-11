@@ -32,7 +32,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SchemaScanOperator : public Operator<SchemaScanOperatorBuilder> {
+class SchemaScanOperator : public SourceOperator<SchemaScanOperatorBuilder> {
 public:
     SchemaScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
 

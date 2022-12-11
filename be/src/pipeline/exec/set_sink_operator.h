@@ -43,7 +43,7 @@ public:
 };
 
 template <bool is_intersect>
-class SetSinkOperator : public Operator<SetSinkOperatorBuilder<is_intersect>> {
+class SetSinkOperator : public StreamingOperator<SetSinkOperatorBuilder<is_intersect>> {
 public:
     SetSinkOperator(OperatorBuilderBase* operator_builder,
                     vectorized::VSetOperationNode<is_intersect>* set_node);

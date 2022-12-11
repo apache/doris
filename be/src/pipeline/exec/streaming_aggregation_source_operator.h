@@ -38,7 +38,7 @@ private:
     std::shared_ptr<AggContext> _agg_context;
 };
 
-class StreamingAggSourceOperator final : public Operator<StreamingAggSourceOperatorBuilder> {
+class StreamingAggSourceOperator final : public SourceOperator<StreamingAggSourceOperatorBuilder> {
 public:
     StreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<AggContext>);
     bool can_read() override;

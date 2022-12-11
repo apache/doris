@@ -36,10 +36,10 @@ public:
     bool is_source() const override { return true; }
 };
 
-class ConstValueOperator final : public Operator<ConstValueOperatorBuilder> {
+class ConstValueOperator final : public SourceOperator<ConstValueOperatorBuilder> {
 public:
     ConstValueOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
-            : Operator(operator_builder, node) {};
+            : SourceOperator(operator_builder, node) {};
 
     bool can_read() override { return true; };
 };

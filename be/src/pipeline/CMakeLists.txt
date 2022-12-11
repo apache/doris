@@ -53,7 +53,8 @@ set(PIPELINE_FILES
         exec/nested_loop_join_probe_operator.cpp
         exec/set_sink_operator.cpp
         exec/set_source_operator.cpp
-        exec/set_probe_sink_operator.cpp)
+        exec/set_probe_sink_operator.cpp
+        exec/select_operator.cpp)
 
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}

@@ -15,32 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "select_operator.h"
 
-#include "operator.h"
+#include "vec/exec/vselect_node.h"
 
-namespace doris {
+namespace doris::pipeline {
 
-namespace vectorized {
-class VSortNode;
-}
+OPERATOR_CODE_GENERATOR(SelectOperator, StreamingOperator)
 
-namespace pipeline {
-
-class SortSourceOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
-public:
-    SortSourceOperatorBuilder(int32_t id, ExecNode* sort_node);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class SortSourceOperator final : public SourceOperator<SortSourceOperatorBuilder> {
-public:
-    SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
-
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

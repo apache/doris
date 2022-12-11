@@ -29,7 +29,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
+class MysqlScanOperator : public SourceOperator<MysqlScanOperatorBuilder> {
 public:
     MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
 
