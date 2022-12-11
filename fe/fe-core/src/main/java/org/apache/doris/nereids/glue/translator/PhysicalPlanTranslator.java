@@ -50,6 +50,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -269,10 +271,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         switch (aggregate.getAggPhase()) {
             case LOCAL:
-                if (firstAggregateInFragment == null) {
-                    aggregationNode.setUseStreamingPreagg(aggregate.isMaybeUsingStream());
-                    aggregationNode.setIntermediateTuple();
-                }
+                // we should set is useStreamingAgg when has exchange,
+                // so the `aggregationNode.setUseStreamingPreagg()` in the visitPhysicalDistribute
                 break;
             case DISTINCT_LOCAL:
                 aggregationNode.setIntermediateTuple();
@@ -1131,6 +1131,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
         PlanFragment childFragment = distribute.child().accept(this, context);
+
+        if (childFragment.getPlanRoot() instanceof AggregationNode
+                && distribute.child() instanceof PhysicalHashAggregate
+                && context.getFirstAggregateInFragment(childFragment) == distribute.child()) {
+            PhysicalHashAggregate<Plan> hashAggregate = (PhysicalHashAggregate) distribute.child();
+            if (hashAggregate.getAggPhase() == AggPhase.LOCAL
+                    && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER) {
+                AggregationNode aggregationNode = (AggregationNode) childFragment.getPlanRoot();
+                aggregationNode.setUseStreamingPreagg(hashAggregate.isMaybeUsingStream());
+            }
+        }
+
         ExchangeNode exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
         exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.setPlanRoot(exchange);

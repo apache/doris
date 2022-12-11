@@ -72,7 +72,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -330,7 +329,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 });
         PhysicalHashAggregate<Plan> gatherLocalAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), newOutput, Optional.empty(),
-                inputToResultParam, maybeUsingStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
+                inputToResultParam, false,
                 logicalAgg.getLogicalProperties(),
                 requireGather, logicalAgg.child());
 
@@ -409,7 +408,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> gatherLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
-                maybeUsingStreamAgg(connectContext, localAggGroupBy),
+                maybeUsingStreamAgg(connectContext, logicalAgg),
                 logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child()
         );
 
@@ -439,7 +438,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         PhysicalHashAggregate<Plan> gatherLocalGatherDistinctAgg = new PhysicalHashAggregate<>(
                 distinctGroupBy, distinctOutput, Optional.of(partitionExpressions),
-                distinctInputToResultParam, maybeUsingStreamAgg(connectContext, localAggGroupBy),
+                distinctInputToResultParam, false,
                 logicalAgg.getLogicalProperties(), requireGather, gatherLocalAgg
         );
 
@@ -521,7 +520,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
-                maybeUsingStreamAgg(connectContext, localAggGroupBy),
+                maybeUsingStreamAgg(connectContext, logicalAgg),
                 logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child()
         );
 
@@ -578,7 +577,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         PhysicalHashAggregate<Plan> anyLocalHashGlobalHashDistinctAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), distinctOutput, Optional.of(partitionExpressions),
-                distinctInputToResultParam, maybeUsingStreamAgg(connectContext, localAggGroupBy),
+                distinctInputToResultParam, false,
                 logicalAgg.getLogicalProperties(), requireHash, anyLocalHashGlobalAgg
         );
 
@@ -638,7 +637,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         RequireProperties requireAny = RequireProperties.of(PhysicalProperties.ANY);
         PhysicalHashAggregate<? extends Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localAggOutput, Optional.of(partitionExpressions),
-                inputToBufferParam, maybeUsingStreamAgg(connectContext, localAggGroupBy),
+                inputToBufferParam, maybeUsingStreamAgg(connectContext, logicalAgg),
                 logicalAgg.getLogicalProperties(), requireAny,
                 logicalAgg.child());
 
@@ -833,7 +832,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .addAll(nonDistinctAggFunctionToAliasPhase1.values())
                 .build();
 
-        boolean maybeUsingStreamAgg = maybeUsingStreamAgg(connectContext, localAggGroupBy);
+        boolean maybeUsingStreamAgg = maybeUsingStreamAgg(connectContext, logicalAgg);
         List<Expression> partitionExpressions = getHashAggregatePartitionExpressions(logicalAgg);
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(ImmutableList.copyOf(localAggGroupBy),
                 localAggOutput, Optional.of(partitionExpressions), inputToBufferParam,
@@ -932,7 +931,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
         PhysicalHashAggregate<? extends Plan> localGatherAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), newOutput, inputToResultParam,
-                maybeUsingStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
+                maybeUsingStreamAgg(connectContext, logicalAgg),
                 logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child());
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             return ImmutableList.of(localGatherAgg);
@@ -998,7 +997,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         RequireProperties requireAny = RequireProperties.of(PhysicalProperties.ANY);
         PhysicalHashAggregate<? extends Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 logicalAgg.getGroupByExpressions(), localAggOutput,
-                inputToBufferParam, maybeUsingStreamAgg(connectContext, logicalAgg.getGroupByExpressions()),
+                inputToBufferParam, maybeUsingStreamAgg(connectContext, logicalAgg),
                 logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child());
 
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -1030,9 +1029,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private boolean maybeUsingStreamAgg(
-            ConnectContext connectContext, Collection<? extends Expression> groupByExpressions) {
+            ConnectContext connectContext, LogicalAggregate<? extends Plan> logicalAggregate) {
         return !connectContext.getSessionVariable().disableStreamPreaggregations
-                && !groupByExpressions.isEmpty();
+                && !logicalAggregate.getGroupByExpressions().isEmpty();
     }
 
     private List<Expression> getHashAggregatePartitionExpressions(

@@ -90,6 +90,19 @@ suite("aggregate_strategies") {
             notContains "STREAMING"
         }
 
+        explain {
+            sql """
+            select count(*)
+            from (
+              select id
+              from $tableName
+              group by id
+            )a
+            """
+
+            notContains "STREAMING"
+        }
+
         order_qt_count_distinct_group_by "select count(distinct id) from $tableName group by name"
         order_qt_count_distinct_group_by_select_key "select name, count(distinct id) from $tableName group by name"
         order_qt_count_distinct_muilti "select count(distinct id, name) from $tableName"
