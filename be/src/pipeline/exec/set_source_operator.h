@@ -43,7 +43,7 @@ public:
 };
 
 template <bool is_intersect>
-class SetSourceOperator : public Operator<SetSourceOperatorBuilder<is_intersect>> {
+class SetSourceOperator : public SourceOperator<SetSourceOperatorBuilder<is_intersect>> {
 public:
     SetSourceOperator(OperatorBuilderBase* builder,
                       vectorized::VSetOperationNode<is_intersect>* set_node);

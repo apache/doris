@@ -21,6 +21,6 @@
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(HashJoinBuildSink, Operator)
+OPERATOR_CODE_GENERATOR(HashJoinBuildSink, StreamingOperator)
 
 } // namespace doris::pipeline

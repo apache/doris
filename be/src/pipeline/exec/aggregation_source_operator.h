@@ -34,7 +34,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AggSourceOperator final : public Operator<AggSourceOperatorBuilder> {
+class AggSourceOperator final : public SourceOperator<AggSourceOperatorBuilder> {
 public:
     AggSourceOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator

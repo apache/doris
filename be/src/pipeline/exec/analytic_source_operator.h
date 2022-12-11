@@ -37,7 +37,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AnalyticSourceOperator final : public Operator<AnalyticSourceOperatorBuilder> {
+class AnalyticSourceOperator final : public SourceOperator<AnalyticSourceOperatorBuilder> {
 public:
     AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
 

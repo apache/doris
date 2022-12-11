@@ -20,26 +20,23 @@
 #include "operator.h"
 
 namespace doris {
-
 namespace vectorized {
-class VSortNode;
-}
-
+class VSelectNode;
+class VExprContext;
+class Block;
+} // namespace vectorized
 namespace pipeline {
 
-class SortSourceOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
+class SelectOperatorBuilder final : public OperatorBuilder<vectorized::VSelectNode> {
 public:
-    SortSourceOperatorBuilder(int32_t id, ExecNode* sort_node);
-
-    bool is_source() const override { return true; }
+    SelectOperatorBuilder(int32_t id, ExecNode* select_node);
 
     OperatorPtr build_operator() override;
 };
 
-class SortSourceOperator final : public SourceOperator<SortSourceOperatorBuilder> {
+class SelectOperator final : public StreamingOperator<SelectOperatorBuilder> {
 public:
-    SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
-    Status open(RuntimeState*) override { return Status::OK(); }
+    SelectOperator(OperatorBuilderBase* operator_builder, ExecNode* select_node);
 };
 
 } // namespace pipeline
