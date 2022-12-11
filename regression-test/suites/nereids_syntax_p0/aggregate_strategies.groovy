@@ -54,6 +54,42 @@ suite("aggregate_strategies") {
         order_qt_group_select_difference "select count(name) from $tableName group by id"
 
         order_qt_count_distinct "select count(distinct id) from $tableName"
+
+        /*
+         * should not use streaming, there has some bug in be will compute wrong result.
+         *
+         * the case is:
+         * ```
+         * CREATE TABLE `n` (
+         *   `id` bigint NOT NULL
+         * ) ENGINE=OLAP
+         * DUPLICATE KEY(`id`)
+         * COMMENT 'OLAP'
+         * DISTRIBUTED BY HASH(`id`) BUCKETS 1
+         * PROPERTIES (
+         * "replication_allocation" = "tag.location.default: 1",
+         * "in_memory" = "false",
+         * "storage_format" = "V2",
+         * "disable_auto_compaction" = "false"
+         * );
+         *
+         * insert into n select number from numbers('number'='10000000');
+         * insert into n select number from numbers('number'='10000000');
+         * ```
+         *
+         * when open streaming aggregate, the result is 19999800, but the correct result is 10000000
+         */
+        explain {
+            sql """
+            select
+                /*+SET_VAR(disable_nereids_rules='ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
+                count(distinct id)
+                from $tableName
+            """
+
+            notContains "STREAMING"
+        }
+
         order_qt_count_distinct_group_by "select count(distinct id) from $tableName group by name"
         order_qt_count_distinct_group_by_select_key "select name, count(distinct id) from $tableName group by name"
         order_qt_count_distinct_muilti "select count(distinct id, name) from $tableName"

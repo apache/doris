@@ -734,11 +734,14 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
 
-        boolean maybeUsingStreamAgg = maybeUsingStreamAgg(connectContext, localAggGroupBy);
         List<Expression> partitionExpressions = getHashAggregatePartitionExpressions(logicalAgg);
         PhysicalHashAggregate<Plan> gatherLocalAgg = new PhysicalHashAggregate<>(ImmutableList.copyOf(localAggGroupBy),
                 localAggOutput, Optional.of(partitionExpressions), inputToBufferParam,
-                maybeUsingStreamAgg, Optional.empty(), logicalAgg.getLogicalProperties(),
+                /*
+                 * should not use streaming, there has some bug in be will compute wrong result,
+                 * see aggregate_strategies.groovy
+                 */
+                false, Optional.empty(), logicalAgg.getLogicalProperties(),
                 requireGather, logicalAgg.child());
 
         AggregateParam bufferToResultParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
