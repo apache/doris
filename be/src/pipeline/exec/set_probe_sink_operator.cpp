@@ -52,7 +52,7 @@ Status SetProbeSinkOperator<is_intersect>::finalize(RuntimeState* state) {
 template <bool is_intersect>
 bool SetProbeSinkOperator<is_intersect>::can_write() {
     DCHECK_GT(_child_id, 0);
-    return this->_node->is_child_finished(_child_id - 1);
+    return this->_node->is_build_finished();
 }
 
 template class SetProbeSinkOperatorBuilder<true>;

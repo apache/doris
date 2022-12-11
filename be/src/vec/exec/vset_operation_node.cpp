@@ -73,10 +73,11 @@ private:
 
 template <class HashTableContext, bool is_intersected>
 struct HashTableProbe {
-    HashTableProbe(VSetOperationNode<is_intersected>* operation_node, int probe_rows)
+    HashTableProbe(VSetOperationNode<is_intersected>* operation_node, ColumnRawPtrs& probe_columns,
+                   int probe_rows)
             : _operation_node(operation_node),
               _probe_rows(probe_rows),
-              _probe_raw_ptrs(operation_node->_probe_columns),
+              _probe_raw_ptrs(probe_columns),
               _arena(new Arena) {}
 
     Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
@@ -96,20 +97,13 @@ struct HashTableProbe {
             key_getter.set_serialized_keys(_probe_keys.data());
         }
 
-        if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
+        if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlagAtomic>) {
             for (int probe_index = 0; probe_index < _probe_rows; probe_index++) {
                 auto find_result =
                         key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
-                if (find_result.is_found()) { //if found, marked visited
-                    auto it = find_result.get_mapped().begin();
-                    if (!(it->visited)) {
-                        it->visited = true;
-                        if constexpr (is_intersected) { //intersected
-                            _operation_node->_valid_element_in_hash_tbl++;
-                        } else {
-                            _operation_node->_valid_element_in_hash_tbl--; //except
-                        }
-                    }
+                if (find_result.is_found()) {
+                    auto& value = find_result.get_mapped();
+                    value.matched_count.fetch_add(1);
                 }
             }
         } else {
@@ -129,12 +123,8 @@ private:
 template <bool is_intersect>
 VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs),
-          _valid_element_in_hash_tbl(0),
-          _mem_used(0),
-          _build_block_index(0),
-          _build_finished(false) {
-    _hash_table_variants = std::make_unique<HashTableVariants>();
+        : ExecNode(pool, tnode, descs), _mem_used(0), _build_block_index(0) {
+    _hash_table_variants = std::make_unique<SetOperationHashTableVariants>();
     _arena = std::make_unique<Arena>();
 }
 
@@ -173,6 +163,7 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
         RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, texprs, &ctxs));
         _child_expr_lists.push_back(ctxs);
     }
+    _finished_children_index.assign(_child_expr_lists.size(), false);
 
     return Status::OK();
 }
@@ -183,8 +174,6 @@ Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    _probe_finished_children_index.assign(_child_expr_lists.size(), false);
-    _probe_columns.resize(_child_expr_lists[1].size());
     return Status::OK();
 }
 
@@ -195,41 +184,44 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
-    // TODO: build the hash table in a thread to open other children asynchronously.
     RETURN_IF_ERROR(hash_table_build(state));
-    bool eos = false;
-    Status st = Status::OK();
+    Status status = Status::OK();
+
+    const auto probe_child_count = _children.size() - 1;
+    std::thread probe_threads[probe_child_count];
+    std::promise<Status> probe_status[probe_child_count];
+
+    auto probe_worker = [&](int child_id, std::promise<Status>& status) {
+        auto st = [&]() -> Status {
+            RETURN_IF_ERROR(child(child_id)->open(state));
+            bool eos = false;
+            Block probe_block;
+            while (!eos) {
+                RETURN_IF_CANCELLED(state);
+                RETURN_IF_ERROR_AND_CHECK_SPAN(
+                        child(child_id)->get_next_after_projects(state, &probe_block, &eos),
+                        child(child_id)->get_next_span(), eos);
+
+                RETURN_IF_ERROR(sink_probe(state, child_id, &probe_block, eos));
+                release_block_memory(probe_block, child_id);
+            }
+            return finalize_probe(state, child_id);
+        }();
+        status.set_value(st);
+    };
     for (int i = 1; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(child(i)->open(state));
-        eos = false;
-        int probe_expr_ctxs_sz = _child_expr_lists[i].size();
-        _probe_columns.resize(probe_expr_ctxs_sz);
-
-        if constexpr (is_intersect) {
-            _valid_element_in_hash_tbl = 0;
-        } else {
-            std::visit(
-                    [&](auto&& arg) {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            _valid_element_in_hash_tbl = arg.hash_table.size();
-                        }
-                    },
-                    *_hash_table_variants);
-        }
-
-        while (!eos) {
-            release_block_memory(_probe_block, i);
-            RETURN_IF_CANCELLED(state);
-            RETURN_IF_ERROR_AND_CHECK_SPAN(
-                    child(i)->get_next_after_projects(state, &_probe_block, &eos),
-                    child(i)->get_next_span(), eos);
-
-            RETURN_IF_ERROR(sink_probe(state, i, &_probe_block, eos));
-        }
-        finalize_probe(state, i);
+        probe_threads[i - 1] = std::thread(probe_worker, i, std::ref(probe_status[i - 1]));
     }
-    return st;
+
+    for (int i = 0; i < probe_child_count; ++i) {
+        probe_threads[i].join();
+        auto st = probe_status[i].get_future().get();
+        DCHECK(st.ok());
+        if (!st.ok()) {
+            status = st;
+        }
+    }
+    return status;
 }
 
 template <bool is_intersect>
@@ -269,16 +261,16 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         switch (_child_expr_lists[0][0]->root()->result_type()) {
         case TYPE_BOOLEAN:
         case TYPE_TINYINT:
-            _hash_table_variants->emplace<I8HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I8HashTableContext<RowRefListWithFlagAtomic>>();
             break;
         case TYPE_SMALLINT:
-            _hash_table_variants->emplace<I16HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I16HashTableContext<RowRefListWithFlagAtomic>>();
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
         case TYPE_DECIMAL32:
-            _hash_table_variants->emplace<I32HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I32HashTableContext<RowRefListWithFlagAtomic>>();
             break;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
@@ -286,15 +278,15 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         case TYPE_DATE:
         case TYPE_DECIMAL64:
         case TYPE_DATETIMEV2:
-            _hash_table_variants->emplace<I64HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I64HashTableContext<RowRefListWithFlagAtomic>>();
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL128I:
-            _hash_table_variants->emplace<I128HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<I128HashTableContext<RowRefListWithFlagAtomic>>();
             break;
         default:
-            _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlagAtomic>>();
         }
         return;
     }
@@ -328,29 +320,29 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         if (has_null) {
             if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
                 _hash_table_variants
-                        ->emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlags>>();
+                        ->emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlagAtomic>>();
             } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
                        sizeof(UInt128)) {
                 _hash_table_variants
-                        ->emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlags>>();
+                        ->emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlagAtomic>>();
             } else {
                 _hash_table_variants
-                        ->emplace<I256FixedKeyHashTableContext<true, RowRefListWithFlags>>();
+                        ->emplace<I256FixedKeyHashTableContext<true, RowRefListWithFlagAtomic>>();
             }
         } else {
             if (key_byte_size <= sizeof(UInt64)) {
                 _hash_table_variants
-                        ->emplace<I64FixedKeyHashTableContext<false, RowRefListWithFlags>>();
+                        ->emplace<I64FixedKeyHashTableContext<false, RowRefListWithFlagAtomic>>();
             } else if (key_byte_size <= sizeof(UInt128)) {
                 _hash_table_variants
-                        ->emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlags>>();
+                        ->emplace<I128FixedKeyHashTableContext<false, RowRefListWithFlagAtomic>>();
             } else {
                 _hash_table_variants
-                        ->emplace<I256FixedKeyHashTableContext<false, RowRefListWithFlags>>();
+                        ->emplace<I256FixedKeyHashTableContext<false, RowRefListWithFlagAtomic>>();
             }
         }
     } else {
-        _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
+        _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlagAtomic>>();
     }
 }
 
@@ -370,7 +362,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState*, Block* block, bool e
         ++_build_block_index;
 
         if (eos) {
-            _build_finished = true;
+            _finished_children_index[0] = true;
         }
     }
     return Status::OK();
@@ -448,8 +440,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
 }
 
 template <bool is_intersect>
-void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& value,
-                                                         int& block_size) {
+void VSetOperationNode<is_intersect>::add_result_columns(RowRefList& value, int& block_size) {
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
@@ -461,25 +452,22 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* /*state*/, int child_id,
                                                    Block* block, bool eos) {
-    CHECK(_build_finished) << "cannot sink probe data before build finished";
-    if (child_id > 1) {
-        CHECK(_probe_finished_children_index[child_id - 1])
-                << fmt::format("child with id: {} should be probed first", child_id);
-    }
+    CHECK(_finished_children_index[0]) << "cannot sink probe data before build finished";
     auto probe_rows = block->rows();
 
     if (probe_rows == 0) {
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(extract_probe_column(*block, _probe_columns, child_id));
+    ColumnRawPtrs probe_columns(_child_expr_lists[child_id].size());
+    RETURN_IF_ERROR(extract_probe_column(*block, probe_columns, child_id));
 
     return std::visit(
             [&](auto&& arg) -> Status {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableProbe<HashTableCtxType, is_intersect> process_hashtable_ctx(
-                            this, probe_rows);
+                            this, probe_columns, probe_rows);
                     return process_hashtable_ctx.mark_data_in_hashtable(arg);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -490,23 +478,11 @@ Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* /*state*/, int 
 
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::finalize_probe(RuntimeState* /*state*/, int child_id) {
-    if (child_id != (_children.size() - 1)) {
-        refresh_hash_table();
-        _probe_columns.resize(_child_expr_lists[child_id + 1].size());
-    } else {
-        _can_read = true;
-    }
-    _probe_finished_children_index[child_id] = true;
+    std::lock_guard<std::mutex> lock(_lock);
+    _finished_children_index[child_id] = true;
+    _can_read = std::find(_finished_children_index.begin(), _finished_children_index.end(),
+                          false) == _finished_children_index.cend();
     return Status::OK();
-}
-
-template <bool is_intersect>
-bool VSetOperationNode<is_intersect>::is_child_finished(int child_id) const {
-    if (child_id == 0) {
-        return _build_finished;
-    }
-
-    return _probe_finished_children_index[child_id];
 }
 
 template <bool is_intersect>
@@ -608,72 +584,6 @@ void VSetOperationNode<is_intersect>::release_mem() {
 
     std::vector<Block> tmp_build_blocks;
     _build_blocks.swap(tmp_build_blocks);
-
-    _probe_block.clear();
-}
-
-template <bool is_intersect>
-void VSetOperationNode<is_intersect>::refresh_hash_table() {
-    std::visit(
-            [&](auto&& arg) {
-                using HashTableCtxType = std::decay_t<decltype(arg)>;
-                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    if constexpr (std::is_same_v<typename HashTableCtxType::Mapped,
-                                                 RowRefListWithFlags>) {
-                        HashTableCtxType tmp_hash_table;
-                        bool is_need_shrink =
-                                arg.hash_table.should_be_shrink(_valid_element_in_hash_tbl);
-                        if (is_need_shrink) {
-                            tmp_hash_table.hash_table.init_buf_size(
-                                    _valid_element_in_hash_tbl / arg.hash_table.get_factor() + 1);
-                        }
-
-                        arg.init_once();
-                        auto& iter = arg.iter;
-                        auto iter_end = arg.hash_table.end();
-                        while (iter != iter_end) {
-                            auto& mapped = iter->get_second();
-                            auto it = mapped.begin();
-
-                            if constexpr (is_intersect) { //intersected
-                                if (it->visited) {
-                                    it->visited = false;
-                                    if (is_need_shrink) {
-                                        tmp_hash_table.hash_table.insert(iter->get_value());
-                                    }
-                                    ++iter;
-                                } else {
-                                    if (!is_need_shrink) {
-                                        arg.hash_table.delete_zero_key(iter->get_first());
-                                        // the ++iter would check if the current key is zero. if it does, the iterator will be moved to the container's head.
-                                        // so we do ++iter before set_zero to make the iterator move to next valid key correctly.
-                                        auto iter_prev = iter;
-                                        ++iter;
-                                        iter_prev->set_zero();
-                                    } else {
-                                        ++iter;
-                                    }
-                                }
-                            } else { //except
-                                if (!it->visited && is_need_shrink) {
-                                    tmp_hash_table.hash_table.insert(iter->get_value());
-                                }
-                                ++iter;
-                            }
-                        }
-
-                        arg.inited = false;
-                        if (is_need_shrink) {
-                            arg.hash_table = std::move(tmp_hash_table.hash_table);
-                        }
-                    } else {
-                        LOG(FATAL) << "FATAL: Invalid RowRefList";
-                    }
-                } else {
-                    LOG(FATAL) << "FATAL: uninited hash table";
-                }
-            },
-            *_hash_table_variants);
 }
 
 template <bool is_intersected>
@@ -686,17 +596,17 @@ Status VSetOperationNode<is_intersected>::get_data_in_hashtable(HashTableContext
     auto& iter = hash_table_ctx.iter;
     auto block_size = 0;
 
-    if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
+    if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlagAtomic>) {
+        const auto probe_children_count = _children.size() - 1;
         for (; iter != hash_table_ctx.hash_table.end() && block_size < batch_size; ++iter) {
             auto& value = iter->get_second();
-            auto it = value.begin();
             if constexpr (is_intersected) {
-                if (it->visited) { //intersected: have done probe, so visited values it's the result
-                    add_result_columns(value, block_size);
+                if (value.matched_count == probe_children_count) {
+                    add_result_columns(value.row_list, block_size);
                 }
             } else {
-                if (!it->visited) { //except: haven't visited values it's the needed result
-                    add_result_columns(value, block_size);
+                if (value.matched_count == 0) {
+                    add_result_columns(value.row_list, block_size);
                 }
             }
         }
