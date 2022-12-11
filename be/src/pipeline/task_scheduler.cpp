@@ -52,7 +52,6 @@ void BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
 }
 
 void BlockedTaskScheduler::_schedule() {
-    LOG(INFO) << "BlockedTaskScheduler schedule thread start";
     _started.store(true);
     std::list<PipelineTask*> local_blocked_tasks;
     int empty_times = 0;

@@ -188,6 +188,8 @@ public:
     // Collect all scan node types.
     void collect_scan_nodes(std::vector<ExecNode*>* nodes);
 
+    virtual void prepare_for_next() {}
+
     // When the agg node is the scan node direct parent,
     // we directly return agg object from scan node to agg node,
     // and don't serialize the agg object.

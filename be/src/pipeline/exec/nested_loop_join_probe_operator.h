@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,26 +19,33 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/exec/vmysql_scan_node.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace vectorized {
+class VNestedLoopJoinNode;
+class VExprContext;
+class Block;
+} // namespace vectorized
+namespace pipeline {
 
-class MysqlScanOperatorBuilder : public OperatorBuilder<vectorized::VMysqlScanNode> {
+class NestLoopJoinProbeOperatorBuilder final
+        : public OperatorBuilder<vectorized::VNestedLoopJoinNode> {
 public:
-    MysqlScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
+    NestLoopJoinProbeOperatorBuilder(int32_t id, ExecNode* node);
+
     OperatorPtr build_operator() override;
 };
 
-class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
+class NestLoopJoinProbeOperator final : public StatefulOperator<NestLoopJoinProbeOperatorBuilder> {
 public:
-    MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
+    NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
-    bool can_read() override { return true; };
+    Status prepare(RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status open(RuntimeState*) override { return Status::OK(); }
 
     Status close(RuntimeState* state) override;
 };
 
-} // namespace doris::pipeline
+} // namespace pipeline
+} // namespace doris

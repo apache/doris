@@ -726,19 +726,23 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                     .error(status);
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            for (int i = 0; i < succ_tablet_ids.size(); i++) {
-                TabletSharedPtr tablet =
-                        StorageEngine::instance()->tablet_manager()->get_tablet(succ_tablet_ids[i]);
-                if (tablet != nullptr) {
-                    tablet->publised_count++;
-                    if (tablet->publised_count % 10 == 0) {
-                        StorageEngine::instance()->submit_compaction_task(
-                                tablet, CompactionType::CUMULATIVE_COMPACTION);
-                        LOG(INFO) << "trigger compaction succ, tabletid:" << succ_tablet_ids[i]
-                                  << ", publised:" << tablet->publised_count;
+            if (!config::disable_auto_compaction) {
+                for (int i = 0; i < succ_tablet_ids.size(); i++) {
+                    TabletSharedPtr tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(
+                                    succ_tablet_ids[i]);
+                    if (tablet != nullptr) {
+                        tablet->publised_count++;
+                        if (tablet->publised_count % 10 == 0) {
+                            StorageEngine::instance()->submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION);
+                            LOG(INFO) << "trigger compaction succ, tabletid:" << succ_tablet_ids[i]
+                                      << ", publised:" << tablet->publised_count;
+                        }
+                    } else {
+                        LOG(WARNING)
+                                << "trigger compaction failed, tabletid:" << succ_tablet_ids[i];
                     }
-                } else {
-                    LOG(WARNING) << "trigger compaction failed, tabletid:" << succ_tablet_ids[i];
                 }
             }
             LOG_INFO("successfully publish version")

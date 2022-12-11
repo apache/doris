@@ -236,15 +236,14 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 .analyze(sql4)
                 .matchesFromRoot(
                     logicalProject(
-                        logicalJoin(
+                        crossLogicalJoin(
                             logicalSubQueryAlias(
                                 logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skAlias)))
                             ).when(a -> a.getAlias().equals("cte1")),
                             logicalSubQueryAlias(
                                 logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skInCTE2)))
                             ).when(a -> a.getAlias().equals("cte2"))
-                        ).when(FieldChecker.check("joinType", JoinType.INNER_JOIN))
-                            .when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
+                        ).when(j -> j.getOtherJoinConjuncts().equals(ImmutableList.of(new EqualTo(skInCTE1, skInCTE2))))
                     ).when(p -> p.getProjects().equals(ImmutableList.of(skInCTE1, skInCTE2)))
                 );
     }

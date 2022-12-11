@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,26 +19,29 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/exec/vmysql_scan_node.h"
+#include "vec/exec/vanalytic_eval_node.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace vectorized {
+class VAnalyticEvalNode;
+} // namespace vectorized
 
-class MysqlScanOperatorBuilder : public OperatorBuilder<vectorized::VMysqlScanNode> {
+namespace pipeline {
+class AnalyticSinkOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
 public:
-    MysqlScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
+    AnalyticSinkOperatorBuilder(int32_t, ExecNode*);
+
     OperatorPtr build_operator() override;
+
+    bool is_sink() const override { return true; };
 };
 
-class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
+class AnalyticSinkOperator final : public Operator<AnalyticSinkOperatorBuilder> {
 public:
-    MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
+    AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
-    bool can_read() override { return true; };
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
+    bool can_write() override { return _node->can_write(); };
 };
 
-} // namespace doris::pipeline
+} // namespace pipeline
+} // namespace doris

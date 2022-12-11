@@ -40,6 +40,8 @@ set(PIPELINE_FILES
         exec/aggregation_source_operator.cpp
         exec/hashjoin_build_sink.cpp
         exec/hashjoin_probe_operator.cpp
+        exec/analytic_sink_operator.cpp
+        exec/analytic_source_operator.cpp
         exec/streaming_aggregation_source_operator.cpp
         exec/streaming_aggregation_sink_operator.cpp
         exec/agg_context.cpp
@@ -47,6 +49,8 @@ set(PIPELINE_FILES
         exec/sort_sink_operator.cpp
         exec/repeat_operator.cpp
         exec/table_function_operator.cpp
+        exec/nested_loop_join_build_operator.cpp
+        exec/nested_loop_join_probe_operator.cpp
         exec/set_sink_operator.cpp
         exec/set_source_operator.cpp
         exec/set_probe_sink_operator.cpp)

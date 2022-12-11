@@ -22,6 +22,8 @@
 #include "exec/agg_context.h"
 #include "exec/aggregation_sink_operator.h"
 #include "exec/aggregation_source_operator.h"
+#include "exec/analytic_sink_operator.h"
+#include "exec/analytic_source_operator.h"
 #include "exec/data_sink.h"
 #include "exec/datagen_operator.h"
 #include "exec/empty_set_operator.h"
@@ -30,6 +32,7 @@
 #include "exec/hashjoin_build_sink.h"
 #include "exec/hashjoin_probe_operator.h"
 #include "exec/mysql_scan_operator.h"
+#include "exec/mysql_table_sink_operator.h"
 #include "exec/repeat_operator.h"
 #include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
@@ -46,6 +49,8 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
 #include "pipeline/exec/const_value_operator.h"
+#include "pipeline/exec/nested_loop_join_build_operator.h"
+#include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/table_function_operator.h"
@@ -56,6 +61,7 @@
 #include "task_scheduler.h"
 #include "util/container_util.hpp"
 #include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -380,6 +386,19 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(cur_pipe->add_operator(sort_source));
         break;
     }
+    case TPlanNodeType::ANALYTIC_EVAL_NODE: {
+        auto new_pipeline = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
+
+        OperatorBuilderPtr analytic_sink =
+                std::make_shared<AnalyticSinkOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(new_pipeline->set_sink(analytic_sink));
+
+        OperatorBuilderPtr analytic_source =
+                std::make_shared<AnalyticSourceOperatorBuilder>(next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(analytic_source));
+        break;
+    }
     case TPlanNodeType::REPEAT_NODE: {
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr builder =
@@ -412,6 +431,21 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
                 next_operator_builder_id(), join_node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
+
+        cur_pipe->add_dependency(new_pipe);
+        break;
+    }
+    case TPlanNodeType::CROSS_JOIN_NODE: {
+        auto new_pipe = add_pipeline();
+        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        OperatorBuilderPtr join_sink = std::make_shared<NestLoopJoinBuildOperatorBuilder>(
+                next_operator_builder_id(), node);
+        RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+
+        RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
+        OperatorBuilderPtr join_source = std::make_shared<NestLoopJoinProbeOperatorBuilder>(
+                next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(join_source));
 
         cur_pipe->add_dependency(new_pipe);
@@ -484,6 +518,11 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     case TDataSinkType::OLAP_TABLE_SINK: {
         sink_ = std::make_shared<OlapTableSinkOperatorBuilder>(next_operator_builder_id(),
                                                                _sink.get());
+        break;
+    }
+    case TDataSinkType::MYSQL_TABLE_SINK: {
+        sink_ = std::make_shared<MysqlTableSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                _sink.get());
         break;
     }
     default:

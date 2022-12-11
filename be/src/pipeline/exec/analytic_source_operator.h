@@ -18,26 +18,31 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/exec/vmysql_scan_node.h"
+#include "vec/exec/vanalytic_eval_node.h"
 
-namespace doris::pipeline {
+namespace doris {
 
-class MysqlScanOperatorBuilder : public OperatorBuilder<vectorized::VMysqlScanNode> {
+namespace vectorized {
+class VAnalyticEvalNode;
+}
+
+namespace pipeline {
+
+class AnalyticSourceOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
 public:
-    MysqlScanOperatorBuilder(int32_t id, ExecNode* exec_node);
+    AnalyticSourceOperatorBuilder(int32_t, ExecNode*);
+
     bool is_source() const override { return true; }
+
     OperatorPtr build_operator() override;
 };
 
-class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
+class AnalyticSourceOperator final : public Operator<AnalyticSourceOperatorBuilder> {
 public:
-    MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
+    AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
 
-    bool can_read() override { return true; };
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
+    Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-} // namespace doris::pipeline
+} // namespace pipeline
+} // namespace doris

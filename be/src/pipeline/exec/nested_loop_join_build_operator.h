@@ -18,26 +18,30 @@
 #pragma once
 
 #include "operator.h"
-#include "vec/exec/vmysql_scan_node.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace vectorized {
+class VNestedLoopJoinNode;
+class VExprContext;
+class Block;
+} // namespace vectorized
 
-class MysqlScanOperatorBuilder : public OperatorBuilder<vectorized::VMysqlScanNode> {
+namespace pipeline {
+
+class NestLoopJoinBuildOperatorBuilder final
+        : public OperatorBuilder<vectorized::VNestedLoopJoinNode> {
 public:
-    MysqlScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
+    NestLoopJoinBuildOperatorBuilder(int32_t, ExecNode*);
+
     OperatorPtr build_operator() override;
+    bool is_sink() const override { return true; };
 };
 
-class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
+class NestLoopJoinBuildOperator final : public Operator<NestLoopJoinBuildOperatorBuilder> {
 public:
-    MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
-
-    bool can_read() override { return true; };
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
+    NestLoopJoinBuildOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
+    bool can_write() override { return true; };
 };
 
-} // namespace doris::pipeline
+} // namespace pipeline
+} // namespace doris

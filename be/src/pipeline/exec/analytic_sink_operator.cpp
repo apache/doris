@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,29 +16,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "operator.h"
-#include "vec/exec/vmysql_scan_node.h"
+#include "analytic_sink_operator.h"
 
 namespace doris::pipeline {
 
-class MysqlScanOperatorBuilder : public OperatorBuilder<vectorized::VMysqlScanNode> {
-public:
-    MysqlScanOperatorBuilder(int32_t id, ExecNode* exec_node);
-    bool is_source() const override { return true; }
-    OperatorPtr build_operator() override;
-};
-
-class MysqlScanOperator : public Operator<MysqlScanOperatorBuilder> {
-public:
-    MysqlScanOperator(OperatorBuilderBase* operator_builder, ExecNode* mysql_scan_node);
-
-    bool can_read() override { return true; };
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-};
+OPERATOR_CODE_GENERATOR(AnalyticSinkOperator, Operator)
 
 } // namespace doris::pipeline
