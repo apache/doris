@@ -141,12 +141,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             ),
             RuleType.ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
                 basePattern
-                    .when(agg -> agg.getDistinctArguments().size() == 1)
+                    .when(agg -> agg.getDistinctArguments().size() == 1 && enableSingleDistinctColumnOpt())
                     .thenApplyMulti(ctx -> onePhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI.build(
                 basePattern
-                    .when(agg -> agg.getDistinctArguments().size() == 1)
+                    .when(agg -> agg.getDistinctArguments().size() == 1 && enableSingleDistinctColumnOpt())
                     .thenApply(ctx -> twoPhaseAggregateWithMultiDistinct(ctx.root, ctx.connectContext))
             ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_DISTINCT.build(
@@ -1105,5 +1105,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private boolean enablePushDownNoGroupAgg() {
         ConnectContext connectContext = ConnectContext.get();
         return connectContext == null || connectContext.getSessionVariable().enablePushDownNoGroupAgg();
+    }
+
+    private boolean enableSingleDistinctColumnOpt() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext == null || connectContext.getSessionVariable().enableSingleDistinctColumnOpt();
     }
 }
