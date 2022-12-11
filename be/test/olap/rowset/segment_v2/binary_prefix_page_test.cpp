@@ -23,6 +23,7 @@
 #include <iostream>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
@@ -32,6 +33,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+using namespace ErrorCode;
 namespace segment_v2 {
 
 class BinaryPrefixPageTest : public testing::Test {
@@ -132,7 +134,7 @@ public:
         Slice v1 = Slice("1039");
         bool exact_match;
         ret = page_decoder->seek_at_or_after_value(&v1, &exact_match);
-        EXPECT_TRUE(ret.is_not_found());
+        EXPECT_TRUE(ret.is<NOT_FOUND>());
 
         Slice v2 = Slice("1000");
         ret = page_decoder->seek_at_or_after_value(&v2, &exact_match);
@@ -244,7 +246,7 @@ public:
         Slice v1 = Slice("1039");
         bool exact_match;
         ret = page_decoder->seek_at_or_after_value(&v1, &exact_match);
-        EXPECT_TRUE(ret.is_not_found());
+        EXPECT_TRUE(ret.is<NOT_FOUND>());
 
         Slice v2 = Slice("1000");
         ret = page_decoder->seek_at_or_after_value(&v2, &exact_match);

@@ -282,6 +282,9 @@ fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
+if [[ -z "${ENABLE_STACKTRACE}" ]]; then
+    ENABLE_STACKTRACE='ON'
+fi
 if [[ -z "${STRICT_MEMORY_USE}" ]]; then
     STRICT_MEMORY_USE='OFF'
 fi
@@ -345,6 +348,7 @@ echo "Get params:
     USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
     USE_JEMALLOC        -- ${USE_JEMALLOC}
     STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
+    ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
 "
 
 # Clean and build generated code
@@ -415,6 +419,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DSTRICT_MEMORY_USE="${STRICT_MEMORY_USE}" \
+        -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \

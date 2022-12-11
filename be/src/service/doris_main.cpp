@@ -379,7 +379,7 @@ int main(int argc, char** argv) {
         // Init jni
         status = doris::JniUtil::Init();
         if (!status.ok()) {
-            LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+            LOG(WARNING) << "Failed to initialize JNI: " << status;
             exit(1);
         }
     }
@@ -405,7 +405,7 @@ int main(int argc, char** argv) {
     doris::StorageEngine* engine = nullptr;
     auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {
-        LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
+        LOG(FATAL) << "fail to open StorageEngine, res=" << st;
         exit(-1);
     }
     exec_env->set_storage_engine(engine);
@@ -488,8 +488,7 @@ int main(int argc, char** argv) {
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: "
-                   << status.get_error_msg();
+        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status;
         doris::shutdown_logging();
         exit(1);
     }

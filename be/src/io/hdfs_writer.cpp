@@ -19,6 +19,7 @@
 
 #include <filesystem>
 
+#include "common/logging.h"
 #include "service/backend_options.h"
 
 namespace doris {

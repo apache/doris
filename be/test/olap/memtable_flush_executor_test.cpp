@@ -103,13 +103,13 @@ TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
     EXPECT_EQ(1, flush_handler->get_stats().flush_count);
 
     FlushResult res2;
-    res2.flush_status = Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+    res2.flush_status = Status::Error<OTHER_ERROR>();
     flush_handler->on_flush_finished(res2);
     EXPECT_TRUE(flush_handler->is_cancelled());
     EXPECT_EQ(100, flush_handler->get_stats().flush_time_ns);
     EXPECT_EQ(1, flush_handler->get_stats().flush_count);
 
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR), flush_handler->wait());
+    EXPECT_EQ(Status::Error<OTHER_ERROR>(), flush_handler->wait());
 }
 
 } // namespace doris

@@ -31,6 +31,7 @@
 #include "olap/utils.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 const std::string ROWSET_PREFIX = "rst_";
 
@@ -47,19 +48,19 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
-    if (s.precise_code() == OLAP_ERR_META_KEY_NOT_FOUND) {
+    if (s.is<META_KEY_NOT_FOUND>()) {
         std::string error_msg = "rowset id:" + key + " not found.";
         LOG(WARNING) << error_msg;
-        return Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND);
+        return Status::Error<META_KEY_NOT_FOUND>();
     } else if (!s.ok()) {
         std::string error_msg = "load rowset id:" + key + " failed.";
         LOG(WARNING) << error_msg;
-        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        return Status::Error<IO_ERROR>();
     }
     bool ret = rowset_meta->init(value);
     if (!ret) {
         std::string error_msg = "parse rowset meta failed. rowset id:" + key;
-        return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
     }
     return Status::OK();
 }
@@ -75,7 +76,7 @@ Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_
     bool ret = rowset_meta_ptr->json_rowset_meta(json_rowset_meta);
     if (!ret) {
         std::string error_msg = "get json rowset meta failed. rowset id:" + rowset_id.to_string();
-        return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
     }
     return Status::OK();
 }
@@ -88,7 +89,7 @@ Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const Rowse
     if (!ret) {
         std::string error_msg = "serialize rowset pb failed. rowset id:" + key;
         LOG(WARNING) << error_msg;
-        return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
     }
     Status status = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     return status;
@@ -141,7 +142,7 @@ Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
     if (!ret) {
         std::string error_msg = "parse json rowset meta failed.";
         LOG(WARNING) << error_msg;
-        return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
     }
     RowsetId rowset_id = rowset_meta.rowset_id();
     TabletUid tablet_uid = rowset_meta.tablet_uid();

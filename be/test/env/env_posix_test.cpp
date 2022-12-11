@@ -24,6 +24,7 @@
 #include "util/file_utils.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class EnvPosixTest : public testing::Test {
 public:
@@ -111,7 +112,7 @@ TEST_F(EnvPosixTest, random_access) {
 
         // end of file
         st = rfile->read_at(114, &slice4);
-        EXPECT_EQ(TStatusCode::END_OF_FILE, st.code());
+        EXPECT_EQ(END_OF_FILE, st.code());
         LOG(INFO) << "st=" << st.to_string();
     }
 }
@@ -179,7 +180,7 @@ TEST_F(EnvPosixTest, random_rw) {
 
         // end of file
         st = rfile->read_at(102, slice4);
-        EXPECT_EQ(TStatusCode::END_OF_FILE, st.code());
+        EXPECT_EQ(END_OF_FILE, st.code());
         LOG(INFO) << "st=" << st.to_string();
     }
 }

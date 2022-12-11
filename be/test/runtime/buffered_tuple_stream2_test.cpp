@@ -265,7 +265,7 @@ protected:
         BufferedTupleStream2 stream(_runtime_state, *desc, _runtime_state->block_mgr2(), _client,
                                     true, false);
         Status status = stream.init(-1, nullptr, true);
-        EXPECT_TRUE(status.ok()) << status.get_error_msg();
+        EXPECT_TRUE(status.ok()) << status;
         status = stream.unpin_stream();
         EXPECT_TRUE(status.ok());
 

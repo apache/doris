@@ -41,7 +41,7 @@ bool BackendOptions::init() {
     Status status = get_hosts_v4(&hosts);
 
     if (!status.ok()) {
-        LOG(FATAL) << status.get_error_msg();
+        LOG(FATAL) << status;
         return false;
     }
 

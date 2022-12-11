@@ -75,7 +75,7 @@ public:
             Status status = _mgr->close_sender(
                     params.dest_fragment_instance_id, params.dest_node_id, params.sender_id, params.be_number);
             status.set_t_status(&return_val);
-            LOG(ERROR) << "close_sender status: " << status.get_error_msg();
+            LOG(ERROR) << "close_sender status: " << status;
         }
         */
     }
@@ -556,7 +556,7 @@ protected:
             info.status = sender.send(&state, batch.get());
 
             if (!info.status.ok()) {
-                LOG(WARNING) << "something is wrong when sending: " << info.status.get_error_msg();
+                LOG(WARNING) << "something is wrong when sending: " << info.status;
                 break;
             }
         }

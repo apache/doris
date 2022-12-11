@@ -154,7 +154,7 @@ Status BrokerStorageBackend::rename(const std::string& orig_name, const std::str
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -204,7 +204,7 @@ Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_m
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -290,7 +290,7 @@ Status BrokerStorageBackend::rm(const std::string& remote) {
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -352,7 +352,7 @@ Status BrokerStorageBackend::exist(const std::string& path) {
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
-           << "broker addr: " << _broker_addr << ". msg: " << status.get_error_msg();
+           << "broker addr: " << _broker_addr << ". msg: " << status;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }

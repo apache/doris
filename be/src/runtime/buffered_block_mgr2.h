@@ -24,6 +24,7 @@
 
 #include "runtime/disk_io_mgr.h"
 #include "runtime/tmp_file_mgr.h"
+#include "util/uid_util.h"
 
 namespace doris {
 

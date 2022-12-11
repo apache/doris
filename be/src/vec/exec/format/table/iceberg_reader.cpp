@@ -275,7 +275,7 @@ Status IcebergTableReader::_position_delete(
             }
             return position_delete;
         });
-        if (create_status.is_end_of_file()) {
+        if (create_status.is<ErrorCode::END_OF_FILE>()) {
             continue;
         } else if (!create_status.ok()) {
             return create_status;

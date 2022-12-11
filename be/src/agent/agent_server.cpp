@@ -191,7 +191,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
 #undef HANDLE_TYPE
 
         if (!ret_st.ok()) {
-            LOG_WARNING("failed to submit task").tag("task", task).error(ret_st.get_error_msg());
+            LOG_WARNING("failed to submit task").tag("task", task).error(ret_st);
             // For now, all tasks in the batch share one status, so if any task
             // was failed to submit, we can only return error to FE(even when some
             // tasks have already been successfully submitted).

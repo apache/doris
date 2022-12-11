@@ -22,6 +22,7 @@
 #include "olap/iterators.h"
 
 namespace doris {
+using namespace ErrorCode;
 namespace io {
 
 using std::vector;
@@ -89,7 +90,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ct
             if (_cache_file_readers.find(*iter) == _cache_file_readers.end()) {
                 LOG(ERROR) << "Local cache file reader can't be found: " << offset_begin << ", "
                            << offset_begin;
-                return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+                return Status::Error<OS_ERROR>();
             }
             if (offset_begin < offset) {
                 offset_begin = offset;
@@ -109,7 +110,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ct
                 LOG(ERROR) << "read local cache file failed: "
                            << _cache_file_readers[*iter]->path().native()
                            << ", bytes read: " << sub_bytes_read << " vs req size: " << req_size;
-                return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+                return Status::Error<OS_ERROR>();
             }
             *bytes_read += sub_bytes_read;
             _last_match_times[*iter] = time(nullptr);
@@ -165,8 +166,7 @@ Status SubFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
                 download_st.set_value(func());
             });
             if (!st.ok()) {
-                LOG(FATAL) << "Failed to submit download cache task to thread pool! "
-                           << st.get_error_msg();
+                LOG(FATAL) << "Failed to submit download cache task to thread pool! " << st;
             }
         } else {
             return Status::InternalError("Failed to get download cache thread token");

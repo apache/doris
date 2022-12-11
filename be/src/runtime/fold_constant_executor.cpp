@@ -167,14 +167,14 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to create descriptor table, msg: " << status.get_error_msg();
-        return Status::Uninitialized(status.get_error_msg());
+        LOG(WARNING) << "Failed to create descriptor table, msg: " << status;
+        return status;
     }
     _runtime_state->set_desc_tbl(desc_tbl);
     status = _runtime_state->init_mem_trackers(FoldConstantExecutor::_dummy_id);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
-        return Status::Uninitialized(status.get_error_msg());
+        LOG(WARNING) << "Failed to init mem trackers, msg: " << status;
+        return status;
     }
 
     _runtime_profile = _runtime_state->runtime_profile();

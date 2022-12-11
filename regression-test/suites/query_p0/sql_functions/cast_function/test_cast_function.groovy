@@ -39,7 +39,7 @@ suite("test_cast_function") {
                 end as bitmap
             ) is NULL
         """
-        exception "errCode = 2, detailMessage = Conversion from UInt8 to BitMap is not supported"
+        exception "errCode = 2, detailMessage = [INVALID_ARGUMENT]Conversion from UInt8 to BitMap is not supported"
     }
 
     sql """ SET enable_vectorized_engine = FALSE; """

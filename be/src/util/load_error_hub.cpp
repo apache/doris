@@ -19,6 +19,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "common/logging.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "util/broker_load_error_hub.h"
 #include "util/mysql_load_error_hub.h"

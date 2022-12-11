@@ -17,6 +17,8 @@
 
 #include "exec/decompressor.h"
 
+#include "common/logging.h"
+
 namespace doris {
 
 Status Decompressor::create_decompressor(CompressType type, Decompressor** decompressor) {

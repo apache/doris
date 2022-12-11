@@ -28,6 +28,7 @@
 #include "util/slice.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 class GenericIteratorsTest : public testing::Test {
 public:
@@ -69,7 +70,7 @@ TEST(GenericIteratorsTest, AutoIncrement) {
             row_count++;
         }
     } while (st.ok());
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(500, row_count);
 
     delete iter;
@@ -108,7 +109,7 @@ TEST(GenericIteratorsTest, Union) {
             row_count++;
         }
     } while (st.ok());
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(600, row_count);
 
     delete iter;
@@ -150,7 +151,7 @@ TEST(GenericIteratorsTest, MergeAgg) {
             row_count++;
         }
     } while (st.ok());
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(600, row_count);
 
     delete iter;
@@ -184,7 +185,7 @@ TEST(GenericIteratorsTest, MergeUnique) {
             row_count++;
         }
     } while (st.ok());
-    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(300, row_count);
 
     delete iter;

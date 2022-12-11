@@ -63,7 +63,7 @@ suite("test_jsonb_load_and_function", "p0") {
             log.info("error result: " + out)
 
             assertEquals("fail", json.Status.toLowerCase())
-            assertEquals("too many filtered rows", json.Message)
+            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
             assertEquals(25, json.NumberTotalRows)
             assertEquals(18, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)

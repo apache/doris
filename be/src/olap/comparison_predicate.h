@@ -424,7 +424,7 @@ private:
                            roaring::Roaring* bitmap) const {
         roaring::Roaring roaring;
 
-        if (status.is_not_found()) {
+        if (status.is<ErrorCode::NOT_FOUND>()) {
             if constexpr (PT == PredicateType::EQ || PT == PredicateType::GT ||
                           PT == PredicateType::GE) {
                 *bitmap &= roaring; // set bitmap to empty

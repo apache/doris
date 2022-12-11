@@ -73,23 +73,23 @@ public:
 
     uint64_t position() const { return _position; }
     // Set the position of the internal pointer
-    // If the new position is greater than or equal to limit, return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+    // If the new position is greater than or equal to limit, return Status::Error<ErrorCode::INVALID_ARGUMENT>()
     Status set_position(uint64_t new_position) {
         if (new_position <= _limit) {
             _position = new_position;
             return Status::OK();
         } else {
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
         }
     }
 
     uint64_t limit() const { return _limit; }
     //set new limit
-    //If limit is greater than capacity, return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+    //If limit is greater than capacity, return Status::Error<ErrorCode::INVALID_ARGUMENT>()
     //If position is greater than the new limit, set position equal to limit
     Status set_limit(uint64_t new_limit) {
         if (new_limit > _capacity) {
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
         }
 
         _limit = new_limit;
@@ -120,7 +120,7 @@ public:
             *result = _array[_position++];
             return Status::OK();
         } else {
-            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
+            return Status::Error<ErrorCode::OUT_OF_BOUND>();
         }
     }
 
@@ -130,7 +130,7 @@ public:
             *result = _array[index];
             return Status::OK();
         } else {
-            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
+            return Status::Error<ErrorCode::OUT_OF_BOUND>();
         }
     }
 
@@ -138,12 +138,12 @@ public:
     Status get(char* dst, uint64_t dst_size, uint64_t length) {
         // Not enough data to read
         if (OLAP_UNLIKELY(length > remaining())) {
-            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
+            return Status::Error<ErrorCode::OUT_OF_BOUND>();
         }
 
         // dst is not big enough
         if (OLAP_UNLIKELY(length > dst_size)) {
-            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
+            return Status::Error<ErrorCode::BUFFER_OVERFLOW>();
         }
 
         memory_copy(dst, &_array[_position], length);
@@ -155,18 +155,18 @@ public:
     Status get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
 
     // Write a byte, increment position when done
-    // If position >= limit before writing, return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW)
+    // If position >= limit before writing, return Status::Error<ErrorCode::BUFFER_OVERFLOW>()
     Status put(char src);
 
     // Write data at the index position without changing the position
     // Returns:
-    //   Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW) : index >= limit
+    //   Status::Error<ErrorCode::BUFFER_OVERFLOW>() : index >= limit
     Status put(uint64_t index, char src);
 
     // Read length bytes from &src[offset], write to buffer, and increase position after completion
     // Returns:
-    //   Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW): remaining() < length
-    //   Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND): offset + length > src_size
+    //   Status::Error<ErrorCode::BUFFER_OVERFLOW>(): remaining() < length
+    //   Status::Error<ErrorCode::OUT_OF_BOUND>(): offset + length > src_size
     Status put(const char* src, uint64_t src_size, uint64_t offset, uint64_t length);
 
     // write a set of data
