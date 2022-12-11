@@ -26,6 +26,7 @@
 #include "http/action/health_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
+#include "http/action/pad_rowset_action.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
 #include "http/action/reset_rpc_channel_action.h"
@@ -177,6 +178,9 @@ Status HttpService::start() {
             _pool.add(new CheckTabletSegmentAction());
     _ev_http_server->register_handler(HttpMethod::POST, "/api/check_tablet_segment_lost",
                                       check_tablet_segment_action);
+
+    PadRowsetAction* pad_rowset_action = _pool.add(new PadRowsetAction());
+    _ev_http_server->register_handler(HttpMethod::POST, "api/pad_rowset", pad_rowset_action);
 
     _ev_http_server->start();
     return Status::OK();

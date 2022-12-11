@@ -21,6 +21,7 @@
 
 #include <sstream>
 
+#include "http/action/pad_rowset_action.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -28,6 +29,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "testutil/mock_rowset.h"
+#include "util/file_utils.h"
 #include "util/time.h"
 
 using namespace std;
@@ -37,6 +39,8 @@ namespace doris {
 using RowsetMetaSharedContainerPtr = std::shared_ptr<std::vector<RowsetMetaSharedPtr>>;
 
 static StorageEngine* k_engine = nullptr;
+static const std::string kTestDir = "/data_test/data/tablet_test";
+static const uint32_t MAX_PATH_LEN = 1024;
 
 class TestTablet : public testing::Test {
 public:
@@ -92,6 +96,17 @@ public:
                 }]
             }
         })";
+        char buffer[MAX_PATH_LEN];
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        absolute_dir = std::string(buffer) + kTestDir;
+
+        if (FileUtils::check_exist(absolute_dir)) {
+            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
+        }
+        EXPECT_TRUE(FileUtils::create_dir(absolute_dir).ok());
+        EXPECT_TRUE(FileUtils::create_dir(absolute_dir + "/tablet_path").ok());
+        _data_dir = std::make_unique<DataDir>(absolute_dir);
+        _data_dir->update_capacity();
 
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
@@ -99,6 +114,9 @@ public:
     }
 
     void TearDown() override {
+        if (FileUtils::check_exist(absolute_dir)) {
+            EXPECT_TRUE(FileUtils::remove_all(absolute_dir).ok());
+        }
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;
@@ -224,6 +242,8 @@ public:
 protected:
     std::string _json_rowset_meta;
     TabletMetaSharedPtr _tablet_meta;
+    string absolute_dir;
+    std::unique_ptr<DataDir> _data_dir;
 };
 
 TEST_F(TestTablet, delete_expired_stale_rowset) {
@@ -250,6 +270,41 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
 
     EXPECT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
     _tablet.reset();
+}
+
+TEST_F(TestTablet, pad_rowset) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    auto ptr1 = std::make_shared<RowsetMeta>();
+    init_rs_meta(ptr1, 1, 2);
+    rs_metas.push_back(ptr1);
+    RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, "", ptr1);
+
+    auto ptr2 = std::make_shared<RowsetMeta>();
+    init_rs_meta(ptr2, 3, 4);
+    rs_metas.push_back(ptr2);
+    RowsetSharedPtr rowset2 = make_shared<BetaRowset>(nullptr, "", ptr2);
+
+    auto ptr3 = std::make_shared<RowsetMeta>();
+    init_rs_meta(ptr3, 6, 7);
+    rs_metas.push_back(ptr3);
+    RowsetSharedPtr rowset3 = make_shared<BetaRowset>(nullptr, "", ptr3);
+
+    for (auto& rowset : rs_metas) {
+        _tablet_meta->add_rs_meta(rowset);
+    }
+
+    _data_dir->init();
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, _data_dir.get()));
+    _tablet->init();
+
+    Version version(5, 5);
+    std::vector<RowsetReaderSharedPtr> readers;
+    ASSERT_FALSE(_tablet->capture_rs_readers(version, &readers).ok());
+    readers.clear();
+
+    PadRowsetAction action;
+    action._pad_rowset(_tablet, version);
+    ASSERT_TRUE(_tablet->capture_rs_readers(version, &readers).ok());
 }
 
 TEST_F(TestTablet, cooldown_policy) {
