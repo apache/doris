@@ -33,6 +33,7 @@
 #include "util/ref_count_closure.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id,
                          bool is_vec) {
@@ -100,7 +101,7 @@ Status DeltaWriter::init() {
     if (_tablet == nullptr) {
         LOG(WARNING) << "fail to find tablet. tablet_id=" << _req.tablet_id
                      << ", schema_hash=" << _req.schema_hash;
-        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
+        return Status::Error<TABLE_NOT_FOUND>();
     }
 
     // get rowset ids snapshot
@@ -121,14 +122,14 @@ Status DeltaWriter::init() {
                          << _tablet->version_count()
                          << ", exceed limit: " << config::max_tablet_version_num
                          << ". tablet: " << _tablet->full_name();
-            return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
+            return Status::Error<TOO_MANY_VERSION>();
         }
     }
 
     {
         std::shared_lock base_migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
         if (!base_migration_rlock.owns_lock()) {
-            return Status::OLAPInternalError(OLAP_ERR_RWLOCK_ERROR);
+            return Status::Error<TRY_LOCK_FAILED>();
         }
         std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
@@ -243,7 +244,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
         // This writer is not initialized before flushing. Do nothing
-        // But we return OLAP_SUCCESS instead of Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED),
+        // But we return OK instead of Status::Error<ALREADY_CANCELLED>(),
         // Because this method maybe called when trying to reduce mem consumption,
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return Status::OK();
@@ -272,7 +273,7 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 Status DeltaWriter::wait_flush() {
     std::lock_guard<std::mutex> l(_lock);
     if (!_is_init) {
-        // return OLAP_SUCCESS instead of Status::OLAPInternalError(OLAP_ERR_ALREADY_CANCELLED) for same reason
+        // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
         // as described in flush_memtable_and_wait()
         return Status::OK();
     }
@@ -361,11 +362,11 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
         LOG(WARNING) << "fail to build rowset";
-        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        return Status::Error<MEM_ALLOC_FAILED>();
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
                                                             _req.load_id, _cur_rowset, false);
-    if (!res && res != Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
+    if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id
                      << " for rowset: " << _cur_rowset->rowset_id();
         return res;

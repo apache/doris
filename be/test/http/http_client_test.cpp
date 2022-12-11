@@ -169,7 +169,7 @@ TEST_F(HttpClientTest, post_failed) {
     st = client.execute_post_request(request_body, &response);
     EXPECT_FALSE(st.ok());
     std::string not_found = "404";
-    EXPECT_TRUE(boost::algorithm::contains(st.get_error_msg(), not_found));
+    EXPECT_TRUE(boost::algorithm::contains(st.to_string(), not_found));
 }
 
 } // namespace doris

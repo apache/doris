@@ -347,8 +347,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
         Status s = JniUtil::GetJniExceptionMsg(env);
         if (!s.ok()) {
             return Status::InternalError(strings::Substitute(
-                    "Jdbc connector _register_func_id meet error and error is $0",
-                    s.get_error_msg()));
+                    "Jdbc connector _register_func_id meet error and error is $0", s.to_string()));
         }
         return s;
     };

@@ -35,6 +35,7 @@
 using std::string;
 
 namespace doris {
+using namespace ErrorCode;
 
 const std::string meta_path = "./be/test/olap/test_data/header_without_inc_rs.txt";
 
@@ -92,7 +93,7 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     EXPECT_EQ(Status::OK(), s);
     TabletMetaSharedPtr meta_read(new TabletMeta());
     s = TabletMetaManager::get_meta(_data_dir, tablet_id, schema_hash, meta_read);
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND), s);
+    EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(), s);
 }
 
 TEST_F(TabletMetaManagerTest, TestLoad) {

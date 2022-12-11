@@ -743,7 +743,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                                "push plan fragment to thread pool failed");
             return Status::InternalError(strings::Substitute(
                     "push plan fragment $0 to thread pool failed. err = $1, BE: $2",
-                    print_id(params.params.fragment_instance_id), st.get_error_msg(),
+                    print_id(params.params.fragment_instance_id), st.to_string(),
                     BackendOptions::get_localhost()));
         }
     } else {
@@ -771,8 +771,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         if (!st.ok()) {
             context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             remove_pipeline_context(context);
-            return Status::InternalError("Submit pipeline failed. err = {}, BE: {}",
-                                         st.get_error_msg(), BackendOptions::get_localhost());
+            return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
+                                         BackendOptions::get_localhost());
         }
     }
 

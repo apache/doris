@@ -409,7 +409,7 @@ void IndexChannel::add_row(const Row& tuple, int64_t tablet_id) {
         // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
         if (!st.ok()) {
-            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
+            mark_as_failed(channel->node_id(), channel->host(), st.to_string(), tablet_id);
             // continue add row to other node, the error will be checked for every batch outside
         }
     }

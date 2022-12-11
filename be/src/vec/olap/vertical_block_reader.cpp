@@ -27,6 +27,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 VerticalBlockReader::~VerticalBlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
@@ -84,7 +85,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     // In dup keys value columns compact, get first row for _init_agg_state
     if (!read_params.is_key_column_group && read_params.tablet->keys_type() == KeysType::AGG_KEYS) {
         auto st = _vcollect_iter->next_row(&_next_row);
-        _eof = st.is_end_of_file();
+        _eof = st.is<END_OF_FILE>();
     }
 
     return Status::OK();
@@ -160,10 +161,10 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 Status VerticalBlockReader::_direct_next_block(Block* block, MemPool* mem_pool,
                                                ObjectPool* agg_pool, bool* eof) {
     auto res = _vcollect_iter->next_batch(block);
-    if (UNLIKELY(!res.ok() && !res.is_end_of_file())) {
+    if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
     }
-    *eof = (res.is_end_of_file());
+    *eof = (res.is<END_OF_FILE>());
     _eof = *eof;
     return Status::OK();
 }
@@ -266,10 +267,10 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
     if (_reader_context.is_key_column_group) {
         // collect_iter will filter agg keys
         auto res = _vcollect_iter->next_batch(block);
-        if (UNLIKELY(!res.ok() && !res.is_end_of_file())) {
+        if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
             return res;
         }
-        *eof = (res.is_end_of_file());
+        *eof = (res.is<END_OF_FILE>());
         _eof = *eof;
         return Status::OK();
     }
@@ -288,7 +289,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
     do {
         Status res = _vcollect_iter->next_row(&_next_row);
         if (UNLIKELY(!res.ok())) {
-            if (UNLIKELY(res.is_end_of_file())) {
+            if (UNLIKELY(res.is<END_OF_FILE>())) {
                 *eof = true;
                 _eof = true;
                 break;
@@ -325,14 +326,14 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
         auto row_source_idx = _row_sources_buffer->buffered_size();
 
         auto res = _vcollect_iter->next_batch(block);
-        if (UNLIKELY(!res.ok() && !res.is_end_of_file())) {
+        if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
             return res;
         }
         auto block_rows = block->rows();
         if (_filter_delete && block_rows > 0) {
             int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
             if (ori_delete_sign_idx < 0) {
-                *eof = (res.is_end_of_file());
+                *eof = (res.is<END_OF_FILE>());
                 _eof = *eof;
                 return Status::OK();
             }
@@ -365,7 +366,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
             _stats.rows_del_filtered += block_rows - block->rows();
             DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         }
-        *eof = (res.is_end_of_file());
+        *eof = (res.is<END_OF_FILE>());
         _eof = *eof;
         return Status::OK();
     }
@@ -375,7 +376,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
     do {
         Status res = _vcollect_iter->unique_key_next_row(&_next_row);
         if (UNLIKELY(!res.ok())) {
-            if (UNLIKELY(res.is_end_of_file())) {
+            if (UNLIKELY(res.is<END_OF_FILE>())) {
                 *eof = true;
                 _eof = true;
                 break;

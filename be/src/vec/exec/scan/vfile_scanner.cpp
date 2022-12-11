@@ -40,6 +40,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+using namespace ErrorCode;
 
 VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
                            const TFileScanRange& scan_range, RuntimeProfile* profile)
@@ -527,11 +528,11 @@ Status VFileScanner::_get_next_reader() {
             return Status::InternalError("Not supported file format: {}", _params.format_type);
         }
 
-        if (init_status.is_end_of_file()) {
+        if (init_status.is<END_OF_FILE>()) {
             continue;
         } else if (!init_status.ok()) {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
-                                         init_status.get_error_msg());
+                                         init_status.to_string());
         }
 
         _name_to_col_type.clear();
