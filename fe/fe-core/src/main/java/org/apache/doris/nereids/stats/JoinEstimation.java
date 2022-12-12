@@ -40,7 +40,7 @@ public class JoinEstimation {
 
     private static double estimateInnerJoin(StatsDeriveResult leftStats, StatsDeriveResult rightStats, Join join) {
         Preconditions.checkArgument(join.getJoinType() == JoinType.INNER_JOIN);
-        double rowCount = 0;
+        double rowCount = Double.MAX_VALUE;
         if (join.getHashJoinConjuncts().isEmpty()) {
             rowCount = leftStats.getRowCount() * rightStats.getRowCount();
         } else {
