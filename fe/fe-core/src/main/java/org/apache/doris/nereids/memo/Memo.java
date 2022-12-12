@@ -678,7 +678,8 @@ public class Memo {
             builder.append(group).append("\n");
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             StatsDeriveResult stats = group.getStatistics();
-            if (stats != null && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
+            if (stats != null && !group.getLogicalExpressions().isEmpty()
+                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
                 for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }

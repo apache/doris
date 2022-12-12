@@ -264,7 +264,8 @@ public class NereidsPlanner extends Planner {
             throws AnalysisException {
         try {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
-                    () -> new AnalysisException("lowestCostPlans with physicalProperties doesn't exist")).second;
+                    () -> new AnalysisException("lowestCostPlans with physicalProperties("
+                            + physicalProperties + ") doesn't exist in root group")).second;
             List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
 
             List<Plan> planChildren = Lists.newArrayList();
