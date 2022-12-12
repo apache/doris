@@ -209,7 +209,9 @@ uint32_t hash_row(const RowType& row, uint32_t seed) {
         FieldType type = row.schema()->column(cid)->type();
         // The approximation of float/double in a certain precision range, the binary of byte is not
         // a fixed value, so these two types are ignored in calculating hash code.
-        if (type == OLAP_FIELD_TYPE_FLOAT || type == OLAP_FIELD_TYPE_DOUBLE) {
+        // HLL type use flat map to store hash_set and it should be ignored
+        if (type == OLAP_FIELD_TYPE_FLOAT || type == OLAP_FIELD_TYPE_DOUBLE ||
+            type == OLAP_FIELD_TYPE_HLL) {
             continue;
         }
         seed = row.schema()->column(cid)->hash_code(row.cell(cid), seed);

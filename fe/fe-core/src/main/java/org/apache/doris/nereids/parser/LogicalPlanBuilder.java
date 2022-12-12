@@ -165,6 +165,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.PolicyTypeEnum;
@@ -225,7 +226,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
-        plan = withCte(plan, ctx.cte());
         return withExplain(plan, ctx.explain());
     }
 
@@ -290,6 +290,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
+            query = withCte(query, ctx.cte());
             return withQueryOrganization(query, ctx.queryOrganization());
         });
     }
@@ -345,7 +346,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
-        LogicalPlan checkedRelation = withCheckPolicy(new UnboundRelation(tableId));
+        LogicalPlan checkedRelation = withCheckPolicy(new UnboundRelation(RelationUtil.newRelationId(), tableId));
         return withTableAlias(checkedRelation, ctx.tableAlias());
     }
 
