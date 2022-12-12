@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
- 
+
 import LanguageDetector from 'i18next-browser-languagedetector';
 import i18n from 'i18next';
 import enUsTrans from '../public/locales/en-us.json';
@@ -24,8 +24,9 @@ import zhCnTrans from '../public/locales/zh-cn.json';
 import {
     initReactI18next
 } from 'react-i18next';
-i18n.use(LanguageDetector) 
-    .use(initReactI18next) 
+
+i18n.use(LanguageDetector)
+    .use(initReactI18next)
     .init({
         lng: localStorage.getItem('I18N_LANGUAGE') || "en",
         resources: {
@@ -39,9 +40,9 @@ i18n.use(LanguageDetector)
         fallbackLng: 'en',
         debug: false,
         interpolation: {
-            escapeValue: false 
+            escapeValue: false
         }
     });
 
 export default i18n;
- 
+
