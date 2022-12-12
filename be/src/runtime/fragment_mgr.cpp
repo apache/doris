@@ -74,7 +74,6 @@ std::string to_load_error_http_path(const std::string& file_name) {
 }
 
 using apache::thrift::TException;
-using apache::thrift::TProcessor;
 using apache::thrift::transport::TTransportException;
 
 class RuntimeProfile;
@@ -547,8 +546,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         set_pipe(params.params.fragment_instance_id, pipe);
         return Status::OK();
     } else {
-        return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1,
-                                                          std::placeholders::_2));
+        return exec_plan_fragment(params, empty_function);
     }
 }
 
@@ -750,11 +748,10 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
             fragments_ctx->set_ready_to_execute_only();
         }
-
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineFragmentContext>(
                         fragments_ctx->query_id, fragment_instance_id, params.backend_num,
-                        fragments_ctx, _exec_env);
+                        fragments_ctx, _exec_env, cb);
         {
             SCOPED_RAW_TIMER(&duration_ns);
             RETURN_IF_ERROR(context->prepare(params));
@@ -767,7 +764,6 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             _cv.notify_all();
         }
         auto st = context->submit();
-        cb(context->get_runtime_state(), &st);
         if (!st.ok()) {
             context->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
             remove_pipeline_context(context);
