@@ -23,7 +23,7 @@ suite("spark_connector", "connector") {
     logger.info("start delete local spark doris demo jar...")
     def delete_local_spark_jar = "rm -rf spark-doris-demo.jar".execute()
     logger.info("start download spark doris demo ...")
-    def download_spark_jar = "curl http://jiafeng-beijing-1308700295.cos.ap-beijing.myqcloud.com/spark-doris-connector-demo-jar-with-dependencies.jar --output spark-doris-demo.jar".execute().getText()
+    def download_spark_jar = "curl ${getS3Url()}/regression/spark-doris-connector-demo-jar-with-dependencies.jar --output spark-doris-demo.jar".execute().getText()
     logger.info("finish download spark doris demo ...")
     def run_cmd = "java -jar spark-doris-demo.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableName"
     logger.info("run_cmd : $run_cmd")
