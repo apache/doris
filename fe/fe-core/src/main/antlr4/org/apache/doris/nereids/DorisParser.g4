@@ -241,6 +241,7 @@ expression
 booleanExpression
     : NOT booleanExpression                                         #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
+    | ISNULL LEFT_PAREN valueExpression RIGHT_PAREN        #isnull
     | valueExpression predicate?                                    #predicated
     | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
@@ -469,6 +470,7 @@ ansiNonReserved
     | INPUTFORMAT
     | INSERT
     | INTERVAL
+    | ISNULL
     | ITEMS
     | KEYS
     | LAST
