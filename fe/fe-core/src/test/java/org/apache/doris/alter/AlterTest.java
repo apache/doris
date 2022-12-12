@@ -1034,13 +1034,13 @@ public class AlterTest {
         db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
         odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().stream()
-            .map(column -> column.getName())
-            .reduce("", (totalName, columnName) -> totalName + columnName), "k1k2k3k4k5k6");
+                .map(column -> column.getName())
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k1k2k3k4k5k6");
         stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
         alterTable(stmt, false);
         Assert.assertEquals(odbcTable.getBaseSchema().stream()
-            .map(column -> column.getName())
-            .reduce("", (totalName, columnName) -> totalName + columnName), "k6k5k4k3k2k1");
+                .map(column -> column.getName())
+                .reduce("", (totalName, columnName) -> totalName + columnName), "k6k5k4k3k2k1");
 
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k6";

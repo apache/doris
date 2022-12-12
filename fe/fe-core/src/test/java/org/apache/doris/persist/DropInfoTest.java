@@ -65,9 +65,9 @@ public class DropInfoTest {
 
         Assert.assertEquals(rInfo2, rInfo2);
         Assert.assertNotEquals(rInfo2, this);
-        Assert.assertNotEquals(info2, (new DropInfo(0, 2, -1L, true)));
-        Assert.assertNotEquals(info2, (new DropInfo(1, 0, -1L, true)));
-        Assert.assertNotEquals(info2, (new DropInfo(1, 2, -1L, false)));
+        Assert.assertNotEquals(info2, new DropInfo(0, 2, -1L, true));
+        Assert.assertNotEquals(info2, new DropInfo(1, 0, -1L, true));
+        Assert.assertNotEquals(info2, new DropInfo(1, 2, -1L, false));
         Assert.assertEquals(info2, new DropInfo(1, 2, -1L, true));
 
         // 3. delete files
