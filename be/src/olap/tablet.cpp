@@ -2002,14 +2002,10 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                     auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, *key,
                                                         dummy_version, delete_bitmap, &loc);
                     if (st.ok()) {
-                        delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
+                        delete_bitmap->add({rowset_id, loc.segment_id, dummy_version.first},
                                            loc.row_id);
-                        ++row_id;
-                        continue;
                     } else if (st.is<ALREADY_EXIST>()) {
                         delete_bitmap->add({rowset_id, seg->id(), dummy_version.first}, row_id);
-                        ++row_id;
-                        continue;
                     }
                 }
 
@@ -2060,13 +2056,6 @@ Status Tablet::_check_pk_in_pre_segments(
                                            loc->row_id)) {
             // if has sequence col, we continue to compare the sequence_id of
             // all segments, util we find an existing key.
-            continue;
-        } else if (st.ok() && !_schema->has_sequence_col()) {
-            // delete all rows with same key in all pre segments
-            if (!delete_bitmap->contains({rowset_id, loc->segment_id, version.first},
-                                         loc->row_id)) {
-                delete_bitmap->add({rowset_id, loc->segment_id, version.first}, loc->row_id);
-            }
             continue;
         }
         return st;
