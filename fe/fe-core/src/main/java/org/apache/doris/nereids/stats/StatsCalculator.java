@@ -363,6 +363,7 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
                             stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum,
                             stats.minValue,
                             stats.maxValue,
+                            stats.histogram,
                             stats.selectivity,
                             stats.minExpr,
                             stats.maxExpr,

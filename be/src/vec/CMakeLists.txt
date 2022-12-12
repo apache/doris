@@ -46,6 +46,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_simple_factory.cpp
   aggregate_functions/aggregate_function_orthogonal_bitmap.cpp
   aggregate_functions/aggregate_function_avg_weighted.cpp
+  aggregate_functions/aggregate_function_histogram.cpp
   columns/column.cpp
   columns/column_array.cpp
   columns/column_const.cpp
