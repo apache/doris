@@ -265,7 +265,7 @@ public class AggregateStrategiesTest implements PatternMatchSupported {
         // id
         AggregateParam phaseTwoCountAggParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
         AggregateParam phaseOneSumAggParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
-        AggregateParam phaseTwoSumAggParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        AggregateParam phaseTwoSumAggParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
         // sum
         Sum sumId = new Sum(false, id.toSlot());
 
@@ -291,10 +291,10 @@ public class AggregateStrategiesTest implements PatternMatchSupported {
                     .when(agg -> {
                         Slot partialSum = agg.child().getOutputExpressions().get(2).toSlot();
                         Assertions.assertTrue(agg.getOutputExpressions().get(1).child(0) instanceof AggregateExpression);
-                        Assertions.assertEquals(((AggregateExpression) agg.getOutputExpressions().get(1).child(0)).getAggregateParam(), phaseTwoSumAggParam);
+                        Assertions.assertEquals(phaseTwoSumAggParam, ((AggregateExpression) agg.getOutputExpressions().get(1).child(0)).getAggregateParam());
                         Assertions.assertTrue(agg.getOutputExpressions().get(1).child(0).child(0).equals(partialSum));
 
-                        Assertions.assertEquals(((AggregateExpression) agg.getOutputExpressions().get(0).child(0)).getAggregateParam(), phaseTwoCountAggParam);
+                        Assertions.assertEquals(phaseTwoCountAggParam, ((AggregateExpression) agg.getOutputExpressions().get(0).child(0)).getAggregateParam());
                         return true;
                     })
                     .when(agg -> agg.getGroupByExpressions().get(0)
