@@ -36,8 +36,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecAny;
+import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -218,22 +222,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             + "it should be created by PhysicalDistribute, but meet " + aggregate.child());
             ExchangeNode exchangeNode = (ExchangeNode) inputPlanFragment.getPlanRoot();
             Optional<List<Expression>> partitionExpressions = aggregate.getPartitionExpressions();
-            if (!partitionExpressions.isPresent()) {
+            PhysicalDistribute physicalDistribute = (PhysicalDistribute) aggregate.child();
+            DistributionSpec distributionSpec = physicalDistribute.getDistributionSpec();
+            if ((distributionSpec instanceof DistributionSpecHash || distributionSpec == DistributionSpecAny.INSTANCE)
+                    && !partitionExpressions.isPresent()) {
                 throw new AnalysisException("Multi-stage aggregate missing partition expressions");
             }
             Preconditions.checkState(
                     partitionExpressions.get().stream().allMatch(expr -> expr instanceof SlotReference),
                     "All partition expression should be slot: " + partitionExpressions.get());
 
-            List<Expr> hashDistributeColumns = partitionExpressions.get()
-                    .stream()
-                    .map(p -> ExpressionTranslator.translate(p, context))
-                    .collect(ImmutableList.toImmutableList());
-
-            DataPartition dataPartition = hashDistributeColumns.isEmpty()
-                    ? DataPartition.UNPARTITIONED
-                    : DataPartition.hashPartitioned(hashDistributeColumns);
-
+            DataPartition dataPartition = toDataPartition(physicalDistribute, partitionExpressions, context).get();
             currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
             inputPlanFragment.setOutputPartition(dataPartition);
             inputPlanFragment.setPlanRoot(exchangeNode.getChild(0));
@@ -1415,5 +1414,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return slotReferences;
+    }
+
+    private Optional<DataPartition> toDataPartition(PhysicalDistribute distribute,
+            Optional<List<Expression>> partitionExpressions, PlanTranslatorContext context) {
+        if (distribute.getDistributionSpec() == DistributionSpecGather.INSTANCE) {
+            return Optional.of(DataPartition.UNPARTITIONED);
+        } else if (distribute.getDistributionSpec() == DistributionSpecReplicated.INSTANCE) {
+            // the data partition should be left child of join
+            return Optional.empty();
+        } else if (distribute.getDistributionSpec() instanceof DistributionSpecHash
+                || distribute.getDistributionSpec() == DistributionSpecAny.INSTANCE) {
+            if (!partitionExpressions.isPresent() || partitionExpressions.get().isEmpty()) {
+                return Optional.of(DataPartition.UNPARTITIONED);
+            }
+            List<Expr> partitionExprs = partitionExpressions.get()
+                    .stream()
+                    .map(p -> ExpressionTranslator.translate(p, context))
+                    .collect(ImmutableList.toImmutableList());
+            return Optional.of(new DataPartition(TPartitionType.HASH_PARTITIONED, partitionExprs));
+        } else {
+            return Optional.empty();
+        }
     }
 }

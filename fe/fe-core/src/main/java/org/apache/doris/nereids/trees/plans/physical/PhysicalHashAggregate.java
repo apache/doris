@@ -226,6 +226,12 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 aggregateParam, maybeUsingStream, getLogicalProperties(), requireProperties, children.get(0));
     }
 
+    public PhysicalHashAggregate<CHILD_TYPE> withPartitionExpressions(List<Expression> partitionExpressions) {
+        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions,
+                Optional.ofNullable(partitionExpressions), aggregateParam, maybeUsingStream,
+                Optional.empty(), getLogicalProperties(), requireProperties, child());
+    }
+
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
