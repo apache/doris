@@ -103,6 +103,22 @@ suite("aggregate_strategies") {
             notContains "STREAMING"
         }
 
+        test {
+            sql """select
+                /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
+                count(distinct id)
+                from $tableName"""
+            result([[5L]])
+        }
+
+        test {
+            sql """select
+                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
+                count(distinct id)
+                from $tableName"""
+            result([[5L]])
+        }
+
         order_qt_count_distinct_group_by "select count(distinct id) from $tableName group by name"
         order_qt_count_distinct_group_by_select_key "select name, count(distinct id) from $tableName group by name"
         order_qt_count_distinct_muilti "select count(distinct id, name) from $tableName"
@@ -163,4 +179,36 @@ suite("aggregate_strategies") {
 
     test_aggregate_strategies('test_bucket1_table', 1)
     test_aggregate_strategies('test_bucket10_table', 10)
+
+    test {
+        sql """select
+                /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
+                count(distinct number)
+                from numbers('number' = '10000000', 'backend_num'='10')"""
+        result([[10000000L]])
+    }
+
+    test {
+        sql """select
+                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
+                count(distinct number)
+                from numbers('number' = '10000000', 'backend_num'='10')"""
+        result([[10000000L]])
+    }
+
+    test {
+        sql """select
+                /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
+                count(distinct number)
+                from numbers('number' = '10000000', 'backend_num'='1')"""
+        result([[10000000L]])
+    }
+
+    test {
+        sql """select
+                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
+                count(distinct number)
+                from numbers('number' = '10000000', 'backend_num'='1')"""
+        result([[10000000L]])
+    }
 }
