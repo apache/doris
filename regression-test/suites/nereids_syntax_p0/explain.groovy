@@ -24,7 +24,7 @@ suite("nereids_explain") {
 
     explain {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
-        contains "(sum(2) + sum(lo_suppkey))[#26]"
+        contains "(sum(2) + sum(lo_suppkey))[#"
         contains "project output tuple id: 1"
     }
 

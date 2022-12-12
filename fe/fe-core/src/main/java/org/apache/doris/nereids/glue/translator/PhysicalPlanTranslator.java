@@ -36,7 +36,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -223,15 +222,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             ExchangeNode exchangeNode = (ExchangeNode) inputPlanFragment.getPlanRoot();
             Optional<List<Expression>> partitionExpressions = aggregate.getPartitionExpressions();
             PhysicalDistribute physicalDistribute = (PhysicalDistribute) aggregate.child();
-            DistributionSpec distributionSpec = physicalDistribute.getDistributionSpec();
-            if ((distributionSpec instanceof DistributionSpecHash || distributionSpec == DistributionSpecAny.INSTANCE)
-                    && !partitionExpressions.isPresent()) {
-                throw new AnalysisException("Multi-stage aggregate missing partition expressions");
-            }
-            Preconditions.checkState(
-                    partitionExpressions.get().stream().allMatch(expr -> expr instanceof SlotReference),
-                    "All partition expression should be slot: " + partitionExpressions.get());
-
             DataPartition dataPartition = toDataPartition(physicalDistribute, partitionExpressions, context).get();
             currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
             inputPlanFragment.setOutputPartition(dataPartition);
@@ -1425,6 +1415,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return Optional.empty();
         } else if (distribute.getDistributionSpec() instanceof DistributionSpecHash
                 || distribute.getDistributionSpec() == DistributionSpecAny.INSTANCE) {
+            if (!partitionExpressions.isPresent()) {
+                throw new AnalysisException("Missing partition expressions");
+            }
+            Preconditions.checkState(
+                    partitionExpressions.get().stream().allMatch(expr -> expr instanceof SlotReference),
+                    "All partition expression should be slot: " + partitionExpressions.get());
             if (!partitionExpressions.isPresent() || partitionExpressions.get().isEmpty()) {
                 return Optional.of(DataPartition.UNPARTITIONED);
             }

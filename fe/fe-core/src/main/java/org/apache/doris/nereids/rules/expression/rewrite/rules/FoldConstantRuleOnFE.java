@@ -220,7 +220,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if (child.isNullLiteral()) {
             return new NullLiteral(cast.getDataType());
         }
-        return child.castTo(cast.getDataType());
+        try {
+            return child.castTo(cast.getDataType());
+        } catch (Throwable t) {
+            return cast;
+        }
     }
 
     @Override

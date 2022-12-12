@@ -37,7 +37,6 @@ import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
-import org.apache.doris.nereids.DorisParser.ExpressionContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
@@ -134,6 +133,7 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
@@ -746,12 +746,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public UnboundFunction visitFunctionCall(DorisParser.FunctionCallContext ctx) {
+    public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.identifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
-            return new UnboundFunction(functionName, isDistinct, params);
+            List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
+            if (unboundStars.size() > 0) {
+                if (functionName.equalsIgnoreCase("count")) {
+                    if (unboundStars.size() > 1) {
+                        throw new ParseException(
+                                "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
+                    }
+                    if (!unboundStars.get(0).getQualifier().isEmpty()) {
+                        throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
+                    }
+                    return new Count();
+                }
+                throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
+            } else {
+                return new UnboundFunction(functionName, isDistinct, params);
+            }
         });
     }
 
