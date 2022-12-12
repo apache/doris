@@ -728,7 +728,7 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeString>();
+        return make_nullable(std::make_shared<DataTypeString>());
     }
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return true; }
@@ -758,7 +758,8 @@ public:
             return Status::OK();
         }
 
-        block.get_by_position(result).column = block.get_by_position(arguments[pos]).column;
+        block.get_by_position(result).column =
+                make_nullable(block.get_by_position(arguments[pos]).column);
         return Status::OK();
     }
 };

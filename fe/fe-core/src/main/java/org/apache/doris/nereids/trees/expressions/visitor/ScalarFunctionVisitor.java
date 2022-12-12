@@ -225,6 +225,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrLeft;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
@@ -1086,6 +1087,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSubBitmap(SubBitmap subBitmap, C context) {
         return visitScalarFunction(subBitmap, context);
+    }
+
+    default R visitSubReplace(SubReplace subReplace, C context) {
+        return visitScalarFunction(subReplace, context);
     }
 
     default R visitSubstring(Substring substring, C context) {

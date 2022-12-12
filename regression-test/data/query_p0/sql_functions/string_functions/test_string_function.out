@@ -311,3 +311,21 @@ tNEW-STRorigin str
 -- !sql --
 d***is
 
+-- !sql --
+\N
+
+-- !sql --
+hello
+
+-- !sql --
+doris
+
+-- !sql --
+\N
+
+-- !sql --
+tNEW-STRorigin str
+
+-- !sql --
+d***is
+
