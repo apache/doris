@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
@@ -43,7 +44,7 @@ import java.util.List;
 public class MergeProjectsTest {
     @Test
     public void testMergeConsecutiveProjects() {
-        UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
+        UnboundRelation relation = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "table"));
         NamedExpression colA = new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
         NamedExpression colB = new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
         NamedExpression colC = new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
@@ -74,7 +75,7 @@ public class MergeProjectsTest {
      */
     @Test
     public void testMergeConsecutiveProjectsWithAlias() {
-        UnboundRelation relation = new UnboundRelation(Lists.newArrayList("db", "table"));
+        UnboundRelation relation = new UnboundRelation(RelationUtil.newRelationId(), Lists.newArrayList("db", "table"));
         NamedExpression colA = new SlotReference("a", IntegerType.INSTANCE, true, Lists.newArrayList("a"));
         NamedExpression colB = new SlotReference("b", IntegerType.INSTANCE, true, Lists.newArrayList("b"));
         NamedExpression colC = new SlotReference("c", IntegerType.INSTANCE, true, Lists.newArrayList("c"));
