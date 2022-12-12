@@ -20,9 +20,9 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 
