@@ -62,10 +62,12 @@ public:
     virtual Status flush_columns() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
     virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
-    virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
+    virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size,
+                                         std::vector<int64_t>* seg_ids_for_delete_bitmap) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
-    virtual Status flush_single_memtable(const vectorized::Block* block) {
+    virtual Status flush_single_memtable(const vectorized::Block* block,
+                                         std::vector<int64_t>* seg_ids_for_delete_bitmap) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 

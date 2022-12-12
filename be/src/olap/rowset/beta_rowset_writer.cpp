@@ -118,7 +118,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     if (UNLIKELY(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
     }
-    return _add_block(block, &_segment_writer);
+    return _add_block(block, &_segment_writer, nullptr);
 }
 
 vectorized::VMergeIterator* BetaRowsetWriter::_get_segcompaction_reader(
@@ -554,16 +554,18 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
 }
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
-                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
+                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
+                                    std::vector<int64_t>* seg_ids_for_delete_bitmap) {
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
-    LOG(INFO) << "BetaRowsetWriter::_add_block 1 debugdebug";
     do {
         auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
-            LOG(INFO) << "_flush_segment_writer 111 debugdebug";
+            if (seg_ids_for_delete_bitmap != nullptr) {
+                seg_ids_for_delete_bitmap->push_back((*segment_writer)->get_segment_id());
+            }
             // no space for another signle row, need flush now
             RETURN_NOT_OK(_flush_segment_writer(segment_writer));
             RETURN_NOT_OK(_create_segment_writer(segment_writer));
@@ -646,7 +648,8 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
+Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size,
+                                               std::vector<int64_t>* seg_ids_for_delete_bitmap) {
     int64_t size = 0;
     int64_t sum_size = 0;
     // Create segment writer for each memtable, so that
@@ -668,6 +671,7 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
 
         if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
                           writer->num_rows_written() >= _context.max_rows_per_segment)) {
+            seg_ids_for_delete_bitmap->push_back(writer->get_segment_id());
             auto s = _flush_segment_writer(&writer, &size);
             sum_size += size;
             if (OLAP_UNLIKELY(!s.ok())) {
@@ -678,6 +682,7 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
     }
 
     if (writer != nullptr) {
+        seg_ids_for_delete_bitmap->push_back(writer->get_segment_id());
         auto s = _flush_segment_writer(&writer, &size);
         sum_size += size;
         *flush_size = sum_size;
@@ -689,16 +694,16 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
+Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block,
+                                               std::vector<int64_t>* seg_ids_for_delete_bitmap) {
     if (block->rows() == 0) {
         return Status::OK();
     }
-    LOG(INFO) << "flush_single_memtable 1 debugdebug";
     RETURN_NOT_OK(_segcompaction_if_necessary());
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     RETURN_NOT_OK(_create_segment_writer(&writer));
-    RETURN_NOT_OK(_add_block(block, &writer));
-    LOG(INFO) << "_flush_segment_writer 222 debugdebug";
+    RETURN_NOT_OK(_add_block(block, &writer, seg_ids_for_delete_bitmap));
+    seg_ids_for_delete_bitmap->push_back(writer->get_segment_id());
     RETURN_NOT_OK(_flush_segment_writer(&writer));
     return Status::OK();
 }
@@ -994,7 +999,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
         _segid_statistics_map.emplace(segid, segstat);
     }
-    LOG(INFO) << "debugdebug _segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
+    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
                << " data_size:" << segment_size << " index_size:" << index_size;
 
     writer->reset();

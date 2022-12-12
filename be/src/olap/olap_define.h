@@ -38,7 +38,7 @@ static const uint32_t OLAP_DEFAULT_MAX_UNPACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 1
 // 列存储文件的块大小,由于可能会被全部载入内存,所以需要严格控制大小, 这里定义为256MB
 static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
 // 列存储文件大小的伸缩性
-static const double OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.1;
+static const double OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9;
 // 在列存储文件中, 数据分块压缩, 每个块的默认压缩前的大小
 static const uint32_t OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE = 10 * 1024;
 // 在列存储文件中, 对字符串使用字典编码的字典大小门限

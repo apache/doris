@@ -94,6 +94,7 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
         _skip_list = std::make_unique<Table>(_row_comparator.get(), _table_mem_pool.get(),
                                              keys_type() == KeysType::DUP_KEYS);
     }
+    _seg_ids_for_delete_bitmap.reserve(16);
 }
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                                   const TupleDescriptor* tuple_desc) {
@@ -424,12 +425,10 @@ Status MemTable::_generate_delete_bitmap() {
     auto rowset = _rowset_writer->build_tmp();
     auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    segment_v2::SegmentSharedPtr segment;
     if (beta_rowset->num_segments() == 0) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(beta_rowset->load_segment(beta_rowset->num_segments() - 1, &segment));
-    segments.push_back(segment);
+    RETURN_IF_ERROR(beta_rowset->load_segment(_seg_ids_for_delete_bitmap, &segments));
     std::shared_lock meta_rlock(_tablet->get_header_lock());
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY &&
@@ -458,8 +457,9 @@ Status MemTable::flush() {
 
 Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
+    _seg_ids_for_delete_bitmap.clear();
     if (_skip_list) {
-        Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);
+        Status st = _rowset_writer->flush_single_memtable(this, &_flush_size, &_seg_ids_for_delete_bitmap);
         if (st.is<NOT_IMPLEMENTED_ERROR>()) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
@@ -477,7 +477,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     } else {
         _collect_vskiplist_results<true>();
         vectorized::Block block = _output_mutable_block.to_block();
-        RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
+        RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_seg_ids_for_delete_bitmap));
         _flush_size = block.allocated_bytes();
     }
     return Status::OK();

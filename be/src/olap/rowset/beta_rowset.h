@@ -88,7 +88,7 @@ public:
 
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
 
-    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
+    Status load_segment(std::vector<int64_t> seg_ids, std::vector<segment_v2::SegmentSharedPtr>* segments);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 

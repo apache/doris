@@ -224,6 +224,7 @@ private:
     DeleteBitmapPtr _delete_bitmap;
     RowsetIdUnorderedSet _rowset_ids;
     int64_t _cur_max_version;
+    std::vector<int64_t> _seg_ids_for_delete_bitmap;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

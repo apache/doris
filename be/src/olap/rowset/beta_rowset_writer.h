@@ -55,8 +55,10 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
-    Status flush_single_memtable(const vectorized::Block* block) override;
+    Status flush_single_memtable(MemTable* memtable, int64_t* flush_size,
+                                 std::vector<int64_t>* seg_ids_for_delete_bitmap) override;
+    Status flush_single_memtable(const vectorized::Block* block,
+                                 std::vector<int64_t>* seg_ids_for_delete_bitmap) override;
 
     RowsetSharedPtr build() override;
 
@@ -86,7 +88,8 @@ private:
     template <typename RowType>
     Status _add_row(const RowType& row);
     Status _add_block(const vectorized::Block* block,
-                      std::unique_ptr<segment_v2::SegmentWriter>* writer);
+                      std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                      std::vector<int64_t>* seg_ids_for_delete_bitmap);
     Status _add_block_for_segcompaction(const vectorized::Block* block,
                                         std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
