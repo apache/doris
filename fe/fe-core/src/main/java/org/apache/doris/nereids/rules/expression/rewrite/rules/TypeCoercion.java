@@ -170,9 +170,8 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
         if (child.getDataType().toCatalogDataType().getPrimitiveType().ordinal()
                 > PrimitiveType.LARGEINT.ordinal()) {
             child = new Cast(child, BigIntType.INSTANCE);
-            return bitNot.withChildren(child);
         }
-        return bitNot;
+        return bitNot.withChildren(child);
     }
 
     /**
