@@ -975,7 +975,7 @@ build_abseil() {
     cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
 
     CXXFLAGS="-O3" \
-        LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+        LDFLAGS="-L${TP_LIB_DIR}" \
         "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DABSL_ENABLE_INSTALL=ON \
         -DBUILD_DEPS=ON \
@@ -995,12 +995,6 @@ build_s2() {
     cd "${BUILD_DIR}"
 
     rm -rf CMakeCache.txt CMakeFiles/
-
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
-    else
-        ldflags="-L${TP_LIB_DIR}"
-    fi
 
     CXXFLAGS="-O3" \
         LDFLAGS="-L${TP_LIB_DIR}" \
