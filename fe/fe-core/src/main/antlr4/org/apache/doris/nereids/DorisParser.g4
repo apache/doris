@@ -275,6 +275,18 @@ primaryExpression
                 startTimestamp=valueExpression COMMA
                 endTimestamp=valueExpression
             RIGHT_PAREN                                                                        #timestampdiff
+    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_add
+    | name=(SUBDATE | DAYS_SUB | DATE_SUB)
+            LEFT_PAREN
+                timestamp=valueExpression COMMA
+                (INTERVAL unitsAmount=valueExpression  unit=datetimeUnit
+                | unitsAmount=valueExpression)
+            RIGHT_PAREN                                                                        #date_sub
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
@@ -371,6 +383,7 @@ number
 ansiNonReserved
 //--ANSI-NON-RESERVED-START
     : ADD
+    | ADDDATE
     | AFTER
     | ALTER
     | ANALYZE
@@ -409,11 +422,14 @@ ansiNonReserved
     | DATABASE
     | DATABASES
     | DATE
-    | DATEADD
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
     | DAY
+    | DAYS_ADD
+    | DAYS_SUB
+    | DATE_ADD
+    | DATE_SUB
     | DBPROPERTIES
     | DEFINED
     | DELETE
@@ -545,6 +561,7 @@ ansiNonReserved
     | STORED
     | STRATIFY
     | STRUCT
+    | SUBDATE
     | SUBSTR
     | SUBSTRING
     | SUM
@@ -670,7 +687,6 @@ nonReserved
     | DATABASE
     | DATABASES
     | DATE
-    | DATEADD
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF

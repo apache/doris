@@ -76,7 +76,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfYear;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
@@ -110,7 +112,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
@@ -156,13 +160,17 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MoneyFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Month;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
@@ -194,7 +202,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -254,7 +264,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 
 /** ScalarFunctionVisitor. */
 public interface ScalarFunctionVisitor<R, C> {
@@ -499,6 +511,54 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDaysDiff(DaysDiff daysDiff, C context) {
         return visitScalarFunction(daysDiff, context);
+    }
+
+    default R visitDaysAdd(DaysAdd daysAdd, C context) {
+        return visitScalarFunction(daysAdd, context);
+    }
+
+    default R visitDaysSub(DaysSub daysSub, C context) {
+        return visitScalarFunction(daysSub, context);
+    }
+
+    default R visitYearsSub(YearsSub yearsSub, C context) {
+        return visitScalarFunction(yearsSub, context);
+    }
+
+    default R visitMonthsSub(MonthsSub monthsSub, C context) {
+        return visitScalarFunction(monthsSub, context);
+    }
+
+    default R visitHoursSub(HoursSub hoursSub, C context) {
+        return visitScalarFunction(hoursSub, context);
+    }
+
+    default R visitMinutesSub(MinutesSub minutesSub, C context) {
+        return visitScalarFunction(minutesSub, context);
+    }
+
+    default R visitSecondsSub(SecondsSub secondsSub, C context) {
+        return visitScalarFunction(secondsSub, context);
+    }
+
+    default R visitMonthsAdd(MonthsAdd monthsAdd, C context) {
+        return visitScalarFunction(monthsAdd, context);
+    }
+
+    default R visitYearsAdd(YearsAdd yearsAdd, C context) {
+        return visitScalarFunction(yearsAdd, context);
+    }
+
+    default R visitHoursAdd(HoursAdd hoursAdd, C context) {
+        return visitScalarFunction(hoursAdd, context);
+    }
+
+    default R visitMinutesAdd(MinutesAdd minutesAdd, C context) {
+        return visitScalarFunction(minutesAdd, context);
+    }
+
+    default R visitSecondsAdd(SecondsAdd secondsAdd, C context) {
+        return visitScalarFunction(secondsAdd, context);
     }
 
     default R visitDceil(Dceil dceil, C context) {
