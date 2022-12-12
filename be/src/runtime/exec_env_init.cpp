@@ -158,7 +158,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _cgroups_mgr->init_cgroups();
     Status status = _load_path_mgr->init();
     if (!status.ok()) {
-        LOG(ERROR) << "load path mgr init failed." << status.get_error_msg();
+        LOG(ERROR) << "load path mgr init failed." << status;
         exit(-1);
     }
     _broker_mgr->init();

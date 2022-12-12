@@ -197,7 +197,8 @@ public class StoragePolicy extends Policy {
         }
 
         Resource r = checkIsS3ResourceAndExist(this.storageResource);
-        if (!((S3Resource) r).policyAddToSet(super.getPolicyName()) && !ifNotExists) {
+        if (!((S3Resource) r).addReference(super.getPolicyName(), S3Resource.ReferenceType.POLICY)
+                && !ifNotExists) {
             throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
         }
         this.md5Checksum = calcPropertiesMd5();
@@ -210,7 +211,7 @@ public class StoragePolicy extends Policy {
                     .orElseThrow(() -> new AnalysisException("storage resource doesn't exist: " + storageResource));
 
         if (resource.getType() != Resource.ResourceType.S3) {
-            throw new AnalysisException("current storage policy just support resource type S3");
+            throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN");
         }
         return resource;
     }
@@ -318,8 +319,8 @@ public class StoragePolicy extends Policy {
     // if md5Sum not eq previous value, be change its storage policy.
     private String calcPropertiesMd5() {
         List<String> calcKey = Arrays.asList(COOLDOWN_DATETIME, COOLDOWN_TTL, S3Resource.S3_MAX_CONNECTIONS,
-                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS, S3Resource.S3_ACCESS_KEY,
-                S3Resource.S3_SECRET_KEY);
+                S3Resource.S3_REQUEST_TIMEOUT_MS, S3Resource.S3_CONNECTION_TIMEOUT_MS,
+                S3Resource.S3_ACCESS_KEY, S3Resource.S3_SECRET_KEY);
         Map<String, String> copiedStoragePolicyProperties = Env.getCurrentEnv().getResourceMgr()
                 .getResource(this.storageResource).getCopiedProperties();
 

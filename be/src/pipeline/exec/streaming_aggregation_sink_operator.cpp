@@ -21,23 +21,16 @@
 
 namespace doris::pipeline {
 
-StreamingAggSinkOperator::StreamingAggSinkOperator(
-        StreamingAggSinkOperatorBuilder* operator_builder, vectorized::AggregationNode* agg_node,
-        std::shared_ptr<AggContext> agg_context)
-        : Operator(operator_builder), _agg_node(agg_node), _agg_context(std::move(agg_context)) {}
+StreamingAggSinkOperator::StreamingAggSinkOperator(OperatorBuilderBase* operator_builder,
+                                                   ExecNode* agg_node,
+                                                   std::shared_ptr<AggContext> agg_context)
+        : StreamingOperator(operator_builder, agg_node), _agg_context(std::move(agg_context)) {}
 
 Status StreamingAggSinkOperator::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::prepare(state));
+    RETURN_IF_ERROR(StreamingOperator::prepare(state));
     _queue_byte_size_counter =
             ADD_COUNTER(_runtime_profile.get(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(_runtime_profile.get(), "MaxSizeOfBlockQueue", TUnit::UNIT);
-    return Status::OK();
-}
-
-Status StreamingAggSinkOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(Operator::open(state));
-    RETURN_IF_ERROR(_agg_node->alloc_resource(state));
     return Status::OK();
 }
 
@@ -51,12 +44,12 @@ Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     Status ret = Status::OK();
     if (in_block && in_block->rows() > 0) {
-        auto bock_from_ctx = _agg_context->get_free_block();
-        RETURN_IF_ERROR(_agg_node->do_pre_agg(in_block, bock_from_ctx.get()));
-        if (bock_from_ctx->rows() == 0) {
-            _agg_context->return_free_block(std::move(bock_from_ctx));
+        auto block_from_ctx = _agg_context->get_free_block();
+        RETURN_IF_ERROR(_node->do_pre_agg(in_block, block_from_ctx.get()));
+        if (block_from_ctx->rows() == 0) {
+            _agg_context->return_free_block(std::move(block_from_ctx));
         } else {
-            _agg_context->push_block(std::move(bock_from_ctx));
+            _agg_context->push_block(std::move(block_from_ctx));
         }
     }
 
@@ -67,35 +60,23 @@ Status StreamingAggSinkOperator::sink(RuntimeState* state, vectorized::Block* in
 }
 
 Status StreamingAggSinkOperator::close(RuntimeState* state) {
-    _fresh_exec_timer(_agg_node);
     if (_agg_context && !_agg_context->is_finish()) {
         // finish should be set, if not set here means error.
         _agg_context->set_canceled();
     }
     COUNTER_SET(_queue_size_counter, _agg_context->max_size_of_queue());
     COUNTER_SET(_queue_byte_size_counter, _agg_context->max_bytes_in_queue());
-    return Status::OK();
+    return StreamingOperator::close(state);
+    ;
 }
 
-///////////////////////////////  operator template  ////////////////////////////////
-
 StreamingAggSinkOperatorBuilder::StreamingAggSinkOperatorBuilder(
-        int32_t id, const std::string& name, vectorized::AggregationNode* exec_node,
-        std::shared_ptr<AggContext> agg_context)
-        : OperatorBuilder(id, name, exec_node),
-          _agg_node(exec_node),
+        int32_t id, ExecNode* exec_node, std::shared_ptr<AggContext> agg_context)
+        : OperatorBuilder(id, "StreamingAggSinkOperator", exec_node),
           _agg_context(std::move(agg_context)) {}
 
 OperatorPtr StreamingAggSinkOperatorBuilder::build_operator() {
-    return std::make_shared<StreamingAggSinkOperator>(this, _agg_node, _agg_context);
+    return std::make_shared<StreamingAggSinkOperator>(this, _node, _agg_context);
 }
 
-// use final aggregation source operator
-bool StreamingAggSinkOperatorBuilder::is_sink() const {
-    return true;
-}
-
-bool StreamingAggSinkOperatorBuilder::is_source() const {
-    return false;
-}
 } // namespace doris::pipeline

@@ -88,7 +88,7 @@ public class UpdatePlanner extends OriginalPlanner {
         olapScanNode.init(analyzer);
         olapScanNode.finalize(analyzer);
         if (VectorizedUtil.isVectorized()) {
-            olapScanNode.convertToVectoriezd();
+            olapScanNode.convertToVectorized();
         }
         scanNodeList.add(olapScanNode);
         // 2. gen olap table sink

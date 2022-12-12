@@ -88,8 +88,8 @@ public:
     //     * schema: tablet's schema, the delete conditions and data rows are in this schema
     //     * version: maximum version
     // return:
-    //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
-    //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
+    //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
+    //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
     Status init(TabletSchemaSPtr tablet_schema,
                 const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version);
 

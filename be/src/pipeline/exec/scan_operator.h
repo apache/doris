@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <utility>
-
 #include "operator.h"
 
 namespace doris::vectorized {
@@ -29,31 +27,24 @@ class ScannerContext;
 
 namespace doris::pipeline {
 
-class ScanOperator : public Operator {
+class ScanOperatorBuilder : public OperatorBuilder<vectorized::VScanNode> {
 public:
-    ScanOperator(OperatorBuilder* operator_builder, vectorized::VScanNode* scan_node);
+    ScanOperatorBuilder(int32_t id, ExecNode* exec_node);
+    bool is_source() const override { return true; }
+    OperatorPtr build_operator() override;
+};
+
+class ScanOperator : public SourceOperator<ScanOperatorBuilder> {
+public:
+    ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
 
     bool can_read() override; // for source
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& result_state) override;
 
     bool is_pending_finish() const override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
-
-private:
-    vectorized::VScanNode* _scan_node;
-};
-
-class ScanOperatorBuilder : public OperatorBuilder {
-public:
-    ScanOperatorBuilder(int32_t id, const std::string& name, ExecNode* exec_node)
-            : OperatorBuilder(id, name, exec_node) {}
-
-    bool is_source() const override { return true; }
 };
 
 } // namespace doris::pipeline

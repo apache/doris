@@ -68,6 +68,19 @@ CONF_Double(soft_mem_limit_frac, "0.9");
 // Turn down max. will use as much memory as possible.
 CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 
+// The size of the memory that gc wants to release each time, as a percentage of the mem limit.
+CONF_mString(process_minor_gc_size, "10%");
+CONF_mString(process_full_gc_size, "20%");
+
+// If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
+// when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
+// used memory and the exec_mem_limit will be canceled.
+// If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
+CONF_mBool(enable_query_memroy_overcommit, "true");
+
+// The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
+CONF_mInt32(thread_wait_gc_max_milliseconds, "1000");
+
 // the port heartbeat service used
 CONF_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
@@ -256,6 +269,8 @@ CONF_mBool(enable_ordered_data_compaction, "false");
 CONF_mInt32(vertical_compaction_num_columns_per_group, "5");
 // In vertical compaction, max memory usage for row_source_buffer
 CONF_Int32(vertical_compaction_max_row_source_memory_mb, "200");
+// In vertical compaction, max dest segment file size
+CONF_mInt64(max_segment_size_in_vertical_compaction, "268435456");
 
 // In ordered data compaction, min segment size for input rowset
 CONF_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -269,6 +284,7 @@ CONF_mInt64(base_compaction_min_rowset_num, "5");
 CONF_mDouble(base_compaction_min_data_ratio, "0.3");
 CONF_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
+CONF_Bool(enable_skip_tablet_compaction, "true");
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 CONF_mInt64(compaction_promotion_size_mbytes, "1024");
@@ -288,7 +304,7 @@ CONF_mInt64(compaction_min_size_mbytes, "64");
 
 // cumulative compaction policy: min and max delta file's number
 CONF_mInt64(cumulative_compaction_min_deltas, "5");
-CONF_mInt64(cumulative_compaction_max_deltas, "1000");
+CONF_mInt64(cumulative_compaction_max_deltas, "100");
 
 // This config can be set to limit thread number in  segcompaction thread pool.
 CONF_mInt32(seg_compaction_max_threads, "10");
@@ -553,7 +569,7 @@ CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
 CONF_Int32(flush_thread_num_per_store, "6");
 // number of thread for flushing memtable per store, for high priority load task
-CONF_Int32(high_priority_flush_thread_num_per_store, "1");
+CONF_Int32(high_priority_flush_thread_num_per_store, "6");
 
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -778,12 +794,12 @@ CONF_mInt32(parquet_column_max_buffer_mb, "8");
 
 // OrcReader
 CONF_mInt32(orc_natural_read_size_mb, "8");
+CONF_mInt64(big_column_size_buffer, "65535");
+CONF_mInt64(small_column_size_buffer, "100");
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
-
-CONF_Bool(enable_decimalv3, "false");
 
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");

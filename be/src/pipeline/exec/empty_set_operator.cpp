@@ -21,24 +21,6 @@
 
 namespace doris::pipeline {
 
-EmptySetSourceOperator::EmptySetSourceOperator(EmptySetSourceOperatorBuilder* operator_builder,
-                                               vectorized::VEmptySetNode* empty_set_node)
-        : Operator(operator_builder), _empty_set_node(empty_set_node) {}
-
-bool EmptySetSourceOperator::can_read() {
-    return true;
-}
-
-Status EmptySetSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                                         SourceState& source_state) {
-    bool eos = false;
-    RETURN_IF_ERROR(_empty_set_node->get_next(state, block, &eos));
-    source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
-    return Status::OK();
-}
-
-EmptySetSourceOperatorBuilder::EmptySetSourceOperatorBuilder(
-        int32_t id, const string& name, vectorized::VEmptySetNode* empty_set_node)
-        : OperatorBuilder(id, name, empty_set_node), _empty_set_node(empty_set_node) {}
+OPERATOR_CODE_GENERATOR(EmptySetSourceOperator, SourceOperator)
 
 } // namespace doris::pipeline

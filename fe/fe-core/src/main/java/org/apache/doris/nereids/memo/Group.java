@@ -20,6 +20,7 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
@@ -384,6 +385,23 @@ public class Group {
                 return ImmutableList.of();
             }
         };
-        return TreeStringUtils.treeString(this, toString, getChildren);
+
+        Function<Object, List<Object>> getExtraPlans = obj -> {
+            if (obj instanceof Plan) {
+                return (List) ((Plan) obj).extraPlans();
+            } else {
+                return ImmutableList.of();
+            }
+        };
+
+        Function<Object, Boolean> displayExtraPlan = obj -> {
+            if (obj instanceof Plan) {
+                return ((Plan) obj).displayExtraPlanFirst();
+            } else {
+                return false;
+            }
+        };
+
+        return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans, displayExtraPlan);
     }
 }

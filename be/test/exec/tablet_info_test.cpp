@@ -537,7 +537,7 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
 
     OlapTablePartitionParam part(schema, t_partition_param);
     st = part.init();
-    LOG(INFO) << st.get_error_msg();
+    LOG(INFO) << st;
     EXPECT_TRUE(st.ok());
     LOG(INFO) << part.debug_string();
 

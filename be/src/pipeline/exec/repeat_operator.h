@@ -26,32 +26,17 @@ class VExprContext;
 class Block;
 } // namespace vectorized
 namespace pipeline {
-class RepeatOperatorBuilder;
-class RepeatOperator : public Operator {
+
+class RepeatOperatorBuilder final : public OperatorBuilder<vectorized::VRepeatNode> {
 public:
-    RepeatOperator(RepeatOperatorBuilder* operator_builder, vectorized::VRepeatNode* repeat_node);
-
-    Status open(RuntimeState* state) override;
-
-    Status close(RuntimeState* state) override;
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-private:
-    vectorized::VRepeatNode* _repeat_node;
-    std::unique_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
-};
-
-class RepeatOperatorBuilder : public OperatorBuilder {
-public:
-    RepeatOperatorBuilder(int32_t id, vectorized::VRepeatNode* repeat_node);
+    RepeatOperatorBuilder(int32_t id, ExecNode* repeat_node);
 
     OperatorPtr build_operator() override;
+};
 
-private:
-    vectorized::VRepeatNode* _repeat_node;
+class RepeatOperator final : public StatefulOperator<RepeatOperatorBuilder> {
+public:
+    RepeatOperator(OperatorBuilderBase* operator_builder, ExecNode* repeat_node);
 };
 
 } // namespace pipeline

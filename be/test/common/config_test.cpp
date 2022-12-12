@@ -99,36 +99,37 @@ TEST_F(ConfigTest, UpdateConfigs) {
     // not exist
     Status s = config::set_config("cfg_not_exist", "123");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Not found: 'cfg_not_exist' is not found");
+    EXPECT_EQ(s.to_string(), "[NOT_FOUND]'cfg_not_exist' is not found");
 
     // immutable
     EXPECT_TRUE(cfg_bool_immutable);
     s = config::set_config("cfg_bool_immutable", "false");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Not supported: 'cfg_bool_immutable' is not support to modify");
+    EXPECT_EQ(s.to_string(),
+              "[NOT_IMPLEMENTED_ERROR]'cfg_bool_immutable' is not support to modify");
     EXPECT_TRUE(cfg_bool_immutable);
 
     // convert error
     s = config::set_config("cfg_bool", "falseeee");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Invalid argument: convert 'falseeee' as bool failed");
+    EXPECT_EQ(s.to_string(), "[INVALID_ARGUMENT]convert 'falseeee' as bool failed");
     EXPECT_TRUE(cfg_bool);
 
     s = config::set_config("cfg_double", "");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Invalid argument: convert '' as double failed");
+    EXPECT_EQ(s.to_string(), "[INVALID_ARGUMENT]convert '' as double failed");
     EXPECT_EQ(cfg_double, 654.321);
 
     // convert error
     s = config::set_config("cfg_int32_t", "4294967296124");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Invalid argument: convert '4294967296124' as int32_t failed");
+    EXPECT_EQ(s.to_string(), "[INVALID_ARGUMENT]convert '4294967296124' as int32_t failed");
     EXPECT_EQ(cfg_int32_t, 65536124);
 
     // not support
     s = config::set_config("cfg_std_string", "test");
     EXPECT_FALSE(s.ok());
-    EXPECT_EQ(s.to_string(), "Not supported: 'cfg_std_string' is not support to modify");
+    EXPECT_EQ(s.to_string(), "[NOT_IMPLEMENTED_ERROR]'cfg_std_string' is not support to modify");
     EXPECT_EQ(cfg_std_string, "doris_config_test_string");
 }
 

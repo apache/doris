@@ -34,6 +34,7 @@
 #include "util/thread.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 using std::string;
 using strings::Substitute;
@@ -253,7 +254,7 @@ ThreadPool::~ThreadPool() {
 }
 
 Status ThreadPool::init() {
-    if (!_pool_status.is_uninitialized()) {
+    if (!_pool_status.is<UNINITIALIZED>()) {
         return Status::NotSupported("The thread pool {} is already initialized", _name);
     }
     _pool_status = Status::OK();

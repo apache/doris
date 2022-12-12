@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -32,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -44,6 +43,8 @@ import java.util.Optional;
  */
 public class BindRelation extends OneAnalysisRuleFactory {
 
+    // TODO: cte will be copied to a sub-query with different names but the id of the unbound relation in them
+    //  are the same, so we use new relation id when binding relation, and will fix this bug later.
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
@@ -63,18 +64,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }).toRule(RuleType.BINDING_RELATION);
     }
 
-    private Table getTable(String dbName, String tableName, Env env) {
-        Database db = env.getInternalCatalog().getDb(dbName)
-                .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
-        db.readLock();
-        try {
-            return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
-                    "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
-        } finally {
-            db.readUnlock();
-        }
-    }
-
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, String tableName) {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getCteContext();
@@ -89,11 +78,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         String dbName = cascadesContext.getConnectContext().getDatabase();
-        Table table = getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
+        Table table = cascadesContext.getTable(dbName, tableName, cascadesContext.getConnectContext().getEnv());
         // TODO: should generate different Scan sub class according to table's type
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
-                    (OlapTable) table, ImmutableList.of(dbName));
+            return new LogicalOlapScan(RelationUtil.newRelationId(), (OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);
@@ -108,10 +96,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (!dbName.equals(connectContext.getDatabase())) {
             dbName = connectContext.getClusterName() + ":" + dbName;
         }
-        Table table = getTable(dbName, nameParts.get(1), connectContext.getEnv());
+        Table table = cascadesContext.getTable(dbName, nameParts.get(1), connectContext.getEnv());
         if (table.getType() == TableType.OLAP) {
-            return new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
-                    (OlapTable) table, ImmutableList.of(dbName));
+            return new LogicalOlapScan(RelationUtil.newRelationId(), (OlapTable) table, ImmutableList.of(dbName));
         } else if (table.getType() == TableType.VIEW) {
             Plan viewPlan = parseAndAnalyzeView(table.getDdlSql(), cascadesContext);
             return new LogicalSubQueryAlias<>(table.getName(), viewPlan);

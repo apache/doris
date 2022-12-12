@@ -49,10 +49,11 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     olapScan.getTable(),
                     olapScan.getQualifier(),
                     olapScan.getSelectedIndexId(),
-                    olapScan.getSelectedTabletId(),
+                    olapScan.getSelectedTabletIds(),
                     olapScan.getSelectedPartitionIds(),
                     convertDistribution(olapScan),
                     olapScan.getPreAggStatus(),
+                    olapScan.getPushDownAggOperator(),
                     Optional.empty(),
                     olapScan.getLogicalProperties())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);

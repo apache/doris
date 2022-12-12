@@ -203,7 +203,6 @@ private:
     std::atomic<size_t> _next_core = 0;
 };
 
-// TODO pipeline sr
 class BlockedTaskScheduler {
 public:
     explicit BlockedTaskScheduler(std::shared_ptr<TaskQueue> task_queue)

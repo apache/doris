@@ -21,57 +21,6 @@
 
 namespace doris::pipeline {
 
-AggSinkOperator::AggSinkOperator(AggSinkOperatorBuilder* operator_builder,
-                                 vectorized::AggregationNode* agg_node)
-        : Operator(operator_builder), _agg_node(agg_node) {}
+OPERATOR_CODE_GENERATOR(AggSinkOperator, StreamingOperator)
 
-Status AggSinkOperator::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Operator::prepare(state));
-    _agg_node->increase_ref();
-    return Status::OK();
-}
-
-Status AggSinkOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    RETURN_IF_ERROR(Operator::open(state));
-    RETURN_IF_ERROR(_agg_node->alloc_resource(state));
-    return Status::OK();
-}
-
-bool AggSinkOperator::can_write() {
-    return true;
-}
-
-Status AggSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
-                             SourceState source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    return _agg_node->sink(state, in_block, source_state == SourceState::FINISHED);
-}
-
-Status AggSinkOperator::close(RuntimeState* state) {
-    _fresh_exec_timer(_agg_node);
-    if (!_agg_node->decrease_ref()) {
-        _agg_node->release_resource(state);
-    }
-    return Status::OK();
-}
-
-///////////////////////////////  operator template  ////////////////////////////////
-
-AggSinkOperatorBuilder::AggSinkOperatorBuilder(int32_t id, const std::string& name,
-                                               vectorized::AggregationNode* exec_node)
-        : OperatorBuilder(id, name, exec_node), _agg_node(exec_node) {}
-
-OperatorPtr AggSinkOperatorBuilder::build_operator() {
-    return std::make_shared<AggSinkOperator>(this, _agg_node);
-}
-
-// use final aggregation source operator
-bool AggSinkOperatorBuilder::is_sink() const {
-    return true;
-}
-
-bool AggSinkOperatorBuilder::is_source() const {
-    return false;
-}
 } // namespace doris::pipeline

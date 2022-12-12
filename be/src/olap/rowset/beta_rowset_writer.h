@@ -175,7 +175,7 @@ protected:
     std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
 
-    std::atomic<ErrorCode> _segcompaction_status;
+    std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
 };

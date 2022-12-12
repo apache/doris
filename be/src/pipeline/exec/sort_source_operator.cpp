@@ -21,34 +21,6 @@
 
 namespace doris::pipeline {
 
-SortSourceOperatorBuilder::SortSourceOperatorBuilder(int32_t id, const string& name,
-                                                     vectorized::VSortNode* sort_node)
-        : OperatorBuilder(id, name, sort_node), _sort_node(sort_node) {}
-
-SortSourceOperator::SortSourceOperator(SortSourceOperatorBuilder* operator_builder,
-                                       vectorized::VSortNode* sort_node)
-        : Operator(operator_builder), _sort_node(sort_node) {}
-
-Status SortSourceOperator::close(doris::RuntimeState* state) {
-    if (is_closed()) {
-        return Status::OK();
-    }
-    _fresh_exec_timer(_sort_node);
-    _sort_node->release_resource(state);
-    return Operator::close(state);
-}
-
-bool SortSourceOperator::can_read() {
-    return _sort_node->can_read();
-}
-
-Status SortSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                                     SourceState& source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-    bool eos = false;
-    RETURN_IF_ERROR(_sort_node->pull(state, block, &eos));
-    source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
-    return Status::OK();
-}
+OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
 } // namespace doris::pipeline

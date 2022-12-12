@@ -72,13 +72,12 @@
 #include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
-#include "vec/exec/vexcept_node.h"
 #include "vec/exec/vexchange_node.h"
-#include "vec/exec/vintersect_node.h"
 #include "vec/exec/vmysql_scan_node.h"
 #include "vec/exec/vrepeat_node.h"
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
+#include "vec/exec/vset_operation_node.h"
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vunion_node.h"
@@ -859,15 +858,6 @@ Status ExecNode::get_next_after_projects(RuntimeState* state, vectorized::Block*
         return do_projections(&_origin_block, block);
     }
     return get_next(state, block, eos);
-}
-
-Status ExecNode::execute(RuntimeState* state, vectorized::Block* input_block,
-                         vectorized::Block* output_block, bool* eos) {
-    return Status::NotSupported("{} not implements execute", get_name());
-}
-
-Status ExecNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    return Status::NotSupported("{} not implements pull", get_name());
 }
 
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

@@ -41,6 +41,18 @@ public:
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
+    Status alloc_resource(doris::RuntimeState* state) override;
+
+    void release_resource(doris::RuntimeState* state) override;
+
+    Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+
+    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
+
+    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
+
+    bool need_more_input_data() const;
+
     Status close(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
@@ -61,9 +73,89 @@ public:
                        : *_output_row_desc;
     }
 
-private:
-    Status _materialize_build_side(RuntimeState* state) override;
+    Block* get_left_block() { return &_left_block; }
 
+private:
+    template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
+    Status _generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants) {
+        MutableBlock mutable_join_block(&_join_block);
+        auto& dst_columns = mutable_join_block.mutable_columns();
+
+        while (_join_block.rows() < state->batch_size() && !_matched_rows_done) {
+            // If this left block is exhausted or empty, we need to pull data from left child.
+            if (_left_block_pos == _left_block.rows()) {
+                if (_left_side_eos) {
+                    _matched_rows_done = true;
+                } else {
+                    _left_block_pos = 0;
+                    _need_more_input_data = true;
+                    return Status::OK();
+                }
+            }
+
+            // We should try to join rows if there still are some rows from probe side.
+            if (!_matched_rows_done && _current_build_pos < _build_blocks.size()) {
+                do {
+                    const auto& now_process_build_block = _build_blocks[_current_build_pos++];
+                    if constexpr (set_build_side_flag) {
+                        _offset_stack.push(mutable_join_block.rows());
+                    }
+                    _process_left_child_block(dst_columns, now_process_build_block);
+                } while (_join_block.rows() < state->batch_size() &&
+                         _current_build_pos < _build_blocks.size());
+            }
+
+            if constexpr (set_probe_side_flag) {
+                auto status = _do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                                     set_probe_side_flag>(
+                        &_join_block, !_is_left_semi_anti);
+                _update_tuple_is_null_column(&_join_block);
+                if (!status.ok()) {
+                    return status;
+                }
+                mutable_join_block = MutableBlock(&_join_block);
+                // If this join operation is left outer join or full outer join, when
+                // `_current_build_pos == _build_blocks.size()`, means all rows from build
+                // side have been joined with the current probe row, we should output current
+                // probe row with null from build side.
+                if (_current_build_pos == _build_blocks.size()) {
+                    if (!_matched_rows_done) {
+                        _finalize_current_phase<false,
+                                                JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
+                                dst_columns, state->batch_size());
+                        _reset_with_next_probe_row();
+                    }
+                    break;
+                }
+            }
+
+            if (!_matched_rows_done && _current_build_pos == _build_blocks.size()) {
+                _reset_with_next_probe_row();
+            }
+        }
+
+        if constexpr (!set_probe_side_flag) {
+            Status status = _do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                                   set_probe_side_flag>(
+                    &_join_block, !_is_right_semi_anti);
+            _update_tuple_is_null_column(&_join_block);
+            mutable_join_block = MutableBlock(&_join_block);
+            if (!status.ok()) {
+                return status;
+            }
+        }
+
+        if constexpr (set_build_side_flag) {
+            if (_matched_rows_done && _output_null_idx_build_side < _build_blocks.size()) {
+                auto& cols = mutable_join_block.mutable_columns();
+                _finalize_current_phase<true, JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
+                        cols, state->batch_size());
+            }
+        }
+        return Status::OK();
+    }
+
+    Status _materialize_build_side(RuntimeState* state) override;
     // Processes a block from the left child.
     //  dst_columns: left_child_row and now_process_build_block to construct a bundle column of new block
     //  now_process_build_block: right child block now to process
@@ -71,17 +163,24 @@ private:
                                    const Block& now_process_build_block) const;
 
     template <bool SetBuildSideFlag, bool SetProbeSideFlag>
-    Status _do_filtering_and_update_visited_flags(Block* block, std::stack<uint16_t>& offset_stack,
-                                                  bool materialize);
+    Status _do_filtering_and_update_visited_flags(Block* block, bool materialize);
+
+    // TODO: replace it as template lambda after support C++20
+    template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
+    void _do_filtering_and_update_visited_flags_impl(Block* block, int column_to_keep,
+                                                     int build_block_idx, int processed_blocks_num,
+                                                     bool materialize, Filter& filter);
 
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(MutableColumns& dst_columns, size_t batch_size);
 
-    void _reset_with_next_probe_row(MutableColumns& dst_columns);
+    void _reset_with_next_probe_row();
 
     void _release_mem();
 
-    Status get_left_side(RuntimeState* state, Block* block);
+    Status _fresh_left_block(RuntimeState* state);
+
+    void _resize_fill_tuple_is_null_column(size_t new_size, int left_flag, int right_flag);
 
     // add tuple is null flag column to Block for filter conjunct and output expr
     void _update_tuple_is_null_column(Block* block);
@@ -120,6 +219,8 @@ private:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::vector<vectorized::VExprContext*> _filter_src_expr_ctxs;
     bool _is_output_left_side_only = false;
+    bool _need_more_input_data = true;
+    std::stack<uint16_t> _offset_stack;
     std::unique_ptr<VExprContext*> _vjoin_conjunct_ptr;
 
     friend struct RuntimeFilterBuild;

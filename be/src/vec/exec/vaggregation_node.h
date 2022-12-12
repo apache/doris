@@ -36,7 +36,7 @@ class MemPool;
 
 namespace pipeline {
 class AggSinkOperator;
-class AggregationSourceOperator;
+class AggSourceOperator;
 class StreamingAggSinkOperator;
 class StreamingAggSourceOperator;
 } // namespace pipeline
@@ -789,7 +789,7 @@ public:
 private:
     friend class pipeline::AggSinkOperator;
     friend class pipeline::StreamingAggSinkOperator;
-    friend class pipeline::AggregationSourceOperator;
+    friend class pipeline::AggSourceOperator;
     friend class pipeline::StreamingAggSourceOperator;
     // group by k1,k2
     std::vector<VExprContext*> _probe_expr_ctxs;

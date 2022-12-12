@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <utility>
-
 #include "operator.h"
 
 namespace doris {
@@ -29,39 +27,19 @@ class VSortNode;
 
 namespace pipeline {
 
-class SortSourceOperatorBuilder;
-
-class SortSourceOperator : public Operator {
+class SortSourceOperatorBuilder final : public OperatorBuilder<vectorized::VSortNode> {
 public:
-    SortSourceOperator(SortSourceOperatorBuilder* operator_builder,
-                       vectorized::VSortNode* sort_node);
-
-    Status close(RuntimeState* state) override;
-
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-
-    bool can_read() override;
-
-private:
-    vectorized::VSortNode* _sort_node;
-};
-
-class SortSourceOperatorBuilder : public OperatorBuilder {
-public:
-    SortSourceOperatorBuilder(int32_t id, const std::string& name,
-                              vectorized::VSortNode* sort_node);
-
-    bool is_sink() const override { return false; }
+    SortSourceOperatorBuilder(int32_t id, ExecNode* sort_node);
 
     bool is_source() const override { return true; }
 
-    OperatorPtr build_operator() override {
-        return std::make_shared<SortSourceOperator>(this, _sort_node);
-    }
+    OperatorPtr build_operator() override;
+};
 
-private:
-    vectorized::VSortNode* _sort_node;
+class SortSourceOperator final : public SourceOperator<SortSourceOperatorBuilder> {
+public:
+    SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
+    Status open(RuntimeState*) override { return Status::OK(); }
 };
 
 } // namespace pipeline

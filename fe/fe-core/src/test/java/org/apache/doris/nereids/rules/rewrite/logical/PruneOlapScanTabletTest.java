@@ -152,13 +152,13 @@ public class PruneOlapScanTabletTest {
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(expr,
                 new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable));
 
-        Assertions.assertEquals(0, filter.child().getSelectedTabletId().size());
+        Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());
 
         CascadesContext context = MemoTestUtils.createCascadesContext(filter);
         context.topDownRewrite(ImmutableList.of(new PruneOlapScanTablet().build()));
 
         LogicalFilter<LogicalOlapScan> filter1 = ((LogicalFilter<LogicalOlapScan>) context.getMemo().copyOut());
         LogicalOlapScan olapScan = filter1.child();
-        Assertions.assertEquals(19, olapScan.getSelectedTabletId().size());
+        Assertions.assertEquals(19, olapScan.getSelectedTabletIds().size());
     }
 }

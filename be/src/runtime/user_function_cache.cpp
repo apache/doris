@@ -436,7 +436,7 @@ Status UserFunctionCache::check_jar(int64_t fid, const std::string& url,
         return Status::InternalError(
                 "Java UDAF has error, maybe you should check the path about java impl jar, because "
                 "{}",
-                st.get_error_msg());
+                st.to_string());
     }
     return Status::OK();
 }

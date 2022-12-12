@@ -25,31 +25,20 @@ class VExchangeNode;
 
 namespace doris::pipeline {
 
-class ExchangeSourceOperator : public Operator {
+class ExchangeSourceOperatorBuilder final : public OperatorBuilder<vectorized::VExchangeNode> {
 public:
-    explicit ExchangeSourceOperator(OperatorBuilder*, vectorized::VExchangeNode*);
-    Status open(RuntimeState* state) override;
-    bool can_read() override;
-    Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
-    bool is_pending_finish() const override;
-    Status close(RuntimeState* state) override;
-
-private:
-    vectorized::VExchangeNode* _exchange_node;
-};
-
-class ExchangeSourceOperatorBuilder : public OperatorBuilder {
-public:
-    ExchangeSourceOperatorBuilder(int32_t id, const std::string& name, ExecNode* exec_node)
-            : OperatorBuilder(id, name, exec_node) {}
+    ExchangeSourceOperatorBuilder(int32_t id, ExecNode* exec_node);
 
     bool is_source() const override { return true; }
 
-    OperatorPtr build_operator() override {
-        return std::make_shared<ExchangeSourceOperator>(
-                this, reinterpret_cast<vectorized::VExchangeNode*>(_related_exec_node));
-    }
+    OperatorPtr build_operator() override;
+};
+
+class ExchangeSourceOperator final : public SourceOperator<ExchangeSourceOperatorBuilder> {
+public:
+    ExchangeSourceOperator(OperatorBuilderBase*, ExecNode*);
+    bool can_read() override;
+    bool is_pending_finish() const override;
 };
 
 } // namespace doris::pipeline

@@ -21,15 +21,9 @@
 
 namespace doris {
 namespace pipeline {
-StreamingAggSourceOperator::StreamingAggSourceOperator(OperatorBuilder* templ,
-                                                       vectorized::AggregationNode* node,
+StreamingAggSourceOperator::StreamingAggSourceOperator(OperatorBuilderBase* templ, ExecNode* node,
                                                        std::shared_ptr<AggContext> agg_context)
-        : Operator(templ), _agg_node(node), _agg_context(std::move(agg_context)) {}
-
-Status StreamingAggSourceOperator::prepare(RuntimeState* state) {
-    _agg_node->increase_ref();
-    return Status::OK();
-}
+        : SourceOperator(templ, node), _agg_context(std::move(agg_context)) {}
 
 bool StreamingAggSourceOperator::can_read() {
     return _agg_context->has_data_or_finished();
@@ -44,14 +38,14 @@ Status StreamingAggSourceOperator::get_block(RuntimeState* state, vectorized::Bl
         RETURN_IF_ERROR(_agg_context->get_block(&agg_block));
 
         if (_agg_context->data_exhausted()) {
-            RETURN_IF_ERROR(_agg_node->pull(state, block, &eos));
+            RETURN_IF_ERROR(_node->pull(state, block, &eos));
         } else {
             block->swap(*agg_block);
-            agg_block->clear_column_data(_agg_node->row_desc().num_materialized_slots());
+            agg_block->clear_column_data(_node->row_desc().num_materialized_slots());
             _agg_context->return_free_block(std::move(agg_block));
         }
     } else {
-        RETURN_IF_ERROR(_agg_node->pull(state, block, &eos));
+        RETURN_IF_ERROR(_node->pull(state, block, &eos));
     }
 
     source_state = eos ? SourceState::FINISHED : SourceState::DEPEND_ON_SOURCE;
@@ -59,27 +53,13 @@ Status StreamingAggSourceOperator::get_block(RuntimeState* state, vectorized::Bl
     return Status::OK();
 }
 
-Status StreamingAggSourceOperator::close(RuntimeState* state) {
-    if (is_closed()) {
-        return Status::OK();
-    }
-    _fresh_exec_timer(_agg_node);
-    if (!_agg_node->decrease_ref()) {
-        _agg_node->release_resource(state);
-    }
-    return Operator::close(state);
-}
-
-///////////////////////////////  operator template  ////////////////////////////////
-
 StreamingAggSourceOperatorBuilder::StreamingAggSourceOperatorBuilder(
-        int32_t id, const std::string& name, vectorized::AggregationNode* exec_node,
-        std::shared_ptr<AggContext> agg_context)
-        : OperatorBuilder(id, name, exec_node), _agg_context(std::move(agg_context)) {}
+        int32_t id, ExecNode* exec_node, std::shared_ptr<AggContext> agg_context)
+        : OperatorBuilder(id, "StreamingAggSourceOperator", exec_node),
+          _agg_context(std::move(agg_context)) {}
 
 OperatorPtr StreamingAggSourceOperatorBuilder::build_operator() {
-    return std::make_shared<StreamingAggSourceOperator>(
-            this, assert_cast<vectorized::AggregationNode*>(_related_exec_node), _agg_context);
+    return std::make_shared<StreamingAggSourceOperator>(this, _node, _agg_context);
 }
 
 } // namespace pipeline

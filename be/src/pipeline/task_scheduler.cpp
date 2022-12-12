@@ -52,7 +52,6 @@ void BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
 }
 
 void BlockedTaskScheduler::_schedule() {
-    LOG(INFO) << "BlockedTaskScheduler schedule thread start";
     _started.store(true);
     std::list<PipelineTask*> local_blocked_tasks;
     int empty_times = 0;
@@ -186,7 +185,6 @@ Status TaskScheduler::start() {
             .build(&_fix_thread_pool);
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
-        LOG(INFO) << "Start TaskScheduler thread " << i;
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
         RETURN_IF_ERROR(
                 _fix_thread_pool->submit_func(std::bind(&TaskScheduler::_do_work, this, i)));
@@ -205,7 +203,6 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 }
 
 void TaskScheduler::_do_work(size_t index) {
-    LOG(INFO) << "Start TaskScheduler worker " << index;
     auto queue = _task_queue;
     const auto& marker = _markers[index];
     while (*marker) {
@@ -213,7 +210,7 @@ void TaskScheduler::_do_work(size_t index) {
         if (!task) {
             task = queue->steal_take(index);
             if (!task) {
-                // TODO: The take is a stock method, rethink the logic
+                // TODO: The take is a blocking method, rethink the logic
                 task = queue->take(index);
                 if (!task) {
                     continue;

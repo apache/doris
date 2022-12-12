@@ -122,8 +122,7 @@ Status SchemaBackendsScanner::_fetch_backends_info() {
 
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "fetch schema table data from master failed, errmsg="
-                     << status.get_error_msg();
+        LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
         return status;
     }
     _batch_data = std::move(result.data_batch);

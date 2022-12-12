@@ -147,7 +147,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         physicalPlan.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         rootFragment.setOutputExprs(outputExprs);
-        rootFragment.getPlanRoot().convertToVectoriezd();
+        rootFragment.getPlanRoot().convertToVectorized();
         for (PlanFragment fragment : context.getPlanFragments()) {
             fragment.finalize(null);
         }
@@ -378,6 +378,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
         olapScanNode.setSampleTabletIds(olapScan.getSelectedTabletIds());
+        olapScanNode.setPushDownAggNoGrouping(olapScan.getPushDownAggOperator().toThrift());
 
         switch (olapScan.getTable().getKeysType()) {
             case AGG_KEYS:
@@ -1098,18 +1099,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, List<OrderKey> orderKeyList,
             PlanTranslatorContext context, Table table) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
-        tupleDescriptor.setTable(table);
         Set<ExprId> alreadyExists = Sets.newHashSet();
+        tupleDescriptor.setTable(table);
         for (OrderKey orderKey : orderKeyList) {
+            SlotReference slotReference;
             if (orderKey.getExpr() instanceof SlotReference) {
-                SlotReference slotReference = (SlotReference) orderKey.getExpr();
-                // TODO: trick here, we need semanticEquals to remove redundant expression
-                if (alreadyExists.contains(slotReference.getExprId())) {
-                    continue;
-                }
-                context.createSlotDesc(tupleDescriptor, (SlotReference) orderKey.getExpr());
-                alreadyExists.add(slotReference.getExprId());
+                slotReference = (SlotReference) orderKey.getExpr();
+            } else {
+                slotReference = (SlotReference) new Alias(orderKey.getExpr(), orderKey.getExpr().toString()).toSlot();
             }
+            // TODO: trick here, we need semanticEquals to remove redundant expression
+            if (alreadyExists.contains(slotReference.getExprId())) {
+                continue;
+            }
+            context.createSlotDesc(tupleDescriptor, slotReference);
+            alreadyExists.add(slotReference.getExprId());
         }
         for (Slot slot : slotList) {
             if (alreadyExists.contains(slot.getExprId())) {

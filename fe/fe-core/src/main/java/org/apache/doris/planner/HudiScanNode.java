@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -311,7 +312,7 @@ public class HudiScanNode extends BrokerScanNode {
         // set hdfs params for hdfs file type.
         switch (brokerDesc.getFileType()) {
             case FILE_HDFS:
-                THdfsParams tHdfsParams = BrokerUtil.generateHdfsParam(brokerDesc.getProperties());
+                THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(brokerDesc.getProperties());
                 rangeDesc.setHdfsParams(tHdfsParams);
                 break;
             default:

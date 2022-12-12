@@ -83,27 +83,13 @@ JDK1.8+, IntelliJ IDEA
 
     ```
 
-    如果是mac m1版，则执行：
-
-    ```
-    cd fe && mvn clean install -DskipTests -Dos.arch=x86_64
-
-    ```
-
 或者通过图形界面运行 maven 命令生成
 
 ![](/images/gen_code.png)
 
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
-5. 如果是 mac m1 版，可能会找不到 python，则创建一个 python3 到 python 的软链：
-
-    ```
-    ln -s /usr/bin/python3 /usr/bin/python
-    ```
-
-
-6. 如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
+5. 如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
    然后将build中的help-resource.zip拷贝到fe/fe-core/target/classes中
 
 ## 2.调试
