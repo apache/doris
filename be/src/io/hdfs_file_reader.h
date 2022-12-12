@@ -88,21 +88,21 @@ public:
         return &s_instance;
     }
 
+    HdfsFsCache(const HdfsFsCache&) = delete;
+    const HdfsFsCache& operator=(const HdfsFsCache&) = delete;
+
     // This function is thread-safe
     Status get_connection(THdfsParams& hdfs_params, HdfsFsHandle** fs_handle);
 
 private:
-    std::mutex _lock;
-    std::unordered_map<uint64, std::unique_ptr<HdfsFsHandle>> _cache;
-
     HdfsFsCache() = default;
-    HdfsFsCache(const HdfsFsCache&) = delete;
-    const HdfsFsCache& operator=(const HdfsFsCache&) = delete;
-
     uint64 _hdfs_hash_code(THdfsParams& hdfs_params);
     Status _create_fs(THdfsParams& hdfs_params, hdfsFS* fs);
     void _clean_invalid();
     void _clean_oldest();
+
+    std::mutex _lock;
+    std::unordered_map<uint64, std::unique_ptr<HdfsFsHandle>> _cache;
 };
 
 class HdfsFileReader : public FileReader {
@@ -110,31 +110,29 @@ public:
     HdfsFileReader(const THdfsParams& hdfs_params, const std::string& path, int64_t start_offset);
     HdfsFileReader(const std::map<std::string, std::string>& properties, const std::string& path,
                    int64_t start_offset);
-    virtual ~HdfsFileReader();
+    ~HdfsFileReader() override;
 
-    virtual Status open() override;
+    Status open() override;
 
     // Read content to 'buf', 'buf_len' is the max size of this buffer.
     // Return ok when read success, and 'buf_len' is set to size of read content
     // If reach to end of file, the eof is set to true. meanwhile 'buf_len'
     // is set to zero.
-    virtual Status read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) override;
-    virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read,
-                          void* out) override;
-    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) override;
-    virtual int64_t size() override;
-    virtual Status seek(int64_t position) override;
-    virtual Status tell(int64_t* position) override;
-    virtual void close() override;
-    virtual bool closed() override;
+    Status read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) override;
+    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
+    Status read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) override;
+    int64_t size() override;
+    Status seek(int64_t position) override;
+    Status tell(int64_t* position) override;
+    void close() override;
+    bool closed() override;
 
 private:
     void _parse_properties(const std::map<std::string, std::string>& prop);
 
-private:
     THdfsParams _hdfs_params;
-    std::string _namenode = "";
-    std::string _path = "";
+    std::string _namenode;
+    std::string _path;
     int64_t _current_offset;
     int64_t _file_size;
     hdfsFS _hdfs_fs;

@@ -198,8 +198,8 @@ string DiskIoMgr::RequestContext::debug_string() const {
     if (_state == RequestContext::Cancelled) ss << "Cancelled";
     if (_state == RequestContext::Active) ss << "Active";
     if (_state != RequestContext::Inactive) {
-        ss << " _status=" << (_status.ok() ? "OK" : _status.get_error_msg())
-           << " #ready_buffers=" << _num_ready_buffers << " #used_buffers=" << _num_used_buffers
+        ss << " _status=" << _status << " #ready_buffers=" << _num_ready_buffers
+           << " #used_buffers=" << _num_used_buffers
            << " #num_buffers_in_reader=" << _num_buffers_in_reader
            << " #finished_scan_ranges=" << _num_finished_ranges
            << " #disk_with_ranges=" << _num_disks_with_ranges

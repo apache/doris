@@ -120,10 +120,15 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        FeConstants.disableInternalSchemaDb = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        beforeCluster();
         createDorisCluster();
         runBeforeAll();
+    }
+
+    protected void beforeCluster() {
     }
 
     @AfterAll

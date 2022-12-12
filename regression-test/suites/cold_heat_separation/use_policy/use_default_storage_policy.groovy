@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
-// and modified by Doris.
-
 suite("use_default_storage_policy") {
+    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
+
     def storage_exist = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;
@@ -49,12 +47,12 @@ suite("use_default_storage_policy") {
             CREATE RESOURCE "default_s3_resource"
             PROPERTIES(
                 "type"="s3",
-                "s3_region" = "bj",
-                "s3_endpoint" = "http://bj.s3.comaaaa",
-                "s3_root_path" = "path/to/rootaaaa",
-                "s3_secret_key" = "aaaa",
-                "s3_access_key" = "bbba",
-                "s3_bucket" = "test-bucket"
+                "AWS_REGION" = "bj",
+                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ROOT_PATH" = "path/to/rootaaaa",
+                "AWS_SECRET_KEY" = "aaaa",
+                "AWS_ACCESS_KEY" = "bbba",
+                "AWS_BUCKET" = "test-bucket"
             );
         """
         def create_succ_1 = try_sql """
@@ -79,9 +77,9 @@ suite("use_default_storage_policy") {
     assertEquals(create_table_use_default_policy_has_set_default_policy_result.size(), 1)
 
     // you can change default_storage_policy's policy property, such as ak、sk,
-    // so table create_table_not_have_policy will use s3_access_key = "has_been_changed"
+    // so table create_table_not_have_policy will use AWS_ACCESS_KEY = "has_been_changed"
     def modify_storage_policy_property_result_1 = try_sql """
-        ALTER RESOURCE "default_s3_resource" PROPERTIES("s3_access_key" = "has_been_changed");
+        ALTER RESOURCE "default_s3_resource" PROPERTIES("AWS_ACCESS_KEY" = "has_been_changed");
     """
 
     sql """

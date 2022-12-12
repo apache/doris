@@ -36,6 +36,8 @@ public:
 
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
+    size_t data_size() const override;
+
     static constexpr size_t TOPN_SORT_THRESHOLD = 256;
 
 private:

@@ -23,6 +23,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/tuple.h"
 #include "util/doris_metrics.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -30,6 +31,7 @@
 #include "vec/core/field.h"
 
 namespace doris {
+using namespace ErrorCode;
 
 MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
@@ -53,8 +55,14 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _delete_bitmap(delete_bitmap),
           _rowset_ids(rowset_ids),
           _cur_max_version(cur_max_version) {
+#ifndef BE_TEST
+    _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
+            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())), nullptr,
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+#else
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())));
+#endif
     _buffer_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
     _table_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
     if (support_vec) {
@@ -452,7 +460,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     if (_skip_list) {
         Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);
-        if (st.precise_code() == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
+        if (st.is<NOT_IMPLEMENTED_ERROR>()) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
             Table::Iterator it(_skip_list.get());

@@ -22,6 +22,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
 #include "jni.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_nullable.h"
@@ -34,6 +35,7 @@ const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_WRITE_SIGNATURE = "(Ljava/lang/String;)I";
 const char* JDBC_EXECUTOR_HAS_NEXT_SIGNATURE = "()Z";
 const char* JDBC_EXECUTOR_GET_BLOCK_SIGNATURE = "(I)Ljava/util/List;";
+const char* JDBC_EXECUTOR_GET_TYPES_SIGNATURE = "()Ljava/util/List;";
 const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;)J";
 const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;)J";
@@ -113,15 +115,25 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         std::string local_location;
         std::hash<std::string> hash_str;
         auto function_cache = UserFunctionCache::instance();
-        RETURN_IF_ERROR(function_cache->get_jarpath(
-                std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
-                _conn_param.driver_checksum, &local_location));
+        if (_conn_param.resource_name.empty()) {
+            // for jdbcExternalTable, _conn_param.resource_name == ""
+            // so, we use _conn_param.driver_path as key of jarpath
+            RETURN_IF_ERROR(function_cache->get_jarpath(
+                    std::abs((int64_t)hash_str(_conn_param.driver_path)), _conn_param.driver_path,
+                    _conn_param.driver_checksum, &local_location));
+        } else {
+            RETURN_IF_ERROR(function_cache->get_jarpath(
+                    std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
+                    _conn_param.driver_checksum, &local_location));
+        }
+
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
         ctor_params.__set_jdbc_url(_conn_param.jdbc_url);
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
+        ctor_params.__set_driver_path(local_location);
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
 
@@ -161,6 +173,125 @@ Status JdbcConnector::query() {
 
     if (colunm_count != materialize_num) {
         return Status::InternalError("input and output column num not equal of jdbc query.");
+    }
+    LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
+    RETURN_IF_ERROR(_check_column_type());
+    return Status::OK();
+}
+
+Status JdbcConnector::_check_column_type() {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    jobject type_lists =
+            env->CallNonvirtualObjectMethod(_executor_obj, _executor_clazz, _executor_get_types_id);
+    auto column_size = _tuple_desc->slots().size();
+    for (int column_index = 0, materialized_column_index = 0; column_index < column_size;
+         ++column_index) {
+        auto slot_desc = _tuple_desc->slots()[column_index];
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        jobject column_type =
+                env->CallObjectMethod(type_lists, _executor_get_list_id, materialized_column_index);
+
+        const std::string& type_str = _jobject_to_string(env, column_type);
+        RETURN_IF_ERROR(_check_type(slot_desc, type_str));
+        env->DeleteLocalRef(column_type);
+        materialized_column_index++;
+    }
+    env->DeleteLocalRef(type_lists);
+    return JniUtil::GetJniExceptionMsg(env);
+}
+/* type mapping: https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/jdbc-of-doris?_highlight=jdbc
+
+Doris            MYSQL                      PostgreSQL                  Oracle                      SQLServer
+
+BOOLEAN      java.lang.Boolean          java.lang.Boolean                                       java.lang.Boolean
+TINYINT      java.lang.Integer                                                                  java.lang.Short    
+SMALLINT     java.lang.Integer          java.lang.Integer           java.math.BigDecimal        java.lang.Short    
+INT          java.lang.Integer          java.lang.Integer           java.math.BigDecimal        java.lang.Integer
+BIGINT       java.lang.Long             java.lang.Long                                          java.lang.Long
+LARGET       java.math.BigInteger
+DECIMAL      java.math.BigDecimal       java.math.BigDecimal        java.math.BigDecimal        java.math.BigDecimal
+VARCHAR      java.lang.String           java.lang.String            java.lang.String            java.lang.String
+DOUBLE       java.lang.Double           java.lang.Double            java.lang.Double            java.lang.Double
+FLOAT        java.lang.Float            java.lang.Float                                         java.lang.Float
+DATE         java.sql.Date              java.sql.Date                                           java.sql.Date
+DATETIME     java.sql.Timestamp         java.sql.Timestamp          java.sql.Timestamp          java.sql.Timestamp
+
+NOTE: because oracle always use number(p,s) to create all numerical type, so it's java type maybe java.math.BigDecimal
+*/
+
+Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& type_str) {
+    const std::string error_msg = fmt::format(
+            "Fail to convert jdbc type of {} to doris type {} on column: {}. You need to "
+            "check this column type between external table and doris table.",
+            type_str, slot_desc->type().debug_string(), slot_desc->col_name());
+    switch (slot_desc->type().type) {
+    case TYPE_BOOLEAN: {
+        if (type_str != "java.lang.Boolean" && type_str != "java.math.BigDecimal") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT: {
+        if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
+            type_str != "java.math.BigDecimal") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_BIGINT:
+    case TYPE_LARGEINT: {
+        if (type_str != "java.lang.Long" && type_str != "java.math.BigDecimal" &&
+            type_str != "java.math.BigInteger") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_FLOAT: {
+        if (type_str != "java.lang.Float" && type_str != "java.math.BigDecimal") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_DOUBLE: {
+        if (type_str != "java.lang.Double" && type_str != "java.math.BigDecimal") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        //now here break directly
+        break;
+    }
+    case TYPE_DATE:
+    case TYPE_DATEV2:
+    case TYPE_TIMEV2:
+    case TYPE_DATETIME:
+    case TYPE_DATETIMEV2: {
+        if (type_str != "java.sql.Timestamp" && type_str != "java.time.LocalDateTime" &&
+            type_str != "java.sql.Date") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I: {
+        if (type_str != "java.math.BigDecimal") {
+            return Status::InternalError(error_msg);
+        }
+        break;
+    }
+    default: {
+        return Status::InternalError(error_msg);
+    }
     }
     return Status::OK();
 }
@@ -216,8 +347,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
         Status s = JniUtil::GetJniExceptionMsg(env);
         if (!s.ok()) {
             return Status::InternalError(strings::Substitute(
-                    "Jdbc connector _register_func_id meet error and error is $0",
-                    s.get_error_msg()));
+                    "Jdbc connector _register_func_id meet error and error is $0", s.to_string()));
         }
         return s;
     };
@@ -252,6 +382,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 _executor_finish_trans_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "rollbackTrans",
                                 JDBC_EXECUTOR_TRANSACTION_SIGNATURE, _executor_abort_trans_id));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "getResultColumnTypeNames",
+                                JDBC_EXECUTOR_GET_TYPES_SIGNATURE, _executor_get_types_id));
     return Status::OK();
 }
 
@@ -304,12 +436,20 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
         break;
     }
+    case TYPE_LARGEINT: {
+        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+        std::string data = _jobject_to_string(env, jobj);
+        __int128 num =
+                StringParser::string_to_int<__int128>(data.data(), data.size(), &parse_result);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(num);
+        break;
+    }
     case TYPE_DECIMALV2: {
         std::string data = _jobject_to_string(env, jobj);
         DecimalV2Value decimal_slot;
         decimal_slot.parse_from_str(data.c_str(), data.length());
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
-                decimal_slot.value());
+        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+                const_cast<const char*>(reinterpret_cast<char*>(&decimal_slot)), 0);
         break;
     }
     case TYPE_DECIMAL32: {
@@ -335,7 +475,7 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     case TYPE_DECIMAL128I: {
         std::string data = _jobject_to_string(env, jobj);
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        const Int128I decimal_slot = StringParser::string_to_decimal<Int128I>(
+        const Int128 decimal_slot = StringParser::string_to_decimal<Int128>(
                 data.c_str(), data.length(), slot_desc->type().precision, slot_desc->type().scale,
                 &result);
         reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(

@@ -306,6 +306,41 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 >
 > [https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 
+**访问 Kerberos 认证的 Kafka 集群**
+
+<version since="1.2">
+
+访问开启kerberos认证的Kafka集群，需要增加以下配置：
+
+   - security.protocol=SASL_PLAINTEXT : 使用 SASL plaintext
+   - sasl.kerberos.service.name=$SERVICENAME : 设置 broker servicename
+   - sasl.kerberos.keytab=/etc/security/keytabs/${CLIENT_NAME}.keytab : 设置 keytab 本地文件路径
+   - sasl.kerberos.principal=${CLIENT_NAME}/${CLIENT_HOST} : 设置 Doris 连接 Kafka 时使用的 Kerberos 主体
+
+1. 创建例行导入作业
+
+   ```sql
+   CREATE ROUTINE LOAD db1.job1 on tbl1
+   PROPERTIES (
+   "desired_concurrent_number"="1",
+    )
+   FROM KAFKA
+   (
+       "kafka_broker_list" = "broker1:9092,broker2:9092",
+       "kafka_topic" = "my_topic",
+       "property.security.protocol" = "SASL_PLAINTEXT",
+       "property.sasl.kerberos.service.name" = "kafka",
+       "property.sasl.kerberos.keytab" = "/etc/krb5.keytab",
+       "property.sasl.kerberos.principal" = "doris@YOUR.COM"
+   );
+   ```
+
+**注意：**
+- 若要使 Doris 访问开启kerberos认证方式的Kafka集群，需要在 Doris 集群所有运行节点上部署 Kerberos 客户端 kinit，并配置 krb5.conf，填写KDC 服务信息等。
+- 配置 property.sasl.kerberos.keytab 的值需要指定 keytab 本地文件的绝对路径，并允许 Doris 进程访问该本地文件。
+
+</version>
+
 ### 查看作业状态
 
 查看**作业**状态的具体命令和示例可以通过 `HELP SHOW ROUTINE LOAD;` 命令查看。

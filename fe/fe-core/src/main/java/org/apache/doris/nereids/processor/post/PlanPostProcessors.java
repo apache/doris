@@ -46,7 +46,7 @@ public class PlanPostProcessors {
     public PhysicalPlan process(PhysicalPlan physicalPlan) {
         PhysicalPlan resultPlan = physicalPlan;
         for (PlanPostProcessor processor : getProcessors()) {
-            resultPlan = (PhysicalPlan) physicalPlan.accept(processor, cascadesContext);
+            resultPlan = (PhysicalPlan) resultPlan.accept(processor, cascadesContext);
         }
         return resultPlan;
     }

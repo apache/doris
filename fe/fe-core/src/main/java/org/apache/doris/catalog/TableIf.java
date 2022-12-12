@@ -20,9 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.statistics.AnalysisJob;
-import org.apache.doris.statistics.AnalysisJobInfo;
-import org.apache.doris.statistics.AnalysisJobScheduler;
+import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisTaskScheduler;
+import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import java.util.Collections;
@@ -111,14 +111,14 @@ public interface TableIf {
 
     TTableDescriptor toThrift();
 
-    AnalysisJob createAnalysisJob(AnalysisJobScheduler scheduler, AnalysisJobInfo info);
+    BaseAnalysisTask createAnalysisTask(AnalysisTaskScheduler scheduler, AnalysisTaskInfo info);
 
     /**
      * Doris table type.
      */
     enum TableType {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI, JDBC,
-        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW;
+        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -143,6 +143,7 @@ public interface TableIf {
                 case HUDI:
                     return "Hudi";
                 case JDBC:
+                case JDBC_EXTERNAL_TABLE:
                     return "jdbc";
                 case TABLE_VALUED_FUNCTION:
                     return "Table_Valued_Function";
@@ -163,6 +164,7 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
+                case MATERIALIZED_VIEW:
                     return "VIEW";
                 case MYSQL:
                 case ODBC:
@@ -171,6 +173,7 @@ public interface TableIf {
                 case HIVE:
                 case HUDI:
                 case JDBC:
+                case JDBC_EXTERNAL_TABLE:
                 case TABLE_VALUED_FUNCTION:
                 case HMS_EXTERNAL_TABLE:
                 case ES_EXTERNAL_TABLE:

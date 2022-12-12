@@ -41,7 +41,8 @@ import java.util.Optional;
  * Physical aggregation plan.
  * TODO: change class name to PhysicalHashAggregate
  */
-public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Aggregate {
+public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE>
+        implements Aggregate<CHILD_TYPE> {
 
     private final ImmutableList<Expression> groupByExpressions;
 
@@ -208,5 +209,12 @@ public class PhysicalAggregate<CHILD_TYPE extends Plan> extends PhysicalUnary<CH
         return new PhysicalAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggPhase, usingStream, isFinalPhase,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statsDeriveResult, child());
+    }
+
+    @Override
+    public PhysicalAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
+        return new PhysicalAggregate<>(groupByExpressions, newOutput, partitionExpressions,
+                aggPhase, usingStream, isFinalPhase, Optional.empty(), getLogicalProperties(),
+                physicalProperties, statsDeriveResult, child());
     }
 }

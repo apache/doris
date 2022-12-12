@@ -34,11 +34,10 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
+          _batch_size(batch_size),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz) {
-    // ColumnSelectVector use uint16_t to save row index
-    _batch_size = std::min(batch_size, (size_t)USHRT_MAX);
     _init_profile();
 }
 
@@ -546,16 +545,18 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group) {
     if (!_has_page_index(row_group.columns, page_index)) {
         return Status::OK();
     }
-//    int64_t buffer_size = page_index._column_index_size;
+    //    int64_t buffer_size = page_index._column_index_size;
     uint8_t col_index_buff[page_index._column_index_size];
     int64_t bytes_read = 0;
-    RETURN_IF_ERROR(
-            _file_reader->readat(page_index._column_index_start, page_index._column_index_size, &bytes_read, col_index_buff));
+    RETURN_IF_ERROR(_file_reader->readat(page_index._column_index_start,
+                                         page_index._column_index_size, &bytes_read,
+                                         col_index_buff));
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
     uint8_t off_index_buff[page_index._offset_index_size];
-    RETURN_IF_ERROR(
-            _file_reader->readat(page_index._offset_index_start, page_index._offset_index_size, &bytes_read, off_index_buff));
+    RETURN_IF_ERROR(_file_reader->readat(page_index._offset_index_start,
+                                         page_index._offset_index_size, &bytes_read,
+                                         off_index_buff));
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
         if (_colname_to_value_range->end() == conjunct_iter) {

@@ -41,12 +41,15 @@ public:
     // get json string
     const std::string to_json_string(const char* data, size_t size) {
         doris::JsonbValue* pval = doris::JsonbDocument::createDocument(data, size)->getValue();
+        return to_json_string(pval);
+    }
 
+    const std::string to_json_string(const JsonbValue* val) {
         os_.clear();
         os_.seekp(0);
 
-        if (pval) {
-            intern_json(pval);
+        if (val) {
+            intern_json(val);
         }
 
         os_.put(0);

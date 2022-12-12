@@ -171,7 +171,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
         queryStr = "select db1.decimal(k3, 4, 1) from db1.tbl1;";
-        if (Config.enable_decimalv3 && Config.enable_decimal_conversion) {
+        if (Config.enable_decimal_conversion) {
             Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMALV3(4,1))"));
         } else {
             Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4,1))"));

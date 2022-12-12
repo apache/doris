@@ -19,6 +19,8 @@ name: BE UT (Clang)
 
 on:
   pull_request:
+  schedule:
+    - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
 
 concurrency:
   group: ${{ github.ref }} (BE UT Clang)
@@ -35,13 +37,8 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Ccache ${{ github.ref }}
-        uses: ./.github/actions/ccache-action
-        with:
-          key: ${{ github.ref }} (BE UT Clang)
-          max-size: "1G"
-
-      - name: Paths filter
+      - name: Paths Filter
+        if: ${{ github.event_name != 'schedule' }}
         uses: ./.github/actions/paths-filter
         id: filter
         with:
@@ -51,22 +48,23 @@ jobs:
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
 
+      - name: Ccache ${{ github.ref }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: BE-UT-Clang
+          max-size: "2G"
+          restore-keys: BE-UT-Clang-
+
       - name: Run UT ${{ github.ref }}
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
         run: |
           export DEFAULT_DIR='/opt/doris'
-          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:${DEFAULT_DIR}/thirdparty/installed/bin/:${PATH}"
-          export DORIS_THIRDPARTY="${DEFAULT_DIR}/thirdparty"
 
           mkdir "${DEFAULT_DIR}"
-
-          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.12/ldb_toolchain_gen.sh \
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.14.2/ldb_toolchain_gen.sh \
             -q -O /tmp/ldb_toolchain_gen.sh
           bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
-
-          mkdir -p "${DORIS_THIRDPARTY}/installed"
-          docker run --rm --mount=type=bind,source="${DORIS_THIRDPARTY}/installed",target=/installed \
-            apache/doris:build-env-ldb-toolchain-latest bash -c 'mv /var/local/thirdparty/installed/* /installed'
 
           sudo apt update
           sudo apt upgrade --yes
@@ -76,8 +74,11 @@ jobs:
           sudo ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
           sudo dpkg-reconfigure --frontend noninteractive tzdata
 
-          DORIS_TOOLCHAIN=clang ./run-be-ut.sh -j "$(nproc)" --run --clean
+          pushd thirdparty
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+            -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          popd
 
-      - name: Skip UT ${{ github.ref }}
-        if: ${{ steps.filter.outputs.be_changes == 'false' }}
-        run: echo 'No need to run.'
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+          DORIS_TOOLCHAIN=clang ./run-be-ut.sh -j "$(nproc)" --run --clean

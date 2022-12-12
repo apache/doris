@@ -15,6 +15,10 @@
     "message": "安装部署",
     "description": "The label for category Install And Deploy in sidebar docs"
   },
+  "sidebar.docs.category.Construct Docker": {
+    "message": "构建 Docker 集群",
+    "description": "Make docker image and quickly start Doris's Docker cluster"
+  },
   "sidebar.docs.category.Compile": {
     "message": "源码编译",
     "description": "The label for category Compile in sidebar docs"
@@ -155,6 +159,10 @@
     "message": "Hash 函数",
     "description": "The label for category Hash Functions in sidebar docs"
   },
+  "sidebar.docs.category.HLL Functions": {
+    "message": "HLL 函数",
+    "description": "The label for category HLL Functions in sidebar docs"
+  },
   "sidebar.docs.category.Math Functions": {
     "message": "数学函数",
     "description": "The label for category Math Functions in sidebar docs"
@@ -250,6 +258,10 @@
   "sidebar.docs.category.Monitor Metrics": {
     "message": "监控指标",
     "description": "The label for category Monitor Metrics in sidebar docs"
+  },
+  "sidebar.docs.category.Memory Management": {
+    "message": "内存管理",
+    "description": "The label for category Memory Management in sidebar docs"
   },
   "sidebar.docs.category.Config": {
     "message": "配置管理",

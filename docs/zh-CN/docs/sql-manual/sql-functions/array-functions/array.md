@@ -1,6 +1,6 @@
 ---
 {
-    "title": "array构造函数",
+    "title": "array",
     "language": "zh-CN"
 }
 ---
@@ -23,6 +23,12 @@ under the License.
 -->
 
 ## array()
+
+<version since="1.2.0">
+
+array()
+
+</version>
 
 ### description
 

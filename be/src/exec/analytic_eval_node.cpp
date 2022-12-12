@@ -142,12 +142,12 @@ Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status AnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
-    _curr_tuple_pool.reset(new MemPool(mem_tracker()));
-    _prev_tuple_pool.reset(new MemPool(mem_tracker()));
-    _mem_pool.reset(new MemPool(mem_tracker()));
+    _curr_tuple_pool.reset(new MemPool(mem_tracker_held()));
+    _prev_tuple_pool.reset(new MemPool(mem_tracker_held()));
+    _mem_pool.reset(new MemPool(mem_tracker_held()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
@@ -186,7 +186,7 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 Status AnalyticEvalNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(child(0)->open(state));
@@ -814,7 +814,7 @@ inline int64_t AnalyticEvalNode::num_output_rows_ready() const {
 
 Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     //RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(state->check_query_state("Analytic eval, while get_next."));

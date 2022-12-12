@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.external.ExternalDatabase;
-import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -308,21 +307,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         if (matcher != null && !matcher.match(table.getName())) {
                             continue;
                         }
-                        long lastCheckTime = 0;
-                        if (table instanceof Table) {
-                            lastCheckTime = ((Table) table).getLastCheckTime();
-                        } else {
-                            lastCheckTime = ((ExternalTable) table).getLastCheckTime();
-                        }
+                        long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
                         TTableStatus status = new TTableStatus();
                         status.setName(table.getName());
                         status.setType(table.getMysqlType());
                         status.setEngine(table.getEngine());
                         status.setComment(table.getComment());
                         status.setCreateTime(table.getCreateTime());
-                        status.setLastCheckTime(lastCheckTime);
+                        status.setLastCheckTime(lastCheckTime / 1000);
                         status.setUpdateTime(table.getUpdateTime() / 1000);
-                        status.setCheckTime(lastCheckTime);
+                        status.setCheckTime(lastCheckTime / 1000);
                         status.setCollation("utf-8");
                         status.setRows(table.getRowCount());
                         status.setDataLength(table.getDataLength());
@@ -1151,17 +1145,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     rEntry.setPolicyName(iter.getPolicyName());
                     //java 8 not support ifPresentOrElse
                     final long[] ttlCoolDown = {-1};
-                    Optional.ofNullable(iter.getCooldownTtl())
-                        .ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
+                    Optional.ofNullable(iter.getCooldownTtl()).ifPresent(ttl -> ttlCoolDown[0] = Integer.parseInt(ttl));
                     rEntry.setCooldownTtl(ttlCoolDown[0]);
 
-                    final long[] secondTimestamp = {-1};
-                    Optional.ofNullable(iter.getCooldownDatetime())
-                        .ifPresent(date -> secondTimestamp[0] = date.getTime() / 1000);
-                    rEntry.setCooldownDatetime(secondTimestamp[0]);
+                    rEntry.setCooldownDatetime(
+                            iter.getCooldownTimestampMs() == -1 ? -1 : iter.getCooldownTimestampMs() / 100);
 
                     Optional.ofNullable(iter.getMd5Checksum()).ifPresent(rEntry::setMd5Checksum);
-
                     TS3StorageParam s3Info = new TS3StorageParam();
                     Optional.ofNullable(iter.getStorageResource()).ifPresent(resource -> {
                         Map<String, String> storagePolicyProperties = Env.getCurrentEnv().getResourceMgr()
@@ -1174,10 +1164,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         s3Info.setBucket(storagePolicyProperties.get(S3Resource.S3_BUCKET));
                         s3Info.setS3MaxConn(
                                 Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_MAX_CONNECTIONS)));
-                        s3Info.setS3RequestTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
-                        s3Info.setS3ConnTimeoutMs(
-                                Integer.parseInt(storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
+                        s3Info.setS3RequestTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_REQUEST_TIMEOUT_MS)));
+                        s3Info.setS3ConnTimeoutMs(Integer.parseInt(
+                                storagePolicyProperties.get(S3Resource.S3_CONNECTION_TIMEOUT_MS)));
                     });
 
                     rEntry.setS3StorageParam(s3Info);

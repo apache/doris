@@ -61,7 +61,9 @@ public:
         }
     }
 
-    bool countdown() { return fragment_num.fetch_sub(1) == 1; }
+    // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
+    // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
+    bool countdown() { return fragment_num.fetch_sub(1) <= 1; }
 
     bool is_timeout(const DateTimeValue& now) const {
         if (timeout_second <= 0) {
@@ -90,6 +92,18 @@ public:
         }
         _start_cond.notify_all();
     }
+    void set_ready_to_execute_only() {
+        {
+            std::lock_guard<std::mutex> l(_start_lock);
+            _ready_to_execute = true;
+        }
+        _start_cond.notify_all();
+    }
+
+    bool is_ready_to_execute() {
+        std::lock_guard<std::mutex> l(_start_lock);
+        return _ready_to_execute;
+    }
 
     bool wait_for_start() {
         int wait_time = config::max_fragment_start_wait_time_seconds;
@@ -100,8 +114,8 @@ public:
         return _ready_to_execute.load() && !_is_cancelled.load();
     }
 
-    vectorized::SharedHashTableController* get_shared_hash_table_controller() {
-        return _shared_hash_table_controller.get();
+    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
+        return _shared_hash_table_controller;
     }
 
 public:
@@ -126,6 +140,8 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
+    std::vector<TUniqueId> fragment_ids;
+
 private:
     ExecEnv* _exec_env;
     DateTimeValue _start_time;
@@ -144,7 +160,7 @@ private:
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
 
-    std::unique_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
+    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
 };
 
 } // namespace doris

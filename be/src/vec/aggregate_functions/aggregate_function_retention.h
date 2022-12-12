@@ -72,7 +72,7 @@ struct RetentionState {
     }
 
     void insert_result_into(IColumn& to, size_t events_size, const uint8_t* events) const {
-        auto& data_to = assert_cast<ColumnUInt8&>(to).get_data();
+        auto& data_to = static_cast<ColumnUInt8&>(to).get_data();
 
         ColumnArray::Offset64 current_offset = data_to.size();
         data_to.resize(current_offset + events_size);

@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -89,7 +90,8 @@ public class ExternalSchemaCache {
         try {
             return schemaCache.get(key);
         } catch (ExecutionException e) {
-            throw new CacheException("failed to get schema for %s in catalog %s", e, key, catalog.getName());
+            throw new CacheException("failed to get schema for %s in catalog %s. err: %s",
+                    e, key, catalog.getName(), Util.getRootCauseMessage(e));
         }
     }
 

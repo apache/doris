@@ -262,7 +262,7 @@ Status Expr::create_expr_tree(ObjectPool* pool, const TExpr& texpr, ExprContext*
     }
     if (!status.ok()) {
         LOG(ERROR) << "Could not construct expr tree.\n"
-                   << status.get_error_msg() << "\n"
+                   << status << "\n"
                    << apache::thrift::ThriftDebugString(texpr);
     }
     return status;
@@ -355,7 +355,10 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
         }
     case TExprNodeType::COMPUTE_FUNCTION_CALL:
     case TExprNodeType::FUNCTION_CALL:
-        DCHECK(texpr_node.__isset.fn);
+        if (!texpr_node.__isset.fn) {
+            // return error to prevent crash
+            return Status::InternalError("function is not set in thrift node");
+        }
         if (texpr_node.fn.name.function_name == "if") {
             *expr = pool->add(new IfExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "nullif") {
@@ -928,7 +931,7 @@ Status Expr::create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root) {
         Status status = create_tree_internal(texpr.nodes, pool, root, &child_node_idx);
         if (UNLIKELY(!status.ok())) {
             LOG(ERROR) << "Could not construct expr tree.\n"
-                       << status.get_error_msg() << "\n"
+                       << status << "\n"
                        << apache::thrift::ThriftDebugString(texpr);
             return status;
         }

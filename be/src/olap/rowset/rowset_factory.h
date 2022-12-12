@@ -29,15 +29,15 @@ struct RowsetWriterContext;
 
 class RowsetFactory {
 public:
-    // return OLAP_SUCCESS and set inited rowset in `*rowset`.
+    // return OK and set inited rowset in `*rowset`.
     // return others if failed to create or init rowset.
     static Status create_rowset(TabletSchemaSPtr schema, const std::string& tablet_path,
                                 RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
 
     // create and init rowset writer.
-    // return OLAP_SUCCESS and set `*output` to inited rowset writer.
+    // return OK and set `*output` to inited rowset writer.
     // return others if failed
-    static Status create_rowset_writer(const RowsetWriterContext& context,
+    static Status create_rowset_writer(const RowsetWriterContext& context, bool is_vertical,
                                        std::unique_ptr<RowsetWriter>* output);
 };
 

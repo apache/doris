@@ -67,6 +67,8 @@ struct ExceptAction {
         }
         return false;
     }
+
+    void reset() { null_flag = false; }
 };
 
 using FunctionArrayExcept =

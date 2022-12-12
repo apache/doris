@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_SUM 函数",
+    "title": "array_sum",
     "language": "zh-CN"
 }
 ---
@@ -24,11 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ARRAY_SUM
+## array_sum
 
-### Name
+<version since="1.2.0">
 
-ARRAY_SUM
+array_sum
+
+</version>
 
 ### description
 

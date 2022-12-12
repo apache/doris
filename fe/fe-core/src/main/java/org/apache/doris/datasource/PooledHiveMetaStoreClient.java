@@ -172,12 +172,19 @@ public class PooledHiveMetaStoreClient {
     }
 
     private CachedClient getClient() throws MetaException {
-        synchronized (clientPool) {
-            CachedClient client = clientPool.poll();
-            if (client == null) {
-                return new CachedClient(hiveConf);
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+            synchronized (clientPool) {
+                CachedClient client = clientPool.poll();
+                if (client == null) {
+                    return new CachedClient(hiveConf);
+                }
+                return client;
             }
-            return client;
+        } finally {
+            Thread.currentThread().setContextClassLoader(classLoader);
         }
     }
 }
+

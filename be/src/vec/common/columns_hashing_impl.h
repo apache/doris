@@ -191,6 +191,15 @@ public:
         data.template prefetch_by_hash<READ>(hash_value);
     }
 
+    ALWAYS_INLINE auto get_key_holder(size_t row, Arena& pool) {
+        return static_cast<Derived&>(*this).get_key_holder(row, pool);
+    }
+
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, KeyHolder key_holder) {
+        return emplaceImpl(key_holder, hash_value, data);
+    }
+
 protected:
     Cache cache;
 

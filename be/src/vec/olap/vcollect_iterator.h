@@ -37,7 +37,7 @@ namespace vectorized {
 class VCollectIterator {
 public:
     // Hold reader point to get reader params
-    ~VCollectIterator() = default;
+    ~VCollectIterator();
 
     void init(TabletReader* reader, bool force_merge, bool is_reverse);
 
@@ -49,8 +49,8 @@ public:
 
     // Read nest order row in Block.
     // Returns
-    //      OLAP_SUCCESS when read successfully.
-    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *row to nullptr when EOF is reached.
+    //      OK when read successfully.
+    //      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
     //      Others when error happens
     Status next(IteratorRowRef* ref);
 

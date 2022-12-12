@@ -84,7 +84,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         // write and update cluster id
         auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
         if (!st.ok()) {
-            LOG(WARNING) << "fail to set cluster id. status=" << st.get_error_msg();
+            LOG(WARNING) << "fail to set cluster id. status=" << st;
             return Status::InternalError("fail to set cluster id.");
         } else {
             _master_info->cluster_id = master_info.cluster_id;

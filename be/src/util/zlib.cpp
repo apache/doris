@@ -34,6 +34,7 @@ using std::string;
 #define ZRETURN_NOT_OK(call) RETURN_IF_ERROR(ZlibResultToStatus(call))
 
 namespace doris {
+using namespace ErrorCode;
 namespace zlib {
 
 namespace {
@@ -83,7 +84,7 @@ Status CompressLevel(Slice input, int level, ostream* out) {
         zs.next_out = chunk.get();
         flush = (zs.avail_in == 0) ? Z_FINISH : Z_NO_FLUSH;
         Status s = ZlibResultToStatus(deflate(&zs, flush));
-        if (!s.ok() && !s.is_end_of_file()) {
+        if (!s.ok() && !s.is<END_OF_FILE>()) {
             return s;
         }
         int out_size = zs.next_out - chunk.get();
@@ -109,7 +110,7 @@ Status Uncompress(Slice compressed, std::ostream* out) {
         zs.avail_out = arraysize(buf);
         flush = zs.avail_in > 0 ? Z_NO_FLUSH : Z_FINISH;
         s = ZlibResultToStatus(inflate(&zs, flush));
-        if (!s.ok() && !s.is_end_of_file()) {
+        if (!s.ok() && !s.is<END_OF_FILE>()) {
             return s;
         }
         out->write(reinterpret_cast<char*>(buf), zs.next_out - buf);

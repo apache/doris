@@ -29,9 +29,10 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.io.FileNotFoundException;
+import java.net.MalformedURLException;
 import java.sql.Connection;
 import java.sql.Date;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -52,6 +53,7 @@ public class JdbcExecutor {
     private ResultSetMetaData resultSetMetaData = null;
     // Use HikariDataSource to help us manage the JDBC connections.
     private HikariDataSource dataSource = null;
+    private List<String> resultColumnTypeNames = null;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -61,8 +63,8 @@ public class JdbcExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
-        init(request.statement, request.batch_size, request.jdbc_driver_class, request.jdbc_url, request.jdbc_user,
-                request.jdbc_password, request.op);
+        init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
+                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op);
     }
 
     public void close() throws Exception {
@@ -106,6 +108,19 @@ public class JdbcExecutor {
             }
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
+        }
+    }
+
+    public List<String> getResultColumnTypeNames() throws UdfRuntimeException {
+        try {
+            int count = resultSetMetaData.getColumnCount();
+            resultColumnTypeNames = new ArrayList<>(count);
+            for (int i = 0; i < count; ++i) {
+                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+            }
+            return resultColumnTypeNames;
+        } catch (SQLException e) {
+            throw new UdfRuntimeException("JDBC executor getResultColumnTypeNames has error: ", e);
         }
     }
 
@@ -174,7 +189,12 @@ public class JdbcExecutor {
     }
 
     public long convertDateToLong(Object obj) {
-        LocalDate date = ((Date) obj).toLocalDate();
+        LocalDate date;
+        if (obj instanceof LocalDate) {
+            date = (LocalDate) obj;
+        } else {
+            date = ((Date) obj).toLocalDate();
+        }
         long time = UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
                 0, 0, 0, true);
         return time;
@@ -193,9 +213,12 @@ public class JdbcExecutor {
         return time;
     }
 
-    private void init(String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
+    private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
         try {
+            ClassLoader parent = getClass().getClassLoader();
+            ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+            Thread.currentThread().setContextClassLoader(classLoader);
             HikariConfig config = new HikariConfig();
             config.setDriverClassName(driverClass);
             config.setJdbcUrl(jdbcUrl);
@@ -205,7 +228,6 @@ public class JdbcExecutor {
 
             dataSource = new HikariDataSource(config);
             conn = dataSource.getConnection();
-            conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
             if (op == TJdbcOperation.READ) {
                 Preconditions.checkArgument(sql != null);
                 stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
@@ -213,6 +235,10 @@ public class JdbcExecutor {
             } else {
                 stmt = conn.createStatement();
             }
+        } catch (FileNotFoundException e) {
+            throw new UdfRuntimeException("Can not find driver file:  " + driverUrl, e);
+        } catch (MalformedURLException e) {
+            throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         }

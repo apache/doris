@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ARRAY_MAX Function",
+    "title": "array_max",
     "language": "en"
 }
 ---
@@ -23,12 +23,13 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+## array_max
 
-## ARRAY_MAX
+<version since="1.2.0">
 
-### Name
+array_max
 
-ARRAY_MAX
+</version>
 
 ### description
 

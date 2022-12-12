@@ -78,7 +78,7 @@ private:
 template <typename T>
 Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
-        return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
     }
 
     // 处理base为空的情况
@@ -110,7 +110,7 @@ void _destruct_object(const void* obj, void*) {
 
 template <typename T>
 void _destruct_array(const void* array, void*) {
-    delete[]((const T*)array);
+    delete[] ((const T*)array);
 }
 
 // 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，

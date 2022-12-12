@@ -110,8 +110,8 @@ public:
 
     // 获取所有tables的名字
     //
-    // Return OLAP_SUCCESS, if run ok
-    //        Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), if tables is null
+    // Return OK, if run ok
+    //        Status::Error<INVALID_ARGUMENT>(), if tables is null
     Status report_tablet_info(TTabletInfo* tablet_info);
 
     Status build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
@@ -146,9 +146,9 @@ private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
     //
-    // Return OLAP_SUCCESS, if run ok
+    // Return OK, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
-    //        Status::OLAPInternalError(OLAP_ERR_NOT_INITED), if not inited
+    //        Status::Error<UNINITIALIZED>(), if not inited
     Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                 bool update_meta, bool force);
 

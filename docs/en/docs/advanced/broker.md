@@ -26,7 +26,13 @@ under the License.
 
 # Broker
 
-Broker is an optional process in the Doris cluster. It is mainly used to support Doris to read and write files or directories on remote storage, such as HDFS, BOS, and AFS.
+Broker is an optional process in the Doris cluster. It is mainly used to support Doris to read and write files or directories on remote storage. Now support:
+
+- Apache HDFS
+- Aliyun OSS
+- Tencent Cloud CHDFS
+- Huawei Cloud OBS (since 1.2.0)
+- Amazon S3
 
 Broker provides services through an RPC service port. It is a stateless JVM process that is responsible for encapsulating some POSIX-like file operations for read and write operations on remote storage, such as open, pred, pwrite, and so on.
 In addition, the Broker does not record any other information, so the connection information, file information, permission information, and so on stored remotely need to be passed to the Broker process in the RPC call through parameters in order for the Broker to read and write files correctly .
@@ -194,3 +200,37 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     )
     ```
    The configuration for accessing the HDFS cluster can be written to the hdfs-site.xml file. When users use the Broker process to read data from the HDFS cluster, they only need to fill in the cluster file path and authentication information.
+
+#### Tencent Cloud CHDFS
+
+Same as Apache HDFS
+
+#### Aliyun OSS
+
+```
+(
+    "fs.oss.accessKeyId" = "",
+    "fs.oss.accessKeySecret" = "",
+    "fs.oss.endpoint" = ""
+)
+```
+
+#### Huawei Cloud OBS
+
+```
+(
+    "fs.obs.access.key" = "xx",
+    "fs.obs.secret.key" = "xx",
+    "fs.obs.endpoint" = "xx"
+)
+```
+
+#### Amazon S3
+
+```
+(
+    "fs.s3a.access.key" = "xx",
+    "fs.s3a.secret.key" = "xx",
+    "fs.s3a.endpoint" = "xx"
+)
+```

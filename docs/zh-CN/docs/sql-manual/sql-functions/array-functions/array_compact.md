@@ -24,6 +24,12 @@ under the License.
 
 ## array_compact
 
+<version since="1.2.0">
+
+array_compact
+
+</version>
+
 ### description
 
 从数组中删除连续的重复元素,结果值的顺序由源数组中的顺序决定。

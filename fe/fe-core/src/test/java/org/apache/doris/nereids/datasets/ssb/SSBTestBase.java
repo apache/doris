@@ -17,9 +17,18 @@
 
 package org.apache.doris.nereids.datasets.ssb;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 
+import org.junit.jupiter.api.BeforeAll;
+
 public abstract class SSBTestBase extends AnalyzeCheckTestBase {
+
+    @BeforeAll
+    public void beforeClass() {
+        FeConstants.runningUnitTest = true;
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");

@@ -69,10 +69,14 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
 }
 
 Status VJoinNodeBase::close(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::close");
+    return ExecNode::close(state);
+}
+
+void VJoinNodeBase::release_resource(RuntimeState* state) {
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::release_resource");
     VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
-    return ExecNode::close(state);
+    ExecNode::release_resource(state);
 }
 
 void VJoinNodeBase::_construct_mutable_join_block() {
@@ -144,13 +148,18 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
             _output_expr_ctxs.push_back(ctx);
         }
     }
+    // only use in outer join as the bool column to mark for function of `tuple_is_null`
+    if (_is_outer_join) {
+        _tuple_is_null_left_flag_column = ColumnUInt8::create();
+        _tuple_is_null_right_flag_column = ColumnUInt8::create();
+    }
     return ExecNode::init(tnode, state);
 }
 
 Status VJoinNodeBase::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::open");
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
 
     std::promise<Status> thread_status;
@@ -168,15 +177,28 @@ Status VJoinNodeBase::open(RuntimeState* state) {
     // which is already destructor and then coredump.
     Status status = _materialize_build_side(state);
     RETURN_IF_ERROR(thread_status.get_future().get());
-
     RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
+
     return status;
+}
+
+Status VJoinNodeBase::alloc_resource(doris::RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    RETURN_IF_ERROR(VExpr::open(_output_expr_ctxs, state));
+    return Status::OK();
+}
+
+void VJoinNodeBase::_reset_tuple_is_null_column() {
+    if (_is_outer_join) {
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_left_flag_column).clear();
+        reinterpret_cast<ColumnUInt8&>(*_tuple_is_null_right_flag_column).clear();
+    }
 }
 
 void VJoinNodeBase::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* status) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJoinNodeBase::_hash_table_build_thread");
     SCOPED_ATTACH_TASK(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_shared());
+    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh_shared());
     status->set_value(child(0)->open(state));
 }
 

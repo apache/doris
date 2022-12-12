@@ -26,6 +26,12 @@ under the License.
 
 # Java UDF
 
+<version since="1.2.0">
+
+Java UDF
+
+</version>
+
 Java UDF provides users with a Java interface written in UDF to facilitate the execution of user-defined functions in Java language. Compared with native UDF implementation, Java UDF has the following advantages and limitations:
 1. The advantages
 * Compatibility: Using Java UDF can be compatible with different Doris versions, so when upgrading Doris version, Java UDF does not need additional migration. At the same time, Java UDF also follows the same programming specifications as hive / spark and other engines, so that users can directly move Hive / Spark UDF jar to Doris.
@@ -90,6 +96,8 @@ CREATE FUNCTION java_udf_add_one(int) RETURNS int PROPERTIES (
 * "file"=" http://IP:port/udf -code. Jar ", you can also use http to download jar packages in a multi machine environment.
 
 * The "always_nullable" is optional attribute, if there is special treatment for the NULL value in the calculation, it is determined that the result will not return NULL, and it can be set to false, so that the performance may be better in the whole calculation process.
+
+* If you use the local path method, the jar package that the database driver depends on, the FE and BE nodes must be placed here
 ## Create UDAF
 <br/>
 When using Java code to write UDAF, there are some functions that must be implemented (mark required) and an inner class State, which will be explained with a specific example below.
@@ -163,6 +171,8 @@ CREATE AGGREGATE FUNCTION simple_sum(INT) RETURNS INT PROPERTIES (
     "type"="JAVA_UDF"
 );
 ```
+* The implemented jar package can be stored at local or in a remote server and downloaded via http, And each BE node must be able to obtain the jar package;
+Otherwise, the error status message "Couldn't open file..." will be returned
 
 Currently, UDTF are not supported.
 

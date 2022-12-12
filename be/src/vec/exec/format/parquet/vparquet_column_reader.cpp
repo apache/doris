@@ -154,7 +154,13 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
                 if (!(prev_is_null ^ is_null)) {
                     null_map.emplace_back(0);
                 }
-                null_map.emplace_back((uint16_t)loop_read);
+                size_t remaining = loop_read;
+                while (remaining > USHRT_MAX) {
+                    null_map.emplace_back(USHRT_MAX);
+                    null_map.emplace_back(0);
+                    remaining -= USHRT_MAX;
+                }
+                null_map.emplace_back((u_short)remaining);
                 prev_is_null = is_null;
                 has_read += loop_read;
             }
@@ -166,7 +172,13 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         data_column = doris_column->assume_mutable();
     }
     if (null_map.size() == 0) {
-        null_map.emplace_back((uint16_t)num_values);
+        size_t remaining = num_values;
+        while (remaining > USHRT_MAX) {
+            null_map.emplace_back(USHRT_MAX);
+            null_map.emplace_back(0);
+            remaining -= USHRT_MAX;
+        }
+        null_map.emplace_back((u_short)remaining);
     }
     {
         SCOPED_RAW_TIMER(&_decode_null_map_time);

@@ -41,7 +41,7 @@ void VOrcOutputStream::close() {
     if (!_is_closed) {
         Status st = _file_writer->close();
         if (!st.ok()) {
-            LOG(WARNING) << "close orc output stream failed: " << st.get_error_msg();
+            LOG(WARNING) << "close orc output stream failed: " << st;
         }
         _is_closed = true;
     }
@@ -52,7 +52,7 @@ void VOrcOutputStream::write(const void* data, size_t length) {
         size_t written_len = 0;
         Status st = _file_writer->write(static_cast<const uint8_t*>(data), length, &written_len);
         if (!st.ok()) {
-            LOG(WARNING) << "Write to ORC file failed: " << st.get_error_msg();
+            LOG(WARNING) << "Write to ORC file failed: " << st;
             return;
         }
         _cur_pos += written_len;
@@ -482,7 +482,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                                    check_and_get_column<const ColumnDecimal128I>(col)) {
                     auto col_ptr = not_null_column->get_data().data();
                     for (size_t row_id = 0; row_id < sz; row_id++) {
-                        auto v = col_ptr[row_id].value.val;
+                        auto v = col_ptr[row_id].value;
                         orc::Int128 value(v >> 64, (uint64_t)v);
                         cur_batch->values[row_id] = value;
                     }

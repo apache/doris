@@ -70,3 +70,19 @@ SELECT
             FROM retention_test 
             GROUP BY uid 
             ORDER BY uid ASC;
+
+SELECT
+    sum(a.r[1])
+        AS s1, 
+    sum(a.r[2])
+        AS s2,
+    sum(a.r[3])
+        AS s3  
+            FROM(
+                SELECT
+                    uid,
+                    retention(date = '2022-10-12', date = '2022-10-13', date = '2022-10-14') 
+                        AS r 
+                            FROM retention_test
+                            GROUP BY uid 
+                ) a;
