@@ -32,12 +32,14 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -45,26 +47,26 @@ import java.util.stream.Stream;
  * Logical filter plan.
  */
 public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
-    private final List<Expression> conjuncts;
+    private final Set<Expression> conjuncts;
 
     private final boolean singleTableExpressionExtracted;
 
-    public LogicalFilter(List<Expression> conjuncts, CHILD_TYPE child) {
+    public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalFilter(List<Expression> conjuncts, boolean singleTableExpressionExtracted,
+    public LogicalFilter(Set<Expression> conjuncts, boolean singleTableExpressionExtracted,
             CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), singleTableExpressionExtracted,
                 Optional.empty(), child);
     }
 
-    public LogicalFilter(List<Expression> conjuncts, Optional<GroupExpression> groupExpression,
+    public LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         this(conjuncts, groupExpression, false, logicalProperties, child);
     }
 
-    public LogicalFilter(List<Expression> conjuncts, Optional<GroupExpression> groupExpression,
+    public LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             boolean singleTableExpressionExtracted,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
@@ -78,7 +80,8 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public List<Expression> getExpressions() {
-        return Suppliers.memoize(() -> ImmutableList.of(ExpressionUtils.and(getConjuncts()))).get();
+        return Suppliers.memoize(() -> ImmutableList.of(ExpressionUtils.and(ImmutableList.copyOf(getConjuncts()))))
+                .get();
     }
 
     @Override

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -90,7 +91,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> {
         filter.getConjuncts().forEach(filterPredicates::remove);
         if (!filterPredicates.isEmpty()) {
             filterPredicates.addAll(filter.getConjuncts());
-            return new LogicalFilter<>(Lists.newArrayList(filterPredicates), filter.child());
+            return new LogicalFilter<>(ImmutableList.copyOf(filterPredicates), filter.child());
         }
         return filter;
     }
