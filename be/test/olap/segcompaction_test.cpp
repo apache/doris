@@ -253,6 +253,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         ls.push_back("10047_3.dat");
         ls.push_back("10047_4.dat");
         ls.push_back("10047_5.dat");
+        ls.push_back("10047_6.dat");
         EXPECT_TRUE(check_dir(ls));
     }
 
