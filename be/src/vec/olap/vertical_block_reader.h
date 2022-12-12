@@ -70,7 +70,8 @@ private:
     Status _init_collect_iter(const ReaderParams& read_params);
 
     Status _get_segment_iterators(const ReaderParams& read_params,
-                                  std::vector<RowwiseIterator*>* segment_iters);
+                                  std::vector<RowwiseIterator*>* segment_iters,
+                                  std::vector<bool>* iterator_init_flag);
 
     void _init_agg_state(const ReaderParams& read_params);
     void _append_agg_data(MutableColumns& columns);
