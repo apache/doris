@@ -2004,8 +2004,12 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                     if (st.ok()) {
                         delete_bitmap->add({rowset_id, loc.segment_id, dummy_version.first},
                                            loc.row_id);
+                        ++row_id;
+                        continue;
                     } else if (st.is<ALREADY_EXIST>()) {
                         delete_bitmap->add({rowset_id, seg->id(), dummy_version.first}, row_id);
+                        ++row_id;
+                        continue;
                     }
                 }
 
