@@ -17,6 +17,7 @@
 
 #include "pipeline_fragment_context.h"
 
+#include <gen_cpp/DataSinks_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exec/agg_context.h"
@@ -49,6 +50,7 @@
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/broker_scan_operator.h"
 #include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
@@ -81,21 +83,20 @@ using apache::thrift::TException;
 
 namespace doris::pipeline {
 
-PipelineFragmentContext::PipelineFragmentContext(const TUniqueId& query_id,
-                                                 const TUniqueId& instance_id, int backend_num,
-                                                 std::shared_ptr<QueryFragmentsCtx> query_ctx,
-                                                 ExecEnv* exec_env)
+PipelineFragmentContext::PipelineFragmentContext(
+        const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
+        std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
+        std::function<void(RuntimeState*, Status*)> call_back)
         : _query_id(query_id),
-          _fragment_instance_id(instance_id),
+          _fragment_id(instance_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
           _closed_pipeline_cnt(0),
-          _query_ctx(std::move(query_ctx)) {
+          _query_ctx(std::move(query_ctx)),
+          _call_back(call_back) {
     _fragment_watcher.start();
 }
-
-PipelineFragmentContext::~PipelineFragmentContext() = default;
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
@@ -114,7 +115,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
-        _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
+        _exec_env->vstream_mgr()->cancel(_fragment_id);
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
@@ -124,7 +125,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 PipelinePtr PipelineFragmentContext::add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, shared_from_this());
+    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
     _pipelines.emplace_back(pipeline);
     return pipeline;
 }
@@ -301,9 +302,17 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     auto node_type = node->type();
     switch (node_type) {
     // for source
+    case TPlanNodeType::BROKER_SCAN_NODE: {
+        OperatorBuilderPtr operator_t = std::make_shared<BrokerScanOperatorBuilder>(
+                fragment_context->next_operator_builder_id(), node);
+        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
+        break;
+    }
     case TPlanNodeType::OLAP_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
-    case TPlanNodeType::ODBC_SCAN_NODE: {
+    case TPlanNodeType::ODBC_SCAN_NODE:
+    case TPlanNodeType::FILE_SCAN_NODE:
+    case TPlanNodeType::ES_SCAN_NODE: {
         OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
                 fragment_context->next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
@@ -600,7 +609,7 @@ void PipelineFragmentContext::send_report(bool done) {
     params.protocol_version = FrontendServiceVersion::V1;
     params.__set_query_id(_query_id);
     params.__set_backend_num(_backend_num);
-    params.__set_fragment_instance_id(_fragment_instance_id);
+    params.__set_fragment_instance_id(_fragment_id);
     exec_status.set_t_status(&params);
     params.__set_done(true);
 
@@ -685,8 +694,8 @@ void PipelineFragmentContext::send_report(bool done) {
             coord->reportExecStatus(res, params);
         } catch (TTransportException& e) {
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_query_id)
-                         << ", instance id: " << print_id(_fragment_instance_id) << " to "
-                         << coord_addr << ", err: " << e.what();
+                         << ", instance id: " << print_id(_fragment_id) << " to " << coord_addr
+                         << ", err: " << e.what();
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {

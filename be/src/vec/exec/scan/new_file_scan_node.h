@@ -39,7 +39,6 @@ protected:
 private:
     VScanner* _create_scanner(const TFileScanRange& scan_range);
 
-private:
     std::vector<TScanRangeParams> _scan_ranges;
 };
 } // namespace doris::vectorized

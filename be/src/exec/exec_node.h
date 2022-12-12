@@ -44,7 +44,6 @@ class RowBatch;
 class RuntimeState;
 class TPlan;
 class TupleRow;
-class DataSink;
 class MemTracker;
 
 namespace vectorized {
@@ -61,9 +60,6 @@ class OperatorBase;
 using std::string;
 using std::stringstream;
 using std::vector;
-using std::map;
-using std::lock_guard;
-using std::mutex;
 
 // Superclass of all executor nodes.
 // All subclasses need to make sure to check RuntimeState::is_cancelled()
@@ -196,7 +192,7 @@ public:
     // This improve is cautious, we ensure the correctness firstly.
     void try_do_aggregate_serde_improve();
 
-    typedef bool (*EvalConjunctsFn)(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
+    using EvalConjunctsFn = bool (*)(ExprContext* const*, int, TupleRow*);
     // Evaluate exprs over row.  Returns true if all exprs return true.
     // TODO: This doesn't use the vector<Expr*> signature because I haven't figured
     // out how to deal with declaring a templated std:vector type in IR

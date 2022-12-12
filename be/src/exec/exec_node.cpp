@@ -38,7 +38,6 @@
 #include "exec/hash_join_node.h"
 #include "exec/intersect_node.h"
 #include "exec/merge_node.h"
-#include "exec/mysql_scan_node.h"
 #include "exec/odbc_scan_node.h"
 #include "exec/olap_scan_node.h"
 #include "exec/partitioned_aggregation_node.h"
@@ -122,7 +121,7 @@ int ExecNode::RowBatchQueue::Cleanup() {
     //   delete batch;
     // }
 
-    lock_guard<std::mutex> l(lock_);
+    std::lock_guard<std::mutex> l(lock_);
     for (std::list<RowBatch*>::iterator it = cleanup_queue_.begin(); it != cleanup_queue_.end();
          ++it) {
         // num_io_buffers += (*it)->num_io_buffers();
@@ -144,7 +143,6 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _rows_returned_counter(nullptr),
           _rows_returned_rate(nullptr),
           _memory_used_counter(nullptr),
-          _get_next_span(),
           _is_closed(false),
           _ref(0) {
     if (tnode.__isset.output_tuple_id) {
@@ -321,7 +319,7 @@ Status ExecNode::close(RuntimeState* state) {
 }
 
 void ExecNode::add_runtime_exec_option(const std::string& str) {
-    lock_guard<mutex> l(_exec_options_lock);
+    std::lock_guard<std::mutex> l(_exec_options_lock);
 
     if (_runtime_exec_options.empty()) {
         _runtime_exec_options = str;
@@ -656,7 +654,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         }
 
     default:
-        map<int, const char*>::const_iterator i =
+        std::map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
         const char* str = "unknown node type";
 

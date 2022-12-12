@@ -50,8 +50,6 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
             ctx->put_result.params, [ctx, this](RuntimeState* state, Status* status) {
                 ctx->commit_infos = std::move(state->tablet_commit_infos());
                 if (status->ok()) {
-                    LOG(WARNING) << "MYTEST " << int64_t(state) << " "
-                                 << state->num_rows_load_total();
                     ctx->number_total_rows = state->num_rows_load_total();
                     ctx->number_loaded_rows = state->num_rows_load_success();
                     ctx->number_filtered_rows = state->num_rows_load_filtered();
