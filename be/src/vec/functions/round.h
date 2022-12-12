@@ -66,7 +66,7 @@ struct IntegerRoundingComputation {
     static size_t prepare(size_t scale) { return scale; }
 
     /// Integer overflow is Ok.
-    static ALWAYS_INLINE T computeImpl(T x, T scale) {
+    static ALWAYS_INLINE T compute_impl(T x, T scale) {
         switch (rounding_mode) {
         case RoundingMode::Trunc: {
             return x / scale * scale;
@@ -88,9 +88,10 @@ struct IntegerRoundingComputation {
                 x -= scale;
             }
             switch (tie_breaking_mode) {
-            case TieBreakingMode::Auto:
+            case TieBreakingMode::Auto: {
                 x = (x + scale / 2) / scale * scale;
                 break;
+            }
             case TieBreakingMode::Bankers: {
                 T quotient = (x + scale / 2) / scale;
                 if (quotient * scale == x + scale / 2) {
@@ -116,7 +117,7 @@ struct IntegerRoundingComputation {
         case ScaleMode::Positive:
             return x;
         case ScaleMode::Negative:
-            return computeImpl(x, scale);
+            return compute_impl(x, scale);
         }
 
         __builtin_unreachable();
