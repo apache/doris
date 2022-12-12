@@ -340,6 +340,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
     @Test
     public void testDifferenceRelationId() {
+        final Integer[] integer = {0};
         PlanChecker.from(connectContext)
                 .analyze("with s as (select * from supplier) select * from s as s1, s as s2")
                 .matchesFromRoot(
@@ -348,14 +349,17 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                             logicalSubQueryAlias(// as s1
                                 logicalSubQueryAlias(// as s
                                     logicalProject(// select * from supplier
-                                        logicalOlapScan().when(scan -> scan.getId().asInt() == 0)
+                                        logicalOlapScan().when(scan -> {
+                                            integer[0] = scan.getId().asInt();
+                                            return true;
+                                        })
                                     )
                                 ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s1")),
                             logicalSubQueryAlias(
                                 logicalSubQueryAlias(
                                      logicalProject(
-                                         logicalOlapScan().when(scan -> scan.getId().asInt() == 1)
+                                         logicalOlapScan().when(scan -> scan.getId().asInt() != integer[0])
                                      )
                                  ).when(a -> a.getAlias().equals("s"))
                             ).when(a -> a.getAlias().equals("s2"))
