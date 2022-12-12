@@ -370,6 +370,7 @@ There are two ways to configure BE configuration items:
 #### `doris_scanner_row_bytes`
 
 * Description: single read execute fragment row bytes
+    - Note: If there are too many columns in the table, you can adjust this config if you encounter a `select *` stuck
 * Default value: 10485760
 
 #### `doris_scanner_thread_pool_queue_size`
