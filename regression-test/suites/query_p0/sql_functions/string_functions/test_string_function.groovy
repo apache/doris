@@ -117,8 +117,19 @@ suite("test_string_function") {
 
     qt_sql "SELECT REVERSE('hello');"
 
-    qt_sql "select split_part(\"hello world\", \" \", 1);"
-    qt_sql "select split_part(\"hello world\", \" \", 2);"
+    qt_sql "select split_part('hello world', ' ', 1)"
+    qt_sql "select split_part('hello world', ' ', 2)"
+    qt_sql "select split_part('hello world', ' ', 0)"
+    qt_sql "select split_part('hello world', ' ', -1)"
+    qt_sql "select split_part('hello world', ' ', -2)"
+    qt_sql "select split_part('hello world', ' ', -3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 0)"
+    qt_sql "select split_part('abc##123###xyz', '##', 1)"
+    qt_sql "select split_part('abc##123###xyz', '##', 3)"
+    qt_sql "select split_part('abc##123###xyz', '##', 5)"
+    qt_sql "select split_part('abc##123###xyz', '##', -1)"
+    qt_sql "select split_part('abc##123###xyz', '##', -2)"
+    qt_sql "select split_part('abc##123###xyz', '##', -4)"
 
     qt_sql "select starts_with(\"hello world\",\"hello\");"
     qt_sql "select starts_with(\"hello world\",\"world\");"

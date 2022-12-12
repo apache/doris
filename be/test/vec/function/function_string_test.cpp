@@ -571,23 +571,6 @@ TEST(function_string_test, function_find_in_set_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(function_string_test, function_string_splitpart_test) {
-    std::string func_name = "split_part";
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int32};
-
-    DataSet data_set = {
-            {{std::string("prefix_string1"), std::string("_"), 2}, std::string("string1")},
-            {{std::string("prefix__string2"), std::string("__"), 2}, std::string("string2")},
-            {{std::string("prefix__string2"), std::string("_"), 2}, std::string("")},
-            {{std::string("prefix_string2"), std::string("__"), 1}, Null()},
-            {{Null(), std::string("__"), 1}, Null()},
-            {{std::string("prefix_string"), Null(), 1}, Null()},
-            {{std::string("prefix_string"), std::string("__"), Null()}, Null()},
-            {{std::string("prefix_string"), std::string("__"), -1}, Null()}};
-
-    check_function<DataTypeString, true>(func_name, input_types, data_set);
-}
-
 TEST(function_string_test, function_md5sum_test) {
     std::string func_name = "md5sum";
 
