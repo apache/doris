@@ -367,6 +367,11 @@ There are two ways to configure BE configuration items:
 * Description: The maximum number of data rows returned by each scanning thread in a single execution
 * Default value: 16384
 
+#### `doris_scanner_row_bytes`
+
+* Description: single read execute fragment row bytes
+* Default value: 10485760
+
 #### `doris_scanner_thread_pool_queue_size`
 
 * Type: int32
