@@ -117,6 +117,22 @@ public class SparkResourceTest {
         BaseProcResult result = new BaseProcResult();
         resource.getProcNodeData(result);
         Assert.assertEquals(9, result.getRows().size());
+
+        properties.clear();
+        properties.put("type", type);
+        properties.put("spark.master", "yarn");
+        properties.put("spark.submit.deployMode", "cluster");
+        properties.put("spark.hadoop.yarn.resourcemanager.ha.enabled", "true");
+        properties.put("spark.hadoop.yarn.resourcemanager.ha.rm-ids", "rm1,rm2");
+        properties.put("spark.hadoop.yarn.resourcemanager.hostname.rm1", "host1");
+        properties.put("spark.hadoop.yarn.resourcemanager.hostname.rm2", "host2");
+        properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
+        stmt = new CreateResourceStmt(true, false, name, properties);
+        stmt.analyze(analyzer);
+        resource = (SparkResource) Resource.fromStmt(stmt);
+        Assert.assertTrue(resource.isYarnMaster());
+        map = resource.getSparkConfigs();
+        Assert.assertEquals(7, map.size());
     }
 
     @Test
