@@ -348,7 +348,9 @@ public:
         return status;
     }
 
-    static Status OK() { return Status(); }
+    static Status OK() {
+        return Status();
+    }
 
 #define ERROR_CTOR(name, code)                                                  \
     template <typename... Args>                                                 \
@@ -384,7 +386,9 @@ public:
         return code == _code;
     }
 
-    bool ok() const { return _code == ErrorCode::OK; }
+    bool ok() const {
+        return _code == ErrorCode::OK;
+    }
 
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
@@ -415,7 +419,9 @@ public:
     /// @return A json representation of this status.
     std::string to_json() const;
 
-    int code() const { return _code; }
+    int code() const {
+        return _code;
+    }
 
     /// Clone this status and add the specified prefix to the message.
     ///
@@ -436,15 +442,21 @@ public:
     Status& append(std::string_view msg);
 
     // if(!status) or if (status) will use this operator
-    operator bool() const { return this->ok(); }
+    operator bool() const {
+        return this->ok();
+    }
 
     // Used like if (res == Status::OK())
     // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
     // ignore error messages during comparison
-    bool operator==(const Status& st) const { return _code == st._code; }
+    bool operator==(const Status& st) const {
+        return _code == st._code;
+    }
 
     // Used like if (res != Status::OK())
-    bool operator!=(const Status& st) const { return _code != st._code; }
+    bool operator!=(const Status& st) const {
+        return _code != st._code;
+    }
 
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
@@ -462,8 +474,8 @@ private:
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']' << (status._err_msg ? status._err_msg->_msg : "");
 #ifdef ENABLE_STACKTRACE
-    if (status->_err_msg && !status->_err_msg._stack.empty()) {
-        ostr << '\n' << status->_err_msg._stack;
+    if (status._err_msg && !status._err_msg->_stack.empty()) {
+        ostr << '\n' << status._err_msg->_stack;
     }
 #endif
     return ostr;
