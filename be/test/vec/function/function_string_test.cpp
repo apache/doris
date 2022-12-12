@@ -23,6 +23,7 @@
 #include "function_test_util.h"
 #include "util/encryption_util.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
