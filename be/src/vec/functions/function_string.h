@@ -1577,6 +1577,8 @@ public:
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
         return Status::OK();
+    }
+};
 
 class FunctionSplitByString : public IFunction {
 public:
