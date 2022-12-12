@@ -2,6 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## v20221209
+- Modified: update parallel-hashmap from 1.33 to 1.3.8
+
 ## v20221015
 
 - Modified: zstd 1.5.0 -> 1.5.2
