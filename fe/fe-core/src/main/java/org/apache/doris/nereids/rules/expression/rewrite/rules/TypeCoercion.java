@@ -166,7 +166,7 @@ public class TypeCoercion extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBitNot(BitNot bitNot, ExpressionRewriteContext context) {
-        Expression child = bitNot.child();
+        Expression child = rewrite(bitNot.child(), context);
         if (child.getDataType().toCatalogDataType().getPrimitiveType().ordinal()
                 > PrimitiveType.LARGEINT.ordinal()) {
             child = new Cast(child, BigIntType.INSTANCE);
