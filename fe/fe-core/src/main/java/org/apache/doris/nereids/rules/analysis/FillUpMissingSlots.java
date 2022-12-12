@@ -120,24 +120,10 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 having.getPredicates(), r.getSubstitution());
                         return new LogicalFilter<>(newPredicates, a);
                     });
-                })
-            ),
-            RuleType.FILL_UP_FILER_AGGREGATE.build(
-                logicalFilter(aggregate()).then(filter -> {
-                    Expression predicate = filter.getPredicates();
-                    if (predicate.containsType(AggregateFunction.class)) {
-                        Aggregate aggregate = filter.child();
-                        Resolver resolver = new Resolver(aggregate);
-                        resolver.resolve(predicate);
-                        return createPlan(resolver, aggregate, (r, a) -> {
-                            Expression newPredicates = ExpressionUtils.replace(
-                                    predicate, r.getSubstitution());
-                            return new LogicalFilter<>(newPredicates, a);
-                        });
-                    } else {
-                        return filter;
-                    }
-                })
+                })),
+            RuleType.FILL_UP_HAVING_PROJECT.build(
+                logicalHaving(logicalProject()).then(having -> new LogicalFilter<>(having.getPredicates(),
+                    having.child()))
             )
         );
     }

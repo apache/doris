@@ -986,18 +986,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             // from -> where -> group by -> having -> select
 
             LogicalPlan filter = withFilter(inputRelation, whereClause);
-            SelectColumnClauseContext columnCtx = selectClause.selectColumnClause();
-            LogicalPlan aggregate = withAggregate(filter, columnCtx, aggClause);
+            SelectColumnClauseContext selectColumnCtx = selectClause.selectColumnClause();
+            LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause);
             // TODO: replace and process having at this position
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
-                // then ProjectToGlobalAggregate rule can insert agg node as LogicalFilter node's child
-                LogicalPlan project = new LogicalProject<>(getNamedExpressions(selectClause.namedExpressionSeq()),
-                        aggregate);
-                return new LogicalFilter<>(getExpression((havingClause.get().booleanExpression())), project);
+                // then ProjectToGlobalAggregate rule can insert agg node as LogicalHaving node's child
+                LogicalPlan project;
+                if (selectColumnCtx.EXCEPT() != null) {
+                    List<NamedExpression> expressions = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
+                    if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
+                        throw new ParseException("only column name is supported in except clause", selectColumnCtx);
+                    }
+                    project = new LogicalProject<>(ImmutableList.of(new UnboundStar(Collections.emptyList())),
+                        expressions, aggregate);
+                } else {
+                    List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
+                    project = new LogicalProject<>(projects, Collections.emptyList(), aggregate);
+                }
+                return new LogicalHaving<>(getExpression((havingClause.get().booleanExpression())), project);
             } else {
                 LogicalPlan having = withHaving(aggregate, havingClause);
-                return withProjection(having, selectClause, aggClause);
+                return withProjection(having, selectColumnCtx, aggClause);
             }
         });
     }
