@@ -108,17 +108,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
             Configuration conf = new Configuration();
             conf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
             UserGroupInformation.setConfiguration(conf);
-            final UserGroupInformation ugi;
             try {
                 /**
                  * Because metastore client is created by using
                  * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
                  * it will relogin when TGT is expired, so we don't need to relogin manually.
                  */
-                ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(
-                    catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
-                    catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
-                UserGroupInformation.setLoginUser(ugi);
+                UserGroupInformation.loginUserFromKeytab(
+                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
+                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
             } catch (IOException e) {
                 throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
             }
