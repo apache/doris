@@ -25,8 +25,6 @@ namespace doris {
 
 class GeoFunctions {
 public:
-    static void init();
-
     // compute distance between two points in earth sphere
     static DoubleVal st_distance_sphere(FunctionContext* ctx, const DoubleVal& x_lng,
                                         const DoubleVal& x_lat, const DoubleVal& y_lng,

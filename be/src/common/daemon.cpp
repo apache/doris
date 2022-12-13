@@ -391,7 +391,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     JsonFunctions::init();
     HllHashFunctions::init();
     ESFunctions::init();
-    GeoFunctions::init();
     GroupingSetsFunctions::init();
     BitmapFunctions::init();
     HllFunctions::init();
