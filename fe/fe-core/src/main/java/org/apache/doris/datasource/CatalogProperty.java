@@ -44,13 +44,15 @@ public class CatalogProperty implements Writable {
         return properties.getOrDefault(key, defaultVal);
     }
 
-    // todo: remove and use HdfsResource
-    public Map<String, String> getDfsProperties() {
+    // get all properties with dfs.*  hadoop.*  yarn.*  hive.*
+    // besides dfs.* and hadoop.username, we need other properties when enable kerberos
+    public Map<String, String> getHdfsProperties() {
         Map<String, String> dfsProperties = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(HdfsResource.HADOOP_FS_PREFIX)
-                    || entry.getKey().equals(HdfsResource.HADOOP_USER_NAME)) {
-                // todo: still missing properties like hadoop.xxx
+                    || entry.getKey().startsWith(HdfsResource.HADOOP_PREFIX)
+                    || entry.getKey().startsWith(HdfsResource.HIVE_PREFIX)
+                    || entry.getKey().startsWith(HdfsResource.YARN_PREFIX)) {
                 dfsProperties.put(entry.getKey(), entry.getValue());
             }
         }
