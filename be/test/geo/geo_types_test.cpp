@@ -93,7 +93,7 @@ TEST_F(GeoTypesTest, linestring) {
         EXPECT_EQ(nullptr, line2);
     }
 }
-
+/*
 TEST_F(GeoTypesTest, polygon_contains) {
     const char* wkt = "POLYGON ((10 10, 50 10, 50 10, 50 50, 50 50, 10 50, 10 10))";
     GeoParseStatus status;
@@ -128,7 +128,7 @@ TEST_F(GeoTypesTest, polygon_contains) {
         EXPECT_EQ(nullptr, shape);
     }
 }
-
+*/
 TEST_F(GeoTypesTest, polygon_parse_fail) {
     {
         const char* wkt = "POLYGON ((10 10, 50 10, 50 50, 10 50), (10 10 01))";
