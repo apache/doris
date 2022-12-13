@@ -163,27 +163,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
-// @brief schema change without sorting.
-class SchemaChangeDirectly : public SchemaChange {
-public:
-    // @params tablet           the instance of tablet which has new schema.
-    // @params row_block_changer    changer to modify the data of RowBlock
-    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer);
-    ~SchemaChangeDirectly() override;
-
-private:
-    Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
-
-    const RowBlockChanger& _row_block_changer;
-    RowBlockAllocator* _row_block_allocator;
-    RowCursor* _cursor;
-
-    bool _write_row_block(RowsetWriter* rowset_builder, RowBlock* row_block);
-
-    DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
-};
-
 class VSchemaChangeDirectly : public SchemaChange {
 public:
     VSchemaChangeDirectly(const RowBlockChanger& row_block_changer) : _changer(row_block_changer) {}
@@ -196,32 +175,6 @@ private:
 };
 
 // @breif schema change with sorting
-class SchemaChangeWithSorting : public SchemaChange {
-public:
-    explicit SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
-                                     size_t memory_limitation);
-    ~SchemaChangeWithSorting() override;
-
-private:
-    Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
-
-    bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
-                           const Version& temp_delta_versions, int64_t oldest_write_timestamp,
-                           int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
-                           SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
-
-    bool _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
-                           TabletSharedPtr new_tablet);
-
-    const RowBlockChanger& _row_block_changer;
-    size_t _memory_limitation;
-    Version _temp_delta_versions;
-    RowBlockAllocator* _row_block_allocator;
-
-    DISALLOW_COPY_AND_ASSIGN(SchemaChangeWithSorting);
-};
-
 class VSchemaChangeWithSorting : public SchemaChange {
 public:
     VSchemaChangeWithSorting(const RowBlockChanger& row_block_changer, size_t memory_limitation);
