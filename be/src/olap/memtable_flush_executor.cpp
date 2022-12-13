@@ -91,9 +91,9 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     Status s = memtable->flush();
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
+        // If s is not ok, ignore the code, just use other code is ok
+        _flush_status.store(ErrorCode::INTERNAL_ERROR);
     }
-    // If s is not ok, ignore the code, just use other code is ok
-    _flush_status.store(s.ok() ? OK : ErrorCode::INTERNAL_ERROR);
     if (_flush_status.load() != OK) {
         return;
     }
