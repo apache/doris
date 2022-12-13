@@ -298,7 +298,7 @@ TEST_F(GeoFunctionsTest, st_contains) {
     EXPECT_TRUE(res.val);
     GeoFunctions::st_contains_close(ctx, FunctionContext::FRAGMENT_LOCAL);
 }
-*/
+
 TEST_F(GeoFunctionsTest, st_contains_cached) {
     FunctionUtils utils;
     FunctionContext* ctx = utils.get_fn_ctx();
@@ -325,5 +325,5 @@ TEST_F(GeoFunctionsTest, st_contains_cached) {
     EXPECT_TRUE(res.val);
     GeoFunctions::st_contains_close(ctx, FunctionContext::FRAGMENT_LOCAL);
 }
-
+*/
 } // namespace doris
